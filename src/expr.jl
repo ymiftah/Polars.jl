@@ -6,8 +6,8 @@ This should not be constructed directly but rather use helper functions
 such as [`col`](@ref).
 """
 mutable struct Expr <: Number
-                    #  ↑
-                    #  this is needed to use type promotion
+    #                  ↑
+    #                  this is needed to use type promotion
     ptr::Ptr{polars_expr_t}
 
     Expr(ptr) = finalizer(polars_expr_destroy, new(ptr))
@@ -60,8 +60,8 @@ end
 Base.:(==)(a::Expr, b::Expr) = eq(a, b)
 Base.isequal(a::Expr, b::Expr) = eq(a, b)
 Base.isless(a::Expr, b::Expr) = Base.lt(a, b)
-Base.isless(a::Expr, b) = isless(promote(a,b)...)
-Base.isless(a, b::Expr) = isless(promote(a,b)...)
+Base.isless(a::Expr, b) = isless(promote(a, b)...)
+Base.isless(a, b::Expr) = isless(promote(a, b)...)
 Base.isequal(a, b::Expr) = eq(promote(a, b)...)
 Base.isequal(a::Expr, b) = eq(promote(a, b)...)
 
@@ -87,6 +87,21 @@ column name `"*"` will select all columns in the dataframe.
 function col(name)
     expr = Ref{Ptr{polars_expr_t}}()
     err = polars_expr_col(name, length(name), expr)
+    polars_error(err)
+    return Expr(expr[])
+end
+
+"""
+    nth(n::Int64)::Polars.Expr
+
+Returns an expression referencing the nth column in a dataframe.
+The `n` argument is *one indexing based*, meaning that columns start at 1.
+Negative numbers reference columns starting from the end.
+"""
+function nth(n)
+    n_zero = n < 0 ? n : n + 1
+    expr = Ref{Ptr{polars_expr_t}}()
+    err = polars_expr_nth(n_zero, expr)
     polars_error(err)
     return Expr(expr[])
 end
@@ -135,11 +150,12 @@ suffix(suf) = Base.Fix2(suffix, suf)
 
 """
     lit(x)::Polars.Expr
+
 Transforms a literal value as an expression which will broadcast when used with other
 expressions.
 """
 function lit(v)
-    convert(Expr, v) 
+    convert(Expr, v)
 end
 
 """
@@ -320,9 +336,9 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
     gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase)
     gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase)
     gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::titlecase)
-    gen_impl_expr_str!(polars_expr_str_n_chars, StringNameSpace::n_chars)
-    gen_impl_expr_str!(polars_expr_str_lengths, StringNameSpace::lengths)
-    gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
+    gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes)
+    gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars)
+    # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
     gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with)
     gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with)
@@ -379,4 +395,4 @@ export field_by_name, field_by_index, rename_fields
 end # module Structs
 
 export col, alias, prefix, suffix, lit, cast,
-       Lists, Strings, Structs
+    Lists, Strings, Structs

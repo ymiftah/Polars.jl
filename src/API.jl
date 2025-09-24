@@ -3,11 +3,13 @@ module API
 using libpolars_jll
 export libpolars_jll
 
-using CEnum
+using CEnum: CEnum, @cenum
 
-const libpolars_local = joinpath(@__DIR__, "../c-polars/target/debug/libpolars.so")
-@static if isfile(libpolars_local)
-    const libpolars = libpolars_local
+const libpolars_local_dir = joinpath(@__DIR__, "../c-polars/target/debug/")
+@static if isdir(libpolars_local_dir) && isfile(begin
+    libpolars_local_file_path = joinpath(libpolars_local_dir, "libpolars" * (Sys.islinux() ? ".so" : ".dylib"))
+end)
+    const libpolars = libpolars_local_file_path
 end
 
 
@@ -36,6 +38,18 @@ struct ArrowArray
     private_data::Ptr{Cvoid}
 end
 
+@cenum PolarsEngine::UInt32 begin
+    PolarsEngineInMemory = 0
+    PolarsEngineStreaming = 1
+end
+
+@cenum polars_time_unit_t::UInt32 begin
+    PolarsTimeUnitNanosecond = 0
+    PolarsTimeUnitMicrosecond = 1
+    PolarsTimeUnitMillisecond = 2
+    PolarsTimeUnitInvalid = 3
+end
+
 @cenum polars_value_type_t::UInt32 begin
     PolarsValueTypeNull = 0
     PolarsValueTypeBoolean = 1
@@ -50,10 +64,13 @@ end
     PolarsValueTypeFloat32 = 10
     PolarsValueTypeFloat64 = 11
     PolarsValueTypeList = 12
-    PolarsValueTypeUtf8 = 13
+    PolarsValueTypeString = 13
     PolarsValueTypeStruct = 14
     PolarsValueTypeBinary = 15
-    PolarsValueTypeUnknown = 16
+    PolarsValueTypeDatetime = 16
+    PolarsValueTypeDate = 17
+    PolarsValueTypeDuration = 18
+    PolarsValueTypeUnknown = 19
 end
 
 mutable struct polars_dataframe_t end
@@ -170,8 +187,8 @@ function polars_lazy_frame_filter(df, expr)
     @ccall libpolars.polars_lazy_frame_filter(df::Ptr{polars_lazy_frame_t}, expr::Ptr{polars_expr_t})::Cvoid
 end
 
-function polars_lazy_frame_collect(df, out)
-    @ccall libpolars.polars_lazy_frame_collect(df::Ptr{polars_lazy_frame_t}, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_collect(df, engine, out)
+    @ccall libpolars.polars_lazy_frame_collect(df::Ptr{polars_lazy_frame_t}, engine::PolarsEngine, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_group_by(df, exprs, nexprs)
@@ -180,10 +197,6 @@ end
 
 function polars_lazy_frame_join_inner(a, b, exprs_a, exprs_a_len, exprs_b, exprs_b_len)
     @ccall libpolars.polars_lazy_frame_join_inner(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, exprs_a::Ptr{Ptr{polars_expr_t}}, exprs_a_len::Csize_t, exprs_b::Ptr{Ptr{polars_expr_t}}, exprs_b_len::Csize_t)::Ptr{polars_lazy_frame_t}
-end
-
-function polars_lazy_frame_fetch(df, n, out)
-    @ccall libpolars.polars_lazy_frame_fetch(df::Ptr{polars_lazy_frame_t}, n::Csize_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_group_by_destroy(gb)
@@ -200,10 +213,6 @@ end
 
 function polars_expr_literal_bool(value)
     @ccall libpolars.polars_expr_literal_bool(value::Bool)::Ptr{polars_expr_t}
-end
-
-function polars_expr_literal_null()
-    @ccall libpolars.polars_expr_literal_null()::Ptr{polars_expr_t}
 end
 
 function polars_expr_literal_i32(value)
@@ -230,12 +239,20 @@ function polars_expr_literal_f64(value)
     @ccall libpolars.polars_expr_literal_f64(value::Cdouble)::Ptr{polars_expr_t}
 end
 
+function polars_expr_literal_null()
+    @ccall libpolars.polars_expr_literal_null()::Ptr{polars_expr_t}
+end
+
 function polars_expr_literal_utf8(s, len, out)
     @ccall libpolars.polars_expr_literal_utf8(s::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_col(name, len, out)
     @ccall libpolars.polars_expr_col(name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_nth(n, out)
+    @ccall libpolars.polars_expr_nth(n::Int64, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_alias(expr, name, len, out)
@@ -250,12 +267,12 @@ function polars_expr_suffix(expr, name, len, out)
     @ccall libpolars.polars_expr_suffix(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
-function polars_expr_cast(expr, dtype)
-    @ccall libpolars.polars_expr_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t)::Ptr{polars_expr_t}
-end
-
 function polars_expr_keep_name(expr)
     @ccall libpolars.polars_expr_keep_name(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_cast(expr, dtype)
+    @ccall libpolars.polars_expr_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_sum(expr)
@@ -446,10 +463,6 @@ function polars_expr_div(a, b)
     @ccall libpolars.polars_expr_div(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_list_lengths(a)
-    @ccall libpolars.polars_expr_list_lengths(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
 function polars_expr_list_max(a)
     @ccall libpolars.polars_expr_list_max(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -494,16 +507,8 @@ function polars_expr_list_last(a)
     @ccall libpolars.polars_expr_list_last(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_list_get(a, b)
-    @ccall libpolars.polars_expr_list_get(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
 function polars_expr_list_head(a, b)
     @ccall libpolars.polars_expr_list_head(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
-function polars_expr_list_contains(a, b)
-    @ccall libpolars.polars_expr_list_contains(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_str_to_uppercase(a)
@@ -514,16 +519,12 @@ function polars_expr_str_to_lowercase(a)
     @ccall libpolars.polars_expr_str_to_lowercase(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_str_n_chars(a)
-    @ccall libpolars.polars_expr_str_n_chars(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+function polars_expr_str_len_bytes(a)
+    @ccall libpolars.polars_expr_str_len_bytes(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_str_lengths(a)
-    @ccall libpolars.polars_expr_str_lengths(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
-function polars_expr_str_explode(a)
-    @ccall libpolars.polars_expr_str_explode(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+function polars_expr_str_len_chars(a)
+    @ccall libpolars.polars_expr_str_len_chars(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_str_starts_with(a, b)
@@ -631,6 +632,10 @@ function polars_series_get_f64(series, index, out)
     @ccall libpolars.polars_series_get_f64(series::Ptr{polars_series_t}, index::Csize_t, out::Ptr{Cdouble})::Ptr{polars_error_t}
 end
 
+function polars_value_time_unit(value)
+    @ccall libpolars.polars_value_time_unit(value::Ptr{polars_value_t})::polars_time_unit_t
+end
+
 function polars_value_type(value)
     @ccall libpolars.polars_value_type(value::Ptr{polars_value_t})::polars_value_type_t
 end
@@ -692,8 +697,26 @@ function polars_value_list_get(value, out)
     @ccall libpolars.polars_value_list_get(value::Ptr{polars_value_t}, out::Ptr{Ptr{polars_series_t}})::Ptr{polars_error_t}
 end
 
-function polars_value_utf8_get(value, user, callback)
-    @ccall libpolars.polars_value_utf8_get(value::Ptr{polars_value_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+function polars_value_string_get(value, user, callback)
+    @ccall libpolars.polars_value_string_get(value::Ptr{polars_value_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+end
+
+"""
+    polars_value_duration_get(value, out)
+
+Get the underlying int64 for this duration value.
+"""
+function polars_value_duration_get(value, out)
+    @ccall libpolars.polars_value_duration_get(value::Ptr{polars_value_t}, out::Ptr{Int64})::Ptr{polars_error_t}
+end
+
+"""
+    polars_value_datetime_get(value, out)
+
+Get the underlying int64 for this datetime value.
+"""
+function polars_value_datetime_get(value, out)
+    @ccall libpolars.polars_value_datetime_get(value::Ptr{polars_value_t}, out::Ptr{Int64})::Ptr{polars_error_t}
 end
 
 function polars_value_binary_get(value, user, callback)

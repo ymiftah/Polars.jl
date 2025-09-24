@@ -30,7 +30,7 @@ pub unsafe extern "C" fn polars_series_null_count(series: *mut polars_series_t) 
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_schema(series: *mut polars_series_t) -> ArrowSchema {
     assert!(!series.is_null());
-    ffi::export_field_to_c(&(*series).inner.field().to_arrow())
+    ffi::export_field_to_c(&(*series).inner.field().to_arrow(CompatLevel::newest()))
 }
 
 /// Returns whether or not the value at index `index` is null, return false if the index is out of

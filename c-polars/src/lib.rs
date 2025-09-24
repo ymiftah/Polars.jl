@@ -5,10 +5,13 @@ use std::ffi::c_void;
 use std::io::Write;
 
 use polars::prelude::*;
-use polars_core::utils::arrow::{
-    self,
-    array::StructArray,
-    ffi::{self, ArrowArray, ArrowSchema},
+use polars_core::utils::{
+    arrow::{
+        self,
+        array::StructArray,
+        ffi::{self, ArrowArray, ArrowSchema},
+    },
+    rayon::iter::{self, ParallelIterator},
 };
 
 mod expr;
@@ -45,8 +48,12 @@ pub unsafe extern "C" fn polars_error_message(
 ) -> usize {
     assert!(!err.is_null());
     assert!(!data.is_null());
-    *data = (*err).msg.as_ptr();
-    return (*err).msg.len();
+
+    let str = &(*err).msg;
+    let len = str.len();
+
+    *data = str.as_ptr();
+    return len;
 }
 
 #[no_mangle]
@@ -124,7 +131,7 @@ pub extern "C" fn polars_dataframe_new_from_carrow(
     // Safety: carray will not be destroyed at the end of the function since import_array_from_c
     // takes ownership of it. Therefore, it should be destroyed once the dataframe is destroyed
     // using polars_dataframe_destroy.
-    let Ok(array) = (unsafe { ffi::import_array_from_c(carray, field.data_type.clone()) }) else {
+    let Ok(array) = (unsafe { ffi::import_array_from_c(carray, field.dtype.clone()) }) else {
         return std::ptr::null_mut();
     };
 
@@ -144,10 +151,10 @@ pub extern "C" fn polars_dataframe_new_from_carrow(
 /// Returns a ArrowSchema describing the dataframe's schema according to Arrow C Data interface.
 #[no_mangle]
 pub unsafe extern "C" fn polars_dataframe_schema(df: *mut polars_dataframe_t) -> ArrowSchema {
-    let schema = (*df).inner.schema().to_arrow();
+    let schema = (*df).inner.schema().to_arrow(CompatLevel::newest());
     let structfield = arrow::datatypes::Field::new(
-        "polars.dataframe",
-        arrow::datatypes::DataType::Struct(schema.fields),
+        "polars.dataframe".into(),
+        arrow::datatypes::ArrowDataType::Struct(schema.iter_values().map(|c| c.clone()).collect()),
         false,
     );
     ffi::export_field_to_c(&structfield)
@@ -160,7 +167,11 @@ pub unsafe extern "C" fn polars_dataframe_new_from_series(
     out: *mut *mut polars_dataframe_t,
 ) -> *const polars_error_t {
     let slice: &[*mut polars_series_t] = std::slice::from_raw_parts(series, nseries);
-    let series: Vec<Series> = slice.iter().map(|s| (**s).inner.clone()).collect();
+    let series: Vec<Column> = slice
+        .iter()
+        .enumerate()
+        .map(|(i, s)| Column::new(format!("column_{i}").into(), (**s).inner.clone()))
+        .collect();
     let df = match DataFrame::new(series) {
         Ok(df) => df,
         Err(err) => return make_error(err),
@@ -262,16 +273,16 @@ pub unsafe extern "C" fn polars_dataframe_get(
     };
 
     let df = &(*df).inner;
-    let mut series = match df.select_series(&[name]) {
+    let mut series = match df.select([PlSmallStr::from_str(name).to_owned()]) {
         Ok(series) => series,
         Err(err) => return make_error(err),
     };
 
-    let Some(series) = series.pop() else {
+    let Some(column) = series.pop() else {
         return make_error(format!("dataframe has not column {name}"));
     };
 
-    *out = series::make_series(series);
+    *out = series::make_series(column.as_materialized_series_maintain_scalar());
 
     std::ptr::null()
 }
@@ -317,9 +328,16 @@ pub unsafe extern "C" fn polars_lazy_frame_sort(
         .collect();
     let descending = std::slice::from_raw_parts(descending, nexprs);
     let mut df = Box::from_raw(df);
-    df.inner = df
-        .inner
-        .sort_by_exprs(&exprs, descending, nulls_last, maintain_order);
+    df.inner = df.inner.sort_by_exprs(
+        &exprs,
+        SortMultipleOptions {
+            descending: descending.to_owned(),
+            nulls_last: iter::repeat(nulls_last).take(descending.len()).collect(),
+            maintain_order,
+            multithreaded: true,
+            limit: None,
+        },
+    );
     std::mem::forget(df);
 }
 
@@ -383,13 +401,24 @@ pub unsafe extern "C" fn polars_lazy_frame_filter(
     std::mem::forget(df);
 }
 
+#[repr(C)]
+pub enum PolarsEngine {
+    PolarsEngineInMemory,
+    PolarsEngineStreaming,
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_collect(
     df: *mut polars_lazy_frame_t,
+    engine: PolarsEngine,
     out: *mut *mut polars_dataframe_t,
 ) -> *const polars_error_t {
     let df = (*df).inner.clone();
-    *out = make_dataframe(match df.collect() {
+    let engine = match engine {
+        PolarsEngine::PolarsEngineInMemory => Engine::InMemory,
+        PolarsEngine::PolarsEngineStreaming => Engine::Streaming,
+    };
+    *out = make_dataframe(match df.collect_with_engine(engine) {
         Ok(value) => value,
         Err(err) => return make_error(err),
     });
@@ -406,7 +435,7 @@ pub unsafe extern "C" fn polars_lazy_frame_group_by(
         .iter()
         .map(|expr| (**expr).inner.clone())
         .collect();
-    let gb = (*df).inner.clone().groupby(&exprs);
+    let gb = (*df).inner.clone().group_by(&exprs);
     Box::into_raw(Box::new(polars_lazy_group_by_t { inner: gb }))
 }
 
@@ -437,19 +466,19 @@ pub unsafe extern "C" fn polars_lazy_frame_join_inner(
     Box::into_raw(Box::new(polars_lazy_frame_t { inner: df }))
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_lazy_frame_fetch(
-    df: *mut polars_lazy_frame_t,
-    n: usize,
-    out: *mut *mut polars_dataframe_t,
-) -> *const polars_error_t {
-    let df = (*df).inner.clone();
-    *out = make_dataframe(match df.fetch(n) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    });
-    std::ptr::null()
-}
+// #[no_mangle]
+// pub unsafe extern "C" fn polars_lazy_frame_fetch(
+//     df: *mut polars_lazy_frame_t,
+//     n: usize,
+//     out: *mut *mut polars_dataframe_t,
+// ) -> *const polars_error_t {
+//     let df = (*df).inner.clone();
+//     *out = make_dataframe(match df.fetch(n) {
+//         Ok(value) => value,
+//         Err(err) => return make_error(err),
+//     });
+//     std::ptr::null()
+// }
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_group_by_destroy(gb: *const polars_lazy_group_by_t) {

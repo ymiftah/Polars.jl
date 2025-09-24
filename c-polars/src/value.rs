@@ -17,9 +17,12 @@ pub enum polars_value_type_t {
     PolarsValueTypeFloat32,
     PolarsValueTypeFloat64,
     PolarsValueTypeList,
-    PolarsValueTypeUtf8,
+    PolarsValueTypeString,
     PolarsValueTypeStruct,
     PolarsValueTypeBinary,
+    PolarsValueTypeDatetime,
+    PolarsValueTypeDate,
+    PolarsValueTypeDuration,
     PolarsValueTypeUnknown,
 }
 
@@ -40,10 +43,13 @@ impl polars_value_type_t {
             DataType::Float32 => PolarsValueTypeFloat32,
             DataType::Float64 => PolarsValueTypeFloat64,
             DataType::List(_) => PolarsValueTypeList,
-            DataType::Utf8 => PolarsValueTypeUtf8,
+            DataType::String => PolarsValueTypeString,
             DataType::Struct(_) => PolarsValueTypeStruct,
             DataType::Binary => PolarsValueTypeBinary,
-            DataType::Unknown => PolarsValueTypeUnknown,
+            DataType::Date => PolarsValueTypeDate,
+            DataType::Datetime(_, _) => PolarsValueTypeDatetime,
+            DataType::Duration(_) => PolarsValueTypeDuration,
+            DataType::Unknown(_) => PolarsValueTypeUnknown,
             _ => PolarsValueTypeUnknown,
         }
     }
@@ -63,12 +69,33 @@ impl polars_value_type_t {
             PolarsValueTypeInt64 => DataType::Int64,
             PolarsValueTypeFloat32 => DataType::Float32,
             PolarsValueTypeFloat64 => DataType::Float64,
-            PolarsValueTypeUtf8 => DataType::Utf8,
+            PolarsValueTypeString => DataType::String,
             PolarsValueTypeBinary => DataType::Binary,
-            PolarsValueTypeUnknown => DataType::Unknown,
-            _ => DataType::Unknown, // Cannot map structs and lists
+            _ => DataType::Unknown(UnknownKind::Any), // Cannot map structs and lists
         }
     }
+}
+
+#[repr(C)]
+pub enum polars_time_unit_t {
+    PolarsTimeUnitNanosecond,
+    PolarsTimeUnitMicrosecond,
+    PolarsTimeUnitMillisecond,
+    PolarsTimeUnitInvalid,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_value_time_unit(value: *mut polars_value_t) -> polars_time_unit_t {
+    let tu = match (*value).inner {
+        AnyValue::Duration(_, tu) => tu,
+        _ => return polars_time_unit_t::PolarsTimeUnitInvalid,
+    };
+
+    return match tu {
+        TimeUnit::Nanoseconds => polars_time_unit_t::PolarsTimeUnitNanosecond,
+        TimeUnit::Microseconds => polars_time_unit_t::PolarsTimeUnitMicrosecond,
+        TimeUnit::Milliseconds => polars_time_unit_t::PolarsTimeUnitMillisecond,
+    };
 }
 
 #[no_mangle]
@@ -124,19 +151,47 @@ pub unsafe extern "C" fn polars_value_list_get(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_value_utf8_get(
+pub unsafe extern "C" fn polars_value_string_get(
     value: *mut polars_value_t,
     user: *mut c_void,
     callback: IOCallback,
 ) -> *const polars_error_t {
     let mut w = UserIOCallback(callback, user);
     let Err(err) = (match (*value).inner {
-        AnyValue::Utf8(s) => w.write(s.as_bytes()),
-        _ => return make_error("value is not of type utf8"),
+        AnyValue::String(s) => w.write(s.as_bytes()),
+        _ => return make_error("value is not of type string"),
     }) else {
         return std::ptr::null();
     };
     make_error(err)
+}
+
+/// Get the underlying int64 for this duration value.
+#[no_mangle]
+pub unsafe extern "C" fn polars_value_duration_get(
+    value: *mut polars_value_t,
+    out: *mut i64,
+) -> *const polars_error_t {
+    match (*value).inner {
+        AnyValue::Duration(i, _) => *out = i,
+        _ => return make_error("value is not of type duration"),
+    }
+
+    return std::ptr::null();
+}
+
+/// Get the underlying int64 for this datetime value.
+#[no_mangle]
+pub unsafe extern "C" fn polars_value_datetime_get(
+    value: *mut polars_value_t,
+    out: *mut i64,
+) -> *const polars_error_t {
+    match (*value).inner {
+        AnyValue::Datetime(i, _, _) => *out = i,
+        _ => return make_error("value is not of type datetime"),
+    }
+
+    return std::ptr::null();
 }
 
 #[no_mangle]
@@ -148,7 +203,7 @@ pub unsafe extern "C" fn polars_value_binary_get(
     let mut w = UserIOCallback(callback, user);
     let Err(err) = (match (*value).inner {
         AnyValue::Binary(s) => w.write(s),
-        _ => return make_error("value is not of type utf8"),
+        _ => return make_error("value is not of type binary"),
     }) else {
         return std::ptr::null();
     };
@@ -176,12 +231,12 @@ pub unsafe extern "C" fn polars_value_struct_get<'a: 'b, 'b>(
 
     let field = &fields[fieldidx];
 
-    let value = match field.data_type() {
+    let value = match field.dtype() {
         DataType::Int64 => {
             let array = series.as_any().downcast_ref::<Int64Array>().unwrap();
             array.get(value_index).map(|val| AnyValue::Int64(val))
         }
-        _ => unimplemented!("{:?}", field.data_type()),
+        _ => unimplemented!("{:?}", field.dtype()),
     };
 
     let value = value.unwrap_or(AnyValue::Null);

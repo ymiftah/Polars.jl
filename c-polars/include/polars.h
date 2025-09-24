@@ -6,6 +6,18 @@
 #include <stdlib.h>
 #include "arrow.h"
 
+typedef enum PolarsEngine {
+  PolarsEngineInMemory,
+  PolarsEngineStreaming,
+} PolarsEngine;
+
+typedef enum polars_time_unit_t {
+  PolarsTimeUnitNanosecond,
+  PolarsTimeUnitMicrosecond,
+  PolarsTimeUnitMillisecond,
+  PolarsTimeUnitInvalid,
+} polars_time_unit_t;
+
 typedef enum polars_value_type_t {
   PolarsValueTypeNull,
   PolarsValueTypeBoolean,
@@ -20,9 +32,12 @@ typedef enum polars_value_type_t {
   PolarsValueTypeFloat32,
   PolarsValueTypeFloat64,
   PolarsValueTypeList,
-  PolarsValueTypeUtf8,
+  PolarsValueTypeString,
   PolarsValueTypeStruct,
   PolarsValueTypeBinary,
+  PolarsValueTypeDatetime,
+  PolarsValueTypeDate,
+  PolarsValueTypeDuration,
   PolarsValueTypeUnknown,
 } polars_value_type_t;
 
@@ -122,6 +137,7 @@ void polars_lazy_frame_select(struct polars_lazy_frame_t *df,
 void polars_lazy_frame_filter(struct polars_lazy_frame_t *df, const struct polars_expr_t *expr);
 
 const struct polars_error_t *polars_lazy_frame_collect(struct polars_lazy_frame_t *df,
+                                                       enum PolarsEngine engine,
                                                        struct polars_dataframe_t **out);
 
 struct polars_lazy_group_by_t *polars_lazy_frame_group_by(struct polars_lazy_frame_t *df,
@@ -135,10 +151,6 @@ struct polars_lazy_frame_t *polars_lazy_frame_join_inner(struct polars_lazy_fram
                                                          const struct polars_expr_t *const *exprs_b,
                                                          uintptr_t exprs_b_len);
 
-const struct polars_error_t *polars_lazy_frame_fetch(struct polars_lazy_frame_t *df,
-                                                     uintptr_t n,
-                                                     struct polars_dataframe_t **out);
-
 void polars_lazy_group_by_destroy(const struct polars_lazy_group_by_t *gb);
 
 struct polars_lazy_frame_t *polars_lazy_group_by_agg(struct polars_lazy_group_by_t *gb,
@@ -148,8 +160,6 @@ struct polars_lazy_frame_t *polars_lazy_group_by_agg(struct polars_lazy_group_by
 void polars_expr_destroy(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_literal_bool(bool value);
-
-const struct polars_expr_t *polars_expr_literal_null(void);
 
 const struct polars_expr_t *polars_expr_literal_i32(int32_t value);
 
@@ -163,6 +173,8 @@ const struct polars_expr_t *polars_expr_literal_f32(float value);
 
 const struct polars_expr_t *polars_expr_literal_f64(double value);
 
+const struct polars_expr_t *polars_expr_literal_null(void);
+
 const struct polars_error_t *polars_expr_literal_utf8(const uint8_t *s,
                                                       uintptr_t len,
                                                       const struct polars_expr_t **out);
@@ -170,6 +182,8 @@ const struct polars_error_t *polars_expr_literal_utf8(const uint8_t *s,
 const struct polars_error_t *polars_expr_col(const uint8_t *name,
                                              uintptr_t len,
                                              const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_nth(int64_t n, const struct polars_expr_t **out);
 
 const struct polars_error_t *polars_expr_alias(const struct polars_expr_t *expr,
                                                const uint8_t *name,
@@ -186,10 +200,10 @@ const struct polars_error_t *polars_expr_suffix(const struct polars_expr_t *expr
                                                 uintptr_t len,
                                                 const struct polars_expr_t **out);
 
+const struct polars_expr_t *polars_expr_keep_name(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_cast(const struct polars_expr_t *expr,
                                              enum polars_value_type_t dtype);
-
-const struct polars_expr_t *polars_expr_keep_name(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_sum(const struct polars_expr_t *expr);
 
@@ -296,8 +310,6 @@ const struct polars_expr_t *polars_expr_mul(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_div(const struct polars_expr_t *a,
                                             const struct polars_expr_t *b);
 
-const struct polars_expr_t *polars_expr_list_lengths(const struct polars_expr_t *a);
-
 const struct polars_expr_t *polars_expr_list_max(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_list_min(const struct polars_expr_t *a);
@@ -320,24 +332,16 @@ const struct polars_expr_t *polars_expr_list_first(const struct polars_expr_t *a
 
 const struct polars_expr_t *polars_expr_list_last(const struct polars_expr_t *a);
 
-const struct polars_expr_t *polars_expr_list_get(const struct polars_expr_t *a,
-                                                 const struct polars_expr_t *b);
-
 const struct polars_expr_t *polars_expr_list_head(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *b);
-
-const struct polars_expr_t *polars_expr_list_contains(const struct polars_expr_t *a,
-                                                      const struct polars_expr_t *b);
 
 const struct polars_expr_t *polars_expr_str_to_uppercase(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_str_to_lowercase(const struct polars_expr_t *a);
 
-const struct polars_expr_t *polars_expr_str_n_chars(const struct polars_expr_t *a);
+const struct polars_expr_t *polars_expr_str_len_bytes(const struct polars_expr_t *a);
 
-const struct polars_expr_t *polars_expr_str_lengths(const struct polars_expr_t *a);
-
-const struct polars_expr_t *polars_expr_str_explode(const struct polars_expr_t *a);
+const struct polars_expr_t *polars_expr_str_len_chars(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_str_starts_with(const struct polars_expr_t *a,
                                                         const struct polars_expr_t *b);
@@ -424,6 +428,8 @@ const struct polars_error_t *polars_series_get_f64(struct polars_series_t *serie
                                                    uintptr_t index,
                                                    double *out);
 
+enum polars_time_unit_t polars_value_time_unit(struct polars_value_t *value);
+
 enum polars_value_type_t polars_value_type(struct polars_value_t *value);
 
 void polars_value_destroy(struct polars_value_t *value);
@@ -456,9 +462,19 @@ const struct polars_error_t *polars_value_get_f64(struct polars_value_t *value, 
 const struct polars_error_t *polars_value_list_get(struct polars_value_t *value,
                                                    struct polars_series_t **out);
 
-const struct polars_error_t *polars_value_utf8_get(struct polars_value_t *value,
-                                                   void *user,
-                                                   IOCallback callback);
+const struct polars_error_t *polars_value_string_get(struct polars_value_t *value,
+                                                     void *user,
+                                                     IOCallback callback);
+
+/**
+ * Get the underlying int64 for this duration value.
+ */
+const struct polars_error_t *polars_value_duration_get(struct polars_value_t *value, int64_t *out);
+
+/**
+ * Get the underlying int64 for this datetime value.
+ */
+const struct polars_error_t *polars_value_datetime_get(struct polars_value_t *value, int64_t *out);
 
 const struct polars_error_t *polars_value_binary_get(struct polars_value_t *value,
                                                      void *user,

@@ -1,7 +1,4 @@
-use polars::{
-    lazy::dsl::{string::StringNameSpace, ListNameSpace},
-    prelude::*,
-};
+use polars::{lazy::dsl::string::StringNameSpace, lazy::dsl::ListNameSpace, prelude::*};
 
 use crate::{value::polars_value_type_t, *};
 
@@ -15,44 +12,29 @@ pub unsafe extern "C" fn polars_expr_destroy(expr: *const polars_expr_t) {
     let _ = Box::from_raw(expr.cast_mut());
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_bool(value: bool) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Boolean(value)))
+macro_rules! gen_literal_get {
+    ($n: ident, $t: ident, $v: ident) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(value: $v) -> *const polars_expr_t {
+            make_expr(Expr::Literal(LiteralValue::Scalar(Scalar::new(
+                DataType::$t,
+                value.into(),
+            ))))
+        }
+    };
 }
+
+gen_literal_get!(polars_expr_literal_bool, Boolean, bool);
+gen_literal_get!(polars_expr_literal_i32, Int32, i32);
+gen_literal_get!(polars_expr_literal_i64, Int64, i64);
+gen_literal_get!(polars_expr_literal_u32, UInt32, u32);
+gen_literal_get!(polars_expr_literal_u64, UInt64, u64);
+gen_literal_get!(polars_expr_literal_f32, Float32, f32);
+gen_literal_get!(polars_expr_literal_f64, Float64, f64);
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_literal_null() -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Null))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_i32(value: i32) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Int32(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_i64(value: i64) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Int64(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_u32(value: u32) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::UInt32(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_u64(value: u64) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::UInt64(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_f32(value: f32) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Float32(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_f64(value: f64) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Float64(value)))
+    make_expr(Expr::Literal(LiteralValue::untyped_null()))
 }
 
 #[no_mangle]
@@ -65,7 +47,10 @@ pub unsafe extern "C" fn polars_expr_literal_utf8(
         Ok(value) => value,
         Err(err) => return make_error(err),
     };
-    *out = make_expr(Expr::Literal(LiteralValue::Utf8(value.to_owned())));
+    *out = make_expr(Expr::Literal(LiteralValue::Scalar(Scalar::new(
+        DataType::String,
+        AnyValue::StringOwned(PlSmallStr::from_str(value)),
+    ))));
     std::ptr::null()
 }
 
@@ -82,6 +67,15 @@ pub unsafe extern "C" fn polars_expr_col(
     let expr = col(name);
     *out = make_expr(expr);
     std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_nth(
+    n: i64,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    *out = make_expr(Expr::Selector(nth(n)));
+    return std::ptr::null();
 }
 
 #[no_mangle]
@@ -111,7 +105,7 @@ pub unsafe extern "C" fn polars_expr_prefix(
         Ok(value) => value,
         Err(err) => return make_error(err),
     };
-    let aliased = (*expr).inner.clone().prefix(name);
+    let aliased = (*expr).inner.clone().name().prefix(name);
     *out = make_expr(aliased);
     std::ptr::null()
 }
@@ -127,9 +121,15 @@ pub unsafe extern "C" fn polars_expr_suffix(
         Ok(value) => value,
         Err(err) => return make_error(err),
     };
-    let aliased = (*expr).inner.clone().suffix(name);
+    let aliased = (*expr).inner.clone().name().suffix(name);
     *out = make_expr(aliased);
     std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_keep_name(expr: *const polars_expr_t) -> *const polars_expr_t {
+    let aliased = (*expr).inner.clone().name().keep();
+    return make_expr(aliased);
 }
 
 #[no_mangle]
@@ -151,8 +151,6 @@ macro_rules! gen_impl_expr {
         }
     };
 }
-
-gen_impl_expr!(polars_expr_keep_name, Expr::keep_name);
 
 gen_impl_expr!(polars_expr_sum, Expr::sum);
 gen_impl_expr!(polars_expr_product, Expr::product);
@@ -233,7 +231,7 @@ macro_rules! gen_impl_expr_list {
     };
 }
 
-gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths);
+// gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths);
 gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max);
 gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min);
 gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max);
@@ -259,9 +257,9 @@ macro_rules! gen_impl_expr_binary_list {
     };
 }
 
-gen_impl_expr_binary_list!(polars_expr_list_get, ListNameSpace::get);
+// gen_impl_expr_binary_list!(polars_expr_list_get, ListNameSpace::get);
 gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head);
-gen_impl_expr_binary_list!(polars_expr_list_contains, ListNameSpace::contains);
+// gen_impl_expr_binary_list!(polars_expr_list_contains, ListNameSpace::contains);
 
 macro_rules! gen_impl_expr_str {
     ($n: ident, $t: expr) => {
@@ -277,9 +275,9 @@ gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::to_uppercase);
 gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::to_lowercase);
 #[cfg(feature = "nightly")]
 gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::to_titlecase);
-gen_impl_expr_str!(polars_expr_str_n_chars, StringNameSpace::n_chars);
-gen_impl_expr_str!(polars_expr_str_lengths, StringNameSpace::lengths);
-gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode);
+gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes);
+gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars);
+// gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode);
 
 macro_rules! gen_impl_expr_binary_str {
     ($n: ident, $t: expr) => {
@@ -334,7 +332,7 @@ pub unsafe extern "C" fn polars_expr_struct_rename_fields(
     let names = std::slice::from_raw_parts(names, num_names);
     let lens = std::slice::from_raw_parts(lens, num_names);
 
-    let names = names
+    let names: Vec<String> = names
         .iter()
         .zip(lens)
         .map(|(name, len)| {

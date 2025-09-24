@@ -1,30 +1,3 @@
-"""
-    Series(name::String, values::Vector{T})::Series{T}
-
-A series is a collection of values used as columns inside a [`DataFrame`](@ref).
-"""
-mutable struct Series{T} <: AbstractVector{T}
-    ptr::Ptr{polars_series_t}
-    null_count::Int
-    length::Int
-
-    function Series(ptr)
-        @assert ptr != C_NULL
-
-        schema = polars_series_schema(ptr)
-        _, T = load_series_schema(schema)
-
-        len = polars_series_length(ptr)
-        null_count = polars_series_null_count(ptr)
-
-        T = iszero(null_count) ? nomissing(T) : T
-
-        series = new{T}(ptr, null_count, len)
-
-        finalizer(polars_series_destroy, series)
-    end
-end
-
 function Series(name, values)
     name = Symbol(name)
     table = NamedTuple((name => values,))
@@ -56,6 +29,21 @@ function Base.getindex(series::Series{MT}, index) where {MT<:Union{MaybeMissing{
     polars_error(err)
     out[]
 end
+
+function Base.getindex(series::Series{MT}, index) where {MT<:Union{MaybeMissing{Datetime},MaybeMissing{Duration},Datetime,Duration}}
+    index = index - 1
+
+    if series.null_count > 0 && polars_series_is_null(series, index)
+        return missing
+    end
+
+    T = nomissing(MT)
+
+    value_at_index = Value{T}(polars_series_get(series, index), series)
+
+    load_value(value_at_index)
+end
+
 
 function Base.getindex(series::Series{MT}, index) where {MT<:Union{MaybeMissing{Series},MaybeMissing{String},MaybeMissing{NamedTuple},MaybeMissing{Vector{UInt8}}}}
     index = index - 1

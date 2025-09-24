@@ -8,13 +8,8 @@ name = "polars"
 crate-type = ["cdylib"]
 
 [build-dependencies]
-cbindgen = "0.25.0"
+cbindgen = "0.29.0"
 
-[dependencies.polars-core]
-git = "https://github.com/pola-rs/polars"
-rev = "c6a301e3141d40c6c6febdebe0b95632ac8da2ed" # https://github.com/pola-rs/polars/pull/10568
-
-[dependencies.polars]
-git = "https://github.com/pola-rs/polars"
-rev = "c6a301e3141d40c6c6febdebe0b95632ac8da2ed" # https://github.com/pola-rs/polars/pull/10568
-features = ["parquet", "lazy", "performant"]
+[dependencies]
+polars-core = "0.51.0"
+polars = { version = "0.51.0", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex"] }

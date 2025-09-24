@@ -1,18 +1,3 @@
-
-"""
-    Polars.Value{T}
-
-Internal type which represents a reference to a value of type `T` in a series or as a field to
-a struct.
-"""
-mutable struct Value{T}
-    ptr::Ptr{polars_value_t}
-    parent::Union{Series,Value}
-
-    Value{T}(ptr, parent=nothing) where {T} =
-        finalizer(polars_value_destroy, new{T}(ptr, parent))
-end
-
 Base.unsafe_convert(::Type{Ptr{polars_value_t}}, value::Value) = value.ptr
 
 """
@@ -44,7 +29,7 @@ function load_value(value::Value{String})
     io = Ref(IOBuffer())
     callback = @cfunction(_write_callback, Cssize_t, (Any, Ptr{Cchar}, Cuint))
 
-    err = polars_value_utf8_get(value, io, callback)
+    err = polars_value_string_get(value, io, callback)
     polars_error(err)
 
     String(take!(io[]))
@@ -96,4 +81,28 @@ function load_value(value::Value{NT}) where {NT<:NamedTuple}
     end
 
     NT(field_values)
+end
+
+function load_value(value::Value{TT}) where {TT<:Duration}
+    v = Ref{Int64}()
+    err = polars_value_duration_get(value.ptr, v)
+    polars_error(err)
+
+    tu = polars_value_time_unit(value)
+    if tu == API.PolarsTimeUnitNanosecond
+        return Dates.Nanosecond(v[])
+    elseif tu == API.PolarsTimeUnitMicrosecond
+        return Dates.Microsecond(v[])
+    elseif tu == API.PolarsTimeUnitMillisecond
+        return Dates.Milliseconds(v[])
+    end
+
+    error("invalid duration")
+end
+
+function load_value(value::Value{TT}) where {TT<:Datetime}
+    v = Ref{Int64}()
+    err = polars_value_datetime_get(value.ptr, v)
+    polars_error(err)
+    return DateTime(1970, 01, 01) + Dates.Nanosecond(v[])
 end

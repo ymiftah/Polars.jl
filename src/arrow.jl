@@ -74,8 +74,17 @@ function parse_format(schema)
     fmt == "g" && return MaybeMissing{Float64}
     fmt == "U" && return MaybeMissing{String}
     fmt == "u" && return MaybeMissing{String}
+    fmt == "vu" && return MaybeMissing{String}
     fmt == "z" && return Vector{UInt8}
     fmt == "Z" && return Vector{UInt8}
+
+    startswith(fmt, "tsn:") && return MaybeMissing{Datetime{Nanosecond}}
+    startswith(fmt, "tsu:") && return MaybeMissing{Datetime{Microsecond}}
+    startswith(fmt, "tsm:") && return MaybeMissing{Datetime{Millisecond}}
+
+    fmt == "tDm" && return MaybeMissing{Duration{Millisecond}}
+    fmt == "tDu" && return MaybeMissing{Duration{Microsecond}}
+    fmt == "tDn" && return MaybeMissing{Duration{Nanosecond}}
 
     if fmt == "+s" # Struct type
         children = unsafe_wrap(
@@ -267,6 +276,7 @@ format(::Type{Float64}) = "g"
 format(::Type{Vector{UInt8}}) = "z"
 format(::Type{Vector{<:Any}}) = "+l"
 format(::Type{String}) = "u"
+format(::Type{DateTime}) = "tsn:"
 
 mutable struct ArrowArray
     vm::ValidityMap
@@ -371,6 +381,12 @@ arrowvector(v::Vector{T}) where {T<:PhysicalDType} =
 arrowvector(v::Vector{MaybeMissing{T}}) where {T<:PhysicalDType} =
     ArrowArray(ValidityMap(v), [v], [])
 
+function arrowvector(v::Vector{Dates.DateTime})
+    # the timestamps are stored as the number of nanoseconds since 1970
+    values = map(d -> Dates.Nanosecond(d - Dates.DateTime(1970, 01, 01)).value, v)
+    ArrowArray(ValidityMap(v), Vector[values])
+end
+
 function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{String},String}}
     byte_lengths = map(x -> ismissing(x) ? zero(UInt32) : UInt32(sizeof(x)), v)
 
@@ -390,7 +406,7 @@ function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{String},String}}
     for (i, s) in enumerate(v)
         ismissing(s) && continue
         copyto!(@view(value_buffer[1+offsets[i]:offsets[i+1]]),
-                codeunits(s))
+            codeunits(s))
     end
 
     ArrowArray(ValidityMap(v), Vector[offsets, value_buffer], [])

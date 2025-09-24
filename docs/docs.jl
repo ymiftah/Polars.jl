@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.25
+# v0.20.17
 
 using Markdown
 using InteractiveUtils
@@ -69,6 +69,8 @@ Polars datatypes map to the corresponding Julia type according to this correspon
 | UTF8         | String     |
 | List<t>      | Series{T}  |
 | Struct       | NamedTuple |
+| Datetime<t>  | DateTime   |
+| Duration<t>  | Period     |
 """
 
 # ╔═╡ 466c8871-e7be-4731-a347-ce6faabf8edb
@@ -116,7 +118,7 @@ let df = DataFrame((; x=[1,2,3]))
 end
 
 # ╔═╡ 659172c1-59b2-4176-97bc-263a6cc19f0a
-Docs.Binding(Polars, :groupby)
+Docs.Binding(Polars, :group_by)
 
 # ╔═╡ 6e3cfe39-5050-4c0c-af80-7c5e1064a07e
 Docs.Binding(Polars, :agg)
