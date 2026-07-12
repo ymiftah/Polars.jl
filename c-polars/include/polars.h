@@ -115,6 +115,10 @@ void polars_lazy_frame_destroy(struct polars_lazy_frame_t *df);
 
 struct polars_lazy_frame_t *polars_lazy_frame_clone(struct polars_lazy_frame_t *df);
 
+const struct polars_error_t *polars_lazy_frame_scan_parquet(const uint8_t *path,
+                                                             uintptr_t pathlen,
+                                                             struct polars_lazy_frame_t **out);
+
 void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,
                             const struct polars_expr_t *const *exprs,
                             uintptr_t nexprs,

@@ -194,6 +194,20 @@ function read_parquet(path)
 end
 
 """
+    scan_parquet(path::String)::LazyFrame
+
+Lazily scans a parquet file, glob pattern, or directory of (optionally
+Hive-partitioned) parquet files, without reading it into memory. Hive
+partition keys are auto-detected and surfaced as columns.
+"""
+function scan_parquet(path)
+    out = Ref{Ptr{polars_lazy_frame_t}}()
+    err = polars_lazy_frame_scan_parquet(path, length(path), out)
+    polars_error(err)
+    LazyFrame(out[])
+end
+
+"""
     write_parquet(io::IO, df::DataFrame)
     write_parquet(path::String, df::DataFrame)
 
@@ -383,7 +397,7 @@ Base.unsafe_convert(::Type{Ptr{polars_lazy_group_by_t}}, gb::LazyGroupBy) = gb.p
 Returns a lazy group-by object over the provided [`LazyFrame`](@ref).
 The values for the group-by can be aggregated using the [`agg`](@ref) function.
 """
-group_by(df::LazyFrame, exprs...) = group_by(df, collect(exprs)::Vector)
+group_by(df::LazyFrame, exprs...) = groupby(df, collect(exprs)::Vector)
 function groupby(df::LazyFrame, exprs::Vector)
     exprs = map(ex -> ex isa String ? col(ex) : ex, exprs)
     exprs = convert(Vector{Expr}, exprs)
@@ -489,7 +503,7 @@ end
 
 export Series, DataFrame,
     select, with_columns, fetch,
-    read_parquet, write_parquet,
+    read_parquet, write_parquet, scan_parquet,
     lazy, innerjoin, group_by, agg
 
 ## Tables.jl interface

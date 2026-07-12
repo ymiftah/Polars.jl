@@ -314,6 +314,26 @@ pub unsafe extern "C" fn polars_lazy_frame_clone(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
+    path: *const u8,
+    pathlen: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
+        Ok(p) => p,
+        Err(err) => return make_error(err),
+    };
+
+    match LazyFrame::scan_parquet(PlPath::new(path), ScanArgsParquet::default()) {
+        Ok(lf) => {
+            *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
+            std::ptr::null()
+        }
+        Err(err) => make_error(err),
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_sort(
     df: *mut polars_lazy_frame_t,
     exprs: *const *const polars_expr_t,

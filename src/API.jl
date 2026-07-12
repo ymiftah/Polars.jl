@@ -167,6 +167,10 @@ function polars_lazy_frame_clone(df)
     @ccall libpolars.polars_lazy_frame_clone(df::Ptr{polars_lazy_frame_t})::Ptr{polars_lazy_frame_t}
 end
 
+function polars_lazy_frame_scan_parquet(path, pathlen, out)
+    @ccall libpolars.polars_lazy_frame_scan_parquet(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
 function polars_lazy_frame_sort(df, exprs, nexprs, descending, nulls_last, maintain_order)
     @ccall libpolars.polars_lazy_frame_sort(df::Ptr{polars_lazy_frame_t}, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t, descending::Ptr{Bool}, nulls_last::Bool, maintain_order::Bool)::Cvoid
 end
