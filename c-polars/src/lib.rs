@@ -13,6 +13,8 @@ use polars_core::utils::{
     },
     rayon::iter::{self, ParallelIterator},
 };
+use polars_plan::utils::expr_output_name;
+use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t};
 
 mod expr;
 mod series;
@@ -479,6 +481,128 @@ pub unsafe extern "C" fn polars_lazy_frame_group_by(
         .collect();
     let gb = (*df).inner.clone().group_by(&exprs);
     Box::into_raw(Box::new(polars_lazy_group_by_t { inner: gb }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_group_by_dynamic(
+    df: *mut polars_lazy_frame_t,
+    index_expr: *const polars_expr_t,
+    group_by_exprs: *const *const polars_expr_t,
+    n_group_by: usize,
+    every: *const u8,
+    every_len: usize,
+    period: *const u8,
+    period_len: usize,
+    offset: *const u8,
+    offset_len: usize,
+    label: polars_label_t,
+    include_boundaries: bool,
+    closed_window: polars_closed_window_t,
+    start_by: polars_start_by_t,
+    out: *mut *mut polars_lazy_group_by_t,
+) -> *const polars_error_t {
+    let group_by: Vec<Expr> = std::slice::from_raw_parts(group_by_exprs, n_group_by)
+        .iter()
+        .map(|expr| (**expr).inner.clone())
+        .collect();
+
+    let every_str = std::str::from_utf8(std::slice::from_raw_parts(every, every_len))
+        .unwrap_or_default();
+    let period_str = if period_len == 0 {
+        every_str
+    } else {
+        std::str::from_utf8(std::slice::from_raw_parts(period, period_len)).unwrap_or_default()
+    };
+    let offset_str = std::str::from_utf8(std::slice::from_raw_parts(offset, offset_len))
+        .unwrap_or_default();
+
+    let every = match Duration::try_parse(every_str) {
+        Ok(d) => d,
+        Err(err) => return make_error(err),
+    };
+    let period = match Duration::try_parse(period_str) {
+        Ok(d) => d,
+        Err(err) => return make_error(err),
+    };
+    let offset = match Duration::try_parse(offset_str) {
+        Ok(d) => d,
+        Err(err) => return make_error(err),
+    };
+
+    let index_col_name = match expr_output_name(&(*index_expr).inner) {
+        Ok(name) => name,
+        Err(err) => return make_error(err),
+    };
+
+    let opts = DynamicGroupOptions {
+        index_column: index_col_name,
+        every,
+        period,
+        offset,
+        label: label.to_label(),
+        include_boundaries,
+        closed_window: closed_window.to_closed_window(),
+        start_by: start_by.to_start_by(),
+    };
+
+    let gb = (*df)
+        .inner
+        .clone()
+        .group_by_dynamic((*index_expr).inner.clone(), &group_by, opts);
+    *out = Box::into_raw(Box::new(polars_lazy_group_by_t { inner: gb }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_rolling(
+    df: *mut polars_lazy_frame_t,
+    index_expr: *const polars_expr_t,
+    group_by_exprs: *const *const polars_expr_t,
+    n_group_by: usize,
+    period: *const u8,
+    period_len: usize,
+    offset: *const u8,
+    offset_len: usize,
+    closed_window: polars_closed_window_t,
+    out: *mut *mut polars_lazy_group_by_t,
+) -> *const polars_error_t {
+    let group_by: Vec<Expr> = std::slice::from_raw_parts(group_by_exprs, n_group_by)
+        .iter()
+        .map(|expr| (**expr).inner.clone())
+        .collect();
+
+    let period_str =
+        std::str::from_utf8(std::slice::from_raw_parts(period, period_len)).unwrap_or_default();
+    let offset_str =
+        std::str::from_utf8(std::slice::from_raw_parts(offset, offset_len)).unwrap_or_default();
+
+    let period = match Duration::try_parse(period_str) {
+        Ok(d) => d,
+        Err(err) => return make_error(err),
+    };
+    let offset = match Duration::try_parse(offset_str) {
+        Ok(d) => d,
+        Err(err) => return make_error(err),
+    };
+
+    let index_col_name = match expr_output_name(&(*index_expr).inner) {
+        Ok(name) => name,
+        Err(err) => return make_error(err),
+    };
+
+    let opts = RollingGroupOptions {
+        index_column: index_col_name,
+        period,
+        offset,
+        closed_window: closed_window.to_closed_window(),
+    };
+
+    let gb = (*df)
+        .inner
+        .clone()
+        .rolling((*index_expr).inner.clone(), &group_by, opts);
+    *out = Box::into_raw(Box::new(polars_lazy_group_by_t { inner: gb }));
+    std::ptr::null()
 }
 
 #[no_mangle]

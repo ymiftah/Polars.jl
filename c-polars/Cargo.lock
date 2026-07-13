@@ -326,6 +326,7 @@ dependencies = [
  "cbindgen",
  "polars",
  "polars-core",
+ "polars-plan",
 ]
 
 [[package]]

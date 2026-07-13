@@ -18,6 +18,31 @@ typedef enum polars_time_unit_t {
   PolarsTimeUnitInvalid,
 } polars_time_unit_t;
 
+typedef enum polars_closed_window_t {
+  PolarsClosedWindowLeft,
+  PolarsClosedWindowRight,
+  PolarsClosedWindowBoth,
+  PolarsClosedWindowNone,
+} polars_closed_window_t;
+
+typedef enum polars_label_t {
+  PolarsLabelLeft,
+  PolarsLabelRight,
+  PolarsLabelDataPoint,
+} polars_label_t;
+
+typedef enum polars_start_by_t {
+  PolarsStartByWindowBound,
+  PolarsStartByDataPoint,
+  PolarsStartByMonday,
+  PolarsStartByTuesday,
+  PolarsStartByWednesday,
+  PolarsStartByThursday,
+  PolarsStartByFriday,
+  PolarsStartBySaturday,
+  PolarsStartBySunday,
+} polars_start_by_t;
+
 typedef enum polars_value_type_t {
   PolarsValueTypeNull,
   PolarsValueTypeBoolean,
@@ -156,6 +181,35 @@ const struct polars_error_t *polars_lazy_frame_collect_schema(struct polars_lazy
 struct polars_lazy_group_by_t *polars_lazy_frame_group_by(struct polars_lazy_frame_t *df,
                                                           const struct polars_expr_t *const *exprs,
                                                           uintptr_t nexprs);
+
+const struct polars_error_t *polars_lazy_frame_group_by_dynamic(
+    struct polars_lazy_frame_t *df,
+    const struct polars_expr_t *index_expr,
+    const struct polars_expr_t *const *group_by_exprs,
+    uintptr_t n_group_by,
+    const uint8_t *every,
+    uintptr_t every_len,
+    const uint8_t *period,
+    uintptr_t period_len,
+    const uint8_t *offset,
+    uintptr_t offset_len,
+    polars_label_t label,
+    bool include_boundaries,
+    polars_closed_window_t closed_window,
+    polars_start_by_t start_by,
+    struct polars_lazy_group_by_t **out);
+
+const struct polars_error_t *polars_lazy_frame_rolling(
+    struct polars_lazy_frame_t *df,
+    const struct polars_expr_t *index_expr,
+    const struct polars_expr_t *const *group_by_exprs,
+    uintptr_t n_group_by,
+    const uint8_t *period,
+    uintptr_t period_len,
+    const uint8_t *offset,
+    uintptr_t offset_len,
+    polars_closed_window_t closed_window,
+    struct polars_lazy_group_by_t **out);
 
 struct polars_lazy_frame_t *polars_lazy_frame_join_inner(struct polars_lazy_frame_t *a,
                                                          struct polars_lazy_frame_t *b,

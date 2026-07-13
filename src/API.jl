@@ -50,6 +50,31 @@ end
     PolarsTimeUnitInvalid = 3
 end
 
+@cenum polars_closed_window_t::UInt32 begin
+    PolarsClosedWindowLeft = 0
+    PolarsClosedWindowRight = 1
+    PolarsClosedWindowBoth = 2
+    PolarsClosedWindowNone = 3
+end
+
+@cenum polars_label_t::UInt32 begin
+    PolarsLabelLeft = 0
+    PolarsLabelRight = 1
+    PolarsLabelDataPoint = 2
+end
+
+@cenum polars_start_by_t::UInt32 begin
+    PolarsStartByWindowBound = 0
+    PolarsStartByDataPoint = 1
+    PolarsStartByMonday = 2
+    PolarsStartByTuesday = 3
+    PolarsStartByWednesday = 4
+    PolarsStartByThursday = 5
+    PolarsStartByFriday = 6
+    PolarsStartBySaturday = 7
+    PolarsStartBySunday = 8
+end
+
 @cenum polars_value_type_t::UInt32 begin
     PolarsValueTypeNull = 0
     PolarsValueTypeBoolean = 1
@@ -212,6 +237,14 @@ end
 
 function polars_lazy_frame_group_by(df, exprs, nexprs)
     @ccall libpolars.polars_lazy_frame_group_by(df::Ptr{polars_lazy_frame_t}, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t)::Ptr{polars_lazy_group_by_t}
+end
+
+function polars_lazy_frame_group_by_dynamic(df, index_expr, group_by_exprs, n_group_by, every, every_len, period, period_len, offset, offset_len, label, include_boundaries, closed_window, start_by, out)
+    @ccall libpolars.polars_lazy_frame_group_by_dynamic(df::Ptr{polars_lazy_frame_t}, index_expr::Ptr{polars_expr_t}, group_by_exprs::Ptr{Ptr{polars_expr_t}}, n_group_by::Csize_t, every::Ptr{UInt8}, every_len::Csize_t, period::Ptr{UInt8}, period_len::Csize_t, offset::Ptr{UInt8}, offset_len::Csize_t, label::polars_label_t, include_boundaries::Bool, closed_window::polars_closed_window_t, start_by::polars_start_by_t, out::Ptr{Ptr{polars_lazy_group_by_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_rolling(df, index_expr, group_by_exprs, n_group_by, period, period_len, offset, offset_len, closed_window, out)
+    @ccall libpolars.polars_lazy_frame_rolling(df::Ptr{polars_lazy_frame_t}, index_expr::Ptr{polars_expr_t}, group_by_exprs::Ptr{Ptr{polars_expr_t}}, n_group_by::Csize_t, period::Ptr{UInt8}, period_len::Csize_t, offset::Ptr{UInt8}, offset_len::Csize_t, closed_window::polars_closed_window_t, out::Ptr{Ptr{polars_lazy_group_by_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_join_inner(a, b, exprs_a, exprs_a_len, exprs_b, exprs_b_len)

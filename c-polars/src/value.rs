@@ -84,6 +84,71 @@ pub enum polars_time_unit_t {
     PolarsTimeUnitInvalid,
 }
 
+#[repr(C)]
+pub enum polars_closed_window_t {
+    PolarsClosedWindowLeft,
+    PolarsClosedWindowRight,
+    PolarsClosedWindowBoth,
+    PolarsClosedWindowNone,
+}
+
+impl polars_closed_window_t {
+    pub fn to_closed_window(self) -> ClosedWindow {
+        match self {
+            polars_closed_window_t::PolarsClosedWindowLeft => ClosedWindow::Left,
+            polars_closed_window_t::PolarsClosedWindowRight => ClosedWindow::Right,
+            polars_closed_window_t::PolarsClosedWindowBoth => ClosedWindow::Both,
+            polars_closed_window_t::PolarsClosedWindowNone => ClosedWindow::None,
+        }
+    }
+}
+
+#[repr(C)]
+pub enum polars_label_t {
+    PolarsLabelLeft,
+    PolarsLabelRight,
+    PolarsLabelDataPoint,
+}
+
+impl polars_label_t {
+    pub fn to_label(self) -> Label {
+        match self {
+            polars_label_t::PolarsLabelLeft => Label::Left,
+            polars_label_t::PolarsLabelRight => Label::Right,
+            polars_label_t::PolarsLabelDataPoint => Label::DataPoint,
+        }
+    }
+}
+
+#[repr(C)]
+pub enum polars_start_by_t {
+    PolarsStartByWindowBound,
+    PolarsStartByDataPoint,
+    PolarsStartByMonday,
+    PolarsStartByTuesday,
+    PolarsStartByWednesday,
+    PolarsStartByThursday,
+    PolarsStartByFriday,
+    PolarsStartBySaturday,
+    PolarsStartBySunday,
+}
+
+impl polars_start_by_t {
+    pub fn to_start_by(self) -> StartBy {
+        match self {
+            polars_start_by_t::PolarsStartByWindowBound => StartBy::WindowBound,
+            polars_start_by_t::PolarsStartByDataPoint => StartBy::DataPoint,
+            polars_start_by_t::PolarsStartByMonday => StartBy::Monday,
+            polars_start_by_t::PolarsStartByTuesday => StartBy::Tuesday,
+            polars_start_by_t::PolarsStartByWednesday => StartBy::Wednesday,
+            polars_start_by_t::PolarsStartByThursday => StartBy::Thursday,
+            polars_start_by_t::PolarsStartByFriday => StartBy::Friday,
+            polars_start_by_t::PolarsStartBySaturday => StartBy::Saturday,
+            polars_start_by_t::PolarsStartBySunday => StartBy::Sunday,
+        }
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_value_time_unit(value: *mut polars_value_t) -> polars_time_unit_t {
     let tu = match (*value).inner {
