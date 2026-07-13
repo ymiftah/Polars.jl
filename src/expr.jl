@@ -99,7 +99,7 @@ The `n` argument is *one indexing based*, meaning that columns start at 1.
 Negative numbers reference columns starting from the end.
 """
 function nth(n)
-    n_zero = n < 0 ? n : n + 1
+    n_zero = n < 0 ? n : n - 1
     expr = Ref{Ptr{polars_expr_t}}()
     err = polars_expr_nth(n_zero, expr)
     polars_error(err)
@@ -190,7 +190,7 @@ function cast(expr, dtype)
     elseif dtype == Float64
         PolarsValueTypeFloat64
     elseif dtype == String
-        PolarsValueTypeUtf8
+        PolarsValueTypeString
     else
         error("could not cast to type $dtype")
     end

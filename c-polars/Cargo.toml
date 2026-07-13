@@ -13,4 +13,4 @@ cbindgen = "0.29.0"
 [dependencies]
 polars-core = "0.51.0"
 polars-plan = "0.51.0"
-polars = { version = "0.51.0", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by"] }
+polars = { version = "0.51.0", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans"] }

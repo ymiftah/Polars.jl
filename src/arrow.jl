@@ -51,6 +51,40 @@ function isvalid(vm::ValidityMap, i)
     Bool((b >> (i % 8)) & 0x01)
 end
 
+"""
+    boolbitmap(v)::Vector{UInt8}
+
+Bit-packs a `Vector{Bool}` (or `Vector{Union{Bool,Missing}}`) into the Arrow "b"-format data
+buffer (1 bit per value, 8 values per byte). Julia's `Vector{Bool}` is a dense byte array (1
+byte per value), unlike Arrow's boolean buffers, so this cannot be passed through directly the
+way fixed-width numeric buffers are. `missing` slots are packed as `0`; their real value is
+irrelevant since validity is tracked separately by `ValidityMap`.
+"""
+function boolbitmap(v)
+    ℓ = length(v)
+    blen = cld(ℓ, 8)
+    bits = Vector{UInt8}(undef, blen)
+
+    b = 0x00
+    for i in eachindex(v)
+        i -= 1
+
+        @inbounds val = v[i+1]
+        @inbounds if !ismissing(val) && val
+            b |= 0x01 << (i % 8)
+        end
+
+        @inbounds if (i + 1) % 8 == 0
+            bits[1+i÷8] = b
+            b = 0x00
+        end
+    end
+    rest = ℓ % 8
+    rest != 0 && (@inbounds bits[end] = b)
+
+    bits
+end
+
 function validitybuffer(vm::ValidityMap)
     iszero(vm.nc) && return Ptr{UInt8}(C_NULL)
     pointer(vm.data)
@@ -391,15 +425,25 @@ arrowvector(v::Vector{T}) where {T<:PhysicalDType} =
 arrowvector(v::Vector{MaybeMissing{T}}) where {T<:PhysicalDType} =
     ArrowArray(ValidityMap(v), [v], [])
 
-function arrowvector(v::Vector{Dates.DateTime})
-    # the timestamps are stored as the number of nanoseconds since 1970
-    values = map(d -> Dates.Nanosecond(d - Dates.DateTime(1970, 01, 01)).value, v)
+# Bool is bit-packed in Arrow's "b" format, unlike the other PhysicalDType's fixed-width
+# buffers, so it needs its own data-buffer construction (see boolbitmap).
+arrowvector(v::Vector{Bool}) =
+    ArrowArray(ValidityMap(v), [boolbitmap(v)], [])
+arrowvector(v::Vector{MaybeMissing{Bool}}) =
+    ArrowArray(ValidityMap(v), [boolbitmap(v)], [])
+
+function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{Dates.DateTime}}}
+    # the timestamps are stored as the number of nanoseconds since 1970; missing entries are
+    # mapped to a dummy 0 -- the validity bitmap (built from the same `v`) marks them null, so
+    # the physical value underneath is never read back.
+    values = map(d -> ismissing(d) ? zero(Int64) : Dates.Nanosecond(d - Dates.DateTime(1970, 01, 01)).value, v)
     ArrowArray(ValidityMap(v), Vector[values])
 end
 
-function arrowvector(v::Vector{Dates.Date})
-    # dates are stored as the number of days since 1970
-    values = map(d -> Int32(Dates.value(d - Dates.Date(1970, 01, 01))), v)
+function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{Dates.Date}}}
+    # dates are stored as the number of days since 1970; see the DateTime method above for why
+    # missing entries can be mapped to a dummy 0.
+    values = map(d -> ismissing(d) ? zero(Int32) : Int32(Dates.value(d - Dates.Date(1970, 01, 01))), v)
     ArrowArray(ValidityMap(v), Vector[values])
 end
 

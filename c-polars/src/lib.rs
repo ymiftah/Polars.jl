@@ -284,7 +284,7 @@ pub unsafe extern "C" fn polars_dataframe_get(
         return make_error(format!("dataframe has not column {name}"));
     };
 
-    *out = series::make_series(column.as_materialized_series_maintain_scalar());
+    *out = series::make_series(column.as_materialized_series().clone());
 
     std::ptr::null()
 }
