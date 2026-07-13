@@ -57,6 +57,13 @@ function validitybuffer(vm::ValidityMap)
 end
 
 function parse_format(schema)
+    # Dictionary-encoded fields (e.g. low-cardinality strings) carry their
+    # logical type in the referenced dictionary schema, not in `format`
+    # (which only describes the physical index type).
+    if schema.dictionary != C_NULL
+        return parse_format(unsafe_load(schema.dictionary))
+    end
+
     fmt = unsafe_string(schema.format)
 
     fmt == "n" && return MaybeMissing{Nothing}
@@ -81,6 +88,8 @@ function parse_format(schema)
     startswith(fmt, "tsn:") && return MaybeMissing{Datetime{Nanosecond}}
     startswith(fmt, "tsu:") && return MaybeMissing{Datetime{Microsecond}}
     startswith(fmt, "tsm:") && return MaybeMissing{Datetime{Millisecond}}
+
+    fmt == "tdD" && return MaybeMissing{Date}
 
     fmt == "tDm" && return MaybeMissing{Duration{Millisecond}}
     fmt == "tDu" && return MaybeMissing{Duration{Microsecond}}
@@ -277,6 +286,7 @@ format(::Type{Vector{UInt8}}) = "z"
 format(::Type{Vector{<:Any}}) = "+l"
 format(::Type{String}) = "u"
 format(::Type{DateTime}) = "tsn:"
+format(::Type{Date}) = "tdD"
 
 mutable struct ArrowArray
     vm::ValidityMap
@@ -384,6 +394,12 @@ arrowvector(v::Vector{MaybeMissing{T}}) where {T<:PhysicalDType} =
 function arrowvector(v::Vector{Dates.DateTime})
     # the timestamps are stored as the number of nanoseconds since 1970
     values = map(d -> Dates.Nanosecond(d - Dates.DateTime(1970, 01, 01)).value, v)
+    ArrowArray(ValidityMap(v), Vector[values])
+end
+
+function arrowvector(v::Vector{Dates.Date})
+    # dates are stored as the number of days since 1970
+    values = map(d -> Int32(Dates.value(d - Dates.Date(1970, 01, 01))), v)
     ArrowArray(ValidityMap(v), Vector[values])
 end
 

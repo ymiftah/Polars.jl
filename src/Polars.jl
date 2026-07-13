@@ -325,16 +325,18 @@ function _with_columns!(df::LazyFrame, exprs::Vector)
 end
 
 """
-    fetch(lf::LazyFrame, n)::DataFrame
+    head(lf::LazyFrame, n)::LazyFrame
+    head(df::DataFrame, n)::DataFrame
 
-Fetches the `n` first samples from the provided lazy frame and
-collect them in a `DataFrame`.
+Returns the first `n` rows of the frame.
 """
-function Base.fetch(df::LazyFrame, n)
-    out = Ref{Ptr{polars_dataframe_t}}()
-    err = polars_lazy_frame_fetch(df, n, out)
-    polars_error(err)
-    DataFrame(out[])
+head(df::LazyFrame, n=5) = _head!(clone(df), n)
+head(df::DataFrame, n=5) = _head!(lazy(df), n) |> collect
+
+
+function _head!(df::LazyFrame, n)
+    polars_lazy_frame_head(df, n)
+    df
 end
 
 function _filter!(df::LazyFrame, expr)
@@ -502,9 +504,25 @@ function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
 end
 
 export Series, DataFrame,
-    select, with_columns, fetch,
+    select, with_columns, head, collect_schema,
     read_parquet, write_parquet, scan_parquet,
     lazy, innerjoin, group_by, agg
+
+"""
+    collect_schema(lf::LazyFrame)::Tables.Schema
+
+Resolves and returns the schema of the provided lazy frame, without collecting it.
+
+Since this does not execute the query, actual null counts are unknown and every column is
+reported as nullable (`Union{T,Missing}`); see [`schema`](@ref) for a `DataFrame`'s schema
+refined by actual null counts.
+"""
+function collect_schema(df::LazyFrame)
+    out = Ref{CArrowSchema}()
+    err = polars_lazy_frame_collect_schema(df, out)
+    polars_error(err)
+    load_dataframe_schema(out[])
+end
 
 ## Tables.jl interface
 

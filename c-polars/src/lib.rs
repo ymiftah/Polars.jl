@@ -445,6 +445,28 @@ pub unsafe extern "C" fn polars_lazy_frame_collect(
     std::ptr::null()
 }
 
+/// Resolves the lazy frame's schema (without collecting it) and returns it as an ArrowSchema
+/// according to the Arrow C Data interface, matching the shape of `polars_dataframe_schema`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_collect_schema(
+    df: *mut polars_lazy_frame_t,
+    out: *mut ArrowSchema,
+) -> *const polars_error_t {
+    let mut df = (*df).inner.clone();
+    let schema = match df.collect_schema() {
+        Ok(schema) => schema,
+        Err(err) => return make_error(err),
+    };
+    let arrow_schema = schema.to_arrow(CompatLevel::newest());
+    let structfield = arrow::datatypes::Field::new(
+        "polars.dataframe".into(),
+        arrow::datatypes::ArrowDataType::Struct(arrow_schema.iter_values().map(|c| c.clone()).collect()),
+        false,
+    );
+    *out = ffi::export_field_to_c(&structfield);
+    std::ptr::null()
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_group_by(
     df: *mut polars_lazy_frame_t,
@@ -486,19 +508,12 @@ pub unsafe extern "C" fn polars_lazy_frame_join_inner(
     Box::into_raw(Box::new(polars_lazy_frame_t { inner: df }))
 }
 
-// #[no_mangle]
-// pub unsafe extern "C" fn polars_lazy_frame_fetch(
-//     df: *mut polars_lazy_frame_t,
-//     n: usize,
-//     out: *mut *mut polars_dataframe_t,
-// ) -> *const polars_error_t {
-//     let df = (*df).inner.clone();
-//     *out = make_dataframe(match df.fetch(n) {
-//         Ok(value) => value,
-//         Err(err) => return make_error(err),
-//     });
-//     std::ptr::null()
-// }
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_head(df: *mut polars_lazy_frame_t, n: usize) {
+    let mut df = Box::from_raw(df);
+    df.inner = df.inner.limit(n as IdxSize);
+    std::mem::forget(df);
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_group_by_destroy(gb: *const polars_lazy_group_by_t) {

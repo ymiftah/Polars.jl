@@ -191,8 +191,23 @@ function polars_lazy_frame_filter(df, expr)
     @ccall libpolars.polars_lazy_frame_filter(df::Ptr{polars_lazy_frame_t}, expr::Ptr{polars_expr_t})::Cvoid
 end
 
+function polars_lazy_frame_head(df, n)
+    @ccall libpolars.polars_lazy_frame_head(df::Ptr{polars_lazy_frame_t}, n::Csize_t)::Cvoid
+end
+
 function polars_lazy_frame_collect(df, engine, out)
     @ccall libpolars.polars_lazy_frame_collect(df::Ptr{polars_lazy_frame_t}, engine::PolarsEngine, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_lazy_frame_collect_schema(df, out)
+
+Resolves the lazy frame's schema (without collecting it) and returns it through `out` as an
+[`ArrowSchema`](@ref) according to the Arrow C Data interface, matching the shape of
+`polars_dataframe_schema`.
+"""
+function polars_lazy_frame_collect_schema(df, out)
+    @ccall libpolars.polars_lazy_frame_collect_schema(df::Ptr{polars_lazy_frame_t}, out::Ptr{ArrowSchema})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_group_by(df, exprs, nexprs)
@@ -721,6 +736,15 @@ Get the underlying int64 for this datetime value.
 """
 function polars_value_datetime_get(value, out)
     @ccall libpolars.polars_value_datetime_get(value::Ptr{polars_value_t}, out::Ptr{Int64})::Ptr{polars_error_t}
+end
+
+"""
+    polars_value_date_get(value, out)
+
+Get the underlying int32 (days since UNIX epoch) for this date value.
+"""
+function polars_value_date_get(value, out)
+    @ccall libpolars.polars_value_date_get(value::Ptr{polars_value_t}, out::Ptr{Int32})::Ptr{polars_error_t}
 end
 
 function polars_value_binary_get(value, user, callback)

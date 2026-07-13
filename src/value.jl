@@ -104,5 +104,22 @@ function load_value(value::Value{TT}) where {TT<:Datetime}
     v = Ref{Int64}()
     err = polars_value_datetime_get(value.ptr, v)
     polars_error(err)
-    return DateTime(1970, 01, 01) + Dates.Nanosecond(v[])
+
+    tu = polars_value_time_unit(value)
+    if tu == API.PolarsTimeUnitNanosecond
+        return DateTime(1970, 01, 01) + Dates.Nanosecond(v[])
+    elseif tu == API.PolarsTimeUnitMicrosecond
+        return DateTime(1970, 01, 01) + Dates.Microsecond(v[])
+    elseif tu == API.PolarsTimeUnitMillisecond
+        return DateTime(1970, 01, 01) + Dates.Millisecond(v[])
+    end
+
+    error("invalid datetime")
+end
+
+function load_value(value::Value{Date})
+    v = Ref{Int32}()
+    err = polars_value_date_get(value.ptr, v)
+    polars_error(err)
+    return Date(1970, 01, 01) + Dates.Day(v[])
 end

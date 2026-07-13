@@ -1,4 +1,4 @@
-using Polars, Test
+using Polars, Test, Dates
 
 @testset "Create from C Data interface" begin
     table = (; x = randn(Float32, 100))
@@ -56,6 +56,48 @@ end
     by_category = Dict(zip(result[:category], result[:amount]))
     @test by_category["a"] == 400
     @test by_category["b"] == 600
+end
+
+@testset "head" begin
+    df = DataFrame((; x = collect(1:5), y = ["a", "b", "c", "d", "e"]))
+
+    h = head(df, 2)
+    @test size(h) == (2, 2)
+    @test h[:x] == [1, 2]
+
+    h = head(lazy(df), 3) |> collect
+    @test size(h) == (3, 2)
+    @test h[:x] == [1, 2, 3]
+end
+
+@testset "Date" begin
+    dates = [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3)]
+    df = DataFrame((; d = dates))
+
+    @test Polars.schema(df).types == (Date,)
+    @test df[:d] == dates
+
+    dir = mktempdir()
+    path = joinpath(dir, "dates.parquet")
+    write_parquet(path, df)
+
+    df2 = read_parquet(path)
+    @test df2[:d] == dates
+end
+
+@testset "collect_schema" begin
+    df = DataFrame((; x = collect(1:5), y = ["a", "b", "c", "d", "e"]))
+    lf = lazy(df)
+
+    sch = collect_schema(lf)
+    @test sch.names == (:x, :y)
+    @test sch.types == (Union{Missing,Int64}, Union{Missing,String})
+
+    sch2 = collect_schema(with_columns(lf, (col("x") * 2) |> alias("z")))
+    @test sch2.names == (:x, :y, :z)
+    @test sch2.types[3] == Union{Missing,Int64}
+
+    @test_throws Exception collect_schema(filter(lf, col("nonexistent") > 0))
 end
 
 @testset "Exprs" begin

@@ -140,9 +140,18 @@ void polars_lazy_frame_select(struct polars_lazy_frame_t *df,
 
 void polars_lazy_frame_filter(struct polars_lazy_frame_t *df, const struct polars_expr_t *expr);
 
+void polars_lazy_frame_head(struct polars_lazy_frame_t *df, uintptr_t n);
+
 const struct polars_error_t *polars_lazy_frame_collect(struct polars_lazy_frame_t *df,
                                                        enum PolarsEngine engine,
                                                        struct polars_dataframe_t **out);
+
+/**
+ * Resolves the lazy frame's schema (without collecting it) and returns it as an ArrowSchema
+ * according to the Arrow C Data interface, matching the shape of `polars_dataframe_schema`.
+ */
+const struct polars_error_t *polars_lazy_frame_collect_schema(struct polars_lazy_frame_t *df,
+                                                               ArrowSchema *out);
 
 struct polars_lazy_group_by_t *polars_lazy_frame_group_by(struct polars_lazy_frame_t *df,
                                                           const struct polars_expr_t *const *exprs,
@@ -479,6 +488,11 @@ const struct polars_error_t *polars_value_duration_get(struct polars_value_t *va
  * Get the underlying int64 for this datetime value.
  */
 const struct polars_error_t *polars_value_datetime_get(struct polars_value_t *value, int64_t *out);
+
+/**
+ * Get the underlying int32 (days since UNIX epoch) for this date value.
+ */
+const struct polars_error_t *polars_value_date_get(struct polars_value_t *value, int32_t *out);
 
 const struct polars_error_t *polars_value_binary_get(struct polars_value_t *value,
                                                      void *user,

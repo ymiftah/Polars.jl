@@ -88,6 +88,7 @@ pub enum polars_time_unit_t {
 pub unsafe extern "C" fn polars_value_time_unit(value: *mut polars_value_t) -> polars_time_unit_t {
     let tu = match (*value).inner {
         AnyValue::Duration(_, tu) => tu,
+        AnyValue::Datetime(_, tu, _) => tu,
         _ => return polars_time_unit_t::PolarsTimeUnitInvalid,
     };
 
@@ -100,7 +101,15 @@ pub unsafe extern "C" fn polars_value_time_unit(value: *mut polars_value_t) -> p
 
 #[no_mangle]
 pub extern "C" fn polars_value_type(value: *mut polars_value_t) -> polars_value_type_t {
-    polars_value_type_t::from_dtype(unsafe { &(*value).inner.dtype() })
+    // AnyValue::dtype() is unimplemented for Categorical/Enum (see polars-core), so these must
+    // be special-cased ahead of it; we treat them as strings, matching polars_value_string_get.
+    match unsafe { &(*value).inner } {
+        AnyValue::Categorical(_, _)
+        | AnyValue::CategoricalOwned(_, _)
+        | AnyValue::Enum(_, _)
+        | AnyValue::EnumOwned(_, _) => polars_value_type_t::PolarsValueTypeString,
+        inner => polars_value_type_t::from_dtype(&inner.dtype()),
+    }
 }
 
 #[no_mangle]
@@ -157,9 +166,10 @@ pub unsafe extern "C" fn polars_value_string_get(
     callback: IOCallback,
 ) -> *const polars_error_t {
     let mut w = UserIOCallback(callback, user);
-    let Err(err) = (match (*value).inner {
-        AnyValue::String(s) => w.write(s.as_bytes()),
-        _ => return make_error("value is not of type string"),
+    // get_str() also resolves Categorical/Enum values to their string representation.
+    let Err(err) = (match (*value).inner.get_str() {
+        Some(s) => w.write(s.as_bytes()),
+        None => return make_error("value is not of type string"),
     }) else {
         return std::ptr::null();
     };
@@ -189,6 +199,20 @@ pub unsafe extern "C" fn polars_value_datetime_get(
     match (*value).inner {
         AnyValue::Datetime(i, _, _) => *out = i,
         _ => return make_error("value is not of type datetime"),
+    }
+
+    return std::ptr::null();
+}
+
+/// Get the underlying int32 (days since UNIX epoch) for this date value.
+#[no_mangle]
+pub unsafe extern "C" fn polars_value_date_get(
+    value: *mut polars_value_t,
+    out: *mut i32,
+) -> *const polars_error_t {
+    match (*value).inner {
+        AnyValue::Date(i) => *out = i,
+        _ => return make_error("value is not of type date"),
     }
 
     return std::ptr::null();
