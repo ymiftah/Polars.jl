@@ -6,15 +6,17 @@
     base = DataFrame((; g = ["a", "a", "a", "b", "b"], v = [1, 2, 3, 4, 5]))
     lst = group_by(lazy(base), "g") |> x -> agg(x, implode(col("v"))) |> collect
 
-    r = select(lst, col("g"), Lists.max(col("v")) |> alias("max"),
-                    Lists.min(col("v")) |> alias("min"),
-                    Lists.sum(col("v")) |> alias("sum"),
-                    Lists.mean(col("v")) |> alias("mean"),
-                    Lists.first(col("v")) |> alias("first"),
-                    Lists.last(col("v")) |> alias("last"),
-                    Lists.reverse(col("v")) |> alias("rev"),
-                    Lists.arg_max(col("v")) |> alias("arg_max"),
-                    Lists.arg_min(col("v")) |> alias("arg_min"))
+    r = select(
+        lst, col("g"), Lists.max(col("v")) |> alias("max"),
+        Lists.min(col("v")) |> alias("min"),
+        Lists.sum(col("v")) |> alias("sum"),
+        Lists.mean(col("v")) |> alias("mean"),
+        Lists.first(col("v")) |> alias("first"),
+        Lists.last(col("v")) |> alias("last"),
+        Lists.reverse(col("v")) |> alias("rev"),
+        Lists.arg_max(col("v")) |> alias("arg_max"),
+        Lists.arg_min(col("v")) |> alias("arg_min")
+    )
     # group_by doesn't guarantee row order, so index results by group key (house convention)
     by_group(colname) = Dict(zip(r[:g], r[colname]))
     @test by_group(:max) == Dict("a" => 3, "b" => 5)

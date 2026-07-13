@@ -13,12 +13,16 @@ alleq(a, b) = length(a) == length(b) && all(isequal(a[i], b[i]) for i in eachind
 end
 
 @testset "parquet round-trip across dtypes" begin
-    df = DataFrame((; i = [1, 2, 3, missing],
-                      f = [1.5, 2.5, missing, 4.5],
-                      b = [true, false, true, missing],
-                      s = ["a", "b", missing, "d"],
-                      d = [Date(2024, 1, 1), Date(2024, 1, 2), missing, Date(2024, 1, 4)],
-                      dt = [DateTime(2024, 1, 1, 1), missing, DateTime(2024, 1, 1, 3), DateTime(2024, 1, 1, 4)]))
+    df = DataFrame(
+        (;
+            i = [1, 2, 3, missing],
+            f = [1.5, 2.5, missing, 4.5],
+            b = [true, false, true, missing],
+            s = ["a", "b", missing, "d"],
+            d = [Date(2024, 1, 1), Date(2024, 1, 2), missing, Date(2024, 1, 4)],
+            dt = [DateTime(2024, 1, 1, 1), missing, DateTime(2024, 1, 1, 3), DateTime(2024, 1, 1, 4)],
+        )
+    )
 
     path = write_temp_parquet(df)
     df2 = read_parquet(path)

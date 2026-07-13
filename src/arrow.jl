@@ -30,25 +30,25 @@ function ValidityMap(v)
     for i in eachindex(v)
         i -= 1
 
-        @inbounds if !ismissing(v[i+1])
+        @inbounds if !ismissing(v[i + 1])
             b |= 0x01 << (i % 8)
         end
 
         @inbounds if (i + 1) % 8 == 0
-            bits[1+i÷8] = b
+            bits[1 + i ÷ 8] = b
             nc += Base.count_zeros(b)
             b = 0x00
         end
     end
     rest != 0 && (@inbounds bits[end] = b; nc += Base.count_zeros(b) - (8 - rest))
 
-    ValidityMap(ℓ, nc, bits)
+    return ValidityMap(ℓ, nc, bits)
 end
 
 function isvalid(vm::ValidityMap, i)
     i -= 1
-    b = vm.data[1+i÷8]
-    Bool((b >> (i % 8)) & 0x01)
+    b = vm.data[1 + i ÷ 8]
+    return Bool((b >> (i % 8)) & 0x01)
 end
 
 """
@@ -69,25 +69,25 @@ function boolbitmap(v)
     for i in eachindex(v)
         i -= 1
 
-        @inbounds val = v[i+1]
+        @inbounds val = v[i + 1]
         @inbounds if !ismissing(val) && val
             b |= 0x01 << (i % 8)
         end
 
         @inbounds if (i + 1) % 8 == 0
-            bits[1+i÷8] = b
+            bits[1 + i ÷ 8] = b
             b = 0x00
         end
     end
     rest = ℓ % 8
     rest != 0 && (@inbounds bits[end] = b)
 
-    bits
+    return bits
 end
 
 function validitybuffer(vm::ValidityMap)
     iszero(vm.nc) && return Ptr{UInt8}(C_NULL)
-    pointer(vm.data)
+    return pointer(vm.data)
 end
 
 function parse_format(schema)
@@ -137,12 +137,14 @@ function parse_format(schema)
         )
         names_types = map(children) do schema
             schema = unsafe_load(schema)
-            (Symbol(unsafe_string(schema.name)),
-                parse_format(schema))
+            (
+                Symbol(unsafe_string(schema.name)),
+                parse_format(schema),
+            )
         end
         names = Tuple(first.(names_types))
         types = Tuple{last.(names_types)...}
-        return MaybeMissing{NamedTuple{names,types}}
+        return MaybeMissing{NamedTuple{names, types}}
     end
 
     # List but which are store as Series
@@ -155,12 +157,12 @@ function parse_format(schema)
         return MaybeMissing{Series{T}}
     end
 
-    if startswith(fmt, "+w") # Fixed size list 
+    if startswith(fmt, "+w") # Fixed size list
         @assert schema.n_children
         children = unsafe_load(schema.children) |> unsafe_load
         T = parse_format(children)
         N = parse(Int, fmt[4:end])
-        return MaybeMissing{NTuple{N,T}}
+        return MaybeMissing{NTuple{N, T}}
     end
 
     error("unknow schema format $fmt")
@@ -178,7 +180,7 @@ function load_series_schema(schema::CArrowSchema)
     schema_ref = Ref(schema)
     @ccall $(schema.release)(schema_ref::Ptr{CArrowSchema})::Cvoid
 
-    res
+    return res
 end
 
 """
@@ -202,7 +204,7 @@ function load_dataframe_schema(schema::CArrowSchema)
     schema_ref = Ref(schema)
     @ccall $(schema.release)(schema_ref::Ptr{CArrowSchema})::Cvoid
 
-    Tables.Schema(names, types)
+    return Tables.Schema(names, types)
 end
 
 """
@@ -213,10 +215,10 @@ A Julia managed ArrowSchema valid according to the arrow C data interface.
 mutable struct ArrowSchema
     format::String
     name::String
-    metadata::Union{Nothing,String}
+    metadata::Union{Nothing, String}
     flags::Int64
     children::Vector{ArrowSchema}
-    dictionary::Union{Nothing,ArrowSchema}
+    dictionary::Union{Nothing, ArrowSchema}
 
     children_pointers::Vector{Ptr{CArrowSchema}}
     carrow_schema::CArrowSchema
@@ -226,14 +228,14 @@ function release_schema!(schema)
     for child in schema.children
         delete!(LIVE_SCHEMAS, child)
     end
-    delete!(LIVE_SCHEMAS, schema)
+    return delete!(LIVE_SCHEMAS, schema)
 end
 
 function base_release_schema(schema_ptr::Ptr{CArrowSchema})
     cschema = unsafe_load(schema_ptr)
     schema = unsafe_pointer_to_objref(Ptr{ArrowSchema}(cschema.private_data))
     release_schema!(schema)
-    nothing
+    return nothing
 end
 
 function set_private_data!(schema::ArrowSchema)
@@ -251,13 +253,13 @@ function set_private_data!(schema::ArrowSchema)
     )
     @assert !haskey(LIVE_SCHEMAS, schema)
     LIVE_SCHEMAS[schema] = nothing
-    nothing
+    return nothing
 end
 
-function ArrowSchema(; format, name, metadata=nothing, flags=0, children=ArrowSchema[], dictionary=nothing)
+function ArrowSchema(; format, name, metadata = nothing, flags = 0, children = ArrowSchema[], dictionary = nothing)
     children_pointers = [
         Base.unsafe_convert(Ptr{CArrowSchema}, child)
-        for child in children
+            for child in children
     ]
     schema = ArrowSchema(
         format,
@@ -280,13 +282,13 @@ function ArrowSchema(; format, name, metadata=nothing, flags=0, children=ArrowSc
         )
     )
     set_private_data!(schema)
-    schema
+    return schema
 end
 
 function Base.unsafe_convert(::Type{Ptr{CArrowSchema}}, schema::ArrowSchema)
-    Ptr{CArrowSchema}(
+    return Ptr{CArrowSchema}(
         Ptr{UInt8}(Base.pointer_from_objref(schema)) +
-        fieldoffset(ArrowSchema, findfirst(==(:carrow_schema), fieldnames(ArrowSchema)))
+            fieldoffset(ArrowSchema, findfirst(==(:carrow_schema), fieldnames(ArrowSchema)))
     )
 end
 
@@ -325,7 +327,7 @@ format(::Type{Date}) = "tdD"
 mutable struct ArrowArray
     vm::ValidityMap
 
-    buffers::Vector{Union{Ptr,Vector}}
+    buffers::Vector{Union{Ptr, Vector}}
     buffer_ptrs::Vector{Ptr{UInt8}}
 
     children::Vector{ArrowArray}
@@ -338,7 +340,7 @@ function release_array!(array)
     for child in array.children
         delete!(LIVE_ARRAYS, child)
     end
-    delete!(LIVE_ARRAYS, array)
+    return delete!(LIVE_ARRAYS, array)
 end
 
 function base_release_array(carray_ptr::Ptr{CArrowArray})
@@ -346,7 +348,7 @@ function base_release_array(carray_ptr::Ptr{CArrowArray})
     array = unsafe_pointer_to_objref(Ptr{ArrowArray}(carray.private_data))
     release_array!(array)
 
-    nothing
+    return nothing
 end
 
 """
@@ -372,13 +374,17 @@ function set_private_data!(array::ArrowArray)
     @assert !haskey(LIVE_ARRAYS, array)
 
     LIVE_ARRAYS[array] = nothing
-    nothing
+    return nothing
 end
 
-function ArrowArray(vm::ValidityMap, buffers, children=[])
-    buffer_ptrs = [validitybuffer(vm),
-        (buffer isa Ptr ? Ptr{UInt8}(buffer) : Ptr{UInt8}(pointer(buffer))
-         for buffer in buffers)...]
+function ArrowArray(vm::ValidityMap, buffers, children = [])
+    buffer_ptrs = [
+        validitybuffer(vm),
+        (
+            buffer isa Ptr ? Ptr{UInt8}(buffer) : Ptr{UInt8}(pointer(buffer))
+                for buffer in buffers
+        )...,
+    ]
     children_ptrs = [Base.unsafe_convert(Ptr{CArrowArray}, children) for children in children]
 
     array = ArrowArray(
@@ -401,28 +407,28 @@ function ArrowArray(vm::ValidityMap, buffers, children=[])
         )
     )
     set_private_data!(array)
-    array
+    return array
 end
 
 Base.cconvert(::Type{CArrowArray}, array::ArrowArray) = array
 Base.unsafe_convert(::Type{CArrowArray}, array::ArrowArray) = array.carrow_array
 
 function Base.unsafe_convert(::Type{Ptr{CArrowArray}}, array::ArrowArray)
-    Ptr{CArrowArray}(
+    return Ptr{CArrowArray}(
         Ptr{UInt8}(Base.pointer_from_objref(array)) +
-        fieldoffset(ArrowArray, findfirst(==(:carrow_array), fieldnames(ArrowArray)))
+            fieldoffset(ArrowArray, findfirst(==(:carrow_array), fieldnames(ArrowArray)))
     )
 end
 
 "Holds references to the live schemas whose ownership has been given through ffi."
-const LIVE_SCHEMAS = IdDict{ArrowSchema,Nothing}()
+const LIVE_SCHEMAS = IdDict{ArrowSchema, Nothing}()
 
 "Holds references to the live arrays whose ownership has been given through ffi."
-const LIVE_ARRAYS = IdDict{ArrowArray,Nothing}()
+const LIVE_ARRAYS = IdDict{ArrowArray, Nothing}()
 
-arrowvector(v::Vector{T}) where {T<:PhysicalDType} =
+arrowvector(v::Vector{T}) where {T <: PhysicalDType} =
     ArrowArray(ValidityMap(v), [v], [])
-arrowvector(v::Vector{MaybeMissing{T}}) where {T<:PhysicalDType} =
+arrowvector(v::Vector{MaybeMissing{T}}) where {T <: PhysicalDType} =
     ArrowArray(ValidityMap(v), [v], [])
 
 # Bool is bit-packed in Arrow's "b" format, unlike the other PhysicalDType's fixed-width
@@ -432,22 +438,22 @@ arrowvector(v::Vector{Bool}) =
 arrowvector(v::Vector{MaybeMissing{Bool}}) =
     ArrowArray(ValidityMap(v), [boolbitmap(v)], [])
 
-function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{Dates.DateTime}}}
+function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{Dates.DateTime}}}
     # the timestamps are stored as the number of nanoseconds since 1970; missing entries are
     # mapped to a dummy 0 -- the validity bitmap (built from the same `v`) marks them null, so
     # the physical value underneath is never read back.
     values = map(d -> ismissing(d) ? zero(Int64) : Dates.Nanosecond(d - Dates.DateTime(1970, 01, 01)).value, v)
-    ArrowArray(ValidityMap(v), Vector[values])
+    return ArrowArray(ValidityMap(v), Vector[values])
 end
 
-function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{Dates.Date}}}
+function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{Dates.Date}}}
     # dates are stored as the number of days since 1970; see the DateTime method above for why
     # missing entries can be mapped to a dummy 0.
     values = map(d -> ismissing(d) ? zero(Int32) : Int32(Dates.value(d - Dates.Date(1970, 01, 01))), v)
-    ArrowArray(ValidityMap(v), Vector[values])
+    return ArrowArray(ValidityMap(v), Vector[values])
 end
 
-function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{String},String}}
+function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{String}, String}}
     byte_lengths = map(x -> ismissing(x) ? zero(UInt32) : UInt32(sizeof(x)), v)
 
     # The offsets buffer contains length + 1 signed integers (either 32-bit or 64-bit, depending on the logical type),
@@ -459,17 +465,19 @@ function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{String},String}}
     # Generally the first slot in the offsets array is 0, and the last slot is the length of the values array.
     # When serializing this layout, we recommend normalizing the offsets to start at 0.
     offsets[begin] = zero(UInt32)
-    @views cumsum!(offsets[begin+1:end], byte_lengths[begin:end])
+    @views cumsum!(offsets[(begin + 1):end], byte_lengths[begin:end])
 
     value_buffer = Vector{UInt8}(undef, sum(byte_lengths))
 
     for (i, s) in enumerate(v)
         ismissing(s) && continue
-        copyto!(@view(value_buffer[1+offsets[i]:offsets[i+1]]),
-            codeunits(s))
+        copyto!(
+            @view(value_buffer[(1 + offsets[i]):offsets[i + 1]]),
+            codeunits(s)
+        )
     end
 
-    ArrowArray(ValidityMap(v), Vector[offsets, value_buffer], [])
+    return ArrowArray(ValidityMap(v), Vector[offsets, value_buffer], [])
 end
 
 # Encodes the provided table to an ArrowArray
@@ -481,20 +489,22 @@ function arrowtable(table, table_name)
     tschema = Tables.schema(table)
 
     children = map(zip(tschema.names, tschema.types)) do (name, type)
-        ArrowSchema(; format=format(type), name=string(name))
+        ArrowSchema(; format = format(type), name = string(name))
     end
 
     schema = ArrowSchema(;
-        format="+s",
-        name=table_name,
+        format = "+s",
+        name = table_name,
         children
     )
 
     ℓ = Tables.rowcount(table)
-    array = ArrowArray(ValidityMap(ℓ, 0, UInt8[]), [], [
-        arrowvector(t)
-        for t in Tables.columns(table)
-    ])
+    array = ArrowArray(
+        ValidityMap(ℓ, 0, UInt8[]), [], [
+            arrowvector(t)
+                for t in Tables.columns(table)
+        ]
+    )
 
-    array, schema
+    return array, schema
 end

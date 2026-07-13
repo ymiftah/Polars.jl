@@ -18,14 +18,18 @@
 
     # multiple aggregations in one agg call
     result3 = group_by(lf, "fruits") |>
-        x -> agg(x, Polars.sum(col("A")) |> alias("sumA"),
-                    mean(col("B")) |> alias("meanB"),
-                    n_unique(col("cars")) |> alias("n_cars")) |>
+        x -> agg(
+        x, Polars.sum(col("A")) |> alias("sumA"),
+        mean(col("B")) |> alias("meanB"),
+        n_unique(col("cars")) |> alias("n_cars")
+    ) |>
         collect
-    by_fruit3 = Dict(result3[:fruits][i] =>
-        (result3[:sumA][i], result3[:meanB][i], result3[:n_cars][i]) for i in eachindex(result3[:fruits]))
-    @test by_fruit3["banana"] == (8, (5+4+1)/3, 2)
-    @test by_fruit3["apple"] == (7, (3+2)/2, 1)
+    by_fruit3 = Dict(
+        result3[:fruits][i] =>
+            (result3[:sumA][i], result3[:meanB][i], result3[:n_cars][i]) for i in eachindex(result3[:fruits])
+    )
+    @test by_fruit3["banana"] == (8, (5 + 4 + 1) / 3, 2)
+    @test by_fruit3["apple"] == (7, (3 + 2) / 2, 1)
 
     # null key grouping
     df_null = DataFrame((; key = ["a", "a", missing, missing, "b"], value = [1, 2, 3, 4, 5]))

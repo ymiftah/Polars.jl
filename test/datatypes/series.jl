@@ -28,8 +28,12 @@ end
 
     # Duration columns can't be constructed directly (no write-side arrow support for
     # Duration, unlike Date/DateTime), but arise naturally from datetime subtraction.
-    df_dt = DataFrame((; a = [DateTime(2024, 1, 1, 10, 0, 0), DateTime(2024, 1, 2, 0, 0, 0)],
-                         b = [DateTime(2024, 1, 1, 8, 0, 0), DateTime(2024, 1, 1, 0, 0, 0)]))
+    df_dt = DataFrame(
+        (;
+            a = [DateTime(2024, 1, 1, 10, 0, 0), DateTime(2024, 1, 2, 0, 0, 0)],
+            b = [DateTime(2024, 1, 1, 8, 0, 0), DateTime(2024, 1, 1, 0, 0, 0)],
+        )
+    )
     diffs = select(df_dt, (col("a") - col("b")) |> alias("diff"))[:diff]
     @test diffs[1] == Dates.Nanosecond(2 * 3600 * 1_000_000_000)
     @test diffs[2] == Dates.Nanosecond(24 * 3600 * 1_000_000_000)

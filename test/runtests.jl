@@ -3,6 +3,8 @@ using Polars, Test, Dates, Tables
 include("fixtures.jl")
 
 @testset "Polars.jl" begin
+    include("aqua.jl")
+
     include("dataframe/construction.jl")
     include("dataframe/gc.jl")
     include("dataframe/io.jl")

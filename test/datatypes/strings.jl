@@ -1,12 +1,14 @@
 @testset "Strings namespace" begin
     df = DataFrame((; names = ["John", "alice", "BOB"]))
 
-    r = select(df, col("names") |> Strings.lowercase |> alias("lower"),
-                   col("names") |> Strings.len_bytes |> alias("bytes"),
-                   col("names") |> Strings.len_chars |> alias("chars"),
-                   Strings.starts_with(col("names"), lit("J")) |> alias("startsJ"),
-                   Strings.ends_with(col("names"), lit("e")) |> alias("endsE"),
-                   Strings.contains_literal(col("names"), lit("li")) |> alias("hasli"))
+    r = select(
+        df, col("names") |> Strings.lowercase |> alias("lower"),
+        col("names") |> Strings.len_bytes |> alias("bytes"),
+        col("names") |> Strings.len_chars |> alias("chars"),
+        Strings.starts_with(col("names"), lit("J")) |> alias("startsJ"),
+        Strings.ends_with(col("names"), lit("e")) |> alias("endsE"),
+        Strings.contains_literal(col("names"), lit("li")) |> alias("hasli")
+    )
     @test r[:lower] == ["john", "alice", "bob"]
     @test r[:bytes] == [4, 5, 3]
     @test r[:chars] == [4, 5, 3]

@@ -2,16 +2,18 @@ module Polars
 
 import PrettyTables, Tables
 
-const MaybeMissing{T} = Union{T,Union{T,Missing}}
-const PhysicalDType = Union{Bool,Int8,Int16,Int32,Int64,UInt8,
-    UInt16,UInt32,UInt64,Float32,Float64}
+const MaybeMissing{T} = Union{T, Union{T, Missing}}
+const PhysicalDType = Union{
+    Bool, Int8, Int16, Int32, Int64, UInt8,
+    UInt16, UInt32, UInt64, Float32, Float64,
+}
 
 nomissing(::Type{MaybeMissing{T}}) where {T} = T
 nomissing(::Type{T}) where {T} = T
 
 "Internal function to write back to an IO from rustland"
 function _write_callback(user, data, len)
-    try
+    return try
         n = unsafe_write(user isa IO ? user : user[], data, len)
         Int(n)
     catch
@@ -46,7 +48,7 @@ mutable struct Series{T} <: AbstractVector{T}
 
         series = new{T}(ptr, null_count, len)
 
-        finalizer(polars_series_destroy, series)
+        return finalizer(polars_series_destroy, series)
     end
 end
 
@@ -58,9 +60,9 @@ a struct.
 """
 mutable struct Value{T}
     ptr::Ptr{polars_value_t}
-    parent::Union{Series,Value}
+    parent::Union{Series, Value}
 
-    Value{T}(ptr, parent=nothing) where {T} =
+    Value{T}(ptr, parent = nothing) where {T} =
         finalizer(polars_value_destroy, new{T}(ptr, parent))
 end
 
@@ -90,7 +92,7 @@ function version()
     out = Ref{Ptr{UInt8}}()
     len = polars_version(out)
     ver = unsafe_string(out[], len)
-    VersionNumber(ver)
+    return VersionNumber(ver)
 end
 
 function polars_error(err::Ptr{polars_error_t})
@@ -116,7 +118,7 @@ A wrapper around an immutable polars dataframe object.
 """
 function DataFrame(table)
     array, schema = Polars.arrowtable(table, "polars.dataframe")
-    try
+    return try
         df_ptr = API.polars_dataframe_new_from_carrow(schema, array)
         if df_ptr == C_NULL
             throw("something went wrong when creating dataframe; please report.")
@@ -130,7 +132,7 @@ end
 function Base.size(df::DataFrame)
     rows, cols = Ref{Csize_t}(), Ref{Csize_t}()
     API.polars_dataframe_size(df, rows, cols)
-    (Int(rows[]), Int(cols[]))
+    return (Int(rows[]), Int(cols[]))
 end
 
 Base.getindex(df::DataFrame, row_index, col_index) = getindex(getindex(df, col_index), row_index)
@@ -141,7 +143,7 @@ function Base.getindex(df::DataFrame, s::Symbol)
     out = Ref{Ptr{polars_series_t}}()
     err = polars_dataframe_get(df, s, length(s), out)
     polars_error(err)
-    Series(out[])
+    return Series(out[])
 end
 
 Base.unsafe_convert(::Type{Ptr{polars_dataframe_t}}, df::DataFrame) = df.ptr
@@ -164,7 +166,7 @@ See also [`collect`](@ref).
 """
 function lazy(df)
     out = polars_dataframe_lazy(df)
-    LazyFrame(out)
+    return LazyFrame(out)
 end
 
 """
@@ -173,12 +175,12 @@ end
 Materializes the lazy frame as a DataFrame.
 `engine` can be either `:default` (in-memory engine) or `:streaming`.
 """
-function Base.collect(df::LazyFrame; engine=:default)
+function Base.collect(df::LazyFrame; engine = :default)
     engine = engine === :default ? API.PolarsEngineInMemory : engine === :streaming ? API.PolarsEngineStreaming : error("unknown engine $engine, expected one of (:default, :streaming)")
     out = Ref{Ptr{polars_dataframe_t}}()
     err = polars_lazy_frame_collect(df, engine, out)
     polars_error(err)
-    DataFrame(out[])
+    return DataFrame(out[])
 end
 
 """
@@ -190,7 +192,7 @@ function read_parquet(path)
     out = Ref{Ptr{polars_dataframe_t}}()
     err = polars_dataframe_read_parquet(path, length(path), out)
     polars_error(err)
-    DataFrame(out[])
+    return DataFrame(out[])
 end
 
 """
@@ -204,7 +206,7 @@ function scan_parquet(path)
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = polars_lazy_frame_scan_parquet(path, length(path), out)
     polars_error(err)
-    LazyFrame(out[])
+    return LazyFrame(out[])
 end
 
 """
@@ -218,7 +220,7 @@ function write_parquet(io::IO, df::DataFrame)
     ref = Ref(io)
     err = polars_dataframe_write_parquet(df, ref, callback)
     polars_error(err)
-    nothing
+    return nothing
 end
 write_parquet(p::String, df::DataFrame) = open(io -> write_parquet(io, df), p, "w")
 
@@ -228,7 +230,7 @@ function _pretty_tables_highlighter_func(data, i::Integer, j::Integer)
     try
         cell = data[i, j]
         return ismissing(cell) ||
-               cell === nothing
+            cell === nothing
     catch e
         if isa(e, UndefRefError)
             return true
@@ -243,24 +245,27 @@ function Base.show(io::IO, df::DataFrame)
     # https://github.com/JuliaData/DataFrames.jl/blob/e341cc7873a08977cc8e4d56f28303883582c920/src/abstractdataframe/show.jl#L253-L279
     # Still needs some tuning/options
     format =
-        PrettyTables.TextTableFormat(; PrettyTables.@text__no_horizontal_lines,
-            PrettyTables.@text__no_vertical_lines,
-            ellipsis_line_skip=3,
-            horizontal_line_after_column_labels=true,
-            horizontal_line_before_summary_rows=true,
-            vertical_line_after_row_label_column=true,
-            vertical_line_after_row_number_column=true)
+        PrettyTables.TextTableFormat(;
+        PrettyTables.@text__no_horizontal_lines,
+        PrettyTables.@text__no_vertical_lines,
+        ellipsis_line_skip = 3,
+        horizontal_line_after_column_labels = true,
+        horizontal_line_before_summary_rows = true,
+        vertical_line_after_row_label_column = true,
+        vertical_line_after_row_number_column = true
+    )
 
-    PrettyTables.pretty_table(io, df;
-        alignment_anchor_fallback=:r,
-        title=Base.summary(df),
-        title_alignment=:l,
-        column_label_alignment=:l,
-        compact_printing=true,
-        maximum_data_column_widths=32,
-        vertical_crop_mode=:middle,
-        highlighters=[PrettyTables.TextHighlighter(_pretty_tables_highlighter_func, PrettyTables.Crayon(foreground=:dark_gray))],
-        table_format=format,
+    return PrettyTables.pretty_table(
+        io, df;
+        alignment_anchor_fallback = :r,
+        title = Base.summary(df),
+        title_alignment = :l,
+        column_label_alignment = :l,
+        compact_printing = true,
+        maximum_data_column_widths = 32,
+        vertical_crop_mode = :middle,
+        highlighters = [PrettyTables.TextHighlighter(_pretty_tables_highlighter_func, PrettyTables.Crayon(foreground = :dark_gray))],
+        table_format = format,
     )
 end
 
@@ -272,7 +277,7 @@ function _select!(df::LazyFrame, exprs::Vector)
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
         polars_lazy_frame_select(df, exprs_ptrs, length(exprs_ptrs))
     end
-    df
+    return df
 end
 
 """
@@ -321,7 +326,7 @@ function _with_columns!(df::LazyFrame, exprs::Vector)
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
         polars_lazy_frame_with_columns(df, exprs_ptrs, length(exprs_ptrs))
     end
-    df
+    return df
 end
 
 """
@@ -330,18 +335,18 @@ end
 
 Returns the first `n` rows of the frame.
 """
-head(df::LazyFrame, n=5) = _head!(clone(df), n)
-head(df::DataFrame, n=5) = _head!(lazy(df), n) |> collect
+head(df::LazyFrame, n = 5) = _head!(clone(df), n)
+head(df::DataFrame, n = 5) = _head!(lazy(df), n) |> collect
 
 
 function _head!(df::LazyFrame, n)
     polars_lazy_frame_head(df, n)
-    df
+    return df
 end
 
 function _filter!(df::LazyFrame, expr)
     polars_lazy_frame_filter(df, expr)
-    df
+    return df
 end
 
 """
@@ -355,7 +360,7 @@ Base.filter(df::DataFrame, expr) = _filter!(lazy(df), expr) |> collect
 
 function clone(df::LazyFrame)
     out = polars_lazy_frame_clone(df)
-    LazyFrame(out)
+    return LazyFrame(out)
 end
 
 innerjoin(a, b, expr) = innerjoin(a, b, expr, expr)
@@ -375,7 +380,7 @@ function innerjoin(a::LazyFrame, b::LazyFrame, exprs_a::Vector, exprs_b::Vector)
             exprs_b_ptr, length(exprs_b_ptr),
         )
     end
-    LazyFrame(out)
+    return LazyFrame(out)
 end
 
 """
@@ -407,7 +412,7 @@ function groupby(df::LazyFrame, exprs::Vector)
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
         out = polars_lazy_frame_group_by(df, exprs_ptrs, length(exprs_ptrs))
     end
-    LazyGroupBy(out)
+    return LazyGroupBy(out)
 end
 
 """
@@ -423,7 +428,7 @@ function agg(gb::LazyGroupBy, exprs::Vector)
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
         out = polars_lazy_group_by_agg(gb, exprs_ptrs, length(exprs_ptrs))
     end
-    LazyFrame(out)
+    return LazyFrame(out)
 end
 
 """
@@ -446,42 +451,42 @@ Returns a [`LazyGroupBy`](@ref) object for aggregation with [`agg`](@ref).
 - `start_by`: where to start the first window `:window_bound` (default), `:data_point`, or day-of-week `:monday`...`:sunday`
 """
 function group_by_dynamic(
-    df::LazyFrame,
-    index_column,
-    group_by::Vector = [];
-    every,
-    period = nothing,
-    offset = "0ns",
-    closed::Symbol = :left,
-    label::Symbol = :left,
-    include_boundaries::Bool = false,
-    start_by::Symbol = :window_bound,
-)
+        df::LazyFrame,
+        index_column,
+        group_by::Vector = [];
+        every,
+        period = nothing,
+        offset = "0ns",
+        closed::Symbol = :left,
+        label::Symbol = :left,
+        include_boundaries::Bool = false,
+        start_by::Symbol = :window_bound,
+    )
     index_expr = index_column isa String ? col(index_column) : index_column
     group_by = convert(Vector{Expr}, map(ex -> ex isa String ? col(ex) : ex, group_by))
     period = something(period, every)
 
     label_cenum = label === :left ? API.PolarsLabelLeft :
-                  label === :right ? API.PolarsLabelRight :
-                  label === :data_point ? API.PolarsLabelDataPoint :
-                  error("invalid label $label, expected :left, :right, or :data_point")
+        label === :right ? API.PolarsLabelRight :
+        label === :data_point ? API.PolarsLabelDataPoint :
+        error("invalid label $label, expected :left, :right, or :data_point")
 
     closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
-                   closed === :right ? API.PolarsClosedWindowRight :
-                   closed === :both ? API.PolarsClosedWindowBoth :
-                   closed === :none ? API.PolarsClosedWindowNone :
-                   error("invalid closed $closed, expected :left, :right, :both, or :none")
+        closed === :right ? API.PolarsClosedWindowRight :
+        closed === :both ? API.PolarsClosedWindowBoth :
+        closed === :none ? API.PolarsClosedWindowNone :
+        error("invalid closed $closed, expected :left, :right, :both, or :none")
 
     start_by_cenum = start_by === :window_bound ? API.PolarsStartByWindowBound :
-                     start_by === :data_point ? API.PolarsStartByDataPoint :
-                     start_by === :monday ? API.PolarsStartByMonday :
-                     start_by === :tuesday ? API.PolarsStartByTuesday :
-                     start_by === :wednesday ? API.PolarsStartByWednesday :
-                     start_by === :thursday ? API.PolarsStartByThursday :
-                     start_by === :friday ? API.PolarsStartByFriday :
-                     start_by === :saturday ? API.PolarsStartBySaturday :
-                     start_by === :sunday ? API.PolarsStartBySunday :
-                     error("invalid start_by $start_by")
+        start_by === :data_point ? API.PolarsStartByDataPoint :
+        start_by === :monday ? API.PolarsStartByMonday :
+        start_by === :tuesday ? API.PolarsStartByTuesday :
+        start_by === :wednesday ? API.PolarsStartByWednesday :
+        start_by === :thursday ? API.PolarsStartByThursday :
+        start_by === :friday ? API.PolarsStartByFriday :
+        start_by === :saturday ? API.PolarsStartBySaturday :
+        start_by === :sunday ? API.PolarsStartBySunday :
+        error("invalid start_by $start_by")
 
     GC.@preserve index_expr group_by begin
         group_by_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in group_by]
@@ -505,7 +510,7 @@ function group_by_dynamic(
         )
         polars_error(err)
     end
-    LazyGroupBy(out[])
+    return LazyGroupBy(out[])
 end
 
 """
@@ -522,21 +527,21 @@ Returns a [`LazyGroupBy`](@ref) object for aggregation with [`agg`](@ref).
 - `closed`: window closure `:left`, `:right` (default), `:both`, or `:none`
 """
 function rolling(
-    df::LazyFrame,
-    index_column,
-    group_by::Vector = [];
-    period,
-    offset = "0ns",
-    closed::Symbol = :right,
-)
+        df::LazyFrame,
+        index_column,
+        group_by::Vector = [];
+        period,
+        offset = "0ns",
+        closed::Symbol = :right,
+    )
     index_expr = index_column isa String ? col(index_column) : index_column
     group_by = convert(Vector{Expr}, map(ex -> ex isa String ? col(ex) : ex, group_by))
 
     closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
-                   closed === :right ? API.PolarsClosedWindowRight :
-                   closed === :both ? API.PolarsClosedWindowBoth :
-                   closed === :none ? API.PolarsClosedWindowNone :
-                   error("invalid closed $closed, expected :left, :right, :both, or :none")
+        closed === :right ? API.PolarsClosedWindowRight :
+        closed === :both ? API.PolarsClosedWindowBoth :
+        closed === :none ? API.PolarsClosedWindowNone :
+        error("invalid closed $closed, expected :left, :right, :both, or :none")
 
     GC.@preserve index_expr group_by begin
         group_by_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in group_by]
@@ -555,7 +560,7 @@ function rolling(
         )
         polars_error(err)
     end
-    LazyGroupBy(out[])
+    return LazyGroupBy(out[])
 end
 
 """
@@ -609,9 +614,9 @@ julia> sort(df, col("letters"); rev=true)
  missing
 ```
 """
-Base.sort(df::LazyFrame, exprs...; rev=false, stable=true, nulls_last=true) =
+Base.sort(df::LazyFrame, exprs...; rev = false, stable = true, nulls_last = true) =
     _sort!(clone(df), collect(exprs)::Vector, rev, stable, nulls_last)
-Base.sort(df::DataFrame, exprs...; rev=false, stable=true, nulls_last=true) =
+Base.sort(df::DataFrame, exprs...; rev = false, stable = true, nulls_last = true) =
     _sort!(lazy(df), collect(exprs)::Vector, rev, stable, nulls_last) |> collect
 
 function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
@@ -632,7 +637,7 @@ function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
         )
     end
 
-    df
+    return df
 end
 
 export Series, DataFrame,
@@ -653,7 +658,7 @@ function collect_schema(df::LazyFrame)
     out = Ref{CArrowSchema}()
     err = polars_lazy_frame_collect_schema(df, out)
     polars_error(err)
-    load_dataframe_schema(out[])
+    return load_dataframe_schema(out[])
 end
 
 ## Tables.jl interface
@@ -675,7 +680,7 @@ function schema(df::DataFrame)
         end
     end
 
-    Tables.Schema(names, types)
+    return Tables.Schema(names, types)
 end
 
 Tables.istable(::DataFrame) = true

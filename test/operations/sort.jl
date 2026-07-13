@@ -8,18 +8,18 @@
     @test s1[:idx] == [2, 5, 3, 1, 4]  # the two "a" rows (idx 2, 5) keep their relative order
 
     # descending
-    s2 = sort(df, col("letters"); rev=true)
+    s2 = sort(df, col("letters"); rev = true)
     @test collect(skipmissing(s2[:letters])) == ["c", "b", "a", "a"]
     @test ismissing(s2[:letters][end])  # nulls_last=true still applies regardless of rev
 
     # nulls_last=false
-    s3 = sort(df, col("letters"); nulls_last=false)
+    s3 = sort(df, col("letters"); nulls_last = false)
     @test ismissing(s3[:letters][1])
     @test collect(skipmissing(s3[:letters])) == ["a", "a", "b", "c"]
 
     # multi-column sort with a per-column rev vector
     df2 = DataFrame((; g = ["a", "a", "b", "b"], v = [2, 1, 4, 3]))
-    s4 = sort(df2, col("g"), col("v"); rev=[false, true])
+    s4 = sort(df2, col("g"), col("v"); rev = [false, true])
     @test s4[:g] == ["a", "a", "b", "b"]
     @test s4[:v] == [2, 1, 4, 3]
 

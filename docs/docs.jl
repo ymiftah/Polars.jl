@@ -6,11 +6,11 @@ using InteractiveUtils
 
 # ╔═╡ 402e585a-940e-4b8a-b88b-6056cb8da169
 # ╠═╡ show_logs = false
-import Pkg; Pkg.activate(temp=true)
+import Pkg; Pkg.activate(temp = true)
 
 # ╔═╡ 3612e7ca-ce1f-4674-b473-8f9f21b5391a
 # ╠═╡ show_logs = false
-Pkg.develop(url=joinpath(@__DIR__, "..")); Pkg.add("PlutoUI")
+Pkg.develop(url = joinpath(@__DIR__, "..")); Pkg.add("PlutoUI")
 
 # ╔═╡ 527c1a41-fb67-4642-b2d6-20369a3a00c3
 using Polars
@@ -41,11 +41,13 @@ Dataframes can be constructed from objects implementings the [Tables.jl](https:/
 """
 
 # ╔═╡ 0841cf66-c999-43af-84a8-5a4abfde68ba
-DataFrame((;
-	quantity = [1,         2,          missing      ],
-	price =    [1.2,       2.3,        4.5          ],
-	items =    ["eggs 🥚", "cheese 🧀", "tomatoes 🍅"],
-))
+DataFrame(
+    (;
+        quantity = [1, 2, missing],
+        price = [1.2, 2.3, 4.5],
+        items = ["eggs 🥚", "cheese 🧀", "tomatoes 🍅"],
+    )
+)
 
 # ╔═╡ 82f16419-11de-4055-8796-cc36aece3f8a
 md"""
@@ -79,19 +81,19 @@ md"""
 """
 
 # ╔═╡ 5b87268c-f807-445f-ba69-16b6774cfed1
-let df = DataFrame((; x = [1,2,3]))
+let df = DataFrame((; x = [1, 2, 3]))
 
-	# All operations on lazy_frame are recorded
-	# but are only materialized when the lazy frame
-	# is collected using `collect`.
-	lazy_frame = lazy(df)
+    # All operations on lazy_frame are recorded
+    # but are only materialized when the lazy frame
+    # is collected using `collect`.
+    lazy_frame = lazy(df)
 
-	# Manipulate lazy_frame
-	lazy_frame = select(lazy_frame, col("x") * 2)
-	lazy_frame = filter(lazy_frame, col("x") > 2.5)
+    # Manipulate lazy_frame
+    lazy_frame = select(lazy_frame, col("x") * 2)
+    lazy_frame = filter(lazy_frame, col("x") > 2.5)
 
-	# Collect the resulting lazy frame
-	collect(lazy_frame)
+    # Collect the resulting lazy frame
+    collect(lazy_frame)
 end
 
 # ╔═╡ 98292e8b-810a-44e3-834b-b6bfd6a184fb
@@ -103,18 +105,18 @@ md"""
 Docs.Binding(Polars, :select)
 
 # ╔═╡ 00b9020f-e05b-4e36-bee8-71da1ce7aeeb
-let df = DataFrame((; x=[1,2,3]))
-	select(df, (col("x") + 2) |> alias("x + 2"), col("*"))
+let df = DataFrame((; x = [1, 2, 3]))
+    select(df, (col("x") + 2) |> alias("x + 2"), col("*"))
 end
 
 # ╔═╡ f9459d17-b568-4b7c-b15a-7df28b1037d8
-let df = DataFrame((; x=[1,2,3]))
-	with_columns(df, (col("x") + 2) |> alias("x + 2"))
+let df = DataFrame((; x = [1, 2, 3]))
+    with_columns(df, (col("x") + 2) |> alias("x + 2"))
 end
 
 # ╔═╡ 79099779-5108-445a-87b7-ef1f9b253550
-let df = DataFrame((; x=[1,2,3]))
-	filter(df, col("x") > 1)
+let df = DataFrame((; x = [1, 2, 3]))
+    filter(df, col("x") > 1)
 end
 
 # ╔═╡ 659172c1-59b2-4176-97bc-263a6cc19f0a
@@ -202,38 +204,38 @@ md"""
 
 # ╔═╡ 28849b97-81a0-4bba-9254-5194c3488035
 function module_selector(base_module, mod)
-	isdefined(base_module, nameof(mod)) &&
-		getproperty(base_module, nameof(mod)) === mod ?
-		string(nameof(mod)) : module_selector(base_module, parentmodule(mod)) * "." * nameof(mod)
+    return isdefined(base_module, nameof(mod)) &&
+        getproperty(base_module, nameof(mod)) === mod ?
+        string(nameof(mod)) : module_selector(base_module, parentmodule(mod)) * "." * nameof(mod)
 end;
 
 # ╔═╡ bd9c684f-3668-4549-8ff8-a11c4f94a5fe
 begin
-	struct Binding
-		mod::Module
-		name::Symbol
-		sig::Any
-	end
-	Binding(mod, name) = Binding(mod, name, nothing);
-	
-	function Base.show(io::IO, ::MIME"text/html", b::Binding)
-		name = isdefined(@__MODULE__, b.name) &&
-			getproperty(@__MODULE__, b.name) === getproperty(b.mod, b.name) ?
-			b.name : string(module_selector(@__MODULE__, b.mod), ".", b.name)
+    struct Binding
+        mod::Module
+        name::Symbol
+        sig::Any
+    end
+    Binding(mod, name) = Binding(mod, name, nothing)
 
-		doc = Docs.meta(b.mod)[Docs.Binding(b.mod, b.name)].docs |>
-				values |> first
-		doc = first(doc.text) |> Markdown.parse
-		
-		docstring = repr(MIME"text/html"(), doc) 
-		r = """
-		<div class="pluto-docs-binding">
-		<span>$(name)</span>
-		$(docstring)
-		</div>
-		"""
-		write(io, r)
-	end
+    function Base.show(io::IO, ::MIME"text/html", b::Binding)
+        name = isdefined(@__MODULE__, b.name) &&
+            getproperty(@__MODULE__, b.name) === getproperty(b.mod, b.name) ?
+            b.name : string(module_selector(@__MODULE__, b.mod), ".", b.name)
+
+        doc = Docs.meta(b.mod)[Docs.Binding(b.mod, b.name)].docs |>
+            values |> first
+        doc = first(doc.text) |> Markdown.parse
+
+        docstring = repr(MIME"text/html"(), doc)
+        r = """
+        <div class="pluto-docs-binding">
+        <span>$(name)</span>
+        $(docstring)
+        </div>
+        """
+        return write(io, r)
+    end
 end
 
 # ╔═╡ b6eff110-9d21-4583-babc-eeafa5ea4749
@@ -268,22 +270,30 @@ Binding(Polars, :cast)
 
 # ╔═╡ 79d753e6-8d92-4030-9a98-a9da9dcaa244
 let
-	names = [:and, :not, :or, :mean, :median, :is_finite, :is_infinite, :is_nan, 			:is_null, :is_not_null, :drop_nans, :drop_nulls, :implode, :flatten,
-			 :nan_min, :nan_max, :arg_min, :arg_max]
-	Markdown.MD(map(names) do name
-		Markdown.Paragraph([Binding(Polars, name), Markdown.LineBreak()])
-	end)
+    names = [
+        :and, :not, :or, :mean, :median, :is_finite, :is_infinite, :is_nan, :is_null, :is_not_null, :drop_nans, :drop_nulls, :implode, :flatten,
+        :nan_min, :nan_max, :arg_min, :arg_max,
+    ]
+    Markdown.MD(
+        map(names) do name
+            Markdown.Paragraph([Binding(Polars, name), Markdown.LineBreak()])
+        end
+    )
 end
 
 # ╔═╡ 4f19cb30-d540-4f3a-986e-295a4f892e31
-Markdown.MD(map(filter(!=(:Lists), names(Lists))) do name
-	Markdown.Paragraph([Binding(Lists, name), Markdown.LineBreak()])
-end)
+Markdown.MD(
+    map(filter(!=(:Lists), names(Lists))) do name
+        Markdown.Paragraph([Binding(Lists, name), Markdown.LineBreak()])
+    end
+)
 
 # ╔═╡ 791fadd8-e5d5-408e-88ef-649791b2f0a5
-Markdown.MD(map(filter(!=(:Strings), names(Strings))) do name
-	Markdown.Paragraph([Binding(Strings, name), Markdown.LineBreak()])
-end)
+Markdown.MD(
+    map(filter(!=(:Strings), names(Strings))) do name
+        Markdown.Paragraph([Binding(Strings, name), Markdown.LineBreak()])
+    end
+)
 
 # ╔═╡ 231c0ac5-7b76-4735-a77c-a7572e707ab7
 Binding(Polars.Structs, :field_by_name)
@@ -298,7 +308,7 @@ Binding(Polars.Structs, :rename_fields)
 Binding(Polars, :version)
 
 # ╔═╡ a23e1e66-b71f-4ebd-87ad-82d0a08a1f98
-TableOfContents(include_definitions=true)
+TableOfContents(include_definitions = true)
 
 # ╔═╡ 54f08991-5fb4-4deb-a546-a11bdc2f0f49
 html"""

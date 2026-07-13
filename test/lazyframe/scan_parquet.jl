@@ -1,9 +1,13 @@
 @testset "scan_parquet" begin
     dir = mktempdir()
-    write_parquet(joinpath(mkpath(joinpath(dir, "year=2023")), "part.parquet"),
-                  DataFrame((; category = ["a", "b", "a", "b"], amount = [10, 20, 30, 40])))
-    write_parquet(joinpath(mkpath(joinpath(dir, "year=2024")), "part.parquet"),
-                  DataFrame((; category = ["a", "b", "a", "b"], amount = [100, 200, 300, 400])))
+    write_parquet(
+        joinpath(mkpath(joinpath(dir, "year=2023")), "part.parquet"),
+        DataFrame((; category = ["a", "b", "a", "b"], amount = [10, 20, 30, 40]))
+    )
+    write_parquet(
+        joinpath(mkpath(joinpath(dir, "year=2024")), "part.parquet"),
+        DataFrame((; category = ["a", "b", "a", "b"], amount = [100, 200, 300, 400]))
+    )
 
     lf = scan_parquet(dir)
     @test lf isa Polars.LazyFrame

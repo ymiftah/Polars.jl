@@ -1,18 +1,20 @@
 @testset "basic aggregations" begin
     df = DataFrame((; x = [1.0, 2.0, 3.0, 4.0]))
 
-    r = select(df, Polars.sum(col("x")) |> alias("sum"),
-                   # `product` collides with an unexported Base.product, so the macro that
-                   # generates these wrappers extends Base.product instead of defining
-                   # Polars.product -- unlike Polars.sum/min/max, it must be called as
-                   # Base.product since Polars re-exposes only Base's *exported* names.
-                   Base.product(col("x")) |> alias("product"),
-                   mean(col("x")) |> alias("mean"),
-                   median(col("x")) |> alias("median"),
-                   Polars.min(col("x")) |> alias("min"),
-                   Polars.max(col("x")) |> alias("max"),
-                   arg_min(col("x")) |> alias("arg_min"),
-                   arg_max(col("x")) |> alias("arg_max"))
+    r = select(
+        df, Polars.sum(col("x")) |> alias("sum"),
+        # `product` collides with an unexported Base.product, so the macro that
+        # generates these wrappers extends Base.product instead of defining
+        # Polars.product -- unlike Polars.sum/min/max, it must be called as
+        # Base.product since Polars re-exposes only Base's *exported* names.
+        Base.product(col("x")) |> alias("product"),
+        mean(col("x")) |> alias("mean"),
+        median(col("x")) |> alias("median"),
+        Polars.min(col("x")) |> alias("min"),
+        Polars.max(col("x")) |> alias("max"),
+        arg_min(col("x")) |> alias("arg_min"),
+        arg_max(col("x")) |> alias("arg_max")
+    )
     @test only(r[:sum]) == 10.0
     @test only(r[:product]) == 24.0
     @test only(r[:mean]) == 2.5
@@ -23,10 +25,12 @@
     @test only(r[:arg_max]) == 3
 
     df_dup = DataFrame((; x = [1, 2, 2, 3, 3, 3]))
-    r2 = select(df_dup, n_unique(col("x")) |> alias("n_unique"),
-                        Polars.count(col("x")) |> alias("count"),
-                        Polars.first(col("x")) |> alias("first"),
-                        Polars.last(col("x")) |> alias("last"))
+    r2 = select(
+        df_dup, n_unique(col("x")) |> alias("n_unique"),
+        Polars.count(col("x")) |> alias("count"),
+        Polars.first(col("x")) |> alias("first"),
+        Polars.last(col("x")) |> alias("last")
+    )
     @test only(r2[:n_unique]) == 3
     @test only(r2[:count]) == 6
     @test only(r2[:first]) == 1
@@ -45,20 +49,24 @@ end
 @testset "math functions" begin
     df = DataFrame((; x = [-1.5, 2.5, 0.0]))
 
-    r = select(df, Polars.floor(col("x")) |> alias("floor"),
-                   Polars.ceil(col("x")) |> alias("ceil"),
-                   Polars.abs(col("x")) |> alias("abs"))
+    r = select(
+        df, Polars.floor(col("x")) |> alias("floor"),
+        Polars.ceil(col("x")) |> alias("ceil"),
+        Polars.abs(col("x")) |> alias("abs")
+    )
     @test collect(r[:floor]) == [-2.0, 2.0, 0.0]
     @test collect(r[:ceil]) == [-1.0, 3.0, 0.0]
     @test collect(r[:abs]) == [1.5, 2.5, 0.0]
 
     trig = DataFrame((; x = [0.0, 1.0]))
-    rt = select(trig, Polars.cos(col("x")) |> alias("cos"),
-                      Polars.sin(col("x")) |> alias("sin"),
-                      Polars.tan(col("x")) |> alias("tan"),
-                      cosh(col("x")) |> alias("cosh"),
-                      sinh(col("x")) |> alias("sinh"),
-                      tanh(col("x")) |> alias("tanh"))
+    rt = select(
+        trig, Polars.cos(col("x")) |> alias("cos"),
+        Polars.sin(col("x")) |> alias("sin"),
+        Polars.tan(col("x")) |> alias("tan"),
+        cosh(col("x")) |> alias("cosh"),
+        sinh(col("x")) |> alias("sinh"),
+        tanh(col("x")) |> alias("tanh")
+    )
     @test collect(rt[:cos]) ≈ cos.([0.0, 1.0])
     @test collect(rt[:sin]) ≈ sin.([0.0, 1.0])
     @test collect(rt[:tan]) ≈ tan.([0.0, 1.0])
@@ -70,11 +78,13 @@ end
 @testset "null/nan predicates" begin
     df = DataFrame((; x = [1.0, Inf, NaN, missing]))
 
-    r = select(df, is_finite(col("x")) |> alias("fin"),
-                   is_infinite(col("x")) |> alias("inf"),
-                   is_nan(col("x")) |> alias("nan"),
-                   is_null(col("x")) |> alias("null"),
-                   is_not_null(col("x")) |> alias("notnull"))
+    r = select(
+        df, is_finite(col("x")) |> alias("fin"),
+        is_infinite(col("x")) |> alias("inf"),
+        is_nan(col("x")) |> alias("nan"),
+        is_null(col("x")) |> alias("null"),
+        is_not_null(col("x")) |> alias("notnull")
+    )
     @test collect(skipmissing(r[:fin])) == [true, false, false]
     @test collect(skipmissing(r[:inf])) == [false, true, false]
     @test collect(skipmissing(r[:nan])) == [false, false, true]

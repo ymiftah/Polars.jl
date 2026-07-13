@@ -12,7 +12,7 @@ function load_value(value::Value{T}) where {T <: PhysicalDType}
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     letter = T <: AbstractFloat ? "f" :
-             T <: Signed ? "i" : "u"
+        T <: Signed ? "i" : "u"
     name = T == Bool ? :polars_value_get_bool : Symbol("polars_value_get_", letter, 8sizeof(T))
     f = getproperty(API, name)
 
@@ -20,7 +20,7 @@ function load_value(value::Value{T}) where {T <: PhysicalDType}
     err = f(value, out)
     polars_error(err)
 
-    out[]
+    return out[]
 end
 
 function load_value(value::Value{String})
@@ -32,7 +32,7 @@ function load_value(value::Value{String})
     err = polars_value_string_get(value, io, callback)
     polars_error(err)
 
-    String(take!(io[]))
+    return String(take!(io[]))
 end
 
 function load_value(value::Value{Vector{UInt8}})
@@ -44,7 +44,7 @@ function load_value(value::Value{Vector{UInt8}})
     err = polars_value_binary_get(value, io, callback)
     polars_error(err)
 
-    take!(io[])
+    return take!(io[])
 end
 
 function load_value(value::Value{S}) where {S <: Series}
@@ -55,10 +55,10 @@ function load_value(value::Value{S}) where {S <: Series}
     err = polars_value_list_get(value, out)
     polars_error(err)
 
-    Series(out[])
+    return Series(out[])
 end
 
-function load_value(value::Value{NT}) where {NT<:NamedTuple}
+function load_value(value::Value{NT}) where {NT <: NamedTuple}
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     _, types = NT.parameters
@@ -80,10 +80,10 @@ function load_value(value::Value{NT}) where {NT<:NamedTuple}
         load_value(Value{T}(field_value, value))
     end
 
-    NT(field_values)
+    return NT(field_values)
 end
 
-function load_value(value::Value{TT}) where {TT<:Duration}
+function load_value(value::Value{TT}) where {TT <: Duration}
     v = Ref{Int64}()
     err = polars_value_duration_get(value.ptr, v)
     polars_error(err)
@@ -100,7 +100,7 @@ function load_value(value::Value{TT}) where {TT<:Duration}
     error("invalid duration")
 end
 
-function load_value(value::Value{TT}) where {TT<:Datetime}
+function load_value(value::Value{TT}) where {TT <: Datetime}
     v = Ref{Int64}()
     err = polars_value_datetime_get(value.ptr, v)
     polars_error(err)

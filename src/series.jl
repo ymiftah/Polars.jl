@@ -2,7 +2,7 @@ function Series(name, values)
     name = Symbol(name)
     table = NamedTuple((name => values,))
     df = DataFrame(table)
-    df[name]
+    return df[name]
 end
 
 Base.unsafe_convert(::Type{Ptr{polars_series_t}}, series::Series) = series.ptr
@@ -10,7 +10,7 @@ Base.unsafe_convert(::Type{Ptr{polars_series_t}}, series::Series) = series.ptr
 Base.size(series::Series) = (series.length,)
 Base.eltype(::Series{T}) where {T} = T
 
-function Base.getindex(series::Series{MT}, index) where {MT<:Union{MaybeMissing{Integer},MaybeMissing{AbstractFloat}}}
+function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissing{Integer}, MaybeMissing{AbstractFloat}}}
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -21,16 +21,16 @@ function Base.getindex(series::Series{MT}, index) where {MT<:Union{MaybeMissing{
     out = Ref{T}()
 
     letter = T <: AbstractFloat ? "f" :
-             T <: Signed ? "i" : "u"
+        T <: Signed ? "i" : "u"
     name = T == Bool ? :polars_series_get_bool : Symbol("polars_series_get_", letter, 8sizeof(T))
     f = getproperty(API, name)
 
     err = f(series, index, out)
     polars_error(err)
-    out[]
+    return out[]
 end
 
-function Base.getindex(series::Series{MT}, index) where {MT<:Union{MaybeMissing{Datetime},MaybeMissing{Duration},Datetime,Duration,MaybeMissing{Date},Date}}
+function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissing{Datetime}, MaybeMissing{Duration}, Datetime, Duration, MaybeMissing{Date}, Date}}
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -41,11 +41,11 @@ function Base.getindex(series::Series{MT}, index) where {MT<:Union{MaybeMissing{
 
     value_at_index = Value{T}(polars_series_get(series, index), series)
 
-    load_value(value_at_index)
+    return load_value(value_at_index)
 end
 
 
-function Base.getindex(series::Series{MT}, index) where {MT<:Union{MaybeMissing{Series},MaybeMissing{String},MaybeMissing{NamedTuple},MaybeMissing{Vector{UInt8}}}}
+function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissing{Series}, MaybeMissing{String}, MaybeMissing{NamedTuple}, MaybeMissing{Vector{UInt8}}}}
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -56,7 +56,7 @@ function Base.getindex(series::Series{MT}, index) where {MT<:Union{MaybeMissing{
 
     value_at_index = Value{T}(polars_series_get(series, index), series)
 
-    load_value(value_at_index)
+    return load_value(value_at_index)
 end
 
 """
@@ -67,5 +67,5 @@ Returns the name of this polars series.
 function name(series)
     ptr = Ref{Ptr{UInt8}}()
     len = polars_series_name(series, ptr)
-    unsafe_string(ptr[], len)
+    return unsafe_string(ptr[], len)
 end

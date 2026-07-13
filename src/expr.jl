@@ -15,46 +15,46 @@ end
 
 Base.unsafe_convert(::Type{Ptr{polars_expr_t}}, expr::Expr) = expr.ptr
 
-Base.promote_rule(::Type{Expr}, ::Type{T}) where {T<:PhysicalDType} = Expr
+Base.promote_rule(::Type{Expr}, ::Type{T}) where {T <: PhysicalDType} = Expr
 
 Base.convert(::Type{Expr}, ::Colon) = col("*")
 function Base.convert(::Type{Expr}, v::Int32)
     out = polars_expr_literal_i32(v)
-    Expr(out)
+    return Expr(out)
 end
 function Base.convert(::Type{Expr}, v::Int64)
     out = polars_expr_literal_i64(v)
-    Expr(out)
+    return Expr(out)
 end
 function Base.convert(::Type{Expr}, v::UInt32)
     out = polars_expr_literal_u32(v)
-    Expr(out)
+    return Expr(out)
 end
 function Base.convert(::Type{Expr}, v::UInt64)
     out = polars_expr_literal_u64(v)
-    Expr(out)
+    return Expr(out)
 end
 function Base.convert(::Type{Expr}, v::Bool)
     out = polars_expr_literal_bool(v)
-    Expr(out)
+    return Expr(out)
 end
 function Base.convert(::Type{Expr}, f::Float32)
     out = polars_expr_literal_f32(f)
-    Expr(out)
+    return Expr(out)
 end
 function Base.convert(::Type{Expr}, f::Float64)
     out = polars_expr_literal_f64(f)
-    Expr(out)
+    return Expr(out)
 end
 function Base.convert(::Type{Expr}, ::Missing)
     out = polars_expr_literal_null()
-    Expr(out)
+    return Expr(out)
 end
 function Base.convert(::Type{Expr}, s::String)
     out = Ref{Ptr{polars_expr_t}}()
     err = polars_expr_literal_utf8(s, length(s), out)
     polars_error(err)
-    Expr(out[])
+    return Expr(out[])
 end
 
 Base.:(==)(a::Expr, b::Expr) = eq(a, b)
@@ -155,7 +155,7 @@ Transforms a literal value as an expression which will broadcast when used with 
 expressions.
 """
 function lit(v)
-    convert(Expr, v)
+    return convert(Expr, v)
 end
 
 """
@@ -196,7 +196,7 @@ function cast(expr, dtype)
     end
 
     casted = API.polars_expr_cast(expr, value_type)
-    Expr(casted)
+    return Expr(casted)
 end
 cast(dtype) = Base.Fix2(cast, dtype)
 
@@ -238,13 +238,15 @@ macro generate_expr_fns(ex)
 
             Refer to [the polars documentation]($rust_doc_url).
             """
-            push!(out.args, quote
-                Docs.@doc $docstring $(QuoteNode(fname))
-            end)
+            push!(
+                out.args, quote
+                    Docs.@doc $docstring $(QuoteNode(fname))
+                end
+            )
             push!(out.args, :(export $fname))
         end
     end
-    esc(out)
+    return esc(out)
 end
 
 # We just copy the rust code here and generate functions on the fly.
@@ -307,90 +309,90 @@ end
 end
 
 module Lists
-using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
+    using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
 
-@generate_expr_fns begin
-    gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths)
-    gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max)
-    gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min)
-    gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max)
-    gen_impl_expr_list!(polars_expr_list_arg_min, ListNameSpace::arg_min)
-    gen_impl_expr_list!(polars_expr_list_sum, ListNameSpace::sum)
-    gen_impl_expr_list!(polars_expr_list_mean, ListNameSpace::mean)
-    gen_impl_expr_list!(polars_expr_list_reverse, ListNameSpace::reverse)
-    gen_impl_expr_list!(polars_expr_list_unique, ListNameSpace::unique)
-    gen_impl_expr_list!(polars_expr_list_unique_stable, ListNameSpace::unique_stable)
-    gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first)
-    gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last)
+    @generate_expr_fns begin
+        gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths)
+        gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max)
+        gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min)
+        gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max)
+        gen_impl_expr_list!(polars_expr_list_arg_min, ListNameSpace::arg_min)
+        gen_impl_expr_list!(polars_expr_list_sum, ListNameSpace::sum)
+        gen_impl_expr_list!(polars_expr_list_mean, ListNameSpace::mean)
+        gen_impl_expr_list!(polars_expr_list_reverse, ListNameSpace::reverse)
+        gen_impl_expr_list!(polars_expr_list_unique, ListNameSpace::unique)
+        gen_impl_expr_list!(polars_expr_list_unique_stable, ListNameSpace::unique_stable)
+        gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first)
+        gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last)
 
-    gen_impl_expr_binary_list!(polars_expr_list_get, ListNameSpace::get)
-    gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head)
-    gen_impl_expr_binary_list!(polars_expr_list_contains, ListNameSpace::contains)
-end
+        gen_impl_expr_binary_list!(polars_expr_list_get, ListNameSpace::get)
+        gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head)
+        gen_impl_expr_binary_list!(polars_expr_list_contains, ListNameSpace::contains)
+    end
 end # module Lists
 
 module Strings
-using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
+    using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
 
-@generate_expr_fns begin
-    gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase)
-    gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase)
-    gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::titlecase)
-    gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes)
-    gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars)
-    # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
+    @generate_expr_fns begin
+        gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase)
+        gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase)
+        gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::titlecase)
+        gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes)
+        gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars)
+        # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
-    gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with)
-    gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with)
-    gen_impl_expr_binary_str!(
-        polars_expr_str_contains_literal,
-        StringNameSpace::contains_literal
-    )
-end
+        gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with)
+        gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with)
+        gen_impl_expr_binary_str!(
+            polars_expr_str_contains_literal,
+            StringNameSpace::contains_literal
+        )
+    end
 end # module Strings
 
 module Structs
-using ..Polars: Expr, API
+    using ..Polars: Expr, API
 
-"""
-    field_by_name(expr::Polars.Expr, name::String)::Polars.Expr
-    field_by_name(name::String)::Base.Fix2{typeof(field_by_name), String}
+    """
+        field_by_name(expr::Polars.Expr, name::String)::Polars.Expr
+        field_by_name(name::String)::Base.Fix2{typeof(field_by_name), String}
 
-Returns a new series corresponding to values of the selected field.
-"""
-function field_by_name(expr, name)
-    field = API.polars_expr_struct_field_by_name(expr, name, length(name))
-    Expr(field)
-end
-field_by_name(name) = Base.Fix2(field_by_name, name)
+    Returns a new series corresponding to values of the selected field.
+    """
+    function field_by_name(expr, name)
+        field = API.polars_expr_struct_field_by_name(expr, name, length(name))
+        return Expr(field)
+    end
+    field_by_name(name) = Base.Fix2(field_by_name, name)
 
-"""
-    field_by_index(expr::Polars.Expr, index::Integer)::Polars.Expr
-    field_by_index(index::Integer)::Base.Fix2{typeof(field_by_index), Integer}
+    """
+        field_by_index(expr::Polars.Expr, index::Integer)::Polars.Expr
+        field_by_index(index::Integer)::Base.Fix2{typeof(field_by_index), Integer}
 
-Returns a new series corresponding to values of the selected field.
-"""
-function field_by_index(expr, fieldidx)
-    field = API.polars_expr_struct_field_by_index(expr, fieldidx)
-    Expr(field)
-end
-field_by_index(fieldidx) = Base.Fix2(field_by_index, fieldidx)
+    Returns a new series corresponding to values of the selected field.
+    """
+    function field_by_index(expr, fieldidx)
+        field = API.polars_expr_struct_field_by_index(expr, fieldidx)
+        return Expr(field)
+    end
+    field_by_index(fieldidx) = Base.Fix2(field_by_index, fieldidx)
 
-"""
-    rename_fields(expr::Polars.Expr, new_names::Vector{String})::Polars.Expr
-    rename_fields(new_names::Vector{String})::Base.Fix2{typeof(rename_fields), Vector{String}}
+    """
+        rename_fields(expr::Polars.Expr, new_names::Vector{String})::Polars.Expr
+        rename_fields(new_names::Vector{String})::Base.Fix2{typeof(rename_fields), Vector{String}}
 
-Renames the fields of the struct series with the provided new names.
-"""
-function rename_fields(expr, new_names)
-    new_names = convert(Vector{String}, new_names)
-    new_struct = API.polars_expr_struct_rename_fields(expr, new_names, length.(new_names), length(new_names))
-    @assert new_struct != C_NULL "failed to rename fields"
-    Expr(new_struct)
-end
-rename_fields(new_names) = Base.Fix2(rename_fields, new_names)
+    Renames the fields of the struct series with the provided new names.
+    """
+    function rename_fields(expr, new_names)
+        new_names = convert(Vector{String}, new_names)
+        new_struct = API.polars_expr_struct_rename_fields(expr, new_names, length.(new_names), length(new_names))
+        @assert new_struct != C_NULL "failed to rename fields"
+        return Expr(new_struct)
+    end
+    rename_fields(new_names) = Base.Fix2(rename_fields, new_names)
 
-export field_by_name, field_by_index, rename_fields
+    export field_by_name, field_by_index, rename_fields
 
 end # module Structs
 
