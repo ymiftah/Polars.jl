@@ -54,6 +54,13 @@ that would otherwise need to panic; a Rust panic unwinding across `extern "C"` i
 fallible parse *must* go through this out-param + error-pointer convention instead of an
 API that panics.
 
+**Missing Cargo features are a live version of this danger, not just a hypothetical.** Several
+polars-core/-expr functions (`Series::product`, nan-propagating min/max, others) compile to a bare
+`panic!("activate 'X' feature")` when their feature isn't enabled — calling them crashes the whole
+Julia process, not a catchable Julia error. Before wrapping or exercising a function for the first
+time, scan for these across the vendored crates and cross-check against `c-polars/Cargo.toml`'s
+feature list: `grep -rn "activate .* feature" ~/.cargo/registry/src/*/polars-*-<version>/src/`.
+
 **Passing collections/strings across the boundary:**
 - `Vec<Expr>`-shaped args (used by `select`, `filter`, `group_by`, `agg`, `sort`, and any future
   operation taking a column-expression list) are passed as `*const *const polars_expr_t` + a
@@ -98,8 +105,11 @@ neighboring entries.
    the new path, run it, and inspect the actual result — this repo's existing test suite has gaps
    (whole operations have shipped with zero coverage before), so don't assume something works
    because it compiles.
-8. **Add a test** to `test/runtests.jl`. There are no committed data fixtures — tests that need
-   parquet/file input generate it on the fly (e.g. via `write_parquet` into a `mktempdir()`).
+8. **Add a test** under the matching `test/<category>/*.jl` file (`dataframe/`, `lazyframe/`,
+   `operations/`, `expr/`, `datatypes/` — mirrors py-polars' layout; `test/runtests.jl` just
+   `include`s them all). Reuse `test/fixtures.jl`'s sample-data builders where the shape fits.
+   There are no committed data fixtures — tests that need parquet/file input generate it on the
+   fly (e.g. via `write_parquet` into a `mktempdir()`, see `write_temp_parquet` in fixtures.jl).
 9. **Persist any multi-step implementation plan in-repo** under `plans/` (not only the ephemeral
    `~/.claude/plans/` scratch file) so a future session can pick it up.
 
@@ -115,3 +125,22 @@ trust `cargo tree` alone if you suspect a phantom feature is active.
 
 Header regeneration via `cbindgen` (which does need nightly + a working `cargo expand`) is opt-in
 via `CBINDGEN_GENERATE=1`; default builds skip it entirely (see "hand-maintained" note above).
+
+**A running Julia session does not pick up a `cargo build` rebuild** — the native `.so` is already
+mapped in; re-running `using Polars` is a no-op. Restart the session (Kaimon: `manage_repl` with
+`command="restart"`) after every `c-polars` rebuild before testing the change.
+
+## Known sharp edges
+
+- **`src/arrow.jl` has no write-side support for List or Struct columns.** `DataFrame(table)` can't
+  construct a column from `Vector{Vector{T}}` or `Vector{<:NamedTuple}` — only scalar/fixed-width
+  types, `String`, `Date`, `DateTime` have an `arrowvector` method. List data can still be obtained
+  via `implode`/`group_by`; Struct data currently has no pure-Julia construction path at all.
+- **`Series{Datetime{Res}}`/`Series{Duration{Res}}` don't support `collect()` or broadcasting** —
+  the declared `eltype` is the internal wrapper type, but `getindex` returns a plain
+  `Dates.DateTime`/`Period`, so the generic `Base.collect` path throws `MethodError`. Use direct
+  indexing (`s[i]`) or `isequal` comparisons instead.
+- **`@generate_expr_fns` qualifies by `isdefined(Base, fname)`, not `isexported`** — a few generated
+  functions (e.g. `product`) collide with an *unexported* Base binding, so `Polars.product` never
+  resolves; call `Base.product(expr)` directly. If a generated wrapper seems to vanish, check
+  `isdefined(Base, :fname)`.
