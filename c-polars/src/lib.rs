@@ -31,7 +31,7 @@ pub unsafe extern "C" fn polars_version(out: *mut *const u8) -> usize {
 
 /// The callback provided for display functions, returns -1 on error.
 type IOCallback =
-    unsafe extern "cdecl" fn(user: *const c_void, data: *const u8, len: usize) -> isize;
+    unsafe extern "C" fn(user: *const c_void, data: *const u8, len: usize) -> isize;
 
 pub struct polars_error_t {
     msg: String,
@@ -174,7 +174,8 @@ pub unsafe extern "C" fn polars_dataframe_new_from_series(
         .enumerate()
         .map(|(i, s)| Column::new(format!("column_{i}").into(), (**s).inner.clone()))
         .collect();
-    let df = match DataFrame::new(series) {
+    let height = series.first().map_or(0, |s| s.len());
+    let df = match DataFrame::new(height, series) {
         Ok(df) => df,
         Err(err) => return make_error(err),
     };
@@ -275,13 +276,9 @@ pub unsafe extern "C" fn polars_dataframe_get(
     };
 
     let df = &(*df).inner;
-    let mut series = match df.select([PlSmallStr::from_str(name).to_owned()]) {
-        Ok(series) => series,
+    let column = match df.column(name) {
+        Ok(column) => column,
         Err(err) => return make_error(err),
-    };
-
-    let Some(column) = series.pop() else {
-        return make_error(format!("dataframe has not column {name}"));
     };
 
     *out = series::make_series(column.as_materialized_series().clone());
@@ -326,7 +323,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
         Err(err) => return make_error(err),
     };
 
-    match LazyFrame::scan_parquet(PlPath::new(path), ScanArgsParquet::default()) {
+    match LazyFrame::scan_parquet(PlRefPath::new(path), ScanArgsParquet::default()) {
         Ok(lf) => {
             *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
             std::ptr::null()
@@ -441,7 +438,7 @@ pub unsafe extern "C" fn polars_lazy_frame_collect(
         PolarsEngine::PolarsEngineStreaming => Engine::Streaming,
     };
     *out = make_dataframe(match df.collect_with_engine(engine) {
-        Ok(value) => value,
+        Ok(value) => value.unwrap_single(),
         Err(err) => return make_error(err),
     });
     std::ptr::null()

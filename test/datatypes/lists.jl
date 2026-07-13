@@ -42,10 +42,19 @@
     @test sort(collect(only(r2[:u]))) == [1, 2]
     @test collect(only(r2[:us])) == [1, 2]
 
-    # lengths/get/contains are referenced on the Julia side (Lists module) but their Rust
-    # implementations are commented out in c-polars/src/expr.rs (no feature-gate reason given,
-    # unlike Strings.titlecase) -- so no ccall binding exists for any of the three.
-    @test_broken select(lst, Lists.lengths(col("v"))) isa Any
-    @test_broken select(lst, Lists.get(col("v"), lit(0))) isa Any
-    @test_broken select(lst, Lists.contains(col("v"), lit(1))) isa Any
+    r3 = select(
+        lst, col("g"),
+        Lists.lengths(col("v")) |> alias("len"),
+        Lists.get(col("v"), lit(0)) |> alias("get0"),
+        Lists.get(col("v"), lit(99); null_on_oob=true) |> alias("get_oob"),
+        Lists.contains(col("v"), lit(2)) |> alias("has2"),
+    )
+    by_group3(colname) = Dict(zip(r3[:g], r3[colname]))
+    @test by_group3(:len) == Dict("a" => 3, "b" => 2)
+    @test by_group3(:get0) == Dict("a" => 1, "b" => 4)
+    @test all(ismissing, values(by_group3(:get_oob)))
+    @test by_group3(:has2) == Dict("a" => true, "b" => false)
+
+    # `get` errors (rather than returning null) on an out-of-bounds index by default.
+    @test_throws Exception collect(select(lst, Lists.get(col("v"), lit(99))))
 end

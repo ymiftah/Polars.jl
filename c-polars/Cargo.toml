@@ -10,7 +10,13 @@ crate-type = ["cdylib"]
 [build-dependencies]
 cbindgen = "0.29.0"
 
+[features]
+# Off by default: to_titlecase needs a nightly rustc (upstream still depends on unstable std
+# internals for this as of polars 0.54.4), which this repo's rust-toolchain pin deliberately
+# avoids. Left as a real, opt-in feature for anyone building with their own nightly toolchain.
+nightly = ["polars-plan/nightly"]
+
 [dependencies]
-polars-core = "0.51.0"
-polars-plan = "0.51.0"
-polars = { version = "0.51.0", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans"] }
+polars-core = "0.54.4"
+polars-plan = "0.54.4"
+polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in"] }

@@ -517,6 +517,10 @@ function polars_expr_div(a, b)
     return @ccall libpolars.polars_expr_div(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_list_lengths(a)
+    return @ccall libpolars.polars_expr_list_lengths(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_list_max(a)
     return @ccall libpolars.polars_expr_list_max(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -561,8 +565,16 @@ function polars_expr_list_last(a)
     return @ccall libpolars.polars_expr_list_last(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_list_get(a, index, null_on_oob)
+    return @ccall libpolars.polars_expr_list_get(a::Ptr{polars_expr_t}, index::Ptr{polars_expr_t}, null_on_oob::Bool)::Ptr{polars_expr_t}
+end
+
 function polars_expr_list_head(a, b)
     return @ccall libpolars.polars_expr_list_head(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_contains(a, other, nulls_equal)
+    return @ccall libpolars.polars_expr_list_contains(a::Ptr{polars_expr_t}, other::Ptr{polars_expr_t}, nulls_equal::Bool)::Ptr{polars_expr_t}
 end
 
 function polars_expr_str_to_uppercase(a)

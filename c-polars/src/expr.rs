@@ -189,8 +189,21 @@ gen_impl_expr!(polars_expr_null_count, Expr::null_count);
 gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans);
 gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls);
 
-gen_impl_expr!(polars_expr_implode, Expr::implode);
-gen_impl_expr!(polars_expr_flatten, Expr::flatten);
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_implode(expr: *const polars_expr_t) -> *const polars_expr_t {
+    let expr = &(*expr).inner;
+    make_expr(expr.clone().implode(true))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_flatten(expr: *const polars_expr_t) -> *const polars_expr_t {
+    let expr = &(*expr).inner;
+    make_expr(expr.clone().explode(ExplodeOptions {
+        empty_as_null: true,
+        keep_nulls: true,
+    }))
+}
+
 gen_impl_expr!(polars_expr_reverse, Expr::reverse);
 
 macro_rules! gen_impl_expr_binary {
@@ -231,16 +244,32 @@ macro_rules! gen_impl_expr_list {
     };
 }
 
-// gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths);
+gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::len);
 gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max);
 gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min);
 gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max);
 gen_impl_expr_list!(polars_expr_list_arg_min, ListNameSpace::arg_min);
 gen_impl_expr_list!(polars_expr_list_sum, ListNameSpace::sum);
 gen_impl_expr_list!(polars_expr_list_mean, ListNameSpace::mean);
-gen_impl_expr_list!(polars_expr_list_reverse, ListNameSpace::reverse);
-gen_impl_expr_list!(polars_expr_list_unique, ListNameSpace::unique);
-gen_impl_expr_list!(polars_expr_list_unique_stable, ListNameSpace::unique_stable);
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_reverse(a: *const polars_expr_t) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().eval(element().reverse());
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_unique(a: *const polars_expr_t) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().eval(element().unique());
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_unique_stable(
+    a: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().eval(element().unique_stable());
+    make_expr(expr)
+}
 gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first);
 gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last);
 
@@ -257,9 +286,35 @@ macro_rules! gen_impl_expr_binary_list {
     };
 }
 
-// gen_impl_expr_binary_list!(polars_expr_list_get, ListNameSpace::get);
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_get(
+    a: *const polars_expr_t,
+    index: *const polars_expr_t,
+    null_on_oob: bool,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .get((*index).inner.clone(), null_on_oob);
+    make_expr(expr)
+}
+
 gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head);
-// gen_impl_expr_binary_list!(polars_expr_list_contains, ListNameSpace::contains);
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_contains(
+    a: *const polars_expr_t,
+    other: *const polars_expr_t,
+    nulls_equal: bool,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .contains((*other).inner.clone(), nulls_equal);
+    make_expr(expr)
+}
 
 macro_rules! gen_impl_expr_str {
     ($n: ident, $t: expr) => {
@@ -273,7 +328,7 @@ macro_rules! gen_impl_expr_str {
 
 gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::to_uppercase);
 gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::to_lowercase);
-#[cfg(nightly)]
+#[cfg(feature = "nightly")]
 gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::to_titlecase);
 gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes);
 gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars);

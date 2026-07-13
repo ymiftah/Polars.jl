@@ -377,6 +377,8 @@ const struct polars_expr_t *polars_expr_mul(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_div(const struct polars_expr_t *a,
                                             const struct polars_expr_t *b);
 
+const struct polars_expr_t *polars_expr_list_lengths(const struct polars_expr_t *a);
+
 const struct polars_expr_t *polars_expr_list_max(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_list_min(const struct polars_expr_t *a);
@@ -399,8 +401,16 @@ const struct polars_expr_t *polars_expr_list_first(const struct polars_expr_t *a
 
 const struct polars_expr_t *polars_expr_list_last(const struct polars_expr_t *a);
 
+const struct polars_expr_t *polars_expr_list_get(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *index,
+                                                 bool null_on_oob);
+
 const struct polars_expr_t *polars_expr_list_head(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_list_contains(const struct polars_expr_t *a,
+                                                       const struct polars_expr_t *other,
+                                                       bool nulls_equal);
 
 const struct polars_expr_t *polars_expr_str_to_uppercase(const struct polars_expr_t *a);
 

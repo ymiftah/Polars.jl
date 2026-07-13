@@ -325,10 +325,33 @@ module Lists
         gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first)
         gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last)
 
-        gen_impl_expr_binary_list!(polars_expr_list_get, ListNameSpace::get)
         gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head)
-        gen_impl_expr_binary_list!(polars_expr_list_contains, ListNameSpace::contains)
     end
+
+    """
+        get(expr::Polars.Expr, index::Polars.Expr; null_on_oob::Bool=false)::Polars.Expr
+
+    Get items in every sublist by index. If `null_on_oob` is `false` (default), an
+    out-of-bounds index raises an error; if `true`, it returns `null` instead (more
+    expensive, per the polars documentation).
+    """
+    function get(expr::Expr, index::Expr; null_on_oob::Bool = false)
+        out = API.polars_expr_list_get(expr, index, null_on_oob)
+        return Expr(out)
+    end
+
+    """
+        contains(expr::Polars.Expr, other::Polars.Expr; nulls_equal::Bool=true)::Polars.Expr
+
+    Check if the list array contains an element. If `nulls_equal` is `true` (default),
+    `null` values are considered equal for the containment check.
+    """
+    function contains(expr::Expr, other::Expr; nulls_equal::Bool = true)
+        out = API.polars_expr_list_contains(expr, other, nulls_equal)
+        return Expr(out)
+    end
+
+    export get, contains
 end # module Lists
 
 module Strings
