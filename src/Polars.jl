@@ -258,6 +258,23 @@ function write_csv(io::IO, df::DataFrame)
 end
 write_csv(p::String, df::DataFrame) = open(io -> write_csv(io, df), p, "w")
 
+"""
+    sink_parquet(lf::LazyFrame, path::String)
+    sink_parquet(df::DataFrame, path::String)
+
+Executes the query and writes the result directly to a parquet file via the streaming engine,
+without materializing the full result in memory — suitable for out-of-core processing of
+datasets larger than RAM.
+"""
+sink_parquet(df::DataFrame, path::String) = sink_parquet(lazy(df), path)
+function sink_parquet(lf::LazyFrame, path::String)
+    out = Ref{Ptr{polars_lazy_frame_t}}()
+    err = polars_lazy_frame_sink_parquet(lf, path, length(path), out)
+    polars_error(err)
+    collect(LazyFrame(out[]); engine = :streaming)
+    return nothing
+end
+
 Base.summary(df::DataFrame) = join(size(df), '×') * " DataFrame"
 
 function _pretty_tables_highlighter_func(data, i::Integer, j::Integer)
@@ -376,6 +393,185 @@ head(df::DataFrame, n = 5) = _head!(lazy(df), n) |> collect
 function _head!(df::LazyFrame, n)
     polars_lazy_frame_head(df, n)
     return df
+end
+
+"""
+    tail(lf::LazyFrame, n)::LazyFrame
+    tail(df::DataFrame, n)::DataFrame
+
+Returns the last `n` rows of the frame.
+"""
+Base.tail(df::LazyFrame, n = 5) = _tail!(clone(df), n)
+Base.tail(df::DataFrame, n = 5) = _tail!(lazy(df), n) |> collect
+
+function _tail!(df::LazyFrame, n)
+    polars_lazy_frame_tail(df, n)
+    return df
+end
+
+"""Builds `(ptrs, lens)` pointer/length arrays for a `Vector{String}`, to pass across the C ABI
+under `GC.@preserve names`."""
+_name_ptrs(names::Vector{String}) =
+    (Ptr{UInt8}[pointer(s) for s in names], Csize_t[ncodeunits(s) for s in names])
+
+"""
+    unique(lf::LazyFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::LazyFrame
+    unique(df::DataFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::DataFrame
+
+Removes duplicate rows, considering only `subset` columns if provided (all columns otherwise).
+`keep` selects which duplicate to retain: `:first`, `:last`, `:none` (drop all duplicates), or
+`:any` (default — no order guarantee, allows more optimization).
+"""
+Base.unique(df::DataFrame, subset::Vector{String} = String[]; keep::Symbol = :any) =
+    unique(lazy(df), subset; keep) |> collect
+function Base.unique(lf::LazyFrame, subset::Vector{String} = String[]; keep::Symbol = :any)
+    keep_enum = if keep == :first
+        API.PolarsUniqueKeepFirst
+    elseif keep == :last
+        API.PolarsUniqueKeepLast
+    elseif keep == :none
+        API.PolarsUniqueKeepNone
+    elseif keep == :any
+        API.PolarsUniqueKeepAny
+    else
+        error("unknown keep strategy $keep, expected one of (:first, :last, :none, :any)")
+    end
+    GC.@preserve subset begin
+        ptrs, lens = _name_ptrs(subset)
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_unique(lf, ptrs, lens, length(ptrs), keep_enum, out)
+        polars_error(err)
+    end
+    return LazyFrame(out[])
+end
+
+"""
+    drop(lf::LazyFrame, columns::Vector{String})::LazyFrame
+    drop(df::DataFrame, columns::Vector{String})::DataFrame
+
+Removes the given columns from the frame.
+"""
+drop(df::DataFrame, columns::Vector{String}) = drop(lazy(df), columns) |> collect
+function drop(lf::LazyFrame, columns::Vector{String})
+    GC.@preserve columns begin
+        ptrs, lens = _name_ptrs(columns)
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_drop(lf, ptrs, lens, length(ptrs), out)
+        polars_error(err)
+    end
+    return LazyFrame(out[])
+end
+
+"""
+    rename(lf::LazyFrame, existing::Vector{String}, new::Vector{String}; strict::Bool=true)::LazyFrame
+    rename(df::DataFrame, existing::Vector{String}, new::Vector{String}; strict::Bool=true)::DataFrame
+
+Renames `existing` columns to the corresponding `new` names (same length, paired by position).
+If `strict` is `true` (default), every `existing` column must be present; otherwise, missing
+ones are silently ignored.
+"""
+Base.rename(df::DataFrame, existing::Vector{String}, new::Vector{String}; strict::Bool = true) =
+    Base.rename(lazy(df), existing, new; strict) |> collect
+function Base.rename(lf::LazyFrame, existing::Vector{String}, new::Vector{String}; strict::Bool = true)
+    length(existing) == length(new) || error("existing and new must have the same length")
+    GC.@preserve existing new begin
+        existing_ptrs, existing_lens = _name_ptrs(existing)
+        new_ptrs, new_lens = _name_ptrs(new)
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_rename(
+            lf, existing_ptrs, existing_lens, new_ptrs, new_lens, length(existing_ptrs), strict, out
+        )
+        polars_error(err)
+    end
+    return LazyFrame(out[])
+end
+
+"""
+    drop_nulls(lf::LazyFrame, subset::Vector{String}=String[])::LazyFrame
+    drop_nulls(df::DataFrame, subset::Vector{String}=String[])::DataFrame
+
+Removes rows containing a `null` in any of the `subset` columns (all columns if not provided).
+"""
+drop_nulls(df::DataFrame, subset::Vector{String} = String[]) = drop_nulls(lazy(df), subset) |> collect
+function drop_nulls(lf::LazyFrame, subset::Vector{String} = String[])
+    GC.@preserve subset begin
+        ptrs, lens = _name_ptrs(subset)
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_drop_nulls(lf, ptrs, lens, length(ptrs), out)
+        polars_error(err)
+    end
+    return LazyFrame(out[])
+end
+
+"""
+    with_row_index(lf::LazyFrame, name::String="index"; offset::Integer=0)::LazyFrame
+    with_row_index(df::DataFrame, name::String="index"; offset::Integer=0)::DataFrame
+
+Adds a row-index column named `name`, starting at `offset` (default `0`).
+"""
+with_row_index(df::DataFrame, name::String = "index"; offset::Integer = 0) =
+    with_row_index(lazy(df), name; offset) |> collect
+function with_row_index(lf::LazyFrame, name::String = "index"; offset::Integer = 0)
+    out = Ref{Ptr{polars_lazy_frame_t}}()
+    err = polars_lazy_frame_with_row_index(lf, name, length(name), Int64(offset), true, out)
+    polars_error(err)
+    return LazyFrame(out[])
+end
+
+"""
+    explode(lf::LazyFrame, columns::Vector{String})::LazyFrame
+    explode(df::DataFrame, columns::Vector{String})::DataFrame
+
+Explodes list-typed `columns`, turning each list element into its own row (other columns are
+repeated to match).
+"""
+explode(df::DataFrame, columns::Vector{String}) = explode(lazy(df), columns) |> collect
+function explode(lf::LazyFrame, columns::Vector{String})
+    GC.@preserve columns begin
+        ptrs, lens = _name_ptrs(columns)
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_explode(lf, ptrs, lens, length(ptrs), out)
+        polars_error(err)
+    end
+    return LazyFrame(out[])
+end
+
+"""
+    unpivot(lf::LazyFrame, index::Vector{String}; on::Vector{String}=String[],
+            variable_name=nothing, value_name=nothing)::LazyFrame
+    unpivot(df::DataFrame, index::Vector{String}; on::Vector{String}=String[],
+            variable_name=nothing, value_name=nothing)::DataFrame
+
+Unpivots (melts) `on` columns (all non-`index` columns if not provided) from wide to long
+format: `index` columns are repeated, and the melted columns become two new columns —
+`variable_name` (default `"variable"`) holding the original column name, and `value_name`
+(default `"value"`) holding its value.
+"""
+function unpivot(
+        df::DataFrame, index::Vector{String};
+        on::Vector{String} = String[], variable_name::Union{Nothing, String} = nothing,
+        value_name::Union{Nothing, String} = nothing
+    )
+    return unpivot(lazy(df), index; on, variable_name, value_name) |> collect
+end
+function unpivot(
+        lf::LazyFrame, index::Vector{String};
+        on::Vector{String} = String[], variable_name::Union{Nothing, String} = nothing,
+        value_name::Union{Nothing, String} = nothing
+    )
+    variable_name = something(variable_name, "")
+    value_name = something(value_name, "")
+    GC.@preserve index on begin
+        index_ptrs, index_lens = _name_ptrs(index)
+        on_ptrs, on_lens = _name_ptrs(on)
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_unpivot(
+            lf, index_ptrs, index_lens, length(index_ptrs), on_ptrs, on_lens, length(on_ptrs),
+            variable_name, length(variable_name), value_name, length(value_name), out
+        )
+        polars_error(err)
+    end
+    return LazyFrame(out[])
 end
 
 function _filter!(df::LazyFrame, expr)
@@ -775,9 +971,10 @@ end
 export Series, DataFrame,
     select, with_columns, head, collect_schema,
     read_parquet, write_parquet, scan_parquet,
-    read_csv, write_csv, scan_csv,
+    read_csv, write_csv, scan_csv, sink_parquet,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
-    innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof
+    innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
+    drop, with_row_index, explode, unpivot
 
 """
     collect_schema(lf::LazyFrame)::Tables.Schema

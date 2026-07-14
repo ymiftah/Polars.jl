@@ -374,6 +374,38 @@ end
 export clip
 
 """
+    replace(expr::Polars.Expr, old, new)::Polars.Expr
+
+Replaces values equal to `old` with the corresponding `new` value (`old`/`new` are typically
+list-typed expressions built via [`Lists.implode`](@ref)/[`implode`](@ref) for multi-value
+mappings). Values not found in `old` are left unchanged. Extends `Base.replace` — `isdefined(Base,
+:replace)` is `true`, matching the `Base.diff`/`Base.round`/`Base.log` precedent.
+"""
+function Base.replace(expr::Expr, old, new)
+    old = convert(Expr, old)
+    new = convert(Expr, new)
+    out = API.polars_expr_replace(expr, old, new)
+    return Expr(out)
+end
+
+"""
+    replace_strict(expr::Polars.Expr, old, new; default=nothing)::Polars.Expr
+
+Like [`replace`](@ref), but values not found in `old` become `null` unless `default` is given,
+in which case they take that value instead.
+"""
+function replace_strict(expr::Expr, old, new; default = nothing)
+    old = convert(Expr, old)
+    new = convert(Expr, new)
+    default_expr = default === nothing ? nothing : convert(Expr, default)
+    default_ptr = default_expr === nothing ? C_NULL : default_expr.ptr
+    out = GC.@preserve default_expr API.polars_expr_replace_strict(expr, old, new, default_ptr)
+    return Expr(out)
+end
+
+export replace_strict
+
+"""
     std(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
 Standard deviation of the values, with `ddof` degrees of freedom subtracted (defaults to

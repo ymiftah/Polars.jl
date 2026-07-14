@@ -110,6 +110,13 @@ typedef enum polars_asof_strategy_t {
   PolarsAsofStrategyNearest,
 } polars_asof_strategy_t;
 
+typedef enum polars_unique_keep_t {
+  PolarsUniqueKeepFirst,
+  PolarsUniqueKeepLast,
+  PolarsUniqueKeepNone,
+  PolarsUniqueKeepAny,
+} polars_unique_keep_t;
+
 typedef struct polars_dataframe_t polars_dataframe_t;
 
 typedef struct polars_error_t polars_error_t;
@@ -195,6 +202,11 @@ const struct polars_error_t *polars_lazy_frame_scan_parquet(const uint8_t *path,
 const struct polars_error_t *polars_lazy_frame_scan_csv(const uint8_t *path,
                                                         uintptr_t pathlen,
                                                         struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_sink_parquet(struct polars_lazy_frame_t *lf,
+                                                            const uint8_t *path,
+                                                            uintptr_t pathlen,
+                                                            struct polars_lazy_frame_t **out);
 
 void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,
                             const struct polars_expr_t *const *exprs,
@@ -283,6 +295,62 @@ const struct polars_error_t *polars_lazy_frame_join_asof(struct polars_lazy_fram
                                                          uintptr_t by_b_len,
                                                          enum polars_asof_strategy_t strategy,
                                                          struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_unique(struct polars_lazy_frame_t *lf,
+                                                      const uint8_t *const *names,
+                                                      const uintptr_t *lens,
+                                                      uintptr_t n,
+                                                      enum polars_unique_keep_t keep,
+                                                      struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_drop(struct polars_lazy_frame_t *lf,
+                                                    const uint8_t *const *names,
+                                                    const uintptr_t *lens,
+                                                    uintptr_t n,
+                                                    struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_rename(struct polars_lazy_frame_t *lf,
+                                                      const uint8_t *const *existing,
+                                                      const uintptr_t *existing_lens,
+                                                      const uint8_t *const *new_,
+                                                      const uintptr_t *new_lens,
+                                                      uintptr_t n,
+                                                      bool strict,
+                                                      struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_drop_nulls(struct polars_lazy_frame_t *lf,
+                                                          const uint8_t *const *names,
+                                                          const uintptr_t *lens,
+                                                          uintptr_t n,
+                                                          struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_with_row_index(struct polars_lazy_frame_t *lf,
+                                                              const uint8_t *name,
+                                                              uintptr_t name_len,
+                                                              int64_t offset,
+                                                              bool has_offset,
+                                                              struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_explode(struct polars_lazy_frame_t *lf,
+                                                       const uint8_t *const *names,
+                                                       const uintptr_t *lens,
+                                                       uintptr_t n,
+                                                       struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_unpivot(struct polars_lazy_frame_t *lf,
+                                                       const uint8_t *const *index_names,
+                                                       const uintptr_t *index_lens,
+                                                       uintptr_t n_index,
+                                                       const uint8_t *const *on_names,
+                                                       const uintptr_t *on_lens,
+                                                       uintptr_t n_on,
+                                                       const uint8_t *variable_name,
+                                                       uintptr_t variable_name_len,
+                                                       const uint8_t *value_name,
+                                                       uintptr_t value_name_len,
+                                                       struct polars_lazy_frame_t **out);
+
+void polars_lazy_frame_tail(struct polars_lazy_frame_t *df, uintptr_t n);
 
 void polars_lazy_group_by_destroy(const struct polars_lazy_group_by_t *gb);
 
@@ -412,6 +480,15 @@ const struct polars_expr_t *polars_expr_round(const struct polars_expr_t *expr,
 const struct polars_expr_t *polars_expr_clip(const struct polars_expr_t *expr,
                                              const struct polars_expr_t *min,
                                              const struct polars_expr_t *max);
+
+const struct polars_expr_t *polars_expr_replace(const struct polars_expr_t *expr,
+                                                const struct polars_expr_t *old,
+                                                const struct polars_expr_t *new_);
+
+const struct polars_expr_t *polars_expr_replace_strict(const struct polars_expr_t *expr,
+                                                       const struct polars_expr_t *old,
+                                                       const struct polars_expr_t *new_,
+                                                       const struct polars_expr_t *default_);
 
 const struct polars_expr_t *polars_expr_n_unique(const struct polars_expr_t *expr);
 

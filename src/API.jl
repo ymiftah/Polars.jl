@@ -144,6 +144,13 @@ end
     PolarsAsofStrategyNearest = 2
 end
 
+@cenum polars_unique_keep_t::UInt32 begin
+    PolarsUniqueKeepFirst = 0
+    PolarsUniqueKeepLast = 1
+    PolarsUniqueKeepNone = 2
+    PolarsUniqueKeepAny = 3
+end
+
 mutable struct polars_dataframe_t end
 
 mutable struct polars_error_t end
@@ -250,6 +257,10 @@ function polars_lazy_frame_scan_csv(path, pathlen, out)
     return @ccall libpolars.polars_lazy_frame_scan_csv(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
+function polars_lazy_frame_sink_parquet(lf, path, pathlen, out)
+    return @ccall libpolars.polars_lazy_frame_sink_parquet(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
 function polars_lazy_frame_sort(df, exprs, nexprs, descending, nulls_last, maintain_order)
     return @ccall libpolars.polars_lazy_frame_sort(df::Ptr{polars_lazy_frame_t}, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t, descending::Ptr{Bool}, nulls_last::Bool, maintain_order::Bool)::Cvoid
 end
@@ -272,6 +283,10 @@ end
 
 function polars_lazy_frame_head(df, n)
     return @ccall libpolars.polars_lazy_frame_head(df::Ptr{polars_lazy_frame_t}, n::Csize_t)::Cvoid
+end
+
+function polars_lazy_frame_tail(df, n)
+    return @ccall libpolars.polars_lazy_frame_tail(df::Ptr{polars_lazy_frame_t}, n::Csize_t)::Cvoid
 end
 
 function polars_lazy_frame_collect(df, engine, out)
@@ -307,6 +322,34 @@ end
 
 function polars_lazy_frame_join_asof(a, b, on_a, on_b, by_a, by_a_lens, by_a_len, by_b, by_b_lens, by_b_len, strategy, out)
     return @ccall libpolars.polars_lazy_frame_join_asof(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, on_a::Ptr{polars_expr_t}, on_b::Ptr{polars_expr_t}, by_a::Ptr{Ptr{UInt8}}, by_a_lens::Ptr{Csize_t}, by_a_len::Csize_t, by_b::Ptr{Ptr{UInt8}}, by_b_lens::Ptr{Csize_t}, by_b_len::Csize_t, strategy::polars_asof_strategy_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_unique(lf, names, lens, n, keep, out)
+    return @ccall libpolars.polars_lazy_frame_unique(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, keep::polars_unique_keep_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_drop(lf, names, lens, n, out)
+    return @ccall libpolars.polars_lazy_frame_drop(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_rename(lf, existing, existing_lens, new_, new_lens, n, strict, out)
+    return @ccall libpolars.polars_lazy_frame_rename(lf::Ptr{polars_lazy_frame_t}, existing::Ptr{Ptr{UInt8}}, existing_lens::Ptr{Csize_t}, new_::Ptr{Ptr{UInt8}}, new_lens::Ptr{Csize_t}, n::Csize_t, strict::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_drop_nulls(lf, names, lens, n, out)
+    return @ccall libpolars.polars_lazy_frame_drop_nulls(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_with_row_index(lf, name, name_len, offset, has_offset, out)
+    return @ccall libpolars.polars_lazy_frame_with_row_index(lf::Ptr{polars_lazy_frame_t}, name::Ptr{UInt8}, name_len::Csize_t, offset::Int64, has_offset::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_explode(lf, names, lens, n, out)
+    return @ccall libpolars.polars_lazy_frame_explode(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_unpivot(lf, index_names, index_lens, n_index, on_names, on_lens, n_on, variable_name, variable_name_len, value_name, value_name_len, out)
+    return @ccall libpolars.polars_lazy_frame_unpivot(lf::Ptr{polars_lazy_frame_t}, index_names::Ptr{Ptr{UInt8}}, index_lens::Ptr{Csize_t}, n_index::Csize_t, on_names::Ptr{Ptr{UInt8}}, on_lens::Ptr{Csize_t}, n_on::Csize_t, variable_name::Ptr{UInt8}, variable_name_len::Csize_t, value_name::Ptr{UInt8}, value_name_len::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_group_by_destroy(gb)
@@ -507,6 +550,14 @@ end
 
 function polars_expr_clip(expr, min, max)
     return @ccall libpolars.polars_expr_clip(expr::Ptr{polars_expr_t}, min::Ptr{polars_expr_t}, max::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_replace(expr, old, new_)
+    return @ccall libpolars.polars_expr_replace(expr::Ptr{polars_expr_t}, old::Ptr{polars_expr_t}, new_::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_replace_strict(expr, old, new_, default_)
+    return @ccall libpolars.polars_expr_replace_strict(expr::Ptr{polars_expr_t}, old::Ptr{polars_expr_t}, new_::Ptr{polars_expr_t}, default_::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_n_unique(expr)

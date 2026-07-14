@@ -3,6 +3,7 @@
 
 use std::ffi::c_void;
 use std::io::Write;
+use std::sync::Arc;
 
 use polars::prelude::*;
 use polars_core::utils::{
@@ -14,7 +15,8 @@ use polars_core::utils::{
     rayon::iter::{self, ParallelIterator},
 };
 use polars_plan::utils::expr_output_name;
-use polars_plan::dsl::{DslBuilder, ScanSources, UnifiedScanArgs};
+use polars_plan::dsl::{DslBuilder, ScanSources, UnifiedScanArgs, FileWriteFormat};
+use polars_plan::dsl::sink::{SinkDestination, SinkTarget, UnifiedSinkArgs};
 use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t};
 
 mod expr;
@@ -42,6 +44,36 @@ fn make_error<E: ToString>(err: E) -> *const polars_error_t {
     Box::into_raw(Box::new(polars_error_t {
         msg: err.to_string(),
     }))
+}
+
+/// Reads a `(ptrs, lens, n)` triple of UTF-8 byte slices into a `Vec<PlSmallStr>`, the shared
+/// convention for passing plain column-name lists (as opposed to `Vec<Expr>`) across the C ABI.
+unsafe fn read_names(
+    ptrs: *const *const u8,
+    lens: *const usize,
+    n: usize,
+) -> Result<Vec<PlSmallStr>, std::str::Utf8Error> {
+    let ptrs = std::slice::from_raw_parts(ptrs, n);
+    let lens = std::slice::from_raw_parts(lens, n);
+    ptrs.iter()
+        .zip(lens.iter())
+        .map(|(&p, &len)| {
+            std::str::from_utf8(std::slice::from_raw_parts(p, len)).map(PlSmallStr::from_str)
+        })
+        .collect()
+}
+
+/// Builds a `Selector::ByName` from a name list, or `None` if the list is empty (matching the
+/// "no subset specified" convention several LazyFrame methods use for `Option<Selector>`).
+fn selector_by_name_opt(names: Vec<PlSmallStr>, strict: bool) -> Option<Selector> {
+    if names.is_empty() {
+        None
+    } else {
+        Some(Selector::ByName {
+            names: names.into(),
+            strict,
+        })
+    }
 }
 
 #[no_mangle]
@@ -372,6 +404,30 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
 
     let lf = LazyFrame::from(builder.build());
     *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
+    lf: *mut polars_lazy_frame_t,
+    path: *const u8,
+    pathlen: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
+        Ok(p) => p,
+        Err(err) => return make_error(err),
+    };
+    let lf = (*lf).inner.clone();
+    let sink_type = SinkDestination::File {
+        target: SinkTarget::Path(PlRefPath::new(path)),
+    };
+    let file_format = FileWriteFormat::Parquet(Arc::new(ParquetWriteOptions::default()));
+    let sunk = match lf.sink(sink_type, file_format, UnifiedSinkArgs::default()) {
+        Ok(sunk) => sunk,
+        Err(err) => return make_error(err),
+    };
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: sunk }));
     std::ptr::null()
 }
 
@@ -732,17 +788,6 @@ pub unsafe extern "C" fn polars_lazy_frame_join_asof(
     strategy: polars_asof_strategy_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let read_names = |ptrs: *const *const u8, lens: *const usize, n: usize| -> Result<Vec<PlSmallStr>, std::str::Utf8Error> {
-        let ptrs = std::slice::from_raw_parts(ptrs, n);
-        let lens = std::slice::from_raw_parts(lens, n);
-        ptrs.iter()
-            .zip(lens.iter())
-            .map(|(&p, &len)| {
-                std::str::from_utf8(std::slice::from_raw_parts(p, len)).map(PlSmallStr::from_str)
-            })
-            .collect()
-    };
-
     let left_by = match read_names(by_a, by_a_lens, by_a_len) {
         Ok(names) => names,
         Err(err) => return make_error(err),
@@ -775,10 +820,219 @@ pub unsafe extern "C" fn polars_lazy_frame_join_asof(
     std::ptr::null()
 }
 
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_unique_keep_t {
+    PolarsUniqueKeepFirst,
+    PolarsUniqueKeepLast,
+    PolarsUniqueKeepNone,
+    PolarsUniqueKeepAny,
+}
+
+impl polars_unique_keep_t {
+    fn to_keep_strategy(&self) -> UniqueKeepStrategy {
+        match self {
+            polars_unique_keep_t::PolarsUniqueKeepFirst => UniqueKeepStrategy::First,
+            polars_unique_keep_t::PolarsUniqueKeepLast => UniqueKeepStrategy::Last,
+            polars_unique_keep_t::PolarsUniqueKeepNone => UniqueKeepStrategy::None,
+            polars_unique_keep_t::PolarsUniqueKeepAny => UniqueKeepStrategy::Any,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_unique(
+    lf: *mut polars_lazy_frame_t,
+    names: *const *const u8,
+    lens: *const usize,
+    n: usize,
+    keep: polars_unique_keep_t,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let names = match read_names(names, lens, n) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let subset = selector_by_name_opt(names, true);
+    let result = (*lf).inner.clone().unique(subset, keep.to_keep_strategy());
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_drop(
+    lf: *mut polars_lazy_frame_t,
+    names: *const *const u8,
+    lens: *const usize,
+    n: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let names = match read_names(names, lens, n) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let selector = Selector::ByName {
+        names: names.into(),
+        strict: true,
+    };
+    let result = (*lf).inner.clone().drop(selector);
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_rename(
+    lf: *mut polars_lazy_frame_t,
+    existing: *const *const u8,
+    existing_lens: *const usize,
+    new: *const *const u8,
+    new_lens: *const usize,
+    n: usize,
+    strict: bool,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let existing = match read_names(existing, existing_lens, n) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let new = match read_names(new, new_lens, n) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let result = (*lf).inner.clone().rename(existing, new, strict);
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_drop_nulls(
+    lf: *mut polars_lazy_frame_t,
+    names: *const *const u8,
+    lens: *const usize,
+    n: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let names = match read_names(names, lens, n) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let subset = selector_by_name_opt(names, true);
+    let result = (*lf).inner.clone().drop_nulls(subset);
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_with_row_index(
+    lf: *mut polars_lazy_frame_t,
+    name: *const u8,
+    name_len: usize,
+    offset: i64,
+    has_offset: bool,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let name = match std::str::from_utf8(std::slice::from_raw_parts(name, name_len)) {
+        Ok(name) => PlSmallStr::from_str(name),
+        Err(err) => return make_error(err),
+    };
+    let offset = if has_offset { Some(offset as IdxSize) } else { None };
+    let result = (*lf).inner.clone().with_row_index(name, offset);
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_explode(
+    lf: *mut polars_lazy_frame_t,
+    names: *const *const u8,
+    lens: *const usize,
+    n: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let names = match read_names(names, lens, n) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let selector = Selector::ByName {
+        names: names.into(),
+        strict: true,
+    };
+    let result = (*lf).inner.clone().explode(
+        selector,
+        ExplodeOptions {
+            empty_as_null: true,
+            keep_nulls: true,
+        },
+    );
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_unpivot(
+    lf: *mut polars_lazy_frame_t,
+    index_names: *const *const u8,
+    index_lens: *const usize,
+    n_index: usize,
+    on_names: *const *const u8,
+    on_lens: *const usize,
+    n_on: usize,
+    variable_name: *const u8,
+    variable_name_len: usize,
+    value_name: *const u8,
+    value_name_len: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let index_names = match read_names(index_names, index_lens, n_index) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let on_names = match read_names(on_names, on_lens, n_on) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let variable_name = if variable_name_len == 0 {
+        None
+    } else {
+        match std::str::from_utf8(std::slice::from_raw_parts(variable_name, variable_name_len)) {
+            Ok(s) => Some(PlSmallStr::from_str(s)),
+            Err(err) => return make_error(err),
+        }
+    };
+    let value_name = if value_name_len == 0 {
+        None
+    } else {
+        match std::str::from_utf8(std::slice::from_raw_parts(value_name, value_name_len)) {
+            Ok(s) => Some(PlSmallStr::from_str(s)),
+            Err(err) => return make_error(err),
+        }
+    };
+
+    let args = UnpivotArgsDSL {
+        on: selector_by_name_opt(on_names, true),
+        index: Selector::ByName {
+            names: index_names.into(),
+            strict: true,
+        },
+        variable_name,
+        value_name,
+    };
+    let result = (*lf).inner.clone().unpivot(args);
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
+    std::ptr::null()
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_head(df: *mut polars_lazy_frame_t, n: usize) {
     let mut df = Box::from_raw(df);
     df.inner = df.inner.limit(n as IdxSize);
+    std::mem::forget(df);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_tail(df: *mut polars_lazy_frame_t, n: usize) {
+    let mut df = Box::from_raw(df);
+    df.inner = df.inner.tail(n as IdxSize);
     std::mem::forget(df);
 }
 

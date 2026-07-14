@@ -2,6 +2,7 @@ use polars::{lazy::dsl::string::StringNameSpace, lazy::dsl::ListNameSpace, prelu
 use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_core::series::ops::NullBehavior;
 use polars_ops::series::round::RoundMode;
+use polars_plan::dsl::DataTypeExpr;
 
 use crate::{value::polars_value_type_t, *};
 
@@ -304,6 +305,36 @@ pub unsafe extern "C" fn polars_expr_clip(
     let min = (*min).inner.clone();
     let max = (*max).inner.clone();
     make_expr(expr.clip(min, max))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_replace(
+    expr: *const polars_expr_t,
+    old: *const polars_expr_t,
+    new: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let old = (*old).inner.clone();
+    let new = (*new).inner.clone();
+    make_expr(expr.replace(old, new))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_replace_strict(
+    expr: *const polars_expr_t,
+    old: *const polars_expr_t,
+    new: *const polars_expr_t,
+    default: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let old = (*old).inner.clone();
+    let new = (*new).inner.clone();
+    let default = if default.is_null() {
+        None
+    } else {
+        Some((*default).inner.clone())
+    };
+    make_expr(expr.replace_strict(old, new, default, Option::<DataTypeExpr>::None))
 }
 
 gen_impl_expr!(polars_expr_n_unique, Expr::n_unique);
