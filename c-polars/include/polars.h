@@ -66,6 +66,15 @@ typedef enum polars_value_type_t {
   PolarsValueTypeUnknown,
 } polars_value_type_t;
 
+typedef enum polars_quantile_method_t {
+  PolarsQuantileMethodNearest,
+  PolarsQuantileMethodLower,
+  PolarsQuantileMethodHigher,
+  PolarsQuantileMethodMidpoint,
+  PolarsQuantileMethodLinear,
+  PolarsQuantileMethodEquiprobable,
+} polars_quantile_method_t;
+
 typedef struct polars_dataframe_t polars_dataframe_t;
 
 typedef struct polars_error_t polars_error_t;
@@ -292,6 +301,23 @@ const struct polars_expr_t *polars_expr_nan_min(const struct polars_expr_t *expr
 
 const struct polars_expr_t *polars_expr_nan_max(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_std(const struct polars_expr_t *expr, uint8_t ddof);
+
+const struct polars_expr_t *polars_expr_var(const struct polars_expr_t *expr, uint8_t ddof);
+
+const struct polars_expr_t *polars_expr_when_then_otherwise(const struct polars_expr_t *cond,
+                                                            const struct polars_expr_t *then,
+                                                            const struct polars_expr_t *otherwise);
+
+const struct polars_error_t *polars_expr_over(const struct polars_expr_t *expr,
+                                              const struct polars_expr_t *const *partition_by,
+                                              uintptr_t n_partition_by,
+                                              const struct polars_expr_t **out);
+
+const struct polars_expr_t *polars_expr_quantile(const struct polars_expr_t *expr,
+                                                 const struct polars_expr_t *quantile,
+                                                 enum polars_quantile_method_t method);
+
 const struct polars_expr_t *polars_expr_floor(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_ceil(const struct polars_expr_t *expr);
@@ -375,6 +401,15 @@ const struct polars_expr_t *polars_expr_mul(const struct polars_expr_t *a,
                                             const struct polars_expr_t *b);
 
 const struct polars_expr_t *polars_expr_div(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_fill_null(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_fill_nan(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_is_in(const struct polars_expr_t *a,
                                             const struct polars_expr_t *b);
 
 const struct polars_expr_t *polars_expr_list_lengths(const struct polars_expr_t *a);

@@ -100,6 +100,15 @@ end
     PolarsValueTypeUnknown = 19
 end
 
+@cenum polars_quantile_method_t::UInt32 begin
+    PolarsQuantileMethodNearest = 0
+    PolarsQuantileMethodLower = 1
+    PolarsQuantileMethodHigher = 2
+    PolarsQuantileMethodMidpoint = 3
+    PolarsQuantileMethodLinear = 4
+    PolarsQuantileMethodEquiprobable = 5
+end
+
 mutable struct polars_dataframe_t end
 
 mutable struct polars_error_t end
@@ -369,6 +378,26 @@ function polars_expr_nan_max(expr)
     return @ccall libpolars.polars_expr_nan_max(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_std(expr, ddof)
+    return @ccall libpolars.polars_expr_std(expr::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
+end
+
+function polars_expr_var(expr, ddof)
+    return @ccall libpolars.polars_expr_var(expr::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
+end
+
+function polars_expr_quantile(expr, quantile, method)
+    return @ccall libpolars.polars_expr_quantile(expr::Ptr{polars_expr_t}, quantile::Ptr{polars_expr_t}, method::polars_quantile_method_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_over(expr, partition_by, n_partition_by, out)
+    return @ccall libpolars.polars_expr_over(expr::Ptr{polars_expr_t}, partition_by::Ptr{Ptr{polars_expr_t}}, n_partition_by::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_when_then_otherwise(cond, then, otherwise)
+    return @ccall libpolars.polars_expr_when_then_otherwise(cond::Ptr{polars_expr_t}, then::Ptr{polars_expr_t}, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_floor(expr)
     return @ccall libpolars.polars_expr_floor(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -515,6 +544,18 @@ end
 
 function polars_expr_div(a, b)
     return @ccall libpolars.polars_expr_div(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_fill_null(a, b)
+    return @ccall libpolars.polars_expr_fill_null(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_fill_nan(a, b)
+    return @ccall libpolars.polars_expr_fill_nan(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_is_in(a, b)
+    return @ccall libpolars.polars_expr_is_in(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_lengths(a)

@@ -363,6 +363,23 @@ function clone(df::LazyFrame)
     return LazyFrame(out)
 end
 
+"""
+    concat(frames::Vector{LazyFrame})::LazyFrame
+    concat(frames::Vector{DataFrame})::DataFrame
+
+Concatenates the provided frames vertically (stacking rows), matching columns by position.
+"""
+concat(frames::Vector{DataFrame}) = collect(concat(map(lazy, frames)))
+function concat(frames::Vector{LazyFrame})
+    GC.@preserve frames begin
+        frame_ptrs = Ptr{polars_lazy_frame_t}[frame.ptr for frame in frames]
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_concat(frame_ptrs, length(frame_ptrs), out)
+        polars_error(err)
+    end
+    return LazyFrame(out[])
+end
+
 innerjoin(a, b, expr) = innerjoin(a, b, expr, expr)
 innerjoin(a::DataFrame, b::DataFrame, exprs_a, exprs_b) = innerjoin(lazy(a), lazy(b), exprs_a, exprs_b) |> collect
 innerjoin(a::LazyFrame, b::LazyFrame, expr_a, expr_b) = innerjoin(a, b, [expr_a], [expr_b])
@@ -643,7 +660,7 @@ end
 export Series, DataFrame,
     select, with_columns, head, collect_schema,
     read_parquet, write_parquet, scan_parquet,
-    lazy, innerjoin, group_by, group_by_dynamic, rolling, agg
+    lazy, innerjoin, group_by, group_by_dynamic, rolling, agg, concat
 
 """
     collect_schema(lf::LazyFrame)::Tables.Schema

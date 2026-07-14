@@ -326,6 +326,7 @@ version = "0.1.0"
 dependencies = [
  "cbindgen",
  "polars",
+ "polars-compute",
  "polars-core",
  "polars-plan",
 ]

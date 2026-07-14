@@ -366,7 +366,7 @@ pub unsafe extern "C" fn polars_lazy_frame_concat(
     n: usize,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let frames: Vec<LazyFrame> = (1..n).map(|i| (**lfs.add(i)).inner.clone()).collect();
+    let frames: Vec<LazyFrame> = (0..n).map(|i| (**lfs.add(i)).inner.clone()).collect();
 
     let df = match concat(&frames, UnionArgs::default()) {
         Ok(df) => df,

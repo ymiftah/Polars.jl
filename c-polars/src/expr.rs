@@ -163,6 +163,92 @@ gen_impl_expr!(polars_expr_arg_max, Expr::arg_max);
 gen_impl_expr!(polars_expr_nan_min, Expr::nan_min);
 gen_impl_expr!(polars_expr_nan_max, Expr::nan_max);
 
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_std(
+    expr: *const polars_expr_t,
+    ddof: u8,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.std(ddof))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_var(
+    expr: *const polars_expr_t,
+    ddof: u8,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.var(ddof))
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_quantile_method_t {
+    PolarsQuantileMethodNearest,
+    PolarsQuantileMethodLower,
+    PolarsQuantileMethodHigher,
+    PolarsQuantileMethodMidpoint,
+    PolarsQuantileMethodLinear,
+    PolarsQuantileMethodEquiprobable,
+}
+
+impl polars_quantile_method_t {
+    fn to_quantile_method(&self) -> polars_compute::rolling::QuantileMethod {
+        use polars_compute::rolling::QuantileMethod::*;
+        match self {
+            polars_quantile_method_t::PolarsQuantileMethodNearest => Nearest,
+            polars_quantile_method_t::PolarsQuantileMethodLower => Lower,
+            polars_quantile_method_t::PolarsQuantileMethodHigher => Higher,
+            polars_quantile_method_t::PolarsQuantileMethodMidpoint => Midpoint,
+            polars_quantile_method_t::PolarsQuantileMethodLinear => Linear,
+            polars_quantile_method_t::PolarsQuantileMethodEquiprobable => Equiprobable,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_when_then_otherwise(
+    cond: *const polars_expr_t,
+    then: *const polars_expr_t,
+    otherwise: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let cond = (*cond).inner.clone();
+    let then = (*then).inner.clone();
+    let otherwise = (*otherwise).inner.clone();
+    make_expr(when(cond).then(then).otherwise(otherwise))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_over(
+    expr: *const polars_expr_t,
+    partition_by: *const *const polars_expr_t,
+    n_partition_by: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let partition_by: Vec<Expr> = std::slice::from_raw_parts(partition_by, n_partition_by)
+        .iter()
+        .map(|expr| (**expr).inner.clone())
+        .collect();
+    let expr = (*expr).inner.clone();
+    let result = match expr.over(partition_by) {
+        Ok(result) => result,
+        Err(err) => return make_error(err),
+    };
+    *out = make_expr(result);
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_quantile(
+    expr: *const polars_expr_t,
+    quantile: *const polars_expr_t,
+    method: polars_quantile_method_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let quantile = (*quantile).inner.clone();
+    make_expr(expr.quantile(quantile, method.to_quantile_method()))
+}
+
 gen_impl_expr!(polars_expr_floor, Expr::floor);
 gen_impl_expr!(polars_expr_ceil, Expr::ceil);
 gen_impl_expr!(polars_expr_abs, Expr::abs);
@@ -233,6 +319,10 @@ gen_impl_expr_binary!(polars_expr_add, core::ops::Add::add);
 gen_impl_expr_binary!(polars_expr_sub, core::ops::Sub::sub);
 gen_impl_expr_binary!(polars_expr_mul, core::ops::Mul::mul);
 gen_impl_expr_binary!(polars_expr_div, core::ops::Div::div);
+
+gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null);
+gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan);
+gen_impl_expr_binary!(polars_expr_is_in, |a, b| Expr::is_in(a, b, false));
 
 macro_rules! gen_impl_expr_list {
     ($n: ident, $t: expr) => {

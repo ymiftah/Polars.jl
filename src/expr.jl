@@ -200,6 +200,20 @@ function cast(expr, dtype)
 end
 cast(dtype) = Base.Fix2(cast, dtype)
 
+"""
+    when(cond::Polars.Expr, then, otherwise)::Polars.Expr
+
+Ternary conditional expression: evaluates to `then` for rows where `cond` is `true`, and to
+`otherwise` otherwise. `then`/`otherwise` may be `Polars.Expr`s or literal scalars (promoted
+via [`lit`](@ref)).
+"""
+function when(cond::Expr, then, otherwise)
+    then = convert(Expr, then)
+    otherwise = convert(Expr, otherwise)
+    out = API.polars_expr_when_then_otherwise(cond, then, otherwise)
+    return Expr(out)
+end
+
 macro generate_expr_fns(ex)
     @assert ex.head === :block
     out = Base.Expr(:block)
@@ -306,7 +320,87 @@ end
     gen_impl_expr_binary!(polars_expr_sub, Expr::sub)
     gen_impl_expr_binary!(polars_expr_mul, Expr::mul)
     gen_impl_expr_binary!(polars_expr_div, Expr::div)
+
+    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null)
+    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan)
+    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in)
 end
+
+"""
+    std(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
+
+Standard deviation of the values, with `ddof` degrees of freedom subtracted (defaults to
+`ddof=1`, matching `Statistics.std`).
+"""
+function std(expr::Expr; ddof::Integer = 1)
+    out = API.polars_expr_std(expr, UInt8(ddof))
+    return Expr(out)
+end
+
+"""
+    var(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
+
+Variance of the values, with `ddof` degrees of freedom subtracted (defaults to `ddof=1`,
+matching `Statistics.var`).
+"""
+function var(expr::Expr; ddof::Integer = 1)
+    out = API.polars_expr_var(expr, UInt8(ddof))
+    return Expr(out)
+end
+
+"""
+    quantile(expr::Polars.Expr, q; method::Symbol=:nearest)::Polars.Expr
+
+Computes the `q`-th quantile (`q` an `Expr` or a numeric literal in `[0, 1]`) of the values,
+using the given interpolation `method`: one of `:nearest` (default), `:lower`, `:higher`,
+`:midpoint`, `:linear`, `:equiprobable`.
+"""
+function quantile(expr::Expr, q; method::Symbol = :nearest)
+    q = convert(Expr, q)
+    method_enum = if method == :nearest
+        API.PolarsQuantileMethodNearest
+    elseif method == :lower
+        API.PolarsQuantileMethodLower
+    elseif method == :higher
+        API.PolarsQuantileMethodHigher
+    elseif method == :midpoint
+        API.PolarsQuantileMethodMidpoint
+    elseif method == :linear
+        API.PolarsQuantileMethodLinear
+    elseif method == :equiprobable
+        API.PolarsQuantileMethodEquiprobable
+    else
+        error(
+            "unknown quantile method $method, expected one of " *
+            "(:nearest, :lower, :higher, :midpoint, :linear, :equiprobable)"
+        )
+    end
+    out = API.polars_expr_quantile(expr, q, method_enum)
+    return Expr(out)
+end
+
+export std, var, quantile
+
+"""
+    over(expr::Polars.Expr, partition_by...)::Polars.Expr
+
+Applies `expr` within groups defined by `partition_by` (columns or expressions), broadcasting
+the per-group result back over every row of that group — e.g. `sum(col("x")) |> over("g")`
+returns, per row, the sum of `x` within that row's `g` group.
+"""
+function over(expr::Expr, partition_by...)
+    partition_by = map(ex -> ex isa String ? col(ex) : ex, partition_by)
+    partition_by = convert(Vector{Expr}, collect(partition_by))
+    GC.@preserve partition_by begin
+        partition_ptrs = Ptr{polars_expr_t}[p.ptr for p in partition_by]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_over(expr, partition_ptrs, length(partition_ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+export over
 
 module Lists
     using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
@@ -419,5 +513,5 @@ module Structs
 
 end # module Structs
 
-export col, alias, prefix, suffix, lit, cast,
+export col, alias, prefix, suffix, lit, cast, when,
     Lists, Strings, Structs

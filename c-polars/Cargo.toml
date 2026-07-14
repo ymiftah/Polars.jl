@@ -19,4 +19,5 @@ nightly = ["polars-plan/nightly"]
 [dependencies]
 polars-core = "0.54.4"
 polars-plan = "0.54.4"
+polars-compute = "0.54.4"
 polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in"] }
