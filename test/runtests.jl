@@ -11,6 +11,7 @@ include("fixtures.jl")
 
     include("lazyframe/lazy_vs_eager.jl")
     include("lazyframe/scan_parquet.jl")
+    include("lazyframe/scan_csv.jl")
     include("lazyframe/head.jl")
     include("lazyframe/collect_schema.jl")
 
@@ -32,6 +33,7 @@ include("fixtures.jl")
     include("expr/over.jl")
     include("expr/when_then_otherwise.jl")
     include("expr/order_window.jl")
+    include("expr/math.jl")
 
     include("datatypes/strings.jl")
     include("datatypes/datetimes.jl")

@@ -122,6 +122,28 @@ end
     PolarsRankMethodOrdinal = 4
 end
 
+@cenum polars_round_mode_t::UInt32 begin
+    PolarsRoundModeHalfToEven = 0
+    PolarsRoundModeHalfAwayFromZero = 1
+    PolarsRoundModeToZero = 2
+end
+
+@cenum polars_join_type_t::UInt32 begin
+    PolarsJoinTypeInner = 0
+    PolarsJoinTypeLeft = 1
+    PolarsJoinTypeRight = 2
+    PolarsJoinTypeFull = 3
+    PolarsJoinTypeSemi = 4
+    PolarsJoinTypeAnti = 5
+    PolarsJoinTypeCross = 6
+end
+
+@cenum polars_asof_strategy_t::UInt32 begin
+    PolarsAsofStrategyBackward = 0
+    PolarsAsofStrategyForward = 1
+    PolarsAsofStrategyNearest = 2
+end
+
 mutable struct polars_dataframe_t end
 
 mutable struct polars_error_t end
@@ -192,6 +214,10 @@ function polars_dataframe_write_parquet(df, user, callback)
     return @ccall libpolars.polars_dataframe_write_parquet(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
 end
 
+function polars_dataframe_write_csv(df, user, callback)
+    return @ccall libpolars.polars_dataframe_write_csv(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+end
+
 function polars_dataframe_read_parquet(path, pathlen, out)
     return @ccall libpolars.polars_dataframe_read_parquet(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
@@ -218,6 +244,10 @@ end
 
 function polars_lazy_frame_scan_parquet(path, pathlen, out)
     return @ccall libpolars.polars_lazy_frame_scan_parquet(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_scan_csv(path, pathlen, out)
+    return @ccall libpolars.polars_lazy_frame_scan_csv(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_sort(df, exprs, nexprs, descending, nulls_last, maintain_order)
@@ -271,8 +301,12 @@ function polars_lazy_frame_rolling(df, index_expr, group_by_exprs, n_group_by, p
     return @ccall libpolars.polars_lazy_frame_rolling(df::Ptr{polars_lazy_frame_t}, index_expr::Ptr{polars_expr_t}, group_by_exprs::Ptr{Ptr{polars_expr_t}}, n_group_by::Csize_t, period::Ptr{UInt8}, period_len::Csize_t, offset::Ptr{UInt8}, offset_len::Csize_t, closed_window::polars_closed_window_t, out::Ptr{Ptr{polars_lazy_group_by_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_join_inner(a, b, exprs_a, exprs_a_len, exprs_b, exprs_b_len)
-    return @ccall libpolars.polars_lazy_frame_join_inner(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, exprs_a::Ptr{Ptr{polars_expr_t}}, exprs_a_len::Csize_t, exprs_b::Ptr{Ptr{polars_expr_t}}, exprs_b_len::Csize_t)::Ptr{polars_lazy_frame_t}
+function polars_lazy_frame_join(a, b, exprs_a, exprs_a_len, exprs_b, exprs_b_len, how)
+    return @ccall libpolars.polars_lazy_frame_join(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, exprs_a::Ptr{Ptr{polars_expr_t}}, exprs_a_len::Csize_t, exprs_b::Ptr{Ptr{polars_expr_t}}, exprs_b_len::Csize_t, how::polars_join_type_t)::Ptr{polars_lazy_frame_t}
+end
+
+function polars_lazy_frame_join_asof(a, b, on_a, on_b, by_a, by_a_lens, by_a_len, by_b, by_b_lens, by_b_len, strategy, out)
+    return @ccall libpolars.polars_lazy_frame_join_asof(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, on_a::Ptr{polars_expr_t}, on_b::Ptr{polars_expr_t}, by_a::Ptr{Ptr{UInt8}}, by_a_lens::Ptr{Csize_t}, by_a_len::Csize_t, by_b::Ptr{Ptr{UInt8}}, by_b_lens::Ptr{Csize_t}, by_b_len::Csize_t, strategy::polars_asof_strategy_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_group_by_destroy(gb)
@@ -445,6 +479,34 @@ end
 
 function polars_expr_tanh(expr)
     return @ccall libpolars.polars_expr_tanh(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_sqrt(expr)
+    return @ccall libpolars.polars_expr_sqrt(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_sign(expr)
+    return @ccall libpolars.polars_expr_sign(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_exp(expr)
+    return @ccall libpolars.polars_expr_exp(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_log(a, b)
+    return @ccall libpolars.polars_expr_log(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_rem(a, b)
+    return @ccall libpolars.polars_expr_rem(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_round(expr, decimals, mode)
+    return @ccall libpolars.polars_expr_round(expr::Ptr{polars_expr_t}, decimals::UInt32, mode::polars_round_mode_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_clip(expr, min, max)
+    return @ccall libpolars.polars_expr_clip(expr::Ptr{polars_expr_t}, min::Ptr{polars_expr_t}, max::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_n_unique(expr)

@@ -14,6 +14,7 @@ use polars_core::utils::{
     rayon::iter::{self, ParallelIterator},
 };
 use polars_plan::utils::expr_output_name;
+use polars_plan::dsl::{DslBuilder, ScanSources, UnifiedScanArgs};
 use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t};
 
 mod expr;
@@ -205,6 +206,22 @@ pub unsafe extern "C" fn polars_dataframe_write_parquet(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_dataframe_write_csv(
+    df: *mut polars_dataframe_t,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    let df = &mut (*df).inner;
+
+    let w = UserIOCallback(callback, user);
+    if let Err(err) = CsvWriter::new(w).finish(df) {
+        return make_error(err);
+    }
+
+    std::ptr::null()
+}
+
+#[no_mangle]
 pub extern "C" fn polars_dataframe_read_parquet(
     path: *const u8,
     pathlen: usize,
@@ -330,6 +347,32 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
         }
         Err(err) => make_error(err),
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
+    path: *const u8,
+    pathlen: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
+        Ok(p) => p,
+        Err(err) => return make_error(err),
+    };
+    let sources = ScanSources::Paths(vec![PlRefPath::new(path)].into());
+
+    let builder = match DslBuilder::scan_csv(
+        sources,
+        CsvReadOptions::default(),
+        UnifiedScanArgs::default(),
+    ) {
+        Ok(builder) => builder,
+        Err(err) => return make_error(err),
+    };
+
+    let lf = LazyFrame::from(builder.build());
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
+    std::ptr::null()
 }
 
 #[no_mangle]
@@ -602,14 +645,41 @@ pub unsafe extern "C" fn polars_lazy_frame_rolling(
     std::ptr::null()
 }
 
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_join_type_t {
+    PolarsJoinTypeInner,
+    PolarsJoinTypeLeft,
+    PolarsJoinTypeRight,
+    PolarsJoinTypeFull,
+    PolarsJoinTypeSemi,
+    PolarsJoinTypeAnti,
+    PolarsJoinTypeCross,
+}
+
+impl polars_join_type_t {
+    fn to_join_type(&self) -> JoinType {
+        match self {
+            polars_join_type_t::PolarsJoinTypeInner => JoinType::Inner,
+            polars_join_type_t::PolarsJoinTypeLeft => JoinType::Left,
+            polars_join_type_t::PolarsJoinTypeRight => JoinType::Right,
+            polars_join_type_t::PolarsJoinTypeFull => JoinType::Full,
+            polars_join_type_t::PolarsJoinTypeSemi => JoinType::Semi,
+            polars_join_type_t::PolarsJoinTypeAnti => JoinType::Anti,
+            polars_join_type_t::PolarsJoinTypeCross => JoinType::Cross,
+        }
+    }
+}
+
 #[no_mangle]
-pub unsafe extern "C" fn polars_lazy_frame_join_inner(
+pub unsafe extern "C" fn polars_lazy_frame_join(
     a: *mut polars_lazy_frame_t,
     b: *mut polars_lazy_frame_t,
     exprs_a: *const *const polars_expr_t,
     exprs_a_len: usize,
     exprs_b: *const *const polars_expr_t,
     exprs_b_len: usize,
+    how: polars_join_type_t,
 ) -> *mut polars_lazy_frame_t {
     let exprs_a: Vec<Expr> = std::slice::from_raw_parts(exprs_a, exprs_a_len)
         .iter()
@@ -624,9 +694,85 @@ pub unsafe extern "C" fn polars_lazy_frame_join_inner(
         (*b).inner.clone(),
         exprs_a,
         exprs_b,
-        JoinArgs::new(JoinType::Inner),
+        JoinArgs::new(how.to_join_type()),
     );
     Box::into_raw(Box::new(polars_lazy_frame_t { inner: df }))
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_asof_strategy_t {
+    PolarsAsofStrategyBackward,
+    PolarsAsofStrategyForward,
+    PolarsAsofStrategyNearest,
+}
+
+impl polars_asof_strategy_t {
+    fn to_asof_strategy(&self) -> AsofStrategy {
+        match self {
+            polars_asof_strategy_t::PolarsAsofStrategyBackward => AsofStrategy::Backward,
+            polars_asof_strategy_t::PolarsAsofStrategyForward => AsofStrategy::Forward,
+            polars_asof_strategy_t::PolarsAsofStrategyNearest => AsofStrategy::Nearest,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_join_asof(
+    a: *mut polars_lazy_frame_t,
+    b: *mut polars_lazy_frame_t,
+    on_a: *const polars_expr_t,
+    on_b: *const polars_expr_t,
+    by_a: *const *const u8,
+    by_a_lens: *const usize,
+    by_a_len: usize,
+    by_b: *const *const u8,
+    by_b_lens: *const usize,
+    by_b_len: usize,
+    strategy: polars_asof_strategy_t,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let read_names = |ptrs: *const *const u8, lens: *const usize, n: usize| -> Result<Vec<PlSmallStr>, std::str::Utf8Error> {
+        let ptrs = std::slice::from_raw_parts(ptrs, n);
+        let lens = std::slice::from_raw_parts(lens, n);
+        ptrs.iter()
+            .zip(lens.iter())
+            .map(|(&p, &len)| {
+                std::str::from_utf8(std::slice::from_raw_parts(p, len)).map(PlSmallStr::from_str)
+            })
+            .collect()
+    };
+
+    let left_by = match read_names(by_a, by_a_lens, by_a_len) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let right_by = match read_names(by_b, by_b_lens, by_b_len) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+
+    let asof_options = AsOfOptions {
+        strategy: strategy.to_asof_strategy(),
+        tolerance: None,
+        tolerance_str: None,
+        left_by: if left_by.is_empty() { None } else { Some(left_by) },
+        right_by: if right_by.is_empty() { None } else { Some(right_by) },
+        allow_eq: true,
+        check_sortedness: true,
+    };
+
+    let on_a = (*on_a).inner.clone();
+    let on_b = (*on_b).inner.clone();
+    let df = LazyFrame::join(
+        (*a).inner.clone(),
+        (*b).inner.clone(),
+        vec![on_a],
+        vec![on_b],
+        JoinArgs::new(JoinType::AsOf(Box::new(asof_options))),
+    );
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: df }));
+    std::ptr::null()
 }
 
 #[no_mangle]

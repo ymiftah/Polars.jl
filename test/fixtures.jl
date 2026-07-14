@@ -40,3 +40,11 @@ function write_temp_parquet(df; name = "data.parquet")
     write_parquet(path, df)
     return path
 end
+
+"""Writes `df` to a fresh temp CSV file and returns its path."""
+function write_temp_csv(df; name = "data.csv")
+    dir = mktempdir()
+    path = joinpath(dir, name)
+    write_csv(path, df)
+    return path
+end

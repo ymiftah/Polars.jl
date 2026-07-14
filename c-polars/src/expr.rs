@@ -1,6 +1,7 @@
 use polars::{lazy::dsl::string::StringNameSpace, lazy::dsl::ListNameSpace, prelude::*};
 use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_core::series::ops::NullBehavior;
+use polars_ops::series::round::RoundMode;
 
 use crate::{value::polars_value_type_t, *};
 
@@ -261,6 +262,50 @@ gen_impl_expr!(polars_expr_cosh, Expr::cosh);
 gen_impl_expr!(polars_expr_sinh, Expr::sinh);
 gen_impl_expr!(polars_expr_tanh, Expr::tanh);
 
+gen_impl_expr!(polars_expr_sqrt, Expr::sqrt);
+gen_impl_expr!(polars_expr_sign, Expr::sign);
+gen_impl_expr!(polars_expr_exp, Expr::exp);
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_round_mode_t {
+    PolarsRoundModeHalfToEven,
+    PolarsRoundModeHalfAwayFromZero,
+    PolarsRoundModeToZero,
+}
+
+impl polars_round_mode_t {
+    fn to_round_mode(&self) -> RoundMode {
+        match self {
+            polars_round_mode_t::PolarsRoundModeHalfToEven => RoundMode::HalfToEven,
+            polars_round_mode_t::PolarsRoundModeHalfAwayFromZero => RoundMode::HalfAwayFromZero,
+            polars_round_mode_t::PolarsRoundModeToZero => RoundMode::ToZero,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_round(
+    expr: *const polars_expr_t,
+    decimals: u32,
+    mode: polars_round_mode_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.round(decimals, mode.to_round_mode()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_clip(
+    expr: *const polars_expr_t,
+    min: *const polars_expr_t,
+    max: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let min = (*min).inner.clone();
+    let max = (*max).inner.clone();
+    make_expr(expr.clip(min, max))
+}
+
 gen_impl_expr!(polars_expr_n_unique, Expr::n_unique);
 gen_impl_expr!(polars_expr_unique, Expr::unique);
 gen_impl_expr!(polars_expr_count, Expr::count);
@@ -328,6 +373,9 @@ gen_impl_expr_binary!(polars_expr_is_in, |a, b| Expr::is_in(a, b, false));
 
 gen_impl_expr_binary!(polars_expr_shift, Expr::shift);
 gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change);
+
+gen_impl_expr_binary!(polars_expr_log, Expr::log);
+gen_impl_expr_binary!(polars_expr_rem, core::ops::Rem::rem);
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_cum_sum(

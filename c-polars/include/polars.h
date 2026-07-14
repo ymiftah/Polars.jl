@@ -88,6 +88,28 @@ typedef enum polars_rank_method_t {
   PolarsRankMethodOrdinal,
 } polars_rank_method_t;
 
+typedef enum polars_round_mode_t {
+  PolarsRoundModeHalfToEven,
+  PolarsRoundModeHalfAwayFromZero,
+  PolarsRoundModeToZero,
+} polars_round_mode_t;
+
+typedef enum polars_join_type_t {
+  PolarsJoinTypeInner,
+  PolarsJoinTypeLeft,
+  PolarsJoinTypeRight,
+  PolarsJoinTypeFull,
+  PolarsJoinTypeSemi,
+  PolarsJoinTypeAnti,
+  PolarsJoinTypeCross,
+} polars_join_type_t;
+
+typedef enum polars_asof_strategy_t {
+  PolarsAsofStrategyBackward,
+  PolarsAsofStrategyForward,
+  PolarsAsofStrategyNearest,
+} polars_asof_strategy_t;
+
 typedef struct polars_dataframe_t polars_dataframe_t;
 
 typedef struct polars_error_t polars_error_t;
@@ -145,6 +167,10 @@ const struct polars_error_t *polars_dataframe_write_parquet(struct polars_datafr
                                                             const void *user,
                                                             IOCallback callback);
 
+const struct polars_error_t *polars_dataframe_write_csv(struct polars_dataframe_t *df,
+                                                        const void *user,
+                                                        IOCallback callback);
+
 const struct polars_error_t *polars_dataframe_read_parquet(const uint8_t *path,
                                                            uintptr_t pathlen,
                                                            struct polars_dataframe_t **out);
@@ -165,6 +191,10 @@ struct polars_lazy_frame_t *polars_lazy_frame_clone(struct polars_lazy_frame_t *
 const struct polars_error_t *polars_lazy_frame_scan_parquet(const uint8_t *path,
                                                              uintptr_t pathlen,
                                                              struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_scan_csv(const uint8_t *path,
+                                                        uintptr_t pathlen,
+                                                        struct polars_lazy_frame_t **out);
 
 void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,
                             const struct polars_expr_t *const *exprs,
@@ -233,12 +263,26 @@ const struct polars_error_t *polars_lazy_frame_rolling(
     polars_closed_window_t closed_window,
     struct polars_lazy_group_by_t **out);
 
-struct polars_lazy_frame_t *polars_lazy_frame_join_inner(struct polars_lazy_frame_t *a,
+struct polars_lazy_frame_t *polars_lazy_frame_join(struct polars_lazy_frame_t *a,
+                                                   struct polars_lazy_frame_t *b,
+                                                   const struct polars_expr_t *const *exprs_a,
+                                                   uintptr_t exprs_a_len,
+                                                   const struct polars_expr_t *const *exprs_b,
+                                                   uintptr_t exprs_b_len,
+                                                   enum polars_join_type_t how);
+
+const struct polars_error_t *polars_lazy_frame_join_asof(struct polars_lazy_frame_t *a,
                                                          struct polars_lazy_frame_t *b,
-                                                         const struct polars_expr_t *const *exprs_a,
-                                                         uintptr_t exprs_a_len,
-                                                         const struct polars_expr_t *const *exprs_b,
-                                                         uintptr_t exprs_b_len);
+                                                         const struct polars_expr_t *on_a,
+                                                         const struct polars_expr_t *on_b,
+                                                         const uint8_t *const *by_a,
+                                                         const uintptr_t *by_a_lens,
+                                                         uintptr_t by_a_len,
+                                                         const uint8_t *const *by_b,
+                                                         const uintptr_t *by_b_lens,
+                                                         uintptr_t by_b_len,
+                                                         enum polars_asof_strategy_t strategy,
+                                                         struct polars_lazy_frame_t **out);
 
 void polars_lazy_group_by_destroy(const struct polars_lazy_group_by_t *gb);
 
@@ -348,6 +392,26 @@ const struct polars_expr_t *polars_expr_cosh(const struct polars_expr_t *expr);
 const struct polars_expr_t *polars_expr_sinh(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_tanh(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_sqrt(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_sign(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_exp(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_log(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_rem(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_round(const struct polars_expr_t *expr,
+                                              uint32_t decimals,
+                                              enum polars_round_mode_t mode);
+
+const struct polars_expr_t *polars_expr_clip(const struct polars_expr_t *expr,
+                                             const struct polars_expr_t *min,
+                                             const struct polars_expr_t *max);
 
 const struct polars_expr_t *polars_expr_n_unique(const struct polars_expr_t *expr);
 

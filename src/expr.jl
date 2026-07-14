@@ -288,6 +288,10 @@ end
     gen_impl_expr!(polars_expr_sinh, Expr::sinh)
     gen_impl_expr!(polars_expr_tanh, Expr::tanh)
 
+    gen_impl_expr!(polars_expr_sqrt, Expr::sqrt)
+    gen_impl_expr!(polars_expr_sign, Expr::sign)
+    gen_impl_expr!(polars_expr_exp, Expr::exp)
+
     gen_impl_expr!(polars_expr_n_unique, Expr::n_unique)
     gen_impl_expr!(polars_expr_unique, Expr::unique)
     gen_impl_expr!(polars_expr_count, Expr::count)
@@ -327,7 +331,47 @@ end
 
     gen_impl_expr_binary!(polars_expr_shift, Expr::shift)
     gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change)
+
+    gen_impl_expr_binary!(polars_expr_log, Expr::log)
+    gen_impl_expr_binary!(polars_expr_rem, Expr::rem)
 end
+
+"""
+    round(expr::Polars.Expr, decimals::Integer=0; mode::Symbol=:half_to_even)::Polars.Expr
+
+Rounds to `decimals` decimal places, breaking ties according to `mode`: one of
+`:half_to_even` (default, banker's rounding), `:half_away_from_zero`, `:to_zero`.
+"""
+function Base.round(expr::Expr, decimals::Integer = 0; mode::Symbol = :half_to_even)
+    mode_enum = if mode == :half_to_even
+        API.PolarsRoundModeHalfToEven
+    elseif mode == :half_away_from_zero
+        API.PolarsRoundModeHalfAwayFromZero
+    elseif mode == :to_zero
+        API.PolarsRoundModeToZero
+    else
+        error(
+            "unknown round mode $mode, expected one of " *
+            "(:half_to_even, :half_away_from_zero, :to_zero)"
+        )
+    end
+    out = API.polars_expr_round(expr, UInt32(decimals), mode_enum)
+    return Expr(out)
+end
+
+"""
+    clip(expr::Polars.Expr, min, max)::Polars.Expr
+
+Clips the values to the `[min, max]` range (values outside are set to the nearest bound).
+"""
+function clip(expr::Expr, min, max)
+    min = convert(Expr, min)
+    max = convert(Expr, max)
+    out = API.polars_expr_clip(expr, min, max)
+    return Expr(out)
+end
+
+export clip
 
 """
     std(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
