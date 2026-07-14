@@ -109,6 +109,19 @@ end
     PolarsQuantileMethodEquiprobable = 5
 end
 
+@cenum polars_null_behavior_t::UInt32 begin
+    PolarsNullBehaviorDrop = 0
+    PolarsNullBehaviorIgnore = 1
+end
+
+@cenum polars_rank_method_t::UInt32 begin
+    PolarsRankMethodAverage = 0
+    PolarsRankMethodMin = 1
+    PolarsRankMethodMax = 2
+    PolarsRankMethodDense = 3
+    PolarsRankMethodOrdinal = 4
+end
+
 mutable struct polars_dataframe_t end
 
 mutable struct polars_error_t end
@@ -558,6 +571,42 @@ function polars_expr_is_in(a, b)
     return @ccall libpolars.polars_expr_is_in(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_shift(a, b)
+    return @ccall libpolars.polars_expr_shift(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_pct_change(a, b)
+    return @ccall libpolars.polars_expr_pct_change(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_cum_sum(expr, reverse)
+    return @ccall libpolars.polars_expr_cum_sum(expr::Ptr{polars_expr_t}, reverse::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_cum_prod(expr, reverse)
+    return @ccall libpolars.polars_expr_cum_prod(expr::Ptr{polars_expr_t}, reverse::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_cum_min(expr, reverse)
+    return @ccall libpolars.polars_expr_cum_min(expr::Ptr{polars_expr_t}, reverse::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_cum_max(expr, reverse)
+    return @ccall libpolars.polars_expr_cum_max(expr::Ptr{polars_expr_t}, reverse::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_cum_count(expr, reverse)
+    return @ccall libpolars.polars_expr_cum_count(expr::Ptr{polars_expr_t}, reverse::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_diff(expr, n, null_behavior)
+    return @ccall libpolars.polars_expr_diff(expr::Ptr{polars_expr_t}, n::Ptr{polars_expr_t}, null_behavior::polars_null_behavior_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rank(expr, method, descending)
+    return @ccall libpolars.polars_expr_rank(expr::Ptr{polars_expr_t}, method::polars_rank_method_t, descending::Bool)::Ptr{polars_expr_t}
+end
+
 function polars_expr_list_lengths(a)
     return @ccall libpolars.polars_expr_list_lengths(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -644,6 +693,110 @@ end
 
 function polars_expr_str_contains_literal(a, b)
     return @ccall libpolars.polars_expr_str_contains_literal(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_strip_chars(a, b)
+    return @ccall libpolars.polars_expr_str_strip_chars(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_strip_prefix(a, b)
+    return @ccall libpolars.polars_expr_str_strip_prefix(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_strip_suffix(a, b)
+    return @ccall libpolars.polars_expr_str_strip_suffix(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_split(a, b)
+    return @ccall libpolars.polars_expr_str_split(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_extract_all(a, b)
+    return @ccall libpolars.polars_expr_str_extract_all(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_zfill(a, b)
+    return @ccall libpolars.polars_expr_str_zfill(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_head(a, b)
+    return @ccall libpolars.polars_expr_str_head(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_tail(a, b)
+    return @ccall libpolars.polars_expr_str_tail(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_contains(a, pat, strict)
+    return @ccall libpolars.polars_expr_str_contains(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, strict::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_slice(a, offset, length)
+    return @ccall libpolars.polars_expr_str_slice(a::Ptr{polars_expr_t}, offset::Ptr{polars_expr_t}, length::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_replace(a, pat, value, literal)
+    return @ccall libpolars.polars_expr_str_replace(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, value::Ptr{polars_expr_t}, literal::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_replace_all(a, pat, value, literal)
+    return @ccall libpolars.polars_expr_str_replace_all(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, value::Ptr{polars_expr_t}, literal::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_extract(a, pat, group_index)
+    return @ccall libpolars.polars_expr_str_extract(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, group_index::Csize_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_count_matches(a, pat, literal)
+    return @ccall libpolars.polars_expr_str_count_matches(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, literal::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_year(a)
+    return @ccall libpolars.polars_expr_dt_year(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_month(a)
+    return @ccall libpolars.polars_expr_dt_month(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_day(a)
+    return @ccall libpolars.polars_expr_dt_day(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_hour(a)
+    return @ccall libpolars.polars_expr_dt_hour(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_minute(a)
+    return @ccall libpolars.polars_expr_dt_minute(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_second(a)
+    return @ccall libpolars.polars_expr_dt_second(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_weekday(a)
+    return @ccall libpolars.polars_expr_dt_weekday(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_ordinal_day(a)
+    return @ccall libpolars.polars_expr_dt_ordinal_day(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_truncate(a, b)
+    return @ccall libpolars.polars_expr_dt_truncate(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_round(a, b)
+    return @ccall libpolars.polars_expr_dt_round(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_offset_by(a, b)
+    return @ccall libpolars.polars_expr_dt_offset_by(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_strftime(expr, format, len, out)
+    return @ccall libpolars.polars_expr_dt_strftime(expr::Ptr{polars_expr_t}, format::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_struct_field_by_name(a, name, len)

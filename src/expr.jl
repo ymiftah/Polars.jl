@@ -324,6 +324,9 @@ end
     gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null)
     gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan)
     gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in)
+
+    gen_impl_expr_binary!(polars_expr_shift, Expr::shift)
+    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change)
 end
 
 """
@@ -402,6 +405,97 @@ end
 
 export over
 
+"""
+    cum_sum(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
+
+Cumulative sum of the values. If `reverse` is `true`, accumulates from the last value to the
+first.
+"""
+cum_sum(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_sum(expr, reverse))
+
+"""
+    cum_prod(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
+
+Cumulative product of the values. If `reverse` is `true`, accumulates from the last value to
+the first.
+"""
+cum_prod(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_prod(expr, reverse))
+
+"""
+    cum_min(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
+
+Cumulative minimum of the values. If `reverse` is `true`, accumulates from the last value to
+the first.
+"""
+cum_min(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_min(expr, reverse))
+
+"""
+    cum_max(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
+
+Cumulative maximum of the values. If `reverse` is `true`, accumulates from the last value to
+the first.
+"""
+cum_max(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_max(expr, reverse))
+
+"""
+    cum_count(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
+
+Cumulative count of non-null values. If `reverse` is `true`, accumulates from the last value to
+the first.
+"""
+cum_count(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_count(expr, reverse))
+
+export cum_sum, cum_prod, cum_min, cum_max, cum_count
+
+"""
+    diff(expr::Polars.Expr, n=1; null_behavior::Symbol=:ignore)::Polars.Expr
+
+Computes the first discrete difference between shifted items (`expr[i] - expr[i - n]`).
+`null_behavior` is one of `:ignore` (default, pads the first `n` values with `null`) or `:drop`
+(drops the first `n` values instead).
+
+Extends `Base.diff` with a method for `Polars.Expr`, so plain `diff(expr, ...)` dispatches here
+without any extra qualification (unlike e.g. `Base.product`, `diff` is an *exported* Base name).
+"""
+function Base.diff(expr::Expr, n = 1; null_behavior::Symbol = :ignore)
+    n = convert(Expr, n)
+    behavior = if null_behavior == :ignore
+        API.PolarsNullBehaviorIgnore
+    elseif null_behavior == :drop
+        API.PolarsNullBehaviorDrop
+    else
+        error("unknown null_behavior $null_behavior, expected one of (:ignore, :drop)")
+    end
+    out = API.polars_expr_diff(expr, n, behavior)
+    return Expr(out)
+end
+
+"""
+    rank(expr::Polars.Expr; method::Symbol=:dense, descending::Bool=false)::Polars.Expr
+
+Assigns ranks to the values, dealing with ties according to `method`: one of `:average`,
+`:min`, `:max`, `:dense` (default), `:ordinal`.
+"""
+function rank(expr::Expr; method::Symbol = :dense, descending::Bool = false)
+    method_enum = if method == :average
+        API.PolarsRankMethodAverage
+    elseif method == :min
+        API.PolarsRankMethodMin
+    elseif method == :max
+        API.PolarsRankMethodMax
+    elseif method == :dense
+        API.PolarsRankMethodDense
+    elseif method == :ordinal
+        API.PolarsRankMethodOrdinal
+    else
+        error("unknown rank method $method, expected one of (:average, :min, :max, :dense, :ordinal)")
+    end
+    out = API.polars_expr_rank(expr, method_enum, descending)
+    return Expr(out)
+end
+
+export rank
+
 module Lists
     using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
 
@@ -465,8 +559,120 @@ module Strings
             polars_expr_str_contains_literal,
             StringNameSpace::contains_literal
         )
+
+        gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars)
+        gen_impl_expr_binary_str!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix)
+        gen_impl_expr_binary_str!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix)
+        gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split)
+        gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all)
+        gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill)
+        gen_impl_expr_binary_str!(polars_expr_str_head, StringNameSpace::head)
+        gen_impl_expr_binary_str!(polars_expr_str_tail, StringNameSpace::tail)
     end
+
+    """
+        contains(expr::Polars.Expr, pat::Polars.Expr; strict::Bool=true)::Polars.Expr
+
+    Check if the string contains a match for the regex `pat`. If `strict` is `true` (default),
+    an invalid regex raises an error; if `false`, it returns `null` instead. For a plain
+    substring (non-regex) check, use [`contains_literal`](@ref).
+    """
+    function contains(expr::Expr, pat::Expr; strict::Bool = true)
+        out = API.polars_expr_str_contains(expr, pat, strict)
+        return Expr(out)
+    end
+
+    """
+        slice(expr::Polars.Expr, offset::Polars.Expr, length::Polars.Expr)::Polars.Expr
+
+    Extracts a substring starting at `offset` (0-indexed; negative indexes from the end) with
+    the given `length` (extends to the end of the string if `length` is `null`).
+    """
+    function slice(expr::Expr, offset::Expr, length::Expr)
+        out = API.polars_expr_str_slice(expr, offset, length)
+        return Expr(out)
+    end
+
+    """
+        replace(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr; literal::Bool=false)::Polars.Expr
+
+    Replaces the first match of `pat` with `value`. If `literal` is `true`, `pat` is treated as
+    a plain substring rather than a regex.
+    """
+    function replace(expr::Expr, pat::Expr, value::Expr; literal::Bool = false)
+        out = API.polars_expr_str_replace(expr, pat, value, literal)
+        return Expr(out)
+    end
+
+    """
+        replace_all(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr; literal::Bool=false)::Polars.Expr
+
+    Replaces all matches of `pat` with `value`. If `literal` is `true`, `pat` is treated as a
+    plain substring rather than a regex.
+    """
+    function replace_all(expr::Expr, pat::Expr, value::Expr; literal::Bool = false)
+        out = API.polars_expr_str_replace_all(expr, pat, value, literal)
+        return Expr(out)
+    end
+
+    """
+        extract(expr::Polars.Expr, pat::Polars.Expr, group_index::Integer)::Polars.Expr
+
+    Extracts the capture group numbered `group_index` (0 = the whole match) from the first
+    match of the regex `pat`.
+    """
+    function extract(expr::Expr, pat::Expr, group_index::Integer)
+        out = API.polars_expr_str_extract(expr, pat, group_index)
+        return Expr(out)
+    end
+
+    """
+        count_matches(expr::Polars.Expr, pat::Polars.Expr; literal::Bool=false)::Polars.Expr
+
+    Counts the number of non-overlapping matches of `pat`. If `literal` is `true`, `pat` is
+    treated as a plain substring rather than a regex.
+    """
+    function count_matches(expr::Expr, pat::Expr; literal::Bool = false)
+        out = API.polars_expr_str_count_matches(expr, pat, literal)
+        return Expr(out)
+    end
+
+    export contains, slice, replace, replace_all, extract, count_matches
 end # module Strings
+
+module Dt
+    using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
+
+    @generate_expr_fns begin
+        gen_impl_expr_dt!(polars_expr_dt_year, DateLikeNameSpace::year)
+        gen_impl_expr_dt!(polars_expr_dt_month, DateLikeNameSpace::month)
+        gen_impl_expr_dt!(polars_expr_dt_day, DateLikeNameSpace::day)
+        gen_impl_expr_dt!(polars_expr_dt_hour, DateLikeNameSpace::hour)
+        gen_impl_expr_dt!(polars_expr_dt_minute, DateLikeNameSpace::minute)
+        gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second)
+        gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday)
+        gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day)
+
+        gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate)
+        gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round)
+        gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by)
+    end
+
+    """
+        strftime(expr::Polars.Expr, format::String)::Polars.Expr
+
+    Formats a Date/Datetime/Duration/Time expression using a `chrono`-style format string
+    (e.g. `"%Y-%m-%d"`).
+    """
+    function strftime(expr::Expr, format::AbstractString)
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_dt_strftime(expr, format, length(format), out)
+        polars_error(err)
+        return Expr(out[])
+    end
+
+    export strftime
+end # module Dt
 
 module Structs
     using ..Polars: Expr, API
@@ -514,4 +720,4 @@ module Structs
 end # module Structs
 
 export col, alias, prefix, suffix, lit, cast, when,
-    Lists, Strings, Structs
+    Lists, Strings, Dt, Structs

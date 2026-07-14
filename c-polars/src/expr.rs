@@ -1,4 +1,6 @@
 use polars::{lazy::dsl::string::StringNameSpace, lazy::dsl::ListNameSpace, prelude::*};
+use polars_plan::dsl::dt::DateLikeNameSpace;
+use polars_core::series::ops::NullBehavior;
 
 use crate::{value::polars_value_type_t, *};
 
@@ -324,6 +326,112 @@ gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null);
 gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan);
 gen_impl_expr_binary!(polars_expr_is_in, |a, b| Expr::is_in(a, b, false));
 
+gen_impl_expr_binary!(polars_expr_shift, Expr::shift);
+gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change);
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cum_sum(
+    expr: *const polars_expr_t,
+    reverse: bool,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().cum_sum(reverse))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cum_prod(
+    expr: *const polars_expr_t,
+    reverse: bool,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().cum_prod(reverse))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cum_min(
+    expr: *const polars_expr_t,
+    reverse: bool,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().cum_min(reverse))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cum_max(
+    expr: *const polars_expr_t,
+    reverse: bool,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().cum_max(reverse))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cum_count(
+    expr: *const polars_expr_t,
+    reverse: bool,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().cum_count(reverse))
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_null_behavior_t {
+    PolarsNullBehaviorDrop,
+    PolarsNullBehaviorIgnore,
+}
+
+impl polars_null_behavior_t {
+    fn to_null_behavior(&self) -> NullBehavior {
+        match self {
+            polars_null_behavior_t::PolarsNullBehaviorDrop => NullBehavior::Drop,
+            polars_null_behavior_t::PolarsNullBehaviorIgnore => NullBehavior::Ignore,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_diff(
+    expr: *const polars_expr_t,
+    n: *const polars_expr_t,
+    null_behavior: polars_null_behavior_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let n = (*n).inner.clone();
+    make_expr(expr.diff(n, null_behavior.to_null_behavior()))
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_rank_method_t {
+    PolarsRankMethodAverage,
+    PolarsRankMethodMin,
+    PolarsRankMethodMax,
+    PolarsRankMethodDense,
+    PolarsRankMethodOrdinal,
+}
+
+impl polars_rank_method_t {
+    fn to_rank_method(&self) -> RankMethod {
+        match self {
+            polars_rank_method_t::PolarsRankMethodAverage => RankMethod::Average,
+            polars_rank_method_t::PolarsRankMethodMin => RankMethod::Min,
+            polars_rank_method_t::PolarsRankMethodMax => RankMethod::Max,
+            polars_rank_method_t::PolarsRankMethodDense => RankMethod::Dense,
+            polars_rank_method_t::PolarsRankMethodOrdinal => RankMethod::Ordinal,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_rank(
+    expr: *const polars_expr_t,
+    method: polars_rank_method_t,
+    descending: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let options = RankOptions {
+        method: method.to_rank_method(),
+        descending,
+    };
+    make_expr(expr.rank(options, None))
+}
+
 macro_rules! gen_impl_expr_list {
     ($n: ident, $t: expr) => {
         #[no_mangle]
@@ -443,6 +551,155 @@ gen_impl_expr_binary_str!(
     polars_expr_str_contains_literal,
     StringNameSpace::contains_literal
 );
+
+gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars);
+gen_impl_expr_binary_str!(
+    polars_expr_str_strip_prefix,
+    StringNameSpace::strip_prefix
+);
+gen_impl_expr_binary_str!(
+    polars_expr_str_strip_suffix,
+    StringNameSpace::strip_suffix
+);
+gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split);
+gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all);
+gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill);
+gen_impl_expr_binary_str!(polars_expr_str_head, StringNameSpace::head);
+gen_impl_expr_binary_str!(polars_expr_str_tail, StringNameSpace::tail);
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_contains(
+    a: *const polars_expr_t,
+    pat: *const polars_expr_t,
+    strict: bool,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().str().contains((*pat).inner.clone(), strict);
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_slice(
+    a: *const polars_expr_t,
+    offset: *const polars_expr_t,
+    length: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .slice((*offset).inner.clone(), (*length).inner.clone());
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_replace(
+    a: *const polars_expr_t,
+    pat: *const polars_expr_t,
+    value: *const polars_expr_t,
+    literal: bool,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().str().replace(
+        (*pat).inner.clone(),
+        (*value).inner.clone(),
+        literal,
+    );
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_replace_all(
+    a: *const polars_expr_t,
+    pat: *const polars_expr_t,
+    value: *const polars_expr_t,
+    literal: bool,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().str().replace_all(
+        (*pat).inner.clone(),
+        (*value).inner.clone(),
+        literal,
+    );
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_extract(
+    a: *const polars_expr_t,
+    pat: *const polars_expr_t,
+    group_index: usize,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .extract((*pat).inner.clone(), group_index);
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_count_matches(
+    a: *const polars_expr_t,
+    pat: *const polars_expr_t,
+    literal: bool,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .count_matches((*pat).inner.clone(), literal);
+    make_expr(expr)
+}
+
+macro_rules! gen_impl_expr_dt {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(a: *const polars_expr_t) -> *const polars_expr_t {
+            let expr = $t((*a).inner.clone().dt());
+            make_expr(expr)
+        }
+    };
+}
+
+gen_impl_expr_dt!(polars_expr_dt_year, DateLikeNameSpace::year);
+gen_impl_expr_dt!(polars_expr_dt_month, DateLikeNameSpace::month);
+gen_impl_expr_dt!(polars_expr_dt_day, DateLikeNameSpace::day);
+gen_impl_expr_dt!(polars_expr_dt_hour, DateLikeNameSpace::hour);
+gen_impl_expr_dt!(polars_expr_dt_minute, DateLikeNameSpace::minute);
+gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second);
+gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday);
+gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day);
+
+macro_rules! gen_impl_expr_binary_dt {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            b: *const polars_expr_t,
+        ) -> *const polars_expr_t {
+            let expr = $t((*a).inner.clone().dt(), (*b).inner.clone());
+            make_expr(expr)
+        }
+    };
+}
+
+gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate);
+gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round);
+gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by);
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_dt_strftime(
+    expr: *const polars_expr_t,
+    format: *const u8,
+    len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let format = match std::str::from_utf8(std::slice::from_raw_parts(format, len)) {
+        Ok(value) => value,
+        Err(err) => return make_error(err),
+    };
+    let result = (*expr).inner.clone().dt().strftime(format);
+    *out = make_expr(result);
+    std::ptr::null()
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_struct_field_by_name(

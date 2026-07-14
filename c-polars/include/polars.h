@@ -75,6 +75,19 @@ typedef enum polars_quantile_method_t {
   PolarsQuantileMethodEquiprobable,
 } polars_quantile_method_t;
 
+typedef enum polars_null_behavior_t {
+  PolarsNullBehaviorDrop,
+  PolarsNullBehaviorIgnore,
+} polars_null_behavior_t;
+
+typedef enum polars_rank_method_t {
+  PolarsRankMethodAverage,
+  PolarsRankMethodMin,
+  PolarsRankMethodMax,
+  PolarsRankMethodDense,
+  PolarsRankMethodOrdinal,
+} polars_rank_method_t;
+
 typedef struct polars_dataframe_t polars_dataframe_t;
 
 typedef struct polars_error_t polars_error_t;
@@ -412,6 +425,30 @@ const struct polars_expr_t *polars_expr_fill_nan(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_is_in(const struct polars_expr_t *a,
                                             const struct polars_expr_t *b);
 
+const struct polars_expr_t *polars_expr_shift(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_pct_change(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_cum_sum(const struct polars_expr_t *expr, bool reverse);
+
+const struct polars_expr_t *polars_expr_cum_prod(const struct polars_expr_t *expr, bool reverse);
+
+const struct polars_expr_t *polars_expr_cum_min(const struct polars_expr_t *expr, bool reverse);
+
+const struct polars_expr_t *polars_expr_cum_max(const struct polars_expr_t *expr, bool reverse);
+
+const struct polars_expr_t *polars_expr_cum_count(const struct polars_expr_t *expr, bool reverse);
+
+const struct polars_expr_t *polars_expr_diff(const struct polars_expr_t *expr,
+                                             const struct polars_expr_t *n,
+                                             enum polars_null_behavior_t null_behavior);
+
+const struct polars_expr_t *polars_expr_rank(const struct polars_expr_t *expr,
+                                             enum polars_rank_method_t method,
+                                             bool descending);
+
 const struct polars_expr_t *polars_expr_list_lengths(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_list_max(const struct polars_expr_t *a);
@@ -463,6 +500,86 @@ const struct polars_expr_t *polars_expr_str_ends_with(const struct polars_expr_t
 
 const struct polars_expr_t *polars_expr_str_contains_literal(const struct polars_expr_t *a,
                                                              const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_strip_chars(const struct polars_expr_t *a,
+                                                        const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_strip_prefix(const struct polars_expr_t *a,
+                                                         const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_strip_suffix(const struct polars_expr_t *a,
+                                                         const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_split(const struct polars_expr_t *a,
+                                                  const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_extract_all(const struct polars_expr_t *a,
+                                                        const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_zfill(const struct polars_expr_t *a,
+                                                  const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_head(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_tail(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_contains(const struct polars_expr_t *a,
+                                                     const struct polars_expr_t *pat,
+                                                     bool strict);
+
+const struct polars_expr_t *polars_expr_str_slice(const struct polars_expr_t *a,
+                                                  const struct polars_expr_t *offset,
+                                                  const struct polars_expr_t *length);
+
+const struct polars_expr_t *polars_expr_str_replace(const struct polars_expr_t *a,
+                                                    const struct polars_expr_t *pat,
+                                                    const struct polars_expr_t *value,
+                                                    bool literal);
+
+const struct polars_expr_t *polars_expr_str_replace_all(const struct polars_expr_t *a,
+                                                        const struct polars_expr_t *pat,
+                                                        const struct polars_expr_t *value,
+                                                        bool literal);
+
+const struct polars_expr_t *polars_expr_str_extract(const struct polars_expr_t *a,
+                                                    const struct polars_expr_t *pat,
+                                                    uintptr_t group_index);
+
+const struct polars_expr_t *polars_expr_str_count_matches(const struct polars_expr_t *a,
+                                                          const struct polars_expr_t *pat,
+                                                          bool literal);
+
+const struct polars_expr_t *polars_expr_dt_year(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_month(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_day(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_hour(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_minute(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_second(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_weekday(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_ordinal_day(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_truncate(const struct polars_expr_t *a,
+                                                    const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_dt_round(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_dt_offset_by(const struct polars_expr_t *a,
+                                                     const struct polars_expr_t *b);
+
+const struct polars_error_t *polars_expr_dt_strftime(const struct polars_expr_t *expr,
+                                                     const uint8_t *format,
+                                                     uintptr_t len,
+                                                     const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_struct_field_by_name(const struct polars_expr_t *a,
                                                              const uint8_t *name,
