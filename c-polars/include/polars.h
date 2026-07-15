@@ -441,6 +441,13 @@ const struct polars_error_t *polars_expr_over(const struct polars_expr_t *expr,
                                               uintptr_t n_partition_by,
                                               const struct polars_expr_t **out);
 
+const struct polars_expr_t *polars_expr_sort_by(const struct polars_expr_t *expr,
+                                                const struct polars_expr_t *const *by,
+                                                uintptr_t n_by,
+                                                const bool *descending,
+                                                bool nulls_last,
+                                                bool maintain_order);
+
 const struct polars_expr_t *polars_expr_quantile(const struct polars_expr_t *expr,
                                                  const struct polars_expr_t *quantile,
                                                  enum polars_quantile_method_t method);
@@ -474,6 +481,9 @@ const struct polars_expr_t *polars_expr_log(const struct polars_expr_t *a,
 
 const struct polars_expr_t *polars_expr_rem(const struct polars_expr_t *a,
                                             const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_top_k(const struct polars_expr_t *a,
+                                              const struct polars_expr_t *b);
 
 const struct polars_expr_t *polars_expr_round(const struct polars_expr_t *expr,
                                               uint32_t decimals,
@@ -519,6 +529,18 @@ const struct polars_expr_t *polars_expr_null_count(const struct polars_expr_t *e
 const struct polars_expr_t *polars_expr_drop_nans(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_drop_nulls(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_arg_sort(const struct polars_expr_t *expr,
+                                                 bool descending,
+                                                 bool nulls_last);
+
+const struct polars_error_t *polars_expr_value_counts(const struct polars_expr_t *expr,
+                                                      bool sort,
+                                                      bool parallel,
+                                                      const uint8_t *name,
+                                                      uintptr_t name_len,
+                                                      bool normalize,
+                                                      const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_implode(const struct polars_expr_t *expr);
 

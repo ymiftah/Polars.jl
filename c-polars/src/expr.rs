@@ -252,6 +252,34 @@ pub unsafe extern "C" fn polars_expr_over(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_expr_sort_by(
+    expr: *const polars_expr_t,
+    by: *const *const polars_expr_t,
+    n_by: usize,
+    descending: *const bool,
+    nulls_last: bool,
+    maintain_order: bool,
+) -> *const polars_expr_t {
+    let by: Vec<Expr> = std::slice::from_raw_parts(by, n_by)
+        .iter()
+        .map(|e| (**e).inner.clone())
+        .collect();
+    let descending = std::slice::from_raw_parts(descending, n_by).to_owned();
+    let expr = (*expr).inner.clone();
+    let result = expr.sort_by(
+        by,
+        SortMultipleOptions {
+            descending,
+            nulls_last: std::iter::repeat(nulls_last).take(n_by).collect(),
+            maintain_order,
+            multithreaded: true,
+            limit: None,
+        },
+    );
+    make_expr(result)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn polars_expr_quantile(
     expr: *const polars_expr_t,
     quantile: *const polars_expr_t,
@@ -363,6 +391,34 @@ gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans);
 gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls);
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_expr_arg_sort(
+    expr: *const polars_expr_t,
+    descending: bool,
+    nulls_last: bool,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().arg_sort(descending, nulls_last))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_value_counts(
+    expr: *const polars_expr_t,
+    sort: bool,
+    parallel: bool,
+    name: *const u8,
+    name_len: usize,
+    normalize: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let name = match std::str::from_utf8(std::slice::from_raw_parts(name, name_len)) {
+        Ok(s) => s,
+        Err(err) => return make_error(err),
+    };
+    let result = (*expr).inner.clone().value_counts(sort, parallel, name, normalize);
+    *out = make_expr(result);
+    std::ptr::null()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn polars_expr_implode(expr: *const polars_expr_t) -> *const polars_expr_t {
     let expr = &(*expr).inner;
     make_expr(expr.clone().implode(true))
@@ -416,6 +472,7 @@ gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change);
 
 gen_impl_expr_binary!(polars_expr_log, Expr::log);
 gen_impl_expr_binary!(polars_expr_rem, core::ops::Rem::rem);
+gen_impl_expr_binary!(polars_expr_top_k, Expr::top_k);
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_cum_sum(

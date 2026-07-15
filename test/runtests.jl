@@ -39,6 +39,7 @@ include("fixtures.jl")
     include("expr/order_window.jl")
     include("expr/math.jl")
     include("expr/replace.jl")
+    include("expr/sort_top_k.jl")
 
     include("datatypes/strings.jl")
     include("datatypes/datetimes.jl")

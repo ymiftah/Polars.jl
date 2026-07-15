@@ -1,5 +1,3 @@
-use polars_core::utils::arrow::array::Int64Array;
-
 use crate::{series::make_series, *};
 
 #[repr(C)]
@@ -314,34 +312,23 @@ pub unsafe extern "C" fn polars_value_binary_get(
 ///
 /// NOTE: The value producing the new value must outlive the value from the field.
 ///
-/// Safety: Values lifetimes must be valid and only support physical dtypes for now.
+/// Safety: Values lifetimes must be valid.
 #[no_mangle]
 pub unsafe extern "C" fn polars_value_struct_get<'a: 'b, 'b>(
     value: *mut polars_value_t<'a>,
     fieldidx: usize,
     out: *mut *mut polars_value_t<'b>,
 ) -> *const polars_error_t {
-    let AnyValue::Struct(value_index, sarray, fields) = (*value).inner else {
+    let inner: &'a AnyValue<'a> = &(*value).inner;
+    if !matches!(inner, AnyValue::Struct(_, _, _)) {
         return make_error("invalid type for value");
-    };
+    }
 
-    let Some(series) = sarray.values().get(fieldidx) else {
+    let Some(field_value) = inner._iter_struct_av().nth(fieldidx) else {
         return make_error(format!("invalid field index {fieldidx}"));
     };
 
-    let field = &fields[fieldidx];
-
-    let value = match field.dtype() {
-        DataType::Int64 => {
-            let array = series.as_any().downcast_ref::<Int64Array>().unwrap();
-            array.get(value_index).map(|val| AnyValue::Int64(val))
-        }
-        _ => unimplemented!("{:?}", field.dtype()),
-    };
-
-    let value = value.unwrap_or(AnyValue::Null);
-
-    *out = Box::into_raw(Box::new(polars_value_t { inner: value }));
+    *out = Box::into_raw(Box::new(polars_value_t { inner: field_value }));
 
     std::ptr::null()
 }

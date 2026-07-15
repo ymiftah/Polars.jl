@@ -488,6 +488,10 @@ function polars_expr_over(expr, partition_by, n_partition_by, out)
     return @ccall libpolars.polars_expr_over(expr::Ptr{polars_expr_t}, partition_by::Ptr{Ptr{polars_expr_t}}, n_partition_by::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+function polars_expr_sort_by(expr, by, n_by, descending, nulls_last, maintain_order)
+    return @ccall libpolars.polars_expr_sort_by(expr::Ptr{polars_expr_t}, by::Ptr{Ptr{polars_expr_t}}, n_by::Csize_t, descending::Ptr{Bool}, nulls_last::Bool, maintain_order::Bool)::Ptr{polars_expr_t}
+end
+
 function polars_expr_when_then_otherwise(cond, then, otherwise)
     return @ccall libpolars.polars_expr_when_then_otherwise(cond::Ptr{polars_expr_t}, then::Ptr{polars_expr_t}, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -546,6 +550,10 @@ end
 
 function polars_expr_rem(a, b)
     return @ccall libpolars.polars_expr_rem(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_top_k(a, b)
+    return @ccall libpolars.polars_expr_top_k(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_round(expr, decimals, mode)
@@ -618,6 +626,14 @@ end
 
 function polars_expr_drop_nulls(expr)
     return @ccall libpolars.polars_expr_drop_nulls(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_arg_sort(expr, descending, nulls_last)
+    return @ccall libpolars.polars_expr_arg_sort(expr::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_value_counts(expr, sort, parallel, name, name_len, normalize, out)
+    return @ccall libpolars.polars_expr_value_counts(expr::Ptr{polars_expr_t}, sort::Bool, parallel::Bool, name::Ptr{UInt8}, name_len::Csize_t, normalize::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_implode(expr)

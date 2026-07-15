@@ -488,6 +488,75 @@ end
 export over
 
 """
+    sort_by(expr::Polars.Expr, by...; rev=false, nulls_last::Bool=false, maintain_order::Bool=false)::Polars.Expr
+
+Sorts the values of `expr` according to `by` (columns or expressions), rather than by `expr`'s
+own values -- typically used inside [`over`](@ref)/[`agg`](@ref) for "most recent row per group",
+"top N per group", etc. `rev` is either a single `Bool` (applied to every `by` expression) or a
+`Vector{Bool}` the same length as `by`.
+"""
+function sort_by(expr::Expr, by...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
+    by = map(ex -> ex isa String ? col(ex) : ex, by)
+    by = convert(Vector{Expr}, collect(by))
+    n_by = length(by)
+    descending = rev isa Bool ? fill(rev, n_by) : rev
+    @assert length(descending) == n_by "rev must have the same length as the number of by expressions (got $n_by by expressions and $(length(descending)) rev)"
+    GC.@preserve by begin
+        by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
+        out = API.polars_expr_sort_by(expr, by_ptrs, n_by, descending, nulls_last, maintain_order)
+    end
+    return Expr(out)
+end
+
+export sort_by
+
+"""
+    arg_sort(expr::Polars.Expr; descending::Bool=false, nulls_last::Bool=false)::Polars.Expr
+
+Returns the index values that would sort `expr`.
+"""
+function arg_sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false)
+    out = API.polars_expr_arg_sort(expr, descending, nulls_last)
+    return Expr(out)
+end
+
+export arg_sort
+
+"""
+    top_k(expr::Polars.Expr, k)::Polars.Expr
+
+Returns the `k` largest elements of `expr` (not necessarily sorted; combine with [`sort_by`](@ref)
+if order matters).
+"""
+function top_k(expr::Expr, k)
+    k = convert(Expr, k)
+    out = API.polars_expr_top_k(expr, k)
+    return Expr(out)
+end
+
+export top_k
+
+"""
+    value_counts(expr::Polars.Expr; sort::Bool=false, parallel::Bool=false, name::String="count",
+                 normalize::Bool=false)::Polars.Expr
+
+Counts the occurrences of each unique value in `expr`, returning a `Struct` column mapping value
+to count (field `name`, default `"count"`). If `sort` is `true`, results are sorted by count
+descending. If `normalize` is `true`, counts become fractions of the total instead.
+"""
+function value_counts(
+        expr::Expr; sort::Bool = false, parallel::Bool = false, name::String = "count",
+        normalize::Bool = false
+    )
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_value_counts(expr, sort, parallel, name, length(name), normalize, out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+export value_counts
+
+"""
     cum_sum(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
 
 Cumulative sum of the values. If `reverse` is `true`, accumulates from the last value to the

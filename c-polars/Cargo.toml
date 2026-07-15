@@ -21,4 +21,4 @@ polars-core = "0.54.4"
 polars-plan = "0.54.4"
 polars-compute = "0.54.4"
 polars-ops = { version = "0.54.4", features = ["round_series"] }
-polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot"] }
+polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k"] }
