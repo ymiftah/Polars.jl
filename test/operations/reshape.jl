@@ -32,3 +32,34 @@ end
     long_lazy = unpivot(lazy(wide), ["id"]) |> collect
     @test long_lazy[:value] == long[:value]
 end
+
+@testset "pivot" begin
+    df = DataFrame((; id = [1, 1, 2, 2], var = ["a", "b", "a", "b"], val = [10, 20, 30, 40]))
+
+    r = pivot(df, "var", "id", "val")
+    r = sort(r, col("id"))
+    @test Set(string.(Tables.columnnames(r))) == Set(["id", "a", "b"])
+    @test r[:id] == [1, 2]
+    @test r[:a] == [10, 30]
+    @test r[:b] == [20, 40]
+
+    # custom agg (default is first): sum over duplicate (id, var) pairs
+    df2 = DataFrame((; id = [1, 1, 1, 2], var = ["a", "a", "b", "a"], val = [10, 20, 30, 40]))
+    r2 = sort(pivot(df2, "var", "id", "val"; agg = Base.sum(element())), col("id"))
+    @test r2[:a] == [30, 40]
+    @test r2[:b] == [30, 0]
+
+    # multiple `values` columns: column names combine value+on-value (auto behavior for >1 values)
+    df3 = DataFrame((; id = [1, 2], var = ["a", "b"], v1 = [1, 2], v2 = [10, 20]))
+    r3 = pivot(df3, "var", "id", ["v1", "v2"])
+    @test Set(string.(Tables.columnnames(r3))) == Set(["id", "v1_a", "v1_b", "v2_a", "v2_b"])
+    r3 = sort(r3, col("id"))
+    @test isequal(r3[:v1_a], [1, missing])
+    @test isequal(r3[:v1_b], [missing, 2])
+
+    # Vector on/index/values args accepted alongside plain strings
+    r4 = sort(pivot(df, ["var"], ["id"], ["val"]), col("id"))
+    @test r4[:a] == r[:a]
+
+    @test_throws ErrorException pivot(df, "var", "id", "val"; column_naming = :bogus)
+end

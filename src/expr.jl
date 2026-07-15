@@ -113,6 +113,16 @@ function nth(n)
 end
 
 """
+    element()::Polars.Expr
+
+A placeholder for "the values in this group", used to build the `agg` expression passed to
+[`pivot`](@ref) -- e.g. `Base.sum(element())`, `Base.first(element())` (the default).
+"""
+function element()
+    return Expr(API.polars_expr_element())
+end
+
+"""
     alias(expr::Polars.Expr, name::String)::Polars.Expr
     alias(alias::String)::Base.Fix2{typeof(alias), String}
 
@@ -1141,5 +1151,5 @@ module Structs
 
 end # module Structs
 
-export col, alias, prefix, suffix, lit, cast, when,
+export col, alias, prefix, suffix, lit, cast, when, element,
     Lists, Strings, Dt, Structs

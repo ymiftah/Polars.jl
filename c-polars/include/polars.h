@@ -110,6 +110,11 @@ typedef enum polars_asof_strategy_t {
   PolarsAsofStrategyNearest,
 } polars_asof_strategy_t;
 
+typedef enum polars_pivot_column_naming_t {
+  PolarsPivotColumnNamingCombine,
+  PolarsPivotColumnNamingAuto,
+} polars_pivot_column_naming_t;
+
 typedef enum polars_unique_keep_t {
   PolarsUniqueKeepFirst,
   PolarsUniqueKeepLast,
@@ -364,6 +369,24 @@ const struct polars_error_t *polars_lazy_frame_unpivot(struct polars_lazy_frame_
                                                        uintptr_t value_name_len,
                                                        struct polars_lazy_frame_t **out);
 
+const struct polars_error_t *polars_lazy_frame_pivot(struct polars_lazy_frame_t *lf,
+                                                     const uint8_t *const *on_names,
+                                                     const uintptr_t *on_lens,
+                                                     uintptr_t n_on,
+                                                     struct polars_dataframe_t *on_columns,
+                                                     const uint8_t *const *index_names,
+                                                     const uintptr_t *index_lens,
+                                                     uintptr_t n_index,
+                                                     const uint8_t *const *values_names,
+                                                     const uintptr_t *values_lens,
+                                                     uintptr_t n_values,
+                                                     const struct polars_expr_t *agg,
+                                                     bool maintain_order,
+                                                     const uint8_t *separator,
+                                                     uintptr_t separator_len,
+                                                     enum polars_pivot_column_naming_t column_naming,
+                                                     struct polars_lazy_frame_t **out);
+
 void polars_lazy_frame_tail(struct polars_lazy_frame_t *df, uintptr_t n);
 
 void polars_lazy_group_by_destroy(const struct polars_lazy_group_by_t *gb);
@@ -401,6 +424,8 @@ const struct polars_error_t *polars_expr_col(const uint8_t *name,
                                              const struct polars_expr_t **out);
 
 const struct polars_error_t *polars_expr_nth(int64_t n, const struct polars_expr_t **out);
+
+const struct polars_expr_t *polars_expr_element(void);
 
 const struct polars_error_t *polars_expr_alias(const struct polars_expr_t *expr,
                                                const uint8_t *name,

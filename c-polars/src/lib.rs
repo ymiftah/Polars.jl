@@ -18,6 +18,7 @@ use polars_plan::utils::expr_output_name;
 use polars_plan::dsl::{DslBuilder, ScanSources, UnifiedScanArgs, FileWriteFormat};
 use polars_plan::dsl::sink::{SinkDestination, SinkTarget, UnifiedSinkArgs};
 use polars::io::ipc::IpcScanOptions;
+use polars_core::frame::PivotColumnNaming;
 use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t};
 
 mod expr;
@@ -1087,6 +1088,77 @@ pub unsafe extern "C" fn polars_lazy_frame_unpivot(
         value_name,
     };
     let result = (*lf).inner.clone().unpivot(args);
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
+    std::ptr::null()
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_pivot_column_naming_t {
+    PolarsPivotColumnNamingCombine,
+    PolarsPivotColumnNamingAuto,
+}
+
+impl polars_pivot_column_naming_t {
+    fn to_pivot_column_naming(&self) -> PivotColumnNaming {
+        match self {
+            Self::PolarsPivotColumnNamingCombine => PivotColumnNaming::Combine,
+            Self::PolarsPivotColumnNamingAuto => PivotColumnNaming::Auto,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_pivot(
+    lf: *mut polars_lazy_frame_t,
+    on_names: *const *const u8,
+    on_lens: *const usize,
+    n_on: usize,
+    on_columns: *mut polars_dataframe_t,
+    index_names: *const *const u8,
+    index_lens: *const usize,
+    n_index: usize,
+    values_names: *const *const u8,
+    values_lens: *const usize,
+    n_values: usize,
+    agg: *const polars_expr_t,
+    maintain_order: bool,
+    separator: *const u8,
+    separator_len: usize,
+    column_naming: polars_pivot_column_naming_t,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let on_names = match read_names(on_names, on_lens, n_on) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let index_names = match read_names(index_names, index_lens, n_index) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let values_names = match read_names(values_names, values_lens, n_values) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let separator = match std::str::from_utf8(std::slice::from_raw_parts(separator, separator_len)) {
+        Ok(s) => PlSmallStr::from_str(s),
+        Err(err) => return make_error(err),
+    };
+
+    let on_columns = Arc::new((*on_columns).inner.clone());
+    let agg = (*agg).inner.clone();
+    let lf = (*lf).inner.clone();
+
+    let result = lf.pivot(
+        Selector::ByName { names: on_names.into(), strict: true },
+        on_columns,
+        Selector::ByName { names: index_names.into(), strict: true },
+        Selector::ByName { names: values_names.into(), strict: true },
+        agg,
+        maintain_order,
+        separator,
+        column_naming.to_pivot_column_naming(),
+    );
     *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
     std::ptr::null()
 }

@@ -91,6 +91,14 @@ pub unsafe extern "C" fn polars_expr_nth(
     return std::ptr::null();
 }
 
+/// A placeholder for "the values in this group", used to build the `agg` expression passed to
+/// `pivot` (e.g. `element().sum()`) -- substituted in-place with the actual value column filtered
+/// to the current group at plan-build time.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_element() -> *const polars_expr_t {
+    make_expr(element())
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_alias(
     expr: *const polars_expr_t,

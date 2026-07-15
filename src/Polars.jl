@@ -625,6 +625,58 @@ function unpivot(
     return LazyFrame(out[])
 end
 
+"""
+    pivot(df::DataFrame, on, index, values; agg=Base.first(element()), maintain_order::Bool=true,
+          separator::String="_", column_naming::Symbol=:auto)::DataFrame
+
+Reshapes `df` from long to wide format: creates one new column per distinct value of `on`
+(named after that value, or `"\$(value_col)\$(separator)\$(on_value)"` when there's more than one
+`values` column or `column_naming=:combine`), grouping the remaining rows by `index` and
+aggregating each group's `values` column via `agg` -- an expression built from [`element`](@ref),
+a placeholder for "the values in this group", e.g. `Base.sum(element())`. `on`/`index`/`values`
+may each be a single column name or a `Vector` of names.
+
+Wraps polars' own native `pivot` DSL node, which expands into an ordinary
+`group_by(index).agg(...)` plan internally (one conditional aggregation per distinct `on` value),
+so it reuses the same executor as `group_by`/`agg` rather than anything bespoke. Eager-only (no
+`LazyFrame` method) since it needs the distinct `on` values computed upfront.
+"""
+function pivot(
+        df::DataFrame, on, index, values; agg::Expr = Base.first(element()),
+        maintain_order::Bool = true, separator::String = "_", column_naming::Symbol = :auto
+    )
+    on = on isa AbstractVector ? String.(on) : [String(on)]
+    index = index isa AbstractVector ? String.(index) : [String(index)]
+    values = values isa AbstractVector ? String.(values) : [String(values)]
+
+    on_columns = collect(unique(select(lazy(df), map(col, on)...)))
+
+    naming_enum = if column_naming == :auto
+        API.PolarsPivotColumnNamingAuto
+    elseif column_naming == :combine
+        API.PolarsPivotColumnNamingCombine
+    else
+        error("unknown column_naming $column_naming, expected one of (:auto, :combine)")
+    end
+
+    GC.@preserve on index values begin
+        on_ptrs, on_lens = _name_ptrs(on)
+        index_ptrs, index_lens = _name_ptrs(index)
+        values_ptrs, values_lens = _name_ptrs(values)
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_pivot(
+            lazy(df), on_ptrs, on_lens, length(on_ptrs), on_columns,
+            index_ptrs, index_lens, length(index_ptrs),
+            values_ptrs, values_lens, length(values_ptrs),
+            agg, maintain_order, separator, length(separator), naming_enum, out
+        )
+        polars_error(err)
+    end
+    return collect(LazyFrame(out[]))
+end
+
+export pivot
+
 function _filter!(df::LazyFrame, expr)
     polars_lazy_frame_filter(df, expr)
     return df
