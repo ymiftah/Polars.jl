@@ -203,10 +203,24 @@ const struct polars_error_t *polars_lazy_frame_scan_csv(const uint8_t *path,
                                                         uintptr_t pathlen,
                                                         struct polars_lazy_frame_t **out);
 
+const struct polars_error_t *polars_lazy_frame_scan_ipc(const uint8_t *path,
+                                                         uintptr_t pathlen,
+                                                         struct polars_lazy_frame_t **out);
+
 const struct polars_error_t *polars_lazy_frame_sink_parquet(struct polars_lazy_frame_t *lf,
                                                             const uint8_t *path,
                                                             uintptr_t pathlen,
                                                             struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_sink_csv(struct polars_lazy_frame_t *lf,
+                                                         const uint8_t *path,
+                                                         uintptr_t pathlen,
+                                                         struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_sink_ipc(struct polars_lazy_frame_t *lf,
+                                                         const uint8_t *path,
+                                                         uintptr_t pathlen,
+                                                         struct polars_lazy_frame_t **out);
 
 void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,
                             const struct polars_expr_t *const *exprs,
@@ -506,6 +520,10 @@ const struct polars_expr_t *polars_expr_n_unique(const struct polars_expr_t *exp
 
 const struct polars_expr_t *polars_expr_unique(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_is_duplicated(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_is_unique(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_count(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_first(const struct polars_expr_t *expr);
@@ -613,6 +631,18 @@ const struct polars_expr_t *polars_expr_diff(const struct polars_expr_t *expr,
 const struct polars_expr_t *polars_expr_rank(const struct polars_expr_t *expr,
                                              enum polars_rank_method_t method,
                                              bool descending);
+
+const struct polars_expr_t *polars_expr_sample_n(const struct polars_expr_t *expr,
+                                                 const struct polars_expr_t *n,
+                                                 bool with_replacement,
+                                                 bool shuffle,
+                                                 const uint64_t *seed);
+
+const struct polars_expr_t *polars_expr_sample_frac(const struct polars_expr_t *expr,
+                                                    const struct polars_expr_t *frac,
+                                                    bool with_replacement,
+                                                    bool shuffle,
+                                                    const uint64_t *seed);
 
 const struct polars_expr_t *polars_expr_list_lengths(const struct polars_expr_t *a);
 

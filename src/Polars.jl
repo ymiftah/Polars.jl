@@ -259,6 +259,25 @@ end
 write_csv(p::String, df::DataFrame) = open(io -> write_csv(io, df), p, "w")
 
 """
+    scan_ipc(path::String)::LazyFrame
+
+Lazily scans an Arrow IPC (Feather) file without reading it into memory.
+"""
+function scan_ipc(path)
+    out = Ref{Ptr{polars_lazy_frame_t}}()
+    err = polars_lazy_frame_scan_ipc(path, length(path), out)
+    polars_error(err)
+    return LazyFrame(out[])
+end
+
+"""
+    read_ipc(path::String)::DataFrame
+
+Reads a dataframe stored in an Arrow IPC (Feather) file.
+"""
+read_ipc(path) = collect(scan_ipc(path))
+
+"""
     sink_parquet(lf::LazyFrame, path::String)
     sink_parquet(df::DataFrame, path::String)
 
@@ -270,6 +289,38 @@ sink_parquet(df::DataFrame, path::String) = sink_parquet(lazy(df), path)
 function sink_parquet(lf::LazyFrame, path::String)
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = polars_lazy_frame_sink_parquet(lf, path, length(path), out)
+    polars_error(err)
+    collect(LazyFrame(out[]); engine = :streaming)
+    return nothing
+end
+
+"""
+    sink_csv(lf::LazyFrame, path::String)
+    sink_csv(df::DataFrame, path::String)
+
+Executes the query and writes the result directly to a CSV file via the streaming engine, without
+materializing the full result in memory.
+"""
+sink_csv(df::DataFrame, path::String) = sink_csv(lazy(df), path)
+function sink_csv(lf::LazyFrame, path::String)
+    out = Ref{Ptr{polars_lazy_frame_t}}()
+    err = polars_lazy_frame_sink_csv(lf, path, length(path), out)
+    polars_error(err)
+    collect(LazyFrame(out[]); engine = :streaming)
+    return nothing
+end
+
+"""
+    sink_ipc(lf::LazyFrame, path::String)
+    sink_ipc(df::DataFrame, path::String)
+
+Executes the query and writes the result directly to an Arrow IPC (Feather) file via the streaming
+engine, without materializing the full result in memory.
+"""
+sink_ipc(df::DataFrame, path::String) = sink_ipc(lazy(df), path)
+function sink_ipc(lf::LazyFrame, path::String)
+    out = Ref{Ptr{polars_lazy_frame_t}}()
+    err = polars_lazy_frame_sink_ipc(lf, path, length(path), out)
     polars_error(err)
     collect(LazyFrame(out[]); engine = :streaming)
     return nothing
@@ -972,6 +1023,7 @@ export Series, DataFrame,
     select, with_columns, head, collect_schema,
     read_parquet, write_parquet, scan_parquet,
     read_csv, write_csv, scan_csv, sink_parquet,
+    read_ipc, scan_ipc, sink_csv, sink_ipc,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
     drop, with_row_index, explode, unpivot

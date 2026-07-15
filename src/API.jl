@@ -257,8 +257,20 @@ function polars_lazy_frame_scan_csv(path, pathlen, out)
     return @ccall libpolars.polars_lazy_frame_scan_csv(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
+function polars_lazy_frame_scan_ipc(path, pathlen, out)
+    return @ccall libpolars.polars_lazy_frame_scan_ipc(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
 function polars_lazy_frame_sink_parquet(lf, path, pathlen, out)
     return @ccall libpolars.polars_lazy_frame_sink_parquet(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_sink_csv(lf, path, pathlen, out)
+    return @ccall libpolars.polars_lazy_frame_sink_csv(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_sink_ipc(lf, path, pathlen, out)
+    return @ccall libpolars.polars_lazy_frame_sink_ipc(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_sort(df, exprs, nexprs, descending, nulls_last, maintain_order)
@@ -580,6 +592,14 @@ function polars_expr_unique(expr)
     return @ccall libpolars.polars_expr_unique(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_is_duplicated(expr)
+    return @ccall libpolars.polars_expr_is_duplicated(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_is_unique(expr)
+    return @ccall libpolars.polars_expr_is_unique(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_count(expr)
     return @ccall libpolars.polars_expr_count(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -738,6 +758,14 @@ end
 
 function polars_expr_rank(expr, method, descending)
     return @ccall libpolars.polars_expr_rank(expr::Ptr{polars_expr_t}, method::polars_rank_method_t, descending::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_sample_n(expr, n, with_replacement, shuffle, seed)
+    return @ccall libpolars.polars_expr_sample_n(expr::Ptr{polars_expr_t}, n::Ptr{polars_expr_t}, with_replacement::Bool, shuffle::Bool, seed::Ptr{UInt64})::Ptr{polars_expr_t}
+end
+
+function polars_expr_sample_frac(expr, frac, with_replacement, shuffle, seed)
+    return @ccall libpolars.polars_expr_sample_frac(expr::Ptr{polars_expr_t}, frac::Ptr{polars_expr_t}, with_replacement::Bool, shuffle::Bool, seed::Ptr{UInt64})::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_lengths(a)

@@ -376,6 +376,8 @@ pub unsafe extern "C" fn polars_expr_replace_strict(
 
 gen_impl_expr!(polars_expr_n_unique, Expr::n_unique);
 gen_impl_expr!(polars_expr_unique, Expr::unique);
+gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated);
+gen_impl_expr!(polars_expr_is_unique, Expr::is_unique);
 gen_impl_expr!(polars_expr_count, Expr::count);
 gen_impl_expr!(polars_expr_first, Expr::first);
 gen_impl_expr!(polars_expr_last, Expr::last);
@@ -575,6 +577,34 @@ pub unsafe extern "C" fn polars_expr_rank(
         descending,
     };
     make_expr(expr.rank(options, None))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_sample_n(
+    expr: *const polars_expr_t,
+    n: *const polars_expr_t,
+    with_replacement: bool,
+    shuffle: bool,
+    seed: *const u64,
+) -> *const polars_expr_t {
+    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let expr = (*expr).inner.clone();
+    let n = (*n).inner.clone();
+    make_expr(expr.sample_n(n, with_replacement, shuffle, seed))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_sample_frac(
+    expr: *const polars_expr_t,
+    frac: *const polars_expr_t,
+    with_replacement: bool,
+    shuffle: bool,
+    seed: *const u64,
+) -> *const polars_expr_t {
+    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let expr = (*expr).inner.clone();
+    let frac = (*frac).inner.clone();
+    make_expr(expr.sample_frac(frac, with_replacement, shuffle, seed))
 }
 
 macro_rules! gen_impl_expr_list {

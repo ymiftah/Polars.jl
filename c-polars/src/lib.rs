@@ -17,6 +17,7 @@ use polars_core::utils::{
 use polars_plan::utils::expr_output_name;
 use polars_plan::dsl::{DslBuilder, ScanSources, UnifiedScanArgs, FileWriteFormat};
 use polars_plan::dsl::sink::{SinkDestination, SinkTarget, UnifiedSinkArgs};
+use polars::io::ipc::IpcScanOptions;
 use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t};
 
 mod expr;
@@ -408,6 +409,26 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
+    path: *const u8,
+    pathlen: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
+        Ok(p) => p,
+        Err(err) => return make_error(err),
+    };
+
+    match LazyFrame::scan_ipc(PlRefPath::new(path), IpcScanOptions::default(), UnifiedScanArgs::default()) {
+        Ok(lf) => {
+            *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
+            std::ptr::null()
+        }
+        Err(err) => make_error(err),
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
     lf: *mut polars_lazy_frame_t,
     path: *const u8,
@@ -423,6 +444,54 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
         target: SinkTarget::Path(PlRefPath::new(path)),
     };
     let file_format = FileWriteFormat::Parquet(Arc::new(ParquetWriteOptions::default()));
+    let sunk = match lf.sink(sink_type, file_format, UnifiedSinkArgs::default()) {
+        Ok(sunk) => sunk,
+        Err(err) => return make_error(err),
+    };
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: sunk }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
+    lf: *mut polars_lazy_frame_t,
+    path: *const u8,
+    pathlen: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
+        Ok(p) => p,
+        Err(err) => return make_error(err),
+    };
+    let lf = (*lf).inner.clone();
+    let sink_type = SinkDestination::File {
+        target: SinkTarget::Path(PlRefPath::new(path)),
+    };
+    let file_format = FileWriteFormat::Csv(CsvWriterOptions::default());
+    let sunk = match lf.sink(sink_type, file_format, UnifiedSinkArgs::default()) {
+        Ok(sunk) => sunk,
+        Err(err) => return make_error(err),
+    };
+    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: sunk }));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
+    lf: *mut polars_lazy_frame_t,
+    path: *const u8,
+    pathlen: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
+        Ok(p) => p,
+        Err(err) => return make_error(err),
+    };
+    let lf = (*lf).inner.clone();
+    let sink_type = SinkDestination::File {
+        target: SinkTarget::Path(PlRefPath::new(path)),
+    };
+    let file_format = FileWriteFormat::Ipc(IpcWriterOptions::default());
     let sunk = match lf.sink(sink_type, file_format, UnifiedSinkArgs::default()) {
         Ok(sunk) => sunk,
         Err(err) => return make_error(err),

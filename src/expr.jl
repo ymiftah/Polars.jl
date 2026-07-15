@@ -300,6 +300,8 @@ end
 
     gen_impl_expr!(polars_expr_n_unique, Expr::n_unique)
     gen_impl_expr!(polars_expr_unique, Expr::unique)
+    gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated)
+    gen_impl_expr!(polars_expr_is_unique, Expr::is_unique)
     gen_impl_expr!(polars_expr_count, Expr::count)
     gen_impl_expr!(polars_expr_first, Expr::first)
     gen_impl_expr!(polars_expr_last, Expr::last)
@@ -555,6 +557,43 @@ function value_counts(
 end
 
 export value_counts
+
+"""
+    sample_n(expr::Polars.Expr, n; with_replacement::Bool=false, shuffle::Bool=false,
+             seed::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Randomly samples `n` values from `expr`. If `seed` is given, sampling is reproducible.
+"""
+function sample_n(
+        expr::Expr, n; with_replacement::Bool = false, shuffle::Bool = false,
+        seed::Union{Nothing, Integer} = nothing
+    )
+    n = convert(Expr, n)
+    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    out = GC.@preserve seed_ref API.polars_expr_sample_n(expr, n, with_replacement, shuffle, seed_ref)
+    return Expr(out)
+end
+
+export sample_n
+
+"""
+    sample_frac(expr::Polars.Expr, frac; with_replacement::Bool=false, shuffle::Bool=false,
+                seed::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Randomly samples a `frac` fraction of the values from `expr`. If `seed` is given, sampling is
+reproducible.
+"""
+function sample_frac(
+        expr::Expr, frac; with_replacement::Bool = false, shuffle::Bool = false,
+        seed::Union{Nothing, Integer} = nothing
+    )
+    frac = convert(Expr, frac)
+    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    out = GC.@preserve seed_ref API.polars_expr_sample_frac(expr, frac, with_replacement, shuffle, seed_ref)
+    return Expr(out)
+end
+
+export sample_frac
 
 """
     cum_sum(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
