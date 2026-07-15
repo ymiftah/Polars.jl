@@ -396,6 +396,10 @@ function polars_expr_literal_null()
     return @ccall libpolars.polars_expr_literal_null()::Ptr{polars_expr_t}
 end
 
+function polars_expr_lit_series(series)
+    return @ccall libpolars.polars_expr_lit_series(series::Ptr{polars_series_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_literal_utf8(s, len, out)
     return @ccall libpolars.polars_expr_literal_utf8(s::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
@@ -862,6 +866,14 @@ end
 
 function polars_expr_str_count_matches(a, pat, literal)
     return @ccall libpolars.polars_expr_str_count_matches(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, literal::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_to_date(expr, format, format_len, strict, exact, out)
+    return @ccall libpolars.polars_expr_str_to_date(expr::Ptr{polars_expr_t}, format::Ptr{UInt8}, format_len::Csize_t, strict::Bool, exact::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_str_to_datetime(expr, format, format_len, time_unit, strict, exact, out)
+    return @ccall libpolars.polars_expr_str_to_datetime(expr::Ptr{polars_expr_t}, format::Ptr{UInt8}, format_len::Csize_t, time_unit::polars_time_unit_t, strict::Bool, exact::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_dt_year(a)

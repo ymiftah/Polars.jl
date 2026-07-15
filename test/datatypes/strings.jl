@@ -88,3 +88,39 @@ end
     r5 = select(df5, alias(Strings.replace_all(col("s"), lit("."), lit("-"); literal = true), "r"))
     @test only(r5[:r]) == "a-b-c"
 end
+
+@testset "Strings.to_date / Strings.to_datetime" begin
+    df = DataFrame((; d = ["2024-01-15", "2024-06-30"]))
+
+    r = select(df, alias(Strings.to_date(col("d")), "date"))
+    @test collect(r[:date]) == [Date(2024, 1, 1) + Day(14), Date(2024, 6, 30)]
+    # composes with the Dt namespace from Milestone B
+    @test collect(select(r, alias(Dt.year(col("date")), "y"))[:y]) == [2024, 2024]
+    @test collect(select(r, alias(Dt.month(col("date")), "m"))[:m]) == [1, 6]
+    @test collect(select(r, alias(Dt.day(col("date")), "d"))[:d]) == [15, 30]
+
+    # explicit format string
+    df_fmt = DataFrame((; d = ["15/01/2024", "30/06/2024"]))
+    r_fmt = select(df_fmt, alias(Strings.to_date(col("d"); format = "%d/%m/%Y"), "date"))
+    @test collect(r_fmt[:date]) == collect(r[:date])
+
+    # Series{Datetime{Res}} doesn't support collect()/broadcasting (documented sharp edge in
+    # CLAUDE.md) -- index directly instead
+    df2 = DataFrame((; d = ["2024-01-15 09:30:00", "2024-06-30 14:00:00"]))
+    r2 = select(df2, alias(Strings.to_datetime(col("d")), "dt"))
+    @test r2[:dt][1] == DateTime(2024, 1, 15, 9, 30, 0)
+    @test r2[:dt][2] == DateTime(2024, 6, 30, 14, 0, 0)
+
+    # time_unit variants parse without error
+    for tu in (:ns, :us, :ms)
+        r_tu = select(df2, alias(Strings.to_datetime(col("d"); time_unit = tu), "dt"))
+        @test r_tu[:dt][1] == DateTime(2024, 1, 15, 9, 30, 0)
+    end
+
+    @test_throws ErrorException Strings.to_datetime(col("d"); time_unit = :bogus)
+
+    # strict=false turns unparseable values into null instead of erroring
+    df_bad = DataFrame((; d = ["2024-01-15", "not a date"]))
+    r_bad = select(df_bad, alias(Strings.to_date(col("d"); strict = false), "date"))
+    @test ismissing(r_bad[:date][2])
+end

@@ -84,6 +84,17 @@ pub enum polars_time_unit_t {
     PolarsTimeUnitInvalid,
 }
 
+impl polars_time_unit_t {
+    pub fn to_time_unit(&self) -> TimeUnit {
+        match self {
+            polars_time_unit_t::PolarsTimeUnitNanosecond => TimeUnit::Nanoseconds,
+            polars_time_unit_t::PolarsTimeUnitMicrosecond => TimeUnit::Microseconds,
+            polars_time_unit_t::PolarsTimeUnitMillisecond => TimeUnit::Milliseconds,
+            polars_time_unit_t::PolarsTimeUnitInvalid => TimeUnit::Microseconds,
+        }
+    }
+}
+
 #[repr(C)]
 pub enum polars_closed_window_t {
     PolarsClosedWindowLeft,

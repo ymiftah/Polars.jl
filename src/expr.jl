@@ -56,6 +56,12 @@ function Base.convert(::Type{Expr}, s::String)
     polars_error(err)
     return Expr(out[])
 end
+function Base.convert(::Type{Expr}, v::AbstractVector)
+    df = DataFrame((; literal = collect(v)))
+    series = df[:literal]
+    out = API.polars_expr_lit_series(series)
+    return Expr(out)
+end
 
 Base.:(==)(a::Expr, b::Expr) = eq(a, b)
 Base.isequal(a::Expr, b::Expr) = eq(a, b)
@@ -619,7 +625,7 @@ module Lists
 end # module Lists
 
 module Strings
-    using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
+    using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
 
     @generate_expr_fns begin
         gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase)
@@ -713,7 +719,53 @@ module Strings
         return Expr(out)
     end
 
-    export contains, slice, replace, replace_all, extract, count_matches
+    """
+        to_date(expr::Polars.Expr; format::Union{Nothing,String}=nothing, strict::Bool=true,
+                exact::Bool=true)::Polars.Expr
+
+    Parses a String column into a `Date`. `format` is a `chrono`-style format string (e.g.
+    `"%Y-%m-%d"`); if not given, polars attempts to infer it. If `strict` is `true` (default),
+    a value that fails to parse raises an error; if `false`, it becomes `null`. If `exact` is
+    `true` (default), the entire string must match `format`.
+    """
+    function to_date(expr::Expr; format::Union{Nothing, String} = nothing, strict::Bool = true, exact::Bool = true)
+        format_str = something(format, "")
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_str_to_date(expr, format_str, length(format_str), strict, exact, out)
+        polars_error(err)
+        return Expr(out[])
+    end
+
+    """
+        to_datetime(expr::Polars.Expr; format::Union{Nothing,String}=nothing,
+                    time_unit::Symbol=:us, strict::Bool=true, exact::Bool=true)::Polars.Expr
+
+    Parses a String column into a `Datetime`. `time_unit` is one of `:ns`, `:us` (default),
+    `:ms`. See [`to_date`](@ref) for `format`/`strict`/`exact`.
+    """
+    function to_datetime(
+            expr::Expr; format::Union{Nothing, String} = nothing, time_unit::Symbol = :us,
+            strict::Bool = true, exact::Bool = true
+        )
+        time_unit_enum = if time_unit == :ns
+            API.PolarsTimeUnitNanosecond
+        elseif time_unit == :us
+            API.PolarsTimeUnitMicrosecond
+        elseif time_unit == :ms
+            API.PolarsTimeUnitMillisecond
+        else
+            error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms)")
+        end
+        format_str = something(format, "")
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_str_to_datetime(
+            expr, format_str, length(format_str), time_unit_enum, strict, exact, out
+        )
+        polars_error(err)
+        return Expr(out[])
+    end
+
+    export contains, slice, replace, replace_all, extract, count_matches, to_date, to_datetime
 end # module Strings
 
 module Dt

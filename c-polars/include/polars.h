@@ -376,6 +376,8 @@ const struct polars_expr_t *polars_expr_literal_f64(double value);
 
 const struct polars_expr_t *polars_expr_literal_null(void);
 
+const struct polars_expr_t *polars_expr_lit_series(const struct polars_series_t *series);
+
 const struct polars_error_t *polars_expr_literal_utf8(const uint8_t *s,
                                                       uintptr_t len,
                                                       const struct polars_expr_t **out);
@@ -691,6 +693,21 @@ const struct polars_expr_t *polars_expr_str_extract(const struct polars_expr_t *
 const struct polars_expr_t *polars_expr_str_count_matches(const struct polars_expr_t *a,
                                                           const struct polars_expr_t *pat,
                                                           bool literal);
+
+const struct polars_error_t *polars_expr_str_to_date(const struct polars_expr_t *expr,
+                                                     const uint8_t *format,
+                                                     uintptr_t format_len,
+                                                     bool strict,
+                                                     bool exact,
+                                                     const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_str_to_datetime(const struct polars_expr_t *expr,
+                                                         const uint8_t *format,
+                                                         uintptr_t format_len,
+                                                         enum polars_time_unit_t time_unit,
+                                                         bool strict,
+                                                         bool exact,
+                                                         const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_dt_year(const struct polars_expr_t *a);
 

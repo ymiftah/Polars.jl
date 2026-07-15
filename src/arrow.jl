@@ -480,6 +480,63 @@ function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{String}, Strin
     return ArrowArray(ValidityMap(v), Vector[offsets, value_buffer], [])
 end
 
+"""
+    arrowvector(v::Vector{<:Vector})::ArrowArray
+
+Builds a `"+l"`-format (list) `ArrowArray`: an `Int32` offsets buffer (length `length(v)+1`,
+cumulative sublist lengths) plus one recursive child array holding all sublists concatenated
+end-to-end. `missing` sublists contribute a zero-length span (validity is tracked separately by
+the `ValidityMap`, matching the convention already used for `DateTime`/`Date` above).
+"""
+function arrowvector(v::Vector{<:Vector{T}}) where {T}
+    offsets = Vector{Int32}(undef, length(v) + 1)
+    offsets[begin] = zero(Int32)
+    @views cumsum!(offsets[(begin + 1):end], length.(v))
+    flattened = reduce(vcat, v; init = T[])
+    return ArrowArray(ValidityMap(v), Vector[offsets], [arrowvector(flattened)])
+end
+function arrowvector(v::Vector{S}) where {T, S <: MaybeMissing{Vector{T}}}
+    lengths = map(x -> ismissing(x) ? 0 : length(x), v)
+    offsets = Vector{Int32}(undef, length(v) + 1)
+    offsets[begin] = zero(Int32)
+    @views cumsum!(offsets[(begin + 1):end], lengths)
+    flattened = reduce(vcat, (ismissing(x) ? T[] : x for x in v); init = T[])
+    return ArrowArray(ValidityMap(v), Vector[offsets], [arrowvector(flattened)])
+end
+
+"""
+    arrowvector(v::Vector{<:NamedTuple})::ArrowArray
+
+Builds a `"+s"`-format (struct) `ArrowArray`: no buffers of its own, plus one recursive child
+array per field, built from that field's values across all rows.
+"""
+function arrowvector(v::Vector{<:NamedTuple})
+    NT = eltype(v)
+    children = [arrowvector([getfield(row, fname) for row in v]) for fname in fieldnames(NT)]
+    return ArrowArray(ValidityMap(v), Vector[], children)
+end
+
+"""
+    column_schema(name, type)::ArrowSchema
+
+Recursively builds the (possibly nested) `ArrowSchema` for a column of the given Julia element
+`type`, attaching a child schema for `List` (`"+l"`) and one per field for `Struct` (`"+s"`)
+columns -- `format(type)` alone only reports the outer shape, not its children.
+"""
+function column_schema(name, type)
+    fmt = format(type)
+    if fmt == "+l"
+        T = nonmissingtype(type)
+        return ArrowSchema(; format = fmt, name = string(name), children = [column_schema("item", eltype(T))])
+    elseif fmt == "+s"
+        T = nonmissingtype(type)
+        children = [column_schema(string(fname), fieldtype(T, fname)) for fname in fieldnames(T)]
+        return ArrowSchema(; format = fmt, name = string(name), children)
+    else
+        return ArrowSchema(; format = fmt, name = string(name))
+    end
+end
+
 # Encodes the provided table to an ArrowArray
 # this code should not fail as it can leak memory
 # by populating LIVE_SCHEMAS or LIVE_ARRAYS with
@@ -489,7 +546,7 @@ function arrowtable(table, table_name)
     tschema = Tables.schema(table)
 
     children = map(zip(tschema.names, tschema.types)) do (name, type)
-        ArrowSchema(; format = format(type), name = string(name))
+        column_schema(name, type)
     end
 
     schema = ArrowSchema(;

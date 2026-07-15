@@ -3,8 +3,9 @@ use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_core::series::ops::NullBehavior;
 use polars_ops::series::round::RoundMode;
 use polars_plan::dsl::DataTypeExpr;
+use polars_plan::prelude::Literal;
 
-use crate::{value::polars_value_type_t, *};
+use crate::{value::{polars_value_type_t, polars_time_unit_t}, *};
 
 fn make_expr(expr: Expr) -> *const polars_expr_t {
     Box::into_raw(Box::new(polars_expr_t { inner: expr }))
@@ -39,6 +40,14 @@ gen_literal_get!(polars_expr_literal_f64, Float64, f64);
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_literal_null() -> *const polars_expr_t {
     make_expr(Expr::Literal(LiteralValue::untyped_null()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_lit_series(
+    series: *const polars_series_t,
+) -> *const polars_expr_t {
+    let series = (*series).inner.clone();
+    make_expr(series.lit())
 }
 
 #[no_mangle]
@@ -726,6 +735,78 @@ pub unsafe extern "C" fn polars_expr_str_count_matches(
         .str()
         .count_matches((*pat).inner.clone(), literal);
     make_expr(expr)
+}
+
+unsafe fn read_opt_str(
+    ptr: *const u8,
+    len: usize,
+) -> Result<Option<PlSmallStr>, std::str::Utf8Error> {
+    if len == 0 {
+        Ok(None)
+    } else {
+        std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).map(|s| Some(PlSmallStr::from_str(s)))
+    }
+}
+
+fn string_literal(s: &str) -> Expr {
+    Expr::Literal(LiteralValue::Scalar(Scalar::new(
+        DataType::String,
+        AnyValue::StringOwned(PlSmallStr::from_str(s)),
+    )))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_to_date(
+    expr: *const polars_expr_t,
+    format: *const u8,
+    format_len: usize,
+    strict: bool,
+    exact: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let format = match read_opt_str(format, format_len) {
+        Ok(format) => format,
+        Err(err) => return make_error(err),
+    };
+    let options = StrptimeOptions {
+        format,
+        strict,
+        exact,
+        cache: true,
+    };
+    let result = (*expr).inner.clone().str().to_date(options);
+    *out = make_expr(result);
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_to_datetime(
+    expr: *const polars_expr_t,
+    format: *const u8,
+    format_len: usize,
+    time_unit: polars_time_unit_t,
+    strict: bool,
+    exact: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let format = match read_opt_str(format, format_len) {
+        Ok(format) => format,
+        Err(err) => return make_error(err),
+    };
+    let options = StrptimeOptions {
+        format,
+        strict,
+        exact,
+        cache: true,
+    };
+    let result = (*expr).inner.clone().str().to_datetime(
+        Some(time_unit.to_time_unit()),
+        None,
+        options,
+        string_literal("raise"),
+    );
+    *out = make_expr(result);
+    std::ptr::null()
 }
 
 macro_rules! gen_impl_expr_dt {

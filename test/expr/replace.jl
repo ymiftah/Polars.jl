@@ -7,6 +7,10 @@
     # values not found in `old` are left unchanged
     r2 = select(df, alias(Base.replace(col("x"), lit("z"), lit("Z")), "r"))
     @test r2[:r] == df[:x]
+
+    # multi-value mapping via lit(::Vector) (see test/expr/lit_vector.jl)
+    r3 = select(df, alias(Base.replace(col("x"), lit(["a", "c"]), lit(["A", "C"])), "r"))
+    @test r3[:r] == ["A", "b", "C", "d"]
 end
 
 @testset "replace_strict" begin
