@@ -343,6 +343,7 @@ dependencies = [
  "polars-core",
  "polars-ops",
  "polars-plan",
+ "polars-utils",
 ]
 
 [[package]]

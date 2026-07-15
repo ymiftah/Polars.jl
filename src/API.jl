@@ -166,6 +166,22 @@ end
     PolarsUniqueKeepAny = 3
 end
 
+@cenum polars_parquet_compression_t::UInt32 begin
+    PolarsParquetCompressionUncompressed = 0
+    PolarsParquetCompressionSnappy = 1
+    PolarsParquetCompressionGzip = 2
+    PolarsParquetCompressionBrotli = 3
+    PolarsParquetCompressionZstd = 4
+    PolarsParquetCompressionLz4Raw = 5
+end
+
+@cenum polars_parquet_parallel_strategy_t::UInt32 begin
+    PolarsParquetParallelAuto = 0
+    PolarsParquetParallelNone = 1
+    PolarsParquetParallelColumns = 2
+    PolarsParquetParallelRowGroups = 3
+end
+
 mutable struct polars_dataframe_t end
 
 mutable struct polars_error_t end
@@ -232,16 +248,19 @@ function polars_dataframe_destroy(df)
     return @ccall libpolars.polars_dataframe_destroy(df::Ptr{polars_dataframe_t})::Cvoid
 end
 
-function polars_dataframe_write_parquet(df, user, callback)
-    return @ccall libpolars.polars_dataframe_write_parquet(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+function polars_dataframe_write_parquet(
+        df, user, callback, compression, compression_level, statistics, row_group_size,
+        data_page_size
+    )
+    return @ccall libpolars.polars_dataframe_write_parquet(
+        df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback,
+        compression::polars_parquet_compression_t, compression_level::Ptr{Int32}, statistics::Bool,
+        row_group_size::Ptr{Csize_t}, data_page_size::Ptr{Csize_t}
+    )::Ptr{polars_error_t}
 end
 
 function polars_dataframe_write_csv(df, user, callback)
     return @ccall libpolars.polars_dataframe_write_csv(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
-end
-
-function polars_dataframe_read_parquet(path, pathlen, out)
-    return @ccall libpolars.polars_dataframe_read_parquet(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
 
 function polars_dataframe_show(df, user, callback)
@@ -274,8 +293,19 @@ function polars_lazy_frame_clone(df)
     return @ccall libpolars.polars_lazy_frame_clone(df::Ptr{polars_lazy_frame_t})::Ptr{polars_lazy_frame_t}
 end
 
-function polars_lazy_frame_scan_parquet(path, pathlen, out)
-    return @ccall libpolars.polars_lazy_frame_scan_parquet(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_scan_parquet(
+        path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, parallel,
+        low_memory, rechunk, cache, glob, use_statistics, allow_missing_columns,
+        include_file_paths, include_file_paths_len, hive_partitioning, out
+    )
+    return @ccall libpolars.polars_lazy_frame_scan_parquet(
+        path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8},
+        row_index_name_len::Csize_t, row_index_offset::UInt32,
+        parallel::polars_parquet_parallel_strategy_t, low_memory::Bool, rechunk::Bool, cache::Bool,
+        glob::Bool, use_statistics::Bool, allow_missing_columns::Bool,
+        include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t,
+        hive_partitioning::Ptr{Bool}, out::Ptr{Ptr{polars_lazy_frame_t}}
+    )::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_scan_csv(path, pathlen, out)
@@ -286,8 +316,16 @@ function polars_lazy_frame_scan_ipc(path, pathlen, out)
     return @ccall libpolars.polars_lazy_frame_scan_ipc(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_sink_parquet(lf, path, pathlen, out)
-    return @ccall libpolars.polars_lazy_frame_sink_parquet(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_sink_parquet(
+        lf, path, pathlen, compression, compression_level, statistics, row_group_size,
+        data_page_size, mkdir, maintain_order, out
+    )
+    return @ccall libpolars.polars_lazy_frame_sink_parquet(
+        lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t,
+        compression::polars_parquet_compression_t, compression_level::Ptr{Int32}, statistics::Bool,
+        row_group_size::Ptr{Csize_t}, data_page_size::Ptr{Csize_t}, mkdir::Bool,
+        maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}}
+    )::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_sink_csv(lf, path, pathlen, out)

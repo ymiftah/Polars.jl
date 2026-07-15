@@ -19,6 +19,7 @@ use polars_plan::dsl::{DslBuilder, ScanSources, UnifiedScanArgs, FileWriteFormat
 use polars_plan::dsl::sink::{SinkDestination, SinkTarget, UnifiedSinkArgs};
 use polars::io::ipc::IpcScanOptions;
 use polars_core::frame::PivotColumnNaming;
+use polars_utils::compression::{BrotliLevel, GzipLevel, ZstdLevel};
 use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t};
 
 mod expr;
@@ -63,6 +64,19 @@ unsafe fn read_names(
             std::str::from_utf8(std::slice::from_raw_parts(p, len)).map(PlSmallStr::from_str)
         })
         .collect()
+}
+
+/// Reads an optional `(ptr, len)` string: a null pointer (or zero length) means `None`, the
+/// shared convention for optional strings across the C ABI (mirroring the nullable-pointer
+/// convention already used for optional scalars, e.g. `polars_expr_sample_n`'s `seed`).
+unsafe fn read_opt_str(
+    ptr: *const u8,
+    len: usize,
+) -> Result<Option<PlSmallStr>, std::str::Utf8Error> {
+    if ptr.is_null() || len == 0 {
+        return Ok(None);
+    }
+    std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).map(|s| Some(PlSmallStr::from_str(s)))
 }
 
 /// Builds a `Selector::ByName` from a name list, or `None` if the list is empty (matching the
@@ -223,16 +237,145 @@ pub unsafe extern "C" fn polars_dataframe_destroy(df: *mut polars_dataframe_t) {
     let _ = Box::from_raw(df);
 }
 
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_parquet_compression_t {
+    PolarsParquetCompressionUncompressed,
+    PolarsParquetCompressionSnappy,
+    PolarsParquetCompressionGzip,
+    PolarsParquetCompressionBrotli,
+    PolarsParquetCompressionZstd,
+    PolarsParquetCompressionLz4Raw,
+}
+
+/// Builds `ParquetWriteOptions` from the primitive knobs shared by `write_parquet` and
+/// `sink_parquet`. `compression_level` (null = unset) is only meaningful for the leveled
+/// algorithms (gzip/brotli/zstd) -- passing one for an algorithm that doesn't support levels is
+/// an error, matching py-polars' own validation instead of silently ignoring it.
+unsafe fn build_parquet_write_options(
+    compression: polars_parquet_compression_t,
+    compression_level: *const i32,
+    statistics: bool,
+    row_group_size: *const usize,
+    data_page_size: *const usize,
+) -> PolarsResult<ParquetWriteOptions> {
+    use polars_parquet_compression_t::*;
+
+    let level = compression_level.as_ref().copied();
+    let no_level = |name: &str| -> PolarsResult<()> {
+        if level.is_some() {
+            return Err(PolarsError::InvalidOperation(
+                format!("compression_level is not supported for {name} compression").into(),
+            ));
+        }
+        Ok(())
+    };
+
+    let compression = match compression {
+        PolarsParquetCompressionUncompressed => {
+            no_level("uncompressed")?;
+            ParquetCompression::Uncompressed
+        }
+        PolarsParquetCompressionSnappy => {
+            no_level("snappy")?;
+            ParquetCompression::Snappy
+        }
+        PolarsParquetCompressionLz4Raw => {
+            no_level("lz4_raw")?;
+            ParquetCompression::Lz4Raw
+        }
+        PolarsParquetCompressionGzip => {
+            let level = level
+                .map(|l| {
+                    u8::try_from(l)
+                        .map_err(|_| {
+                            PolarsError::InvalidOperation(
+                                format!("gzip compression_level must be between 0 and 9, got {l}")
+                                    .into(),
+                            )
+                        })
+                        .and_then(GzipLevel::try_new)
+                })
+                .transpose()?;
+            ParquetCompression::Gzip(level)
+        }
+        PolarsParquetCompressionBrotli => {
+            let level = level
+                .map(|l| {
+                    u32::try_from(l)
+                        .map_err(|_| {
+                            PolarsError::InvalidOperation(
+                                format!(
+                                    "brotli compression_level must be between 0 and 11, got {l}"
+                                )
+                                .into(),
+                            )
+                        })
+                        .and_then(BrotliLevel::try_new)
+                })
+                .transpose()?;
+            ParquetCompression::Brotli(level)
+        }
+        PolarsParquetCompressionZstd => {
+            let level = level.map(ZstdLevel::try_new).transpose()?;
+            ParquetCompression::Zstd(level)
+        }
+    };
+
+    let statistics = if statistics {
+        StatisticsOptions::default()
+    } else {
+        StatisticsOptions {
+            min_value: false,
+            max_value: false,
+            distinct_count: false,
+            null_count: false,
+            binary_statistics_truncate_length: None,
+        }
+    };
+
+    Ok(ParquetWriteOptions {
+        compression,
+        statistics,
+        row_group_size: row_group_size.as_ref().copied(),
+        data_page_size: data_page_size.as_ref().copied(),
+        key_value_metadata: None,
+        arrow_schema: None,
+        compat_level: None,
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_dataframe_write_parquet(
     df: *mut polars_dataframe_t,
     user: *const c_void,
     callback: IOCallback,
+    compression: polars_parquet_compression_t,
+    compression_level: *const i32,
+    statistics: bool,
+    row_group_size: *const usize,
+    data_page_size: *const usize,
 ) -> *const polars_error_t {
-    let df = &mut (*df).inner;
+    let options = match build_parquet_write_options(
+        compression,
+        compression_level,
+        statistics,
+        row_group_size,
+        data_page_size,
+    ) {
+        Ok(options) => options,
+        Err(err) => return make_error(err),
+    };
 
+    let df = &mut (*df).inner;
     let w = UserIOCallback(callback, user);
-    if let Err(err) = ParquetWriter::new(w).finish(df) {
+    if let Err(err) = ParquetWriter::new(w)
+        .with_compression(options.compression)
+        .with_statistics(options.statistics)
+        .with_row_group_size(options.row_group_size)
+        .with_data_page_size(options.data_page_size)
+        .finish(df)
+    {
         return make_error(err);
     }
 
@@ -250,33 +393,6 @@ pub unsafe extern "C" fn polars_dataframe_write_csv(
     let w = UserIOCallback(callback, user);
     if let Err(err) = CsvWriter::new(w).finish(df) {
         return make_error(err);
-    }
-
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub extern "C" fn polars_dataframe_read_parquet(
-    path: *const u8,
-    pathlen: usize,
-    out: *mut *mut polars_dataframe_t,
-) -> *const polars_error_t {
-    let path = unsafe { std::slice::from_raw_parts(path, pathlen) };
-    let path = match std::str::from_utf8(path) {
-        Ok(path) => path,
-        Err(err) => return make_error(err),
-    };
-
-    let file = match std::fs::OpenOptions::new().read(true).open(path) {
-        Ok(file) => file,
-        Err(err) => return make_error(err),
-    };
-
-    match ParquetReader::new(file).finish() {
-        Ok(df) => unsafe {
-            *out = make_dataframe(df);
-        },
-        Err(err) => return make_error(err),
     }
 
     std::ptr::null()
@@ -410,18 +526,82 @@ pub unsafe extern "C" fn polars_lazy_frame_clone(
     }))
 }
 
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_parquet_parallel_strategy_t {
+    PolarsParquetParallelAuto,
+    PolarsParquetParallelNone,
+    PolarsParquetParallelColumns,
+    PolarsParquetParallelRowGroups,
+}
+
+impl polars_parquet_parallel_strategy_t {
+    fn to_parallel_strategy(&self) -> ParallelStrategy {
+        match self {
+            Self::PolarsParquetParallelAuto => ParallelStrategy::Auto,
+            Self::PolarsParquetParallelNone => ParallelStrategy::None,
+            Self::PolarsParquetParallelColumns => ParallelStrategy::Columns,
+            Self::PolarsParquetParallelRowGroups => ParallelStrategy::RowGroups,
+        }
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
     path: *const u8,
     pathlen: usize,
+    n_rows: *const usize,
+    row_index_name: *const u8,
+    row_index_name_len: usize,
+    row_index_offset: u32,
+    parallel: polars_parquet_parallel_strategy_t,
+    low_memory: bool,
+    rechunk: bool,
+    cache: bool,
+    glob: bool,
+    use_statistics: bool,
+    allow_missing_columns: bool,
+    include_file_paths: *const u8,
+    include_file_paths_len: usize,
+    hive_partitioning: *const bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
         Ok(p) => p,
         Err(err) => return make_error(err),
     };
+    let row_index_name = match read_opt_str(row_index_name, row_index_name_len) {
+        Ok(name) => name,
+        Err(err) => return make_error(err),
+    };
+    let include_file_paths = match read_opt_str(include_file_paths, include_file_paths_len) {
+        Ok(name) => name,
+        Err(err) => return make_error(err),
+    };
 
-    match LazyFrame::scan_parquet(PlRefPath::new(path), ScanArgsParquet::default()) {
+    let args = ScanArgsParquet {
+        n_rows: n_rows.as_ref().copied(),
+        parallel: parallel.to_parallel_strategy(),
+        row_index: row_index_name.map(|name| RowIndex {
+            name,
+            offset: row_index_offset,
+        }),
+        cloud_options: None,
+        hive_options: HiveOptions {
+            enabled: hive_partitioning.as_ref().copied(),
+            ..Default::default()
+        },
+        use_statistics,
+        schema: None,
+        low_memory,
+        rechunk,
+        cache,
+        glob,
+        include_file_paths,
+        allow_missing_columns,
+    };
+
+    match LazyFrame::scan_parquet(PlRefPath::new(path), args) {
         Ok(lf) => {
             *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
             std::ptr::null()
@@ -481,18 +661,40 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
     lf: *mut polars_lazy_frame_t,
     path: *const u8,
     pathlen: usize,
+    compression: polars_parquet_compression_t,
+    compression_level: *const i32,
+    statistics: bool,
+    row_group_size: *const usize,
+    data_page_size: *const usize,
+    mkdir: bool,
+    maintain_order: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
         Ok(p) => p,
         Err(err) => return make_error(err),
     };
+    let options = match build_parquet_write_options(
+        compression,
+        compression_level,
+        statistics,
+        row_group_size,
+        data_page_size,
+    ) {
+        Ok(options) => options,
+        Err(err) => return make_error(err),
+    };
     let lf = (*lf).inner.clone();
     let sink_type = SinkDestination::File {
         target: SinkTarget::Path(PlRefPath::new(path)),
     };
-    let file_format = FileWriteFormat::Parquet(Arc::new(ParquetWriteOptions::default()));
-    let sunk = match lf.sink(sink_type, file_format, UnifiedSinkArgs::default()) {
+    let file_format = FileWriteFormat::Parquet(Arc::new(options));
+    let sink_args = UnifiedSinkArgs {
+        mkdir,
+        maintain_order,
+        ..Default::default()
+    };
+    let sunk = match lf.sink(sink_type, file_format, sink_args) {
         Ok(sunk) => sunk,
         Err(err) => return make_error(err),
     };

@@ -127,6 +127,22 @@ typedef enum polars_unique_keep_t {
   PolarsUniqueKeepAny,
 } polars_unique_keep_t;
 
+typedef enum polars_parquet_compression_t {
+  PolarsParquetCompressionUncompressed,
+  PolarsParquetCompressionSnappy,
+  PolarsParquetCompressionGzip,
+  PolarsParquetCompressionBrotli,
+  PolarsParquetCompressionZstd,
+  PolarsParquetCompressionLz4Raw,
+} polars_parquet_compression_t;
+
+typedef enum polars_parquet_parallel_strategy_t {
+  PolarsParquetParallelAuto,
+  PolarsParquetParallelNone,
+  PolarsParquetParallelColumns,
+  PolarsParquetParallelRowGroups,
+} polars_parquet_parallel_strategy_t;
+
 typedef struct polars_dataframe_t polars_dataframe_t;
 
 typedef struct polars_error_t polars_error_t;
@@ -182,15 +198,16 @@ void polars_dataframe_destroy(struct polars_dataframe_t *df);
 
 const struct polars_error_t *polars_dataframe_write_parquet(struct polars_dataframe_t *df,
                                                             const void *user,
-                                                            IOCallback callback);
+                                                            IOCallback callback,
+                                                            enum polars_parquet_compression_t compression,
+                                                            const int32_t *compression_level,
+                                                            bool statistics,
+                                                            const uintptr_t *row_group_size,
+                                                            const uintptr_t *data_page_size);
 
 const struct polars_error_t *polars_dataframe_write_csv(struct polars_dataframe_t *df,
                                                         const void *user,
                                                         IOCallback callback);
-
-const struct polars_error_t *polars_dataframe_read_parquet(const uint8_t *path,
-                                                           uintptr_t pathlen,
-                                                           struct polars_dataframe_t **out);
 
 const struct polars_error_t *polars_dataframe_show(struct polars_dataframe_t *df,
                                                     const void *user,
@@ -220,6 +237,20 @@ struct polars_lazy_frame_t *polars_lazy_frame_clone(struct polars_lazy_frame_t *
 
 const struct polars_error_t *polars_lazy_frame_scan_parquet(const uint8_t *path,
                                                              uintptr_t pathlen,
+                                                             const uintptr_t *n_rows,
+                                                             const uint8_t *row_index_name,
+                                                             uintptr_t row_index_name_len,
+                                                             uint32_t row_index_offset,
+                                                             enum polars_parquet_parallel_strategy_t parallel,
+                                                             bool low_memory,
+                                                             bool rechunk,
+                                                             bool cache,
+                                                             bool glob,
+                                                             bool use_statistics,
+                                                             bool allow_missing_columns,
+                                                             const uint8_t *include_file_paths,
+                                                             uintptr_t include_file_paths_len,
+                                                             const bool *hive_partitioning,
                                                              struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_scan_csv(const uint8_t *path,
@@ -233,6 +264,13 @@ const struct polars_error_t *polars_lazy_frame_scan_ipc(const uint8_t *path,
 const struct polars_error_t *polars_lazy_frame_sink_parquet(struct polars_lazy_frame_t *lf,
                                                             const uint8_t *path,
                                                             uintptr_t pathlen,
+                                                            enum polars_parquet_compression_t compression,
+                                                            const int32_t *compression_level,
+                                                            bool statistics,
+                                                            const uintptr_t *row_group_size,
+                                                            const uintptr_t *data_page_size,
+                                                            bool mkdir,
+                                                            bool maintain_order,
                                                             struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_sink_csv(struct polars_lazy_frame_t *lf,
