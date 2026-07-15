@@ -50,6 +50,7 @@ include("fixtures.jl")
 
     include("datatypes/strings.jl")
     include("datatypes/datetimes.jl")
+    include("datatypes/timezones.jl")
     include("datatypes/lists.jl")
     include("datatypes/structs.jl")
     include("datatypes/series.jl")

@@ -173,6 +173,24 @@ pub unsafe extern "C" fn polars_value_time_unit(value: *mut polars_value_t) -> p
     };
 }
 
+/// Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive
+/// (same convention as `polars_series_name`). Returns 0 (and leaves `out` unwritten) for a naive
+/// datetime or any non-datetime value.
+#[no_mangle]
+pub unsafe extern "C" fn polars_value_time_zone(
+    value: *mut polars_value_t,
+    out: *mut *const u8,
+) -> usize {
+    match &(*value).inner {
+        AnyValue::Datetime(_, _, Some(tz)) => {
+            let s = tz.as_str();
+            *out = s.as_ptr();
+            s.len()
+        }
+        _ => 0,
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn polars_value_type(value: *mut polars_value_t) -> polars_value_type_t {
     // AnyValue::dtype() is unimplemented for Categorical/Enum (see polars-core), so these must

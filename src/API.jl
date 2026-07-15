@@ -128,6 +128,11 @@ end
     PolarsRoundModeToZero = 2
 end
 
+@cenum polars_non_existent_t::UInt32 begin
+    PolarsNonExistentRaise = 0
+    PolarsNonExistentNull = 1
+end
+
 @cenum polars_join_type_t::UInt32 begin
     PolarsJoinTypeInner = 0
     PolarsJoinTypeLeft = 1
@@ -1037,6 +1042,14 @@ function polars_expr_dt_offset_by(a, b)
     return @ccall libpolars.polars_expr_dt_offset_by(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_dt_convert_time_zone(expr, tz, tz_len, out)
+    return @ccall libpolars.polars_expr_dt_convert_time_zone(expr::Ptr{polars_expr_t}, tz::Ptr{UInt8}, tz_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_dt_replace_time_zone(expr, tz, tz_len, ambiguous, non_existent, out)
+    return @ccall libpolars.polars_expr_dt_replace_time_zone(expr::Ptr{polars_expr_t}, tz::Ptr{UInt8}, tz_len::Csize_t, ambiguous::Ptr{polars_expr_t}, non_existent::polars_non_existent_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
 function polars_expr_dt_strftime(expr, format, len, out)
     return @ccall libpolars.polars_expr_dt_strftime(expr::Ptr{polars_expr_t}, format::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
@@ -1136,6 +1149,10 @@ end
 
 function polars_value_time_unit(value)
     return @ccall libpolars.polars_value_time_unit(value::Ptr{polars_value_t})::polars_time_unit_t
+end
+
+function polars_value_time_zone(value, out)
+    return @ccall libpolars.polars_value_time_zone(value::Ptr{polars_value_t}, out::Ptr{Ptr{UInt8}})::Csize_t
 end
 
 function polars_value_type(value)

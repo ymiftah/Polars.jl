@@ -94,6 +94,11 @@ typedef enum polars_round_mode_t {
   PolarsRoundModeToZero,
 } polars_round_mode_t;
 
+typedef enum polars_non_existent_t {
+  PolarsNonExistentRaise,
+  PolarsNonExistentNull,
+} polars_non_existent_t;
+
 typedef enum polars_join_type_t {
   PolarsJoinTypeInner,
   PolarsJoinTypeLeft,
@@ -864,6 +869,18 @@ const struct polars_expr_t *polars_expr_dt_round(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_dt_offset_by(const struct polars_expr_t *a,
                                                      const struct polars_expr_t *b);
 
+const struct polars_error_t *polars_expr_dt_convert_time_zone(const struct polars_expr_t *expr,
+                                                               const uint8_t *tz,
+                                                               uintptr_t tz_len,
+                                                               const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_dt_replace_time_zone(const struct polars_expr_t *expr,
+                                                               const uint8_t *tz,
+                                                               uintptr_t tz_len,
+                                                               const struct polars_expr_t *ambiguous,
+                                                               enum polars_non_existent_t non_existent,
+                                                               const struct polars_expr_t **out);
+
 const struct polars_error_t *polars_expr_dt_strftime(const struct polars_expr_t *expr,
                                                      const uint8_t *format,
                                                      uintptr_t len,
@@ -946,6 +963,8 @@ const struct polars_error_t *polars_series_get_f64(struct polars_series_t *serie
                                                    double *out);
 
 enum polars_time_unit_t polars_value_time_unit(struct polars_value_t *value);
+
+uintptr_t polars_value_time_zone(struct polars_value_t *value, const uint8_t **out);
 
 enum polars_value_type_t polars_value_type(struct polars_value_t *value);
 

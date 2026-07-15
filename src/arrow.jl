@@ -90,6 +90,40 @@ function validitybuffer(vm::ValidityMap)
     return pointer(vm.data)
 end
 
+"""
+    _tz_aware_datetime_type(tz::AbstractString)
+
+Extension hook: determines the Julia element type for a timezone-aware `Datetime` column.
+Errors by default, since materializing a genuinely timezone-aware value needs
+`TimeZones.ZonedDateTime`, which this package does not depend on directly. Loading `TimeZones.jl`
+(`using TimeZones`) activates this package's `PolarsTimeZonesExt` extension, which adds the
+first-ever method for `_resolve_tz_aware_datetime_type` and makes this function return
+`TimeZones.ZonedDateTime` instead of erroring.
+
+!!! note
+    This delegates to `_resolve_tz_aware_datetime_type` (declared with zero methods, just below)
+    rather than being overridden directly, because Julia forbids an extension from *redefining*
+    an existing same-signature method during precompilation ("Method overwriting is not permitted
+    during Module precompilation") -- only adding a genuinely new method is allowed there. Leaving
+    the extension point as a zero-method stub sidesteps that restriction entirely.
+"""
+function _tz_aware_datetime_type(tz::AbstractString)
+    try
+        return _resolve_tz_aware_datetime_type(tz)
+    catch e
+        if e isa MethodError && e.f === _resolve_tz_aware_datetime_type
+            error(
+                "column has timezone \"$tz\" -- load TimeZones.jl (`using TimeZones`) to read " *
+                "timezone-aware Datetime columns"
+            )
+        end
+        rethrow()
+    end
+end
+
+"""Zero-method extension point -- see `_tz_aware_datetime_type`'s docstring."""
+function _resolve_tz_aware_datetime_type end
+
 function parse_format(schema)
     # Dictionary-encoded fields (e.g. low-cardinality strings) carry their
     # logical type in the referenced dictionary schema, not in `format`
@@ -122,9 +156,18 @@ function parse_format(schema)
     # All three resolutions collapse to the same real `Dates.DateTime` -- there's no
     # resolution-tagged DateTime type in the stdlib, and the actual resolution is re-derived at
     # runtime from the live polars value in `load_value` regardless (see series.jl/value.jl).
-    startswith(fmt, "tsn:") && return MaybeMissing{Dates.DateTime}
-    startswith(fmt, "tsu:") && return MaybeMissing{Dates.DateTime}
-    startswith(fmt, "tsm:") && return MaybeMissing{Dates.DateTime}
+    #
+    # The Arrow C Data Interface timestamp format is "tsX:tz" -- an empty suffix means naive, a
+    # non-empty suffix is an IANA time zone name. A naive suffix maps straight to `DateTime`; a
+    # non-empty one routes through `_tz_aware_datetime_type`, which errors by default (see above)
+    # and is overridden by the TimeZones.jl package extension to return `ZonedDateTime`.
+    for prefix in ("tsn:", "tsu:", "tsm:")
+        if startswith(fmt, prefix)
+            tz = fmt[(length(prefix) + 1):end]
+            T = isempty(tz) ? Dates.DateTime : _tz_aware_datetime_type(tz)
+            return MaybeMissing{T}
+        end
+    end
 
     fmt == "tdD" && return MaybeMissing{Date}
 
@@ -152,8 +195,8 @@ function parse_format(schema)
         return MaybeMissing{NamedTuple{names, types}}
     end
 
-    # List but which are store as Series
-    # NOTE: we may want to change this if the arrow implementation is
+    # List but which are stored as Series
+    # NOTE: we may want to change this if the arrow implementation
     # ....  is not specific to Polars.jl anymore.
     if fmt in ("+l", "+L")
         @assert schema.n_children == 1

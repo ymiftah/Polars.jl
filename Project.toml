@@ -11,10 +11,17 @@ PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 libpolars_jll = "155e46ed-8d3e-59a0-8e1f-b48074a428ad"
 
+[weakdeps]
+TimeZones = "f269a46b-ccf7-5d73-abea-4c690281aa53"
+
+[extensions]
+PolarsTimeZonesExt = "TimeZones"
+
 [compat]
 CEnum = "0.5"
 Dates = "1.11.0"
 PrettyTables = "3.0"
 Tables = "1.10"
+TimeZones = "1"
 julia = "1.10"
 libpolars_jll = "0.1"

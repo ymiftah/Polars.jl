@@ -1102,6 +1102,74 @@ gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate);
 gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round);
 gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by);
 
+#[repr(C)]
+pub enum polars_non_existent_t {
+    PolarsNonExistentRaise,
+    PolarsNonExistentNull,
+}
+
+impl polars_non_existent_t {
+    fn to_non_existent(&self) -> NonExistent {
+        match self {
+            polars_non_existent_t::PolarsNonExistentRaise => NonExistent::Raise,
+            polars_non_existent_t::PolarsNonExistentNull => NonExistent::Null,
+        }
+    }
+}
+
+/// `convert_time_zone`: re-labels the same instant into a different (mandatory) time zone,
+/// e.g. UTC -> "America/New_York". Fails (via the out-param error convention) if `tz` is not a
+/// valid IANA time zone name.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_dt_convert_time_zone(
+    expr: *const polars_expr_t,
+    tz: *const u8,
+    tz_len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let tz = match std::str::from_utf8(std::slice::from_raw_parts(tz, tz_len)) {
+        Ok(value) => value,
+        Err(err) => return make_error(err),
+    };
+    let time_zone = match TimeZone::opt_try_new(Some(tz)) {
+        Ok(Some(time_zone)) => time_zone,
+        Ok(None) => return make_error("invalid time zone"),
+        Err(err) => return make_error(err),
+    };
+    let result = (*expr).inner.clone().dt().convert_time_zone(time_zone);
+    *out = make_expr(result);
+    std::ptr::null()
+}
+
+/// `replace_time_zone`: attaches/strips/re-attaches a time zone label to the *same* local
+/// wall-clock values (unlike `convert_time_zone`, which preserves the instant).
+/// `tz_len == 0` means "strip the time zone back to naive" (`time_zone = None`).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_dt_replace_time_zone(
+    expr: *const polars_expr_t,
+    tz: *const u8,
+    tz_len: usize,
+    ambiguous: *const polars_expr_t,
+    non_existent: polars_non_existent_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let tz = match read_opt_str(tz, tz_len) {
+        Ok(value) => value,
+        Err(err) => return make_error(err),
+    };
+    let time_zone = match TimeZone::opt_try_new(tz) {
+        Ok(value) => value,
+        Err(err) => return make_error(err),
+    };
+    let result = (*expr).inner.clone().dt().replace_time_zone(
+        time_zone,
+        (*ambiguous).inner.clone(),
+        non_existent.to_non_existent(),
+    );
+    *out = make_expr(result);
+    std::ptr::null()
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_dt_strftime(
     expr: *const polars_expr_t,
