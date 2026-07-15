@@ -487,6 +487,16 @@ function over(expr::Expr, partition_by...)
     return Expr(out[])
 end
 
+"""
+    over(partition_by::String...)::Base.Callable
+
+Curried form of [`over`](@ref) for use with `|>`, mirroring Python polars' `.over("g")` — e.g.
+`sum(col("x")) |> over("g")`. Only accepts column-name strings, not `Expr` partition keys (an
+`Expr` argument is ambiguous with `over`'s own `expr` argument and always resolves to that
+instead); for expression-valued partition keys, call `over(expr, partition_by...)` directly.
+"""
+over(partition_by::String...) = expr -> over(expr, partition_by...)
+
 export over
 
 """
@@ -508,6 +518,18 @@ function sort_by(expr::Expr, by...; rev = false, nulls_last::Bool = false, maint
         out = API.polars_expr_sort_by(expr, by_ptrs, n_by, descending, nulls_last, maintain_order)
     end
     return Expr(out)
+end
+
+"""
+    sort_by(by::String...; rev=false, nulls_last::Bool=false, maintain_order::Bool=false)::Base.Callable
+
+Curried form of [`sort_by`](@ref) for use with `|>` — e.g. `col("x") |> sort_by("y"; rev=true)`.
+Only accepts column-name strings, not `Expr` by-keys (an `Expr` argument is ambiguous with
+`sort_by`'s own `expr` argument and always resolves to that instead); for expression-valued
+by-keys, call `sort_by(expr, by...; kwargs...)` directly.
+"""
+function sort_by(by::String...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
+    return expr -> sort_by(expr, by...; rev, nulls_last, maintain_order)
 end
 
 export sort_by

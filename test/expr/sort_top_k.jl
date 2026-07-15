@@ -14,6 +14,26 @@
     @test r2[:s] == [2, 4, 1, 3]
 end
 
+@testset "sort_by curried form" begin
+    df = DataFrame((; g = ["a", "a", "b", "b"], x = [3, 1, 4, 2], y = [10, 20, 30, 40]))
+
+    r = collect(agg(group_by(lazy(df), "g"), alias(col("x") |> sort_by("y"; rev = true), "sorted_x")))
+    r = sort(r, col("g"))
+    @test collect(r[:sorted_x][1]) == [1, 3]
+    @test collect(r[:sorted_x][2]) == [2, 4]
+
+    # multi-column curried form, agrees with the non-curried form
+    df2 = DataFrame((; x = [1, 2, 3, 4], y = [2, 1, 2, 1], z = [3, 5, 1, 2]))
+    r2 = select(df2, alias(col("x") |> sort_by("y", "z"; rev = [false, true]), "s"))
+    r2_direct = select(df2, alias(sort_by(col("x"), col("y"), col("z"); rev = [false, true]), "s"))
+    @test r2[:s] == r2_direct[:s]
+
+    # a bare Expr argument is not curried -- it resolves to the original sort_by(expr, by...)
+    # with zero by-keys, since it's ambiguous with sort_by's own `expr` argument
+    r_bare = sort_by(col("x"))
+    @test r_bare isa Polars.Expr
+end
+
 @testset "arg_sort" begin
     df = DataFrame((; x = [3, 1, 4, 2]))
 
