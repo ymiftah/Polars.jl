@@ -119,15 +119,20 @@ function parse_format(schema)
     fmt == "z" && return Vector{UInt8}
     fmt == "Z" && return Vector{UInt8}
 
-    startswith(fmt, "tsn:") && return MaybeMissing{Datetime{Nanosecond}}
-    startswith(fmt, "tsu:") && return MaybeMissing{Datetime{Microsecond}}
-    startswith(fmt, "tsm:") && return MaybeMissing{Datetime{Millisecond}}
+    # All three resolutions collapse to the same real `Dates.DateTime` -- there's no
+    # resolution-tagged DateTime type in the stdlib, and the actual resolution is re-derived at
+    # runtime from the live polars value in `load_value` regardless (see series.jl/value.jl).
+    startswith(fmt, "tsn:") && return MaybeMissing{Dates.DateTime}
+    startswith(fmt, "tsu:") && return MaybeMissing{Dates.DateTime}
+    startswith(fmt, "tsm:") && return MaybeMissing{Dates.DateTime}
 
     fmt == "tdD" && return MaybeMissing{Date}
 
-    fmt == "tDm" && return MaybeMissing{Duration{Millisecond}}
-    fmt == "tDu" && return MaybeMissing{Duration{Microsecond}}
-    fmt == "tDn" && return MaybeMissing{Duration{Nanosecond}}
+    # Unlike Datetime, the stdlib's Period subtypes are themselves genuinely resolution-specific
+    # real types, so these use them directly instead of a custom wrapper.
+    fmt == "tDm" && return MaybeMissing{Dates.Millisecond}
+    fmt == "tDu" && return MaybeMissing{Dates.Microsecond}
+    fmt == "tDn" && return MaybeMissing{Dates.Nanosecond}
 
     if fmt == "+s" # Struct type
         children = unsafe_wrap(

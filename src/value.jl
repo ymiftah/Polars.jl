@@ -83,7 +83,7 @@ function load_value(value::Value{NT}) where {NT <: NamedTuple}
     return NT(field_values)
 end
 
-function load_value(value::Value{TT}) where {TT <: Duration}
+function load_value(value::Value{TT}) where {TT <: Dates.Period}
     v = Ref{Int64}()
     err = polars_value_duration_get(value.ptr, v)
     polars_error(err)
@@ -94,13 +94,13 @@ function load_value(value::Value{TT}) where {TT <: Duration}
     elseif tu == API.PolarsTimeUnitMicrosecond
         return Dates.Microsecond(v[])
     elseif tu == API.PolarsTimeUnitMillisecond
-        return Dates.Milliseconds(v[])
+        return Dates.Millisecond(v[])
     end
 
     error("invalid duration")
 end
 
-function load_value(value::Value{TT}) where {TT <: Datetime}
+function load_value(value::Value{Dates.DateTime})
     v = Ref{Int64}()
     err = polars_value_datetime_get(value.ptr, v)
     polars_error(err)

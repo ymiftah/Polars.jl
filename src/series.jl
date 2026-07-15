@@ -30,7 +30,7 @@ function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissin
     return out[]
 end
 
-function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissing{Datetime}, MaybeMissing{Duration}, Datetime, Duration, MaybeMissing{Date}, Date}}
+function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissing{Dates.TimeType}, Dates.TimeType, MaybeMissing{Dates.Period}, Dates.Period}}
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)

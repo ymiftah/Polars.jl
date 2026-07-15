@@ -68,16 +68,6 @@ end
 
 using Dates
 
-struct Datetime{Res}
-    v::Value{Datetime{Res}}
-end
-
-struct Duration{Res}
-    v::Value{Duration{Res}}
-end
-
-@enum TimeUnit Nanosecond Microsecond Millisecond
-
 include("./expr.jl")
 include("./series.jl")
 include("./arrow.jl")

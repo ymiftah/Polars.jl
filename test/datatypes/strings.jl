@@ -104,12 +104,9 @@ end
     r_fmt = select(df_fmt, alias(Strings.to_date(col("d"); format = "%d/%m/%Y"), "date"))
     @test collect(r_fmt[:date]) == collect(r[:date])
 
-    # Series{Datetime{Res}} doesn't support collect()/broadcasting (documented sharp edge in
-    # CLAUDE.md) -- index directly instead
     df2 = DataFrame((; d = ["2024-01-15 09:30:00", "2024-06-30 14:00:00"]))
     r2 = select(df2, alias(Strings.to_datetime(col("d")), "dt"))
-    @test r2[:dt][1] == DateTime(2024, 1, 15, 9, 30, 0)
-    @test r2[:dt][2] == DateTime(2024, 6, 30, 14, 0, 0)
+    @test collect(r2[:dt]) == [DateTime(2024, 1, 15, 9, 30, 0), DateTime(2024, 6, 30, 14, 0, 0)]
 
     # time_unit variants parse without error
     for tu in (:ns, :us, :ms)

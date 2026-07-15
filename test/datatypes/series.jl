@@ -26,6 +26,12 @@ end
     @test s_dt[1] == DateTime(2024, 1, 1, 1, 2, 3)
     @test ismissing(s_dt[2])
 
+    # eltype is the real Dates.DateTime (not an internal wrapper), so collect/copy/broadcast
+    # all work directly -- no more direct-indexing-only workaround needed.
+    @test eltype(s_dt) == Union{Missing, DateTime}
+    @test isequal(collect(s_dt), [DateTime(2024, 1, 1, 1, 2, 3), missing])
+    @test isequal(copy(s_dt), collect(s_dt))
+
     # Duration columns can't be constructed directly (no write-side arrow support for
     # Duration, unlike Date/DateTime), but arise naturally from datetime subtraction.
     df_dt = DataFrame(
@@ -37,4 +43,8 @@ end
     diffs = select(df_dt, (col("a") - col("b")) |> alias("diff"))[:diff]
     @test diffs[1] == Dates.Nanosecond(2 * 3600 * 1_000_000_000)
     @test diffs[2] == Dates.Nanosecond(24 * 3600 * 1_000_000_000)
+
+    # eltype is the real, resolution-specific Dates.Nanosecond -- collect works here too
+    @test eltype(diffs) == Dates.Nanosecond
+    @test collect(diffs) == [Dates.Nanosecond(2 * 3600 * 1_000_000_000), Dates.Nanosecond(24 * 3600 * 1_000_000_000)]
 end

@@ -136,10 +136,6 @@ mapped in; re-running `using Polars` is a no-op. Restart the session (Kaimon: `m
   construct a column from `Vector{Vector{T}}` or `Vector{<:NamedTuple}` — only scalar/fixed-width
   types, `String`, `Date`, `DateTime` have an `arrowvector` method. List data can still be obtained
   via `implode`/`group_by`; Struct data currently has no pure-Julia construction path at all.
-- **`Series{Datetime{Res}}`/`Series{Duration{Res}}` don't support `collect()` or broadcasting** —
-  the declared `eltype` is the internal wrapper type, but `getindex` returns a plain
-  `Dates.DateTime`/`Period`, so the generic `Base.collect` path throws `MethodError`. Use direct
-  indexing (`s[i]`) or `isequal` comparisons instead.
 - **`@generate_expr_fns` qualifies by `isdefined(Base, fname)`, not `isexported`** — if the Rust
   method name happens to match a Base binding that exists but isn't exported (e.g. `Expr::product`
   collided with an internal, unexported `Base.product`), the generated wrapper silently becomes
