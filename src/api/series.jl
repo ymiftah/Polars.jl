@@ -19,6 +19,18 @@ function polars_series_schema(series)
 end
 
 """
+    polars_series_export_carray(series)
+
+Exports the series' data as a single Arrow C Data Interface `ArrowArray`, collapsing the series
+to one chunk first if necessary. The returned `ArrowArray` is self-contained (owns its buffers via
+the release callback) and can outlive `series` -- the caller must eventually invoke `.release`
+(directly or via a Julia-side keeper/finalizer) exactly once.
+"""
+function polars_series_export_carray(series)
+    return @ccall libpolars.polars_series_export_carray(series::Ptr{polars_series_t})::ArrowArray
+end
+
+"""
     polars_series_is_null(series, index)
 
 Returns whether or not the value at index `index` is null, return false if the index is out of bounds.

@@ -49,6 +49,101 @@ end
     @test collect(diffs) == [Dates.Nanosecond(2 * 3600 * 1_000_000_000), Dates.Nanosecond(24 * 3600 * 1_000_000_000)]
 end
 
+@testset "bulk/zero-copy Series materialization (read_series/collect)" begin
+    # Bulk-copy path must agree with the existing per-element getindex path across every type
+    # category read_series supports, both with and without nulls.
+    @testset "numeric" begin
+        for (values, T) in (
+                (Int64[1, 2, 3, 4, 5], Int64),
+                (Float64[1.5, 2.5, 3.5], Float64),
+                (Int32[10, 20, 30], Int32),
+            )
+            s = Series(:x, values)
+            bulk = collect(s)
+            @test bulk == [s[i] for i in eachindex(s)]
+            @test bulk isa Vector{T}
+        end
+
+        s = Series(:x, Union{Int64, Missing}[1, missing, 3, missing, 5])
+        bulk = collect(s)
+        @test isequal(bulk, [s[i] for i in eachindex(s)])
+        @test bulk isa Vector{Union{Int64, Missing}}
+    end
+
+    @testset "bool" begin
+        s = Series(:x, [true, false, true])
+        @test collect(s) == [s[i] for i in eachindex(s)]
+
+        s = Series(:x, Union{Bool, Missing}[true, missing, false])
+        @test isequal(collect(s), [s[i] for i in eachindex(s)])
+    end
+
+    @testset "date/datetime" begin
+        s = Series(:x, [Date(2024, 1, 1), Date(2024, 6, 15)])
+        @test collect(s) == [s[i] for i in eachindex(s)]
+
+        s = Series(:x, Union{Date, Missing}[Date(2024, 1, 1), missing])
+        @test isequal(collect(s), [s[i] for i in eachindex(s)])
+
+        s = Series(:x, [DateTime(2024, 1, 1, 10, 30, 0), DateTime(2024, 6, 15)])
+        @test collect(s) == [s[i] for i in eachindex(s)]
+
+        s = Series(:x, Union{DateTime, Missing}[DateTime(2024, 1, 1), missing])
+        @test isequal(collect(s), [s[i] for i in eachindex(s)])
+    end
+
+    @testset "empty series" begin
+        @test collect(Series(:x, Int64[])) == Int64[]
+        @test collect(Series(:x, Date[])) == Date[]
+    end
+
+    @testset "sliced/offset series (post-filter/head)" begin
+        df = DataFrame((; x = collect(1:20)))
+        lf = lazy(df)
+
+        s = Polars.collect(head(lf, 5))[:x]
+        @test collect(s) == [s[i] for i in eachindex(s)] == 1:5
+
+        s = Polars.collect(filter(lf, col("x") > 10))[:x]
+        @test collect(s) == [s[i] for i in eachindex(s)] == 11:20
+    end
+
+    @testset "true zero-copy opt-in" begin
+        s = Series(:x, Int64[10, 20, 30, 40, 50])
+        arr = Polars.read_series(s; zerocopy = true)
+        @test arr == collect(s)
+
+        # the borrowed buffer must stay valid (and correct) after the source Series/DataFrame
+        # are dropped and GC'd -- the whole point of the release-on-finalize keeper.
+        s = nothing
+        GC.gc()
+        @test arr == [10, 20, 30, 40, 50]
+    end
+
+    @testset "double-release is idempotent (no double-free)" begin
+        s = Series(:x, Union{Int64, Missing}[1, missing, 3])
+        h = Polars.ExportedArray(Polars.polars_series_export_carray(s))
+        Polars.release!(h)  # eager release, as the copy path does
+        Polars.release!(h)  # must be a no-op, not a double-free
+        finalize(h)          # forcing the finalizer too must also be a no-op
+        GC.gc()
+    end
+
+    @testset "fallback to per-element for unsupported types" begin
+        s = Series(:x, ["hello", "world"])
+        @test Polars.read_series(s) === nothing
+        @test collect(s) == [s[i] for i in eachindex(s)]
+
+        df = DataFrame((; x = [[1, 2, 3], [4, 5]]))
+        s = df[:x]
+        @test Polars.read_series(s) === nothing
+        bulk = collect(s)
+        @test length(bulk) == 2
+        @test collect(bulk[1]) == [1, 2, 3]
+        @test collect(bulk[2]) == [4, 5]
+    end
+end
+
 @testset "Series getindex out-of-bounds (regression: FFI panic in polars_series_get)" begin
     # `polars_series_get` backs the Date/DateTime/Duration/String/List/Struct getindex methods
     # (unlike the numeric/bool methods, which go through the already-fallible `gen_series_get!`

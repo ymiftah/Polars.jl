@@ -33,6 +33,18 @@ pub unsafe extern "C" fn polars_series_schema(series: *mut polars_series_t) -> A
     ffi::export_field_to_c(&(*series).inner.field().to_arrow(CompatLevel::newest()))
 }
 
+/// Exports the series' data as a single Arrow C Data Interface `ArrowArray`, collapsing the
+/// series to one chunk first if necessary. The returned `ArrowArray` is self-contained (owns its
+/// buffers via the release callback) and can outlive `series` -- the caller takes ownership and
+/// must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly
+/// once.
+#[no_mangle]
+pub unsafe extern "C" fn polars_series_export_carray(series: *mut polars_series_t) -> ArrowArray {
+    assert!(!series.is_null());
+    let rechunked = (*series).inner.rechunk();
+    ffi::export_array_to_c(rechunked.chunks()[0].to_boxed())
+}
+
 /// Returns whether or not the value at index `index` is null, return false if the index is out of
 /// bounds.
 #[no_mangle]

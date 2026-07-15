@@ -30,6 +30,7 @@ using Dates
 include("./arrow/schema.jl")
 include("./arrow/array.jl")
 include("./series.jl")
+include("./arrow/read.jl")
 include("./value.jl")
 
 """
@@ -80,6 +81,7 @@ include("./io/csv.jl")
 include("./io/ipc.jl")
 
 export Series, DataFrame,
+    read_series,
     select, with_columns, head, collect_schema,
     read_parquet, write_parquet, scan_parquet,
     read_csv, write_csv, scan_csv, sink_parquet,
