@@ -3,9 +3,6 @@
 
     r = select(
         df, Polars.sum(col("x")) |> alias("sum"),
-        # `prod` is an exported Base name (like `sum`), so plain `prod(...)` -- not
-        # qualification -- is enough, unlike the unexported internal Base.product binding
-        # this used to collide with.
         prod(col("x")) |> alias("prod"),
         mean(col("x")) |> alias("mean"),
         median(col("x")) |> alias("median"),
