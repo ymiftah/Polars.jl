@@ -196,6 +196,17 @@ const struct polars_error_t *polars_dataframe_get(struct polars_dataframe_t *df,
 
 struct polars_lazy_frame_t *polars_dataframe_lazy(struct polars_dataframe_t *df);
 
+const struct polars_error_t *polars_dataframe_upsample(struct polars_dataframe_t *df,
+                                                       const uint8_t *const *by_names,
+                                                       const uintptr_t *by_lens,
+                                                       uintptr_t n_by,
+                                                       const uint8_t *time_column,
+                                                       uintptr_t time_column_len,
+                                                       const uint8_t *every,
+                                                       uintptr_t every_len,
+                                                       bool stable,
+                                                       struct polars_dataframe_t **out);
+
 void polars_lazy_frame_destroy(struct polars_lazy_frame_t *df);
 
 struct polars_lazy_frame_t *polars_lazy_frame_clone(struct polars_lazy_frame_t *df);
@@ -426,6 +437,48 @@ const struct polars_error_t *polars_expr_col(const uint8_t *name,
 const struct polars_error_t *polars_expr_nth(int64_t n, const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_element(void);
+
+const struct polars_error_t *polars_expr_coalesce(const struct polars_expr_t *const *exprs,
+                                                  uintptr_t n,
+                                                  const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_as_struct(const struct polars_expr_t *const *exprs,
+                                                   uintptr_t n,
+                                                   const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_all_horizontal(const struct polars_expr_t *const *exprs,
+                                                        uintptr_t n,
+                                                        const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_any_horizontal(const struct polars_expr_t *const *exprs,
+                                                        uintptr_t n,
+                                                        const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_min_horizontal(const struct polars_expr_t *const *exprs,
+                                                        uintptr_t n,
+                                                        const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_max_horizontal(const struct polars_expr_t *const *exprs,
+                                                        uintptr_t n,
+                                                        const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_sum_horizontal(const struct polars_expr_t *const *exprs,
+                                                        uintptr_t n,
+                                                        bool ignore_nulls,
+                                                        const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_mean_horizontal(const struct polars_expr_t *const *exprs,
+                                                         uintptr_t n,
+                                                         bool ignore_nulls,
+                                                         const struct polars_expr_t **out);
+
+typedef enum polars_interpolation_method_t {
+  PolarsInterpolationMethodLinear,
+  PolarsInterpolationMethodNearest,
+} polars_interpolation_method_t;
+
+const struct polars_expr_t *polars_expr_interpolate(const struct polars_expr_t *expr,
+                                                    enum polars_interpolation_method_t method);
 
 const struct polars_error_t *polars_expr_alias(const struct polars_expr_t *expr,
                                                const uint8_t *name,

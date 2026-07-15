@@ -348,6 +348,50 @@ pub unsafe extern "C" fn polars_dataframe_lazy(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_dataframe_upsample(
+    df: *mut polars_dataframe_t,
+    by_names: *const *const u8,
+    by_lens: *const usize,
+    n_by: usize,
+    time_column: *const u8,
+    time_column_len: usize,
+    every: *const u8,
+    every_len: usize,
+    stable: bool,
+    out: *mut *mut polars_dataframe_t,
+) -> *const polars_error_t {
+    let by = match read_names(by_names, by_lens, n_by) {
+        Ok(names) => names,
+        Err(err) => return make_error(err),
+    };
+    let time_column = match std::str::from_utf8(std::slice::from_raw_parts(time_column, time_column_len)) {
+        Ok(s) => s,
+        Err(err) => return make_error(err),
+    };
+    let every_str = match std::str::from_utf8(std::slice::from_raw_parts(every, every_len)) {
+        Ok(s) => s,
+        Err(err) => return make_error(err),
+    };
+    let every = match Duration::try_parse(every_str) {
+        Ok(d) => d,
+        Err(err) => return make_error(err),
+    };
+
+    let result = if stable {
+        (*df).inner.upsample_stable(by, time_column, every)
+    } else {
+        (*df).inner.upsample(by, time_column, every)
+    };
+    match result {
+        Ok(result) => {
+            *out = Box::into_raw(Box::new(polars_dataframe_t { inner: result }));
+            std::ptr::null()
+        }
+        Err(err) => make_error(err),
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_destroy(df: *mut polars_lazy_frame_t) {
     assert!(!df.is_null());
     let _ = Box::from_raw(df);

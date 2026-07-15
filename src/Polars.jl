@@ -667,6 +667,34 @@ end
 
 export pivot
 
+"""
+    upsample(df::DataFrame, time_column::String; by::Vector{String}=String[], every::String,
+             stable::Bool=true)::DataFrame
+
+Upsamples `df` to a regular `every`-spaced grid along `time_column` (a duration string like
+`"1h"`/`"1d"`; `time_column` must already be sorted within each `by` group). Newly-inserted rows
+have `missing` in every column except `time_column`/`by`. If `by` is given, upsampling happens
+independently per group. If `stable` is `true` (default), the original row order is maintained
+when `by` is given (at some extra cost); if `false`, order is not guaranteed.
+"""
+function upsample(
+        df::DataFrame, time_column::String; by::Vector{String} = String[], every::String,
+        stable::Bool = true
+    )
+    GC.@preserve by begin
+        by_ptrs, by_lens = _name_ptrs(by)
+        out = Ref{Ptr{polars_dataframe_t}}()
+        err = polars_dataframe_upsample(
+            df, by_ptrs, by_lens, length(by_ptrs), time_column, length(time_column), every,
+            length(every), stable, out
+        )
+        polars_error(err)
+    end
+    return DataFrame(out[])
+end
+
+export upsample
+
 function _filter!(df::LazyFrame, expr)
     polars_lazy_frame_filter(df, expr)
     return df

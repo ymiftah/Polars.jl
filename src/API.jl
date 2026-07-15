@@ -149,6 +149,11 @@ end
     PolarsPivotColumnNamingAuto = 1
 end
 
+@cenum polars_interpolation_method_t::UInt32 begin
+    PolarsInterpolationMethodLinear = 0
+    PolarsInterpolationMethodNearest = 1
+end
+
 @cenum polars_unique_keep_t::UInt32 begin
     PolarsUniqueKeepFirst = 0
     PolarsUniqueKeepLast = 1
@@ -244,6 +249,16 @@ end
 
 function polars_dataframe_lazy(df)
     return @ccall libpolars.polars_dataframe_lazy(df::Ptr{polars_dataframe_t})::Ptr{polars_lazy_frame_t}
+end
+
+function polars_dataframe_upsample(
+        df, by_names, by_lens, n_by, time_column, time_column_len, every, every_len, stable, out
+    )
+    return @ccall libpolars.polars_dataframe_upsample(
+        df::Ptr{polars_dataframe_t}, by_names::Ptr{Ptr{UInt8}}, by_lens::Ptr{Csize_t}, n_by::Csize_t,
+        time_column::Ptr{UInt8}, time_column_len::Csize_t, every::Ptr{UInt8}, every_len::Csize_t,
+        stable::Bool, out::Ptr{Ptr{polars_dataframe_t}}
+    )::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_destroy(df)
@@ -444,6 +459,42 @@ end
 
 function polars_expr_element()
     return @ccall libpolars.polars_expr_element()::Ptr{polars_expr_t}
+end
+
+function polars_expr_coalesce(exprs, n, out)
+    return @ccall libpolars.polars_expr_coalesce(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_as_struct(exprs, n, out)
+    return @ccall libpolars.polars_expr_as_struct(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_all_horizontal(exprs, n, out)
+    return @ccall libpolars.polars_expr_all_horizontal(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_any_horizontal(exprs, n, out)
+    return @ccall libpolars.polars_expr_any_horizontal(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_min_horizontal(exprs, n, out)
+    return @ccall libpolars.polars_expr_min_horizontal(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_max_horizontal(exprs, n, out)
+    return @ccall libpolars.polars_expr_max_horizontal(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_sum_horizontal(exprs, n, ignore_nulls, out)
+    return @ccall libpolars.polars_expr_sum_horizontal(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, ignore_nulls::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_mean_horizontal(exprs, n, ignore_nulls, out)
+    return @ccall libpolars.polars_expr_mean_horizontal(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, ignore_nulls::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_interpolate(expr, method)
+    return @ccall libpolars.polars_expr_interpolate(expr::Ptr{polars_expr_t}, method::polars_interpolation_method_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_alias(expr, name, len, out)

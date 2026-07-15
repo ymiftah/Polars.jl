@@ -63,6 +63,36 @@ end
     @test size(r_default) == (5, 1) # default n=5, matching head's default
 end
 
+@testset "upsample" begin
+    df = DataFrame(
+        (;
+            time = [DateTime(2024, 1, 1, 0), DateTime(2024, 1, 1, 2), DateTime(2024, 1, 1, 3)],
+            v = [1, 2, 3],
+        )
+    )
+
+    r = upsample(df, "time"; every = "1h")
+    @test r[:time] == DateTime(2024, 1, 1, 0) .+ Hour.(0:3)
+    @test r[:v][1] == 1
+    @test ismissing(r[:v][2])
+    @test r[:v][3] == 2
+    @test r[:v][4] == 3
+
+    # grouped by an extra key
+    df2 = DataFrame(
+        (;
+            g = ["a", "a", "b", "b"],
+            time = [
+                DateTime(2024, 1, 1, 0), DateTime(2024, 1, 1, 2),
+                DateTime(2024, 1, 1, 0), DateTime(2024, 1, 1, 1),
+            ],
+            v = [10, 20, 30, 40],
+        )
+    )
+    r2 = upsample(df2, "time"; by = ["g"], every = "1h")
+    @test size(r2) == (5, 3) # a: 0,1,2 (3 rows) + b: 0,1 (2 rows)
+end
+
 @testset "with_row_index" begin
     df = DataFrame((; x = [10, 20, 30]))
 

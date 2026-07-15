@@ -4,6 +4,11 @@ use polars_core::series::ops::NullBehavior;
 use polars_ops::series::round::RoundMode;
 use polars_plan::dsl::DataTypeExpr;
 use polars_plan::prelude::Literal;
+use polars_plan::dsl::functions::{
+    coalesce, as_struct, all_horizontal, any_horizontal, sum_horizontal, min_horizontal,
+    max_horizontal, mean_horizontal,
+};
+use polars_ops::series::InterpolationMethod;
 
 use crate::{value::{polars_value_type_t, polars_time_unit_t}, *};
 
@@ -97,6 +102,163 @@ pub unsafe extern "C" fn polars_expr_nth(
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_element() -> *const polars_expr_t {
     make_expr(element())
+}
+
+unsafe fn read_exprs(exprs: *const *const polars_expr_t, n: usize) -> Vec<Expr> {
+    std::slice::from_raw_parts(exprs, n)
+        .iter()
+        .map(|expr| (**expr).inner.clone())
+        .collect()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_coalesce(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    if n == 0 {
+        return make_error("coalesce requires at least one expression");
+    }
+    let exprs = read_exprs(exprs, n);
+    *out = make_expr(coalesce(&exprs));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_as_struct(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    if n == 0 {
+        return make_error("as_struct requires at least one field");
+    }
+    let exprs = read_exprs(exprs, n);
+    *out = make_expr(as_struct(exprs));
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_all_horizontal(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let exprs = read_exprs(exprs, n);
+    match all_horizontal(&exprs) {
+        Ok(result) => {
+            *out = make_expr(result);
+            std::ptr::null()
+        }
+        Err(err) => make_error(err),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_any_horizontal(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let exprs = read_exprs(exprs, n);
+    match any_horizontal(&exprs) {
+        Ok(result) => {
+            *out = make_expr(result);
+            std::ptr::null()
+        }
+        Err(err) => make_error(err),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_min_horizontal(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let exprs = read_exprs(exprs, n);
+    match min_horizontal(&exprs) {
+        Ok(result) => {
+            *out = make_expr(result);
+            std::ptr::null()
+        }
+        Err(err) => make_error(err),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_max_horizontal(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let exprs = read_exprs(exprs, n);
+    match max_horizontal(&exprs) {
+        Ok(result) => {
+            *out = make_expr(result);
+            std::ptr::null()
+        }
+        Err(err) => make_error(err),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_sum_horizontal(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    ignore_nulls: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let exprs = read_exprs(exprs, n);
+    match sum_horizontal(&exprs, ignore_nulls) {
+        Ok(result) => {
+            *out = make_expr(result);
+            std::ptr::null()
+        }
+        Err(err) => make_error(err),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_mean_horizontal(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    ignore_nulls: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let exprs = read_exprs(exprs, n);
+    match mean_horizontal(&exprs, ignore_nulls) {
+        Ok(result) => {
+            *out = make_expr(result);
+            std::ptr::null()
+        }
+        Err(err) => make_error(err),
+    }
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_interpolation_method_t {
+    PolarsInterpolationMethodLinear,
+    PolarsInterpolationMethodNearest,
+}
+
+impl polars_interpolation_method_t {
+    fn to_interpolation_method(&self) -> InterpolationMethod {
+        match self {
+            Self::PolarsInterpolationMethodLinear => InterpolationMethod::Linear,
+            Self::PolarsInterpolationMethodNearest => InterpolationMethod::Nearest,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_interpolate(
+    expr: *const polars_expr_t,
+    method: polars_interpolation_method_t,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().interpolate(method.to_interpolation_method()))
 }
 
 #[no_mangle]

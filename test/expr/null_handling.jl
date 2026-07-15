@@ -15,6 +15,34 @@
     @test r2[:filled][4] == 4.0
 end
 
+@testset "coalesce" begin
+    df = DataFrame((; a = [missing, 2, missing], b = [1, missing, missing], c = [9, 9, 9]))
+
+    r = select(df, alias(Base.coalesce(col("a"), col("b"), col("c")), "r"))
+    @test r[:r] == [1, 2, 9]
+
+    # Base.coalesce still works on plain Julia values (no type piracy introduced)
+    @test Base.coalesce(missing, 5) == 5
+end
+
+@testset "interpolate" begin
+    df = DataFrame((; x = [missing, 1.0, missing, missing, 4.0, missing]))
+
+    r_linear = select(df, alias(interpolate(col("x")), "i"))
+    linear = [r_linear[:i][i] for i in 1:6]
+    @test ismissing(linear[1])
+    @test linear[2:5] ≈ [1.0, 2.0, 3.0, 4.0]
+    @test ismissing(linear[6])
+
+    r_nearest = select(df, alias(interpolate(col("x"); method = :nearest), "i"))
+    nearest = [r_nearest[:i][i] for i in 1:6]
+    @test ismissing(nearest[1])
+    @test nearest[2:5] ≈ [1.0, 1.0, 4.0, 4.0]
+    @test ismissing(nearest[6])
+
+    @test_throws ErrorException interpolate(col("x"); method = :bogus)
+end
+
 @testset "is_in" begin
     df = DataFrame((; g = ["a", "a", "b", "c"]))
 

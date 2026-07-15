@@ -711,6 +711,176 @@ end
 
 export sample_frac
 
+function _expr_vector(args)
+    exprs = map(ex -> ex isa String ? col(ex) : ex, args)
+    return convert(Vector{Expr}, collect(exprs))
+end
+
+"""
+    coalesce(exprs::Expr...)::Polars.Expr
+
+Returns the first non-null value among `exprs`, evaluated left to right. Extends `Base.coalesce`,
+matching the `Base.replace`/`Base.round`/`Base.diff` precedent (`coalesce` is an *exported* Base
+name; the signature is kept to plain `Expr` — not `Union{Expr,String}` — since Aqua's piracy
+check treats a Union with any foreign member, e.g. `String`, as foreign, which would flag this as
+type piracy against `Base.coalesce`).
+"""
+function Base.coalesce(first::Expr, rest::Expr...)
+    exprs = _expr_vector((first, rest...))
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_coalesce(ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+"""
+    as_struct(exprs...)::Polars.Expr
+
+Collects `exprs` (columns or expressions) into a single `Struct`-typed expression, one field per
+input (named after each input's own output name). The write-side counterpart to
+[`Structs.field_by_name`](@ref)/[`Structs.field_by_index`](@ref).
+"""
+function as_struct(exprs...)
+    exprs = _expr_vector(exprs)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_as_struct(ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+export as_struct
+
+"""
+    all_horizontal(exprs...)::Polars.Expr
+
+Row-wise (horizontal) boolean AND across `exprs`. The output column is named `"all"` unless
+[`alias`](@ref)ed.
+"""
+function all_horizontal(exprs...)
+    exprs = _expr_vector(exprs)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_all_horizontal(ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+"""
+    any_horizontal(exprs...)::Polars.Expr
+
+Row-wise (horizontal) boolean OR across `exprs`. The output column is named `"any"` unless
+[`alias`](@ref)ed.
+"""
+function any_horizontal(exprs...)
+    exprs = _expr_vector(exprs)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_any_horizontal(ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+"""
+    min_horizontal(exprs...)::Polars.Expr
+
+Row-wise (horizontal) minimum across `exprs`. The output column is named `"min"` unless
+[`alias`](@ref)ed.
+"""
+function min_horizontal(exprs...)
+    exprs = _expr_vector(exprs)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_min_horizontal(ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+"""
+    max_horizontal(exprs...)::Polars.Expr
+
+Row-wise (horizontal) maximum across `exprs`. The output column is named `"max"` unless
+[`alias`](@ref)ed.
+"""
+function max_horizontal(exprs...)
+    exprs = _expr_vector(exprs)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_max_horizontal(ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+"""
+    sum_horizontal(exprs...; ignore_nulls::Bool=true)::Polars.Expr
+
+Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are
+treated as `0`; if `false`, any null in a row makes that row's sum `null`.
+"""
+function sum_horizontal(exprs...; ignore_nulls::Bool = true)
+    exprs = _expr_vector(exprs)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_sum_horizontal(ptrs, length(ptrs), ignore_nulls, out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+"""
+    mean_horizontal(exprs...; ignore_nulls::Bool=true)::Polars.Expr
+
+Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are
+excluded from the average; if `false`, any null in a row makes that row's mean `null`.
+"""
+function mean_horizontal(exprs...; ignore_nulls::Bool = true)
+    exprs = _expr_vector(exprs)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_mean_horizontal(ptrs, length(ptrs), ignore_nulls, out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+export all_horizontal, any_horizontal, min_horizontal, max_horizontal, sum_horizontal, mean_horizontal
+
+"""
+    interpolate(expr::Polars.Expr; method::Symbol=:linear)::Polars.Expr
+
+Fills `null`s by interpolating between the surrounding non-null values, using `method`: `:linear`
+(default) or `:nearest`. Leading/trailing `null`s (with no non-null value on one side) remain
+`null`.
+"""
+function interpolate(expr::Expr; method::Symbol = :linear)
+    method_enum = if method == :linear
+        API.PolarsInterpolationMethodLinear
+    elseif method == :nearest
+        API.PolarsInterpolationMethodNearest
+    else
+        error("unknown interpolation method $method, expected one of (:linear, :nearest)")
+    end
+    out = API.polars_expr_interpolate(expr, method_enum)
+    return Expr(out)
+end
+
+export interpolate
+
 """
     cum_sum(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
 
