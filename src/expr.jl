@@ -347,9 +347,17 @@ end
 # Curried (Fix2-style) forms for the binary namespace-free ops above that have no natural
 # operator equivalent (unlike +/-/*//, which already read fluently as infix). Each promotes a
 # literal second argument via `convert(Expr, ...)`, matching Python polars' `.is_in([1,2,3])`,
-# `.fill_null(0)`, etc. `log`/`rem` are deliberately excluded: they're `Base`-qualified, and since
-# `Expr <: Number` (for promotion), an untyped 1-arg curry would be genuinely ambiguous with
-# Base's own `log(x::Number)`/`rem` methods -- not just a style mismatch, a real correctness risk.
+# `.fill_null(0)`, etc. `log`/`rem` (and, elsewhere, `replace`/`diff`) are deliberately excluded --
+# not because of dispatch ambiguity (Julia always prefers Base's existing concrete-type methods,
+# e.g. `log(::Float64)`, over anything added here, so no ambiguity error would ever occur), but
+# because a curry that's actually useful for plain numeric literals has to accept an untyped or
+# broadly-typed argument, and that means claiming argument-type combinations Base currently leaves
+# undefined (e.g. `log(1, 2)` on two bare `Int`s -- currently a MethodError). That's real type
+# piracy regardless of whether it happens to work today: it silently changes global Base behavior
+# outside this package's own types, which Aqua's piracy check flags and which is fragile against
+# future Base/other-package additions for the same combination. A curry typed narrowly to `Expr`
+# would avoid the piracy but would then only accept already-constructed `Expr`s, not bare literals
+# -- defeating the actual ergonomic goal, so it isn't worth doing either.
 is_in(other::AbstractVector) = Base.Fix2(is_in, implode(convert(Expr, other)))
 is_in(other) = Base.Fix2(is_in, convert(Expr, other))
 fill_null(value) = Base.Fix2(fill_null, convert(Expr, value))
