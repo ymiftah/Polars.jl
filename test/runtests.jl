@@ -44,6 +44,7 @@ include("fixtures.jl")
     include("expr/sort_top_k.jl")
     include("expr/is_unique_dup.jl")
     include("expr/sample.jl")
+    include("expr/curried_forms.jl")
 
     include("datatypes/strings.jl")
     include("datatypes/datetimes.jl")

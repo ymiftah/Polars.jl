@@ -344,6 +344,19 @@ end
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem)
 end
 
+# Curried (Fix2-style) forms for the binary namespace-free ops above that have no natural
+# operator equivalent (unlike +/-/*//, which already read fluently as infix). Each promotes a
+# literal second argument via `convert(Expr, ...)`, matching Python polars' `.is_in([1,2,3])`,
+# `.fill_null(0)`, etc. `log`/`rem` are deliberately excluded: they're `Base`-qualified, and since
+# `Expr <: Number` (for promotion), an untyped 1-arg curry would be genuinely ambiguous with
+# Base's own `log(x::Number)`/`rem` methods -- not just a style mismatch, a real correctness risk.
+is_in(other::AbstractVector) = Base.Fix2(is_in, implode(convert(Expr, other)))
+is_in(other) = Base.Fix2(is_in, convert(Expr, other))
+fill_null(value) = Base.Fix2(fill_null, convert(Expr, value))
+fill_nan(value) = Base.Fix2(fill_nan, convert(Expr, value))
+shift(n) = Base.Fix2(shift, convert(Expr, n))
+pct_change(n) = Base.Fix2(pct_change, convert(Expr, n))
+
 """
     round(expr::Polars.Expr, decimals::Integer=0; mode::Symbol=:half_to_even)::Polars.Expr
 
@@ -379,6 +392,13 @@ function clip(expr::Expr, min, max)
     return Expr(out)
 end
 
+"""
+    clip(min, max)::Base.Callable
+
+Curried form of [`clip`](@ref) for use with `|>` -- e.g. `col("x") |> clip(0, 10)`.
+"""
+clip(min, max) = expr -> clip(expr, min, max)
+
 export clip
 
 """
@@ -410,6 +430,13 @@ function replace_strict(expr::Expr, old, new; default = nothing)
     out = GC.@preserve default_expr API.polars_expr_replace_strict(expr, old, new, default_ptr)
     return Expr(out)
 end
+
+"""
+    replace_strict(old, new; default=nothing)::Base.Callable
+
+Curried form of [`replace_strict`](@ref) for use with `|>`.
+"""
+replace_strict(old, new; default = nothing) = expr -> replace_strict(expr, old, new; default = default)
 
 export replace_strict
 
@@ -465,6 +492,13 @@ function quantile(expr::Expr, q; method::Symbol = :nearest)
     out = API.polars_expr_quantile(expr, q, method_enum)
     return Expr(out)
 end
+
+"""
+    quantile(q; method::Symbol=:nearest)::Base.Callable
+
+Curried form of [`quantile`](@ref) for use with `|>` -- e.g. `col("x") |> quantile(0.5)`.
+"""
+quantile(q; method::Symbol = :nearest) = expr -> quantile(expr, q; method = method)
 
 export std, var, quantile
 
@@ -558,6 +592,13 @@ function top_k(expr::Expr, k)
     return Expr(out)
 end
 
+"""
+    top_k(k)::Base.Fix2{typeof(top_k)}
+
+Curried form of [`top_k`](@ref) for use with `|>` -- e.g. `col("x") |> top_k(3)`.
+"""
+top_k(k) = Base.Fix2(top_k, convert(Expr, k))
+
 export top_k
 
 """
@@ -596,6 +637,16 @@ function sample_n(
     return Expr(out)
 end
 
+"""
+    sample_n(n; with_replacement::Bool=false, shuffle::Bool=false,
+             seed::Union{Nothing,Integer}=nothing)::Base.Callable
+
+Curried form of [`sample_n`](@ref) for use with `|>`.
+"""
+function sample_n(n; with_replacement::Bool = false, shuffle::Bool = false, seed::Union{Nothing, Integer} = nothing)
+    return expr -> sample_n(expr, n; with_replacement, shuffle, seed)
+end
+
 export sample_n
 
 """
@@ -613,6 +664,18 @@ function sample_frac(
     seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
     out = GC.@preserve seed_ref API.polars_expr_sample_frac(expr, frac, with_replacement, shuffle, seed_ref)
     return Expr(out)
+end
+
+"""
+    sample_frac(frac; with_replacement::Bool=false, shuffle::Bool=false,
+                seed::Union{Nothing,Integer}=nothing)::Base.Callable
+
+Curried form of [`sample_frac`](@ref) for use with `|>`.
+"""
+function sample_frac(
+        frac; with_replacement::Bool = false, shuffle::Bool = false, seed::Union{Nothing, Integer} = nothing
+    )
+    return expr -> sample_frac(expr, frac; with_replacement, shuffle, seed)
 end
 
 export sample_frac
@@ -729,6 +792,13 @@ module Lists
     end
 
     """
+        head(n)::Base.Fix2{typeof(head)}
+
+    Curried form of `head` for use with `|>` -- e.g. `col("x") |> Lists.head(2)`.
+    """
+    head(n) = Base.Fix2(head, convert(Expr, n))
+
+    """
         get(expr::Polars.Expr, index::Polars.Expr; null_on_oob::Bool=false)::Polars.Expr
 
     Get items in every sublist by index. If `null_on_oob` is `false` (default), an
@@ -741,6 +811,13 @@ module Lists
     end
 
     """
+        get(index; null_on_oob::Bool=false)::Base.Callable
+
+    Curried form of [`get`](@ref) for use with `|>` -- e.g. `col("x") |> Lists.get(0)`.
+    """
+    get(index; null_on_oob::Bool = false) = expr -> get(expr, convert(Expr, index); null_on_oob)
+
+    """
         contains(expr::Polars.Expr, other::Polars.Expr; nulls_equal::Bool=true)::Polars.Expr
 
     Check if the list array contains an element. If `nulls_equal` is `true` (default),
@@ -751,7 +828,14 @@ module Lists
         return Expr(out)
     end
 
-    export get, contains
+    """
+        contains(other; nulls_equal::Bool=true)::Base.Callable
+
+    Curried form of [`contains`](@ref) for use with `|>`.
+    """
+    contains(other; nulls_equal::Bool = true) = expr -> contains(expr, convert(Expr, other); nulls_equal)
+
+    export get, contains, head
 end # module Lists
 
 module Strings
@@ -782,6 +866,20 @@ module Strings
         gen_impl_expr_binary_str!(polars_expr_str_tail, StringNameSpace::tail)
     end
 
+    # Curried (Fix2-style) forms for the binary namespace ops above, e.g.
+    # `col("s") |> Strings.starts_with("foo")`, mirroring Python polars' fluent `.starts_with(...)`.
+    starts_with(pat) = Base.Fix2(starts_with, convert(Expr, pat))
+    ends_with(pat) = Base.Fix2(ends_with, convert(Expr, pat))
+    contains_literal(pat) = Base.Fix2(contains_literal, convert(Expr, pat))
+    strip_chars(matches) = Base.Fix2(strip_chars, convert(Expr, matches))
+    strip_prefix(prefix) = Base.Fix2(strip_prefix, convert(Expr, prefix))
+    strip_suffix(suffix) = Base.Fix2(strip_suffix, convert(Expr, suffix))
+    split(by) = Base.Fix2(split, convert(Expr, by))
+    extract_all(pat) = Base.Fix2(extract_all, convert(Expr, pat))
+    zfill(len) = Base.Fix2(zfill, convert(Expr, len))
+    head(n) = Base.Fix2(head, convert(Expr, n))
+    tail(n) = Base.Fix2(tail, convert(Expr, n))
+
     """
         contains(expr::Polars.Expr, pat::Polars.Expr; strict::Bool=true)::Polars.Expr
 
@@ -795,6 +893,13 @@ module Strings
     end
 
     """
+        contains(pat; strict::Bool=true)::Base.Callable
+
+    Curried form of [`contains`](@ref) for use with `|>`.
+    """
+    contains(pat; strict::Bool = true) = expr -> contains(expr, convert(Expr, pat); strict)
+
+    """
         slice(expr::Polars.Expr, offset::Polars.Expr, length::Polars.Expr)::Polars.Expr
 
     Extracts a substring starting at `offset` (0-indexed; negative indexes from the end) with
@@ -806,6 +911,13 @@ module Strings
     end
 
     """
+        slice(offset, length)::Base.Callable
+
+    Curried form of [`slice`](@ref) for use with `|>`.
+    """
+    slice(offset, length) = expr -> slice(expr, convert(Expr, offset), convert(Expr, length))
+
+    """
         replace(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr; literal::Bool=false)::Polars.Expr
 
     Replaces the first match of `pat` with `value`. If `literal` is `true`, `pat` is treated as
@@ -814,6 +926,15 @@ module Strings
     function replace(expr::Expr, pat::Expr, value::Expr; literal::Bool = false)
         out = API.polars_expr_str_replace(expr, pat, value, literal)
         return Expr(out)
+    end
+
+    """
+        replace(pat, value; literal::Bool=false)::Base.Callable
+
+    Curried form of [`replace`](@ref) for use with `|>`.
+    """
+    function replace(pat, value; literal::Bool = false)
+        return expr -> replace(expr, convert(Expr, pat), convert(Expr, value); literal)
     end
 
     """
@@ -828,6 +949,15 @@ module Strings
     end
 
     """
+        replace_all(pat, value; literal::Bool=false)::Base.Callable
+
+    Curried form of [`replace_all`](@ref) for use with `|>`.
+    """
+    function replace_all(pat, value; literal::Bool = false)
+        return expr -> replace_all(expr, convert(Expr, pat), convert(Expr, value); literal)
+    end
+
+    """
         extract(expr::Polars.Expr, pat::Polars.Expr, group_index::Integer)::Polars.Expr
 
     Extracts the capture group numbered `group_index` (0 = the whole match) from the first
@@ -839,6 +969,13 @@ module Strings
     end
 
     """
+        extract(pat, group_index::Integer)::Base.Callable
+
+    Curried form of [`extract`](@ref) for use with `|>`.
+    """
+    extract(pat, group_index::Integer) = expr -> extract(expr, convert(Expr, pat), group_index)
+
+    """
         count_matches(expr::Polars.Expr, pat::Polars.Expr; literal::Bool=false)::Polars.Expr
 
     Counts the number of non-overlapping matches of `pat`. If `literal` is `true`, `pat` is
@@ -848,6 +985,13 @@ module Strings
         out = API.polars_expr_str_count_matches(expr, pat, literal)
         return Expr(out)
     end
+
+    """
+        count_matches(pat; literal::Bool=false)::Base.Callable
+
+    Curried form of [`count_matches`](@ref) for use with `|>`.
+    """
+    count_matches(pat; literal::Bool = false) = expr -> count_matches(expr, convert(Expr, pat); literal)
 
     """
         to_date(expr::Polars.Expr; format::Union{Nothing,String}=nothing, strict::Bool=true,
@@ -916,6 +1060,11 @@ module Dt
         gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by)
     end
 
+    # Curried (Fix2-style) forms, e.g. `col("d") |> Dt.truncate("1mo")`.
+    truncate(every) = Base.Fix2(truncate, convert(Expr, every))
+    round(every) = Base.Fix2(round, convert(Expr, every))
+    offset_by(by) = Base.Fix2(offset_by, convert(Expr, by))
+
     """
         strftime(expr::Polars.Expr, format::String)::Polars.Expr
 
@@ -928,6 +1077,13 @@ module Dt
         polars_error(err)
         return Expr(out[])
     end
+
+    """
+        strftime(format::String)::Base.Fix2{typeof(strftime), String}
+
+    Curried form of [`strftime`](@ref) for use with `|>`.
+    """
+    strftime(format::AbstractString) = Base.Fix2(strftime, format)
 
     export strftime
 end # module Dt
