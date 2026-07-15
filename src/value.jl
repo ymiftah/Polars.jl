@@ -1,3 +1,17 @@
+"""
+    Polars.Value{T}
+
+Internal type which represents a reference to a value of type `T` in a series or as a field to
+a struct.
+"""
+mutable struct Value{T}
+    ptr::Ptr{polars_value_t}
+    parent::Union{Series, Value}
+
+    Value{T}(ptr, parent) where {T} =
+        finalizer(polars_value_destroy, new{T}(ptr, parent))
+end
+
 Base.unsafe_convert(::Type{Ptr{polars_value_t}}, value::Value) = value.ptr
 
 """
