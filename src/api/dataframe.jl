@@ -43,8 +43,28 @@ function polars_dataframe_write_parquet(
     )::Ptr{polars_error_t}
 end
 
-function polars_dataframe_write_csv(df, user, callback)
-    return @ccall libpolars.polars_dataframe_write_csv(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+function polars_dataframe_write_csv(
+        df, user, callback, include_header, include_bom, separator, quote_char, null_value,
+        null_value_len, line_terminator, line_terminator_len, quote_style, date_format,
+        date_format_len, time_format, time_format_len, datetime_format, datetime_format_len,
+        float_precision, decimal_comma
+    )
+    return @ccall libpolars.polars_dataframe_write_csv(
+        df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback, include_header::Bool,
+        include_bom::Bool, separator::UInt8, quote_char::UInt8, null_value::Ptr{UInt8},
+        null_value_len::Csize_t, line_terminator::Ptr{UInt8}, line_terminator_len::Csize_t,
+        quote_style::polars_quote_style_t, date_format::Ptr{UInt8}, date_format_len::Csize_t,
+        time_format::Ptr{UInt8}, time_format_len::Csize_t, datetime_format::Ptr{UInt8},
+        datetime_format_len::Csize_t, float_precision::Ptr{Csize_t}, decimal_comma::Bool
+    )::Ptr{polars_error_t}
+end
+
+function polars_dataframe_write_ipc(df, user, callback, compression, compression_level, record_batch_size)
+    return @ccall libpolars.polars_dataframe_write_ipc(
+        df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback,
+        compression::polars_ipc_compression_t, compression_level::Ptr{Int32},
+        record_batch_size::Ptr{Csize_t}
+    )::Ptr{polars_error_t}
 end
 
 function polars_dataframe_show(df, user, callback)
@@ -92,12 +112,39 @@ function polars_lazy_frame_scan_parquet(
     )::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_scan_csv(path, pathlen, out)
-    return @ccall libpolars.polars_lazy_frame_scan_csv(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_scan_csv(
+        path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, has_header,
+        separator, quote_char, comment_prefix, comment_prefix_len, skip_rows,
+        skip_rows_after_header, null_value, null_value_len, missing_is_null,
+        truncate_ragged_lines, try_parse_dates, infer_schema_length, ignore_errors, low_memory,
+        rechunk, cache, glob, include_file_paths, include_file_paths_len, allow_missing_columns,
+        out
+    )
+    return @ccall libpolars.polars_lazy_frame_scan_csv(
+        path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8},
+        row_index_name_len::Csize_t, row_index_offset::UInt32, has_header::Bool,
+        separator::UInt8, quote_char::Ptr{UInt8}, comment_prefix::Ptr{UInt8},
+        comment_prefix_len::Csize_t, skip_rows::Csize_t, skip_rows_after_header::Csize_t,
+        null_value::Ptr{UInt8}, null_value_len::Csize_t, missing_is_null::Bool,
+        truncate_ragged_lines::Bool, try_parse_dates::Bool, infer_schema_length::Ptr{Csize_t},
+        ignore_errors::Bool, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool,
+        include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t,
+        allow_missing_columns::Bool, out::Ptr{Ptr{polars_lazy_frame_t}}
+    )::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_scan_ipc(path, pathlen, out)
-    return @ccall libpolars.polars_lazy_frame_scan_ipc(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_scan_ipc(
+        path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, rechunk,
+        cache, glob, include_file_paths, include_file_paths_len, hive_partitioning,
+        allow_missing_columns, out
+    )
+    return @ccall libpolars.polars_lazy_frame_scan_ipc(
+        path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8},
+        row_index_name_len::Csize_t, row_index_offset::UInt32, rechunk::Bool, cache::Bool,
+        glob::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t,
+        hive_partitioning::Ptr{Bool}, allow_missing_columns::Bool,
+        out::Ptr{Ptr{polars_lazy_frame_t}}
+    )::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_sink_parquet(
@@ -112,12 +159,31 @@ function polars_lazy_frame_sink_parquet(
     )::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_sink_csv(lf, path, pathlen, out)
-    return @ccall libpolars.polars_lazy_frame_sink_csv(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_sink_csv(
+        lf, path, pathlen, include_header, include_bom, separator, quote_char, null_value,
+        null_value_len, line_terminator, line_terminator_len, quote_style, date_format,
+        date_format_len, time_format, time_format_len, datetime_format, datetime_format_len,
+        float_precision, decimal_comma, compression, compression_level, mkdir, maintain_order, out
+    )
+    return @ccall libpolars.polars_lazy_frame_sink_csv(
+        lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, include_header::Bool,
+        include_bom::Bool, separator::UInt8, quote_char::UInt8, null_value::Ptr{UInt8},
+        null_value_len::Csize_t, line_terminator::Ptr{UInt8}, line_terminator_len::Csize_t,
+        quote_style::polars_quote_style_t, date_format::Ptr{UInt8}, date_format_len::Csize_t,
+        time_format::Ptr{UInt8}, time_format_len::Csize_t, datetime_format::Ptr{UInt8},
+        datetime_format_len::Csize_t, float_precision::Ptr{Csize_t}, decimal_comma::Bool,
+        compression::polars_csv_compression_t, compression_level::Ptr{UInt32}, mkdir::Bool,
+        maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}}
+    )::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_sink_ipc(lf, path, pathlen, out)
-    return @ccall libpolars.polars_lazy_frame_sink_ipc(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_sink_ipc(lf, path, pathlen, compression, compression_level, record_batch_size, mkdir, maintain_order, out)
+    return @ccall libpolars.polars_lazy_frame_sink_ipc(
+        lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t,
+        compression::polars_ipc_compression_t, compression_level::Ptr{Int32},
+        record_batch_size::Ptr{Csize_t}, mkdir::Bool, maintain_order::Bool,
+        out::Ptr{Ptr{polars_lazy_frame_t}}
+    )::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_sort(df, exprs, nexprs, descending, nulls_last, maintain_order)

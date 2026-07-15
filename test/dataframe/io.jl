@@ -85,3 +85,41 @@ end
         @test size(df2) == size(df)
     end
 end
+
+@testset "write_csv options" begin
+    df = DataFrame((; x = [1, 2, 3], y = ["a", "b", "c"], d = [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3)]))
+    dir = mktempdir()
+
+    @testset "separator / quote_char / quote_style" begin
+        path = joinpath(dir, "sep.csv")
+        write_csv(path, df; separator = ';', quote_style = :always)
+        content = read(path, String)
+        @test occursin(";", content)
+        @test occursin("\"1\"", content) # quote_style=:always quotes every field
+        @test read_csv(path; separator = ';')[:x] == df[:x]
+    end
+
+    @testset "include_header=false" begin
+        path = joinpath(dir, "noheader.csv")
+        write_csv(path, df; include_header = false)
+        @test !occursin("x", first(split(read(path, String), '\n')))
+    end
+
+    @testset "null_value" begin
+        path = joinpath(dir, "nulls.csv")
+        write_csv(path, DataFrame((; a = [1, missing, 3])); null_value = "NULL")
+        @test occursin("NULL", read(path, String))
+    end
+
+    @testset "date_format" begin
+        path = joinpath(dir, "dates.csv")
+        write_csv(path, df; date_format = "%Y/%m/%d")
+        @test occursin("2024/01/01", read(path, String))
+    end
+
+    @testset "float_precision" begin
+        path = joinpath(dir, "prec.csv")
+        write_csv(path, DataFrame((; f = [1.23456])); float_precision = 2)
+        @test occursin("1.23", read(path, String))
+    end
+end

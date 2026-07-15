@@ -83,7 +83,7 @@ export Series, DataFrame,
     select, with_columns, head, collect_schema,
     read_parquet, write_parquet, scan_parquet,
     read_csv, write_csv, scan_csv, sink_parquet,
-    read_ipc, scan_ipc, sink_csv, sink_ipc,
+    read_ipc, write_ipc, scan_ipc, sink_csv, sink_ipc,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
     drop, with_row_index, explode, unpivot

@@ -127,6 +127,25 @@ typedef enum polars_unique_keep_t {
   PolarsUniqueKeepAny,
 } polars_unique_keep_t;
 
+typedef enum polars_csv_compression_t {
+  PolarsCsvCompressionUncompressed,
+  PolarsCsvCompressionGzip,
+  PolarsCsvCompressionZstd,
+} polars_csv_compression_t;
+
+typedef enum polars_ipc_compression_t {
+  PolarsIpcCompressionUncompressed,
+  PolarsIpcCompressionLz4,
+  PolarsIpcCompressionZstd,
+} polars_ipc_compression_t;
+
+typedef enum polars_quote_style_t {
+  PolarsQuoteStyleNecessary,
+  PolarsQuoteStyleAlways,
+  PolarsQuoteStyleNonNumeric,
+  PolarsQuoteStyleNever,
+} polars_quote_style_t;
+
 typedef enum polars_parquet_compression_t {
   PolarsParquetCompressionUncompressed,
   PolarsParquetCompressionSnappy,
@@ -207,7 +226,31 @@ const struct polars_error_t *polars_dataframe_write_parquet(struct polars_datafr
 
 const struct polars_error_t *polars_dataframe_write_csv(struct polars_dataframe_t *df,
                                                         const void *user,
-                                                        IOCallback callback);
+                                                        IOCallback callback,
+                                                        bool include_header,
+                                                        bool include_bom,
+                                                        uint8_t separator,
+                                                        uint8_t quote_char,
+                                                        const uint8_t *null_value,
+                                                        uintptr_t null_value_len,
+                                                        const uint8_t *line_terminator,
+                                                        uintptr_t line_terminator_len,
+                                                        enum polars_quote_style_t quote_style,
+                                                        const uint8_t *date_format,
+                                                        uintptr_t date_format_len,
+                                                        const uint8_t *time_format,
+                                                        uintptr_t time_format_len,
+                                                        const uint8_t *datetime_format,
+                                                        uintptr_t datetime_format_len,
+                                                        const uintptr_t *float_precision,
+                                                        bool decimal_comma);
+
+const struct polars_error_t *polars_dataframe_write_ipc(struct polars_dataframe_t *df,
+                                                        const void *user,
+                                                        IOCallback callback,
+                                                        enum polars_ipc_compression_t compression,
+                                                        const int32_t *compression_level,
+                                                        const uintptr_t *record_batch_size);
 
 const struct polars_error_t *polars_dataframe_show(struct polars_dataframe_t *df,
                                                     const void *user,
@@ -255,10 +298,46 @@ const struct polars_error_t *polars_lazy_frame_scan_parquet(const uint8_t *path,
 
 const struct polars_error_t *polars_lazy_frame_scan_csv(const uint8_t *path,
                                                         uintptr_t pathlen,
+                                                        const uintptr_t *n_rows,
+                                                        const uint8_t *row_index_name,
+                                                        uintptr_t row_index_name_len,
+                                                        uint32_t row_index_offset,
+                                                        bool has_header,
+                                                        uint8_t separator,
+                                                        const uint8_t *quote_char,
+                                                        const uint8_t *comment_prefix,
+                                                        uintptr_t comment_prefix_len,
+                                                        uintptr_t skip_rows,
+                                                        uintptr_t skip_rows_after_header,
+                                                        const uint8_t *null_value,
+                                                        uintptr_t null_value_len,
+                                                        bool missing_is_null,
+                                                        bool truncate_ragged_lines,
+                                                        bool try_parse_dates,
+                                                        const uintptr_t *infer_schema_length,
+                                                        bool ignore_errors,
+                                                        bool low_memory,
+                                                        bool rechunk,
+                                                        bool cache,
+                                                        bool glob,
+                                                        const uint8_t *include_file_paths,
+                                                        uintptr_t include_file_paths_len,
+                                                        bool allow_missing_columns,
                                                         struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_scan_ipc(const uint8_t *path,
                                                          uintptr_t pathlen,
+                                                         const uintptr_t *n_rows,
+                                                         const uint8_t *row_index_name,
+                                                         uintptr_t row_index_name_len,
+                                                         uint32_t row_index_offset,
+                                                         bool rechunk,
+                                                         bool cache,
+                                                         bool glob,
+                                                         const uint8_t *include_file_paths,
+                                                         uintptr_t include_file_paths_len,
+                                                         const bool *hive_partitioning,
+                                                         bool allow_missing_columns,
                                                          struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_sink_parquet(struct polars_lazy_frame_t *lf,
@@ -276,11 +355,37 @@ const struct polars_error_t *polars_lazy_frame_sink_parquet(struct polars_lazy_f
 const struct polars_error_t *polars_lazy_frame_sink_csv(struct polars_lazy_frame_t *lf,
                                                          const uint8_t *path,
                                                          uintptr_t pathlen,
+                                                         bool include_header,
+                                                         bool include_bom,
+                                                         uint8_t separator,
+                                                         uint8_t quote_char,
+                                                         const uint8_t *null_value,
+                                                         uintptr_t null_value_len,
+                                                         const uint8_t *line_terminator,
+                                                         uintptr_t line_terminator_len,
+                                                         enum polars_quote_style_t quote_style,
+                                                         const uint8_t *date_format,
+                                                         uintptr_t date_format_len,
+                                                         const uint8_t *time_format,
+                                                         uintptr_t time_format_len,
+                                                         const uint8_t *datetime_format,
+                                                         uintptr_t datetime_format_len,
+                                                         const uintptr_t *float_precision,
+                                                         bool decimal_comma,
+                                                         enum polars_csv_compression_t compression,
+                                                         const uint32_t *compression_level,
+                                                         bool mkdir,
+                                                         bool maintain_order,
                                                          struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_sink_ipc(struct polars_lazy_frame_t *lf,
                                                          const uint8_t *path,
                                                          uintptr_t pathlen,
+                                                         enum polars_ipc_compression_t compression,
+                                                         const int32_t *compression_level,
+                                                         const uintptr_t *record_batch_size,
+                                                         bool mkdir,
+                                                         bool maintain_order,
                                                          struct polars_lazy_frame_t **out);
 
 void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,

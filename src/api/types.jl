@@ -164,6 +164,25 @@ end
     PolarsUniqueKeepAny = 3
 end
 
+@cenum polars_csv_compression_t::UInt32 begin
+    PolarsCsvCompressionUncompressed = 0
+    PolarsCsvCompressionGzip = 1
+    PolarsCsvCompressionZstd = 2
+end
+
+@cenum polars_ipc_compression_t::UInt32 begin
+    PolarsIpcCompressionUncompressed = 0
+    PolarsIpcCompressionLz4 = 1
+    PolarsIpcCompressionZstd = 2
+end
+
+@cenum polars_quote_style_t::UInt32 begin
+    PolarsQuoteStyleNecessary = 0
+    PolarsQuoteStyleAlways = 1
+    PolarsQuoteStyleNonNumeric = 2
+    PolarsQuoteStyleNever = 3
+end
+
 @cenum polars_parquet_compression_t::UInt32 begin
     PolarsParquetCompressionUncompressed = 0
     PolarsParquetCompressionSnappy = 1
