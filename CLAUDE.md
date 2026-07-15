@@ -140,7 +140,14 @@ mapped in; re-running `using Polars` is a no-op. Restart the session (Kaimon: `m
   the declared `eltype` is the internal wrapper type, but `getindex` returns a plain
   `Dates.DateTime`/`Period`, so the generic `Base.collect` path throws `MethodError`. Use direct
   indexing (`s[i]`) or `isequal` comparisons instead.
-- **`@generate_expr_fns` qualifies by `isdefined(Base, fname)`, not `isexported`** — a few generated
-  functions (e.g. `product`) collide with an *unexported* Base binding, so `Polars.product` never
-  resolves; call `Base.product(expr)` directly. If a generated wrapper seems to vanish, check
-  `isdefined(Base, :fname)`.
+- **`@generate_expr_fns` qualifies by `isdefined(Base, fname)`, not `isexported`** — if the Rust
+  method name happens to match a Base binding that exists but isn't exported (e.g. `Expr::product`
+  collided with an internal, unexported `Base.product`), the generated wrapper silently becomes
+  unreachable: it's defined as `Base.product(expr)`, but since `product` was never exported from
+  Base, plain `product(expr)` throws `UndefVarError` in a normal session (unlike, say, `sum`/`diff`,
+  which collide with *exported* Base names and work unqualified with no extra effort). If a
+  generated wrapper seems to vanish, check `isdefined(Base, :fname)` and `Base.isexported(Base,
+  :fname)` both. The fix (see `prod` in [expr.jl](src/expr.jl)) is to pull that one item out of the
+  `@generate_expr_fns` block and hand-write it under the *exported* Base name instead (`prod`, not
+  `product`) — same pattern already used for `std`/`var`/`quantile`/`rank` (extra args the macro's
+  plain shape can't express).

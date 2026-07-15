@@ -3,11 +3,10 @@
 
     r = select(
         df, Polars.sum(col("x")) |> alias("sum"),
-        # `product` collides with an unexported Base.product, so the macro that
-        # generates these wrappers extends Base.product instead of defining
-        # Polars.product -- unlike Polars.sum/min/max, it must be called as
-        # Base.product since Polars re-exposes only Base's *exported* names.
-        Base.product(col("x")) |> alias("product"),
+        # `prod` is an exported Base name (like `sum`), so plain `prod(...)` -- not
+        # qualification -- is enough, unlike the unexported internal Base.product binding
+        # this used to collide with.
+        prod(col("x")) |> alias("prod"),
         mean(col("x")) |> alias("mean"),
         median(col("x")) |> alias("median"),
         Polars.min(col("x")) |> alias("min"),
@@ -16,7 +15,7 @@
         arg_max(col("x")) |> alias("arg_max")
     )
     @test only(r[:sum]) == 10.0
-    @test only(r[:product]) == 24.0
+    @test only(r[:prod]) == 24.0
     @test only(r[:mean]) == 2.5
     @test only(r[:median]) == 2.5
     @test only(r[:min]) == 1.0

@@ -284,7 +284,6 @@ end
     gen_impl_expr!(polars_expr_keep_name, Expr::keep_name)
 
     gen_impl_expr!(polars_expr_sum, Expr::sum)
-    gen_impl_expr!(polars_expr_product, Expr::product)
     gen_impl_expr!(polars_expr_mean, Expr::mean)
     gen_impl_expr!(polars_expr_median, Expr::median)
     gen_impl_expr!(polars_expr_min, Expr::min)
@@ -457,6 +456,20 @@ Curried form of [`replace_strict`](@ref) for use with `|>`.
 replace_strict(old, new; default = nothing) = expr -> replace_strict(expr, old, new; default = default)
 
 export replace_strict
+
+"""
+    prod(expr::Polars.Expr)::Polars.Expr
+
+Product of the values.
+
+Extends `Base.prod` (hand-written outside the `@generate_expr_fns` block rather than
+auto-qualified, so it lands on the *exported* `Base.prod` -- not the unexported, unrelated
+internal `Base.product` binding the Rust method name `Expr::product` would otherwise collide
+with via `isdefined(Base, :product)`). This matches the `Base.sum`/`Base.mean` precedent: since
+`prod` is an exported Base name, plain `prod(expr)` resolves here with no qualification needed,
+unlike the `Base.product(...)`-qualification this used to require.
+"""
+Base.prod(expr::Expr) = Expr(API.polars_expr_product(expr))
 
 """
     std(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
@@ -748,7 +761,7 @@ Computes the first discrete difference between shifted items (`expr[i] - expr[i 
 (drops the first `n` values instead).
 
 Extends `Base.diff` with a method for `Polars.Expr`, so plain `diff(expr, ...)` dispatches here
-without any extra qualification (unlike e.g. `Base.product`, `diff` is an *exported* Base name).
+without any extra qualification (`diff` is an *exported* Base name, like `sum`/`prod`/`mean`).
 """
 function Base.diff(expr::Expr, n = 1; null_behavior::Symbol = :ignore)
     n = convert(Expr, n)
