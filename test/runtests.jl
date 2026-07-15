@@ -8,6 +8,7 @@ include("fixtures.jl")
     include("dataframe/construction.jl")
     include("dataframe/gc.jl")
     include("dataframe/io.jl")
+    include("dataframe/describe.jl")
 
     include("lazyframe/lazy_vs_eager.jl")
     include("lazyframe/scan_parquet.jl")
