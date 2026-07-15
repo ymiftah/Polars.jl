@@ -39,7 +39,10 @@ function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissin
 
     T = nomissing(MT)
 
-    value_at_index = Value{T}(polars_series_get(series, index), series)
+    out = Ref{Ptr{polars_value_t}}()
+    err = polars_series_get(series, index, out)
+    polars_error(err)
+    value_at_index = Value{T}(out[], series)
 
     return load_value(value_at_index)
 end
@@ -54,7 +57,10 @@ function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissin
 
     T = nomissing(MT)
 
-    value_at_index = Value{T}(polars_series_get(series, index), series)
+    out = Ref{Ptr{polars_value_t}}()
+    err = polars_series_get(series, index, out)
+    polars_error(err)
+    value_at_index = Value{T}(out[], series)
 
     return load_value(value_at_index)
 end

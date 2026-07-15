@@ -62,7 +62,7 @@ mutable struct Value{T}
     ptr::Ptr{polars_value_t}
     parent::Union{Series, Value}
 
-    Value{T}(ptr, parent = nothing) where {T} =
+    Value{T}(ptr, parent) where {T} =
         finalizer(polars_value_destroy, new{T}(ptr, parent))
 end
 

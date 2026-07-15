@@ -192,7 +192,9 @@ const struct polars_error_t *polars_dataframe_read_parquet(const uint8_t *path,
                                                            uintptr_t pathlen,
                                                            struct polars_dataframe_t **out);
 
-void polars_dataframe_show(struct polars_dataframe_t *df, const void *user, IOCallback callback);
+const struct polars_error_t *polars_dataframe_show(struct polars_dataframe_t *df,
+                                                    const void *user,
+                                                    IOCallback callback);
 
 const struct polars_error_t *polars_dataframe_get(struct polars_dataframe_t *df,
                                                   const uint8_t *name,
@@ -916,7 +918,9 @@ bool polars_series_is_null(struct polars_series_t *series, uintptr_t index);
 
 uintptr_t polars_series_name(struct polars_series_t *series, const uint8_t **out);
 
-const struct polars_value_t *polars_series_get(struct polars_series_t *series, uintptr_t index);
+const struct polars_error_t *polars_series_get(struct polars_series_t *series,
+                                               uintptr_t index,
+                                               struct polars_value_t **out);
 
 const struct polars_error_t *polars_series_get_bool(struct polars_series_t *series,
                                                     uintptr_t index,

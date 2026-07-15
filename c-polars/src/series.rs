@@ -60,10 +60,15 @@ pub unsafe extern "C" fn polars_series_name(
 pub unsafe extern "C" fn polars_series_get<'a>(
     series: *mut polars_series_t,
     index: usize,
-) -> *const polars_value_t<'a> {
+    out: *mut *mut polars_value_t<'a>,
+) -> *const polars_error_t {
     assert!(!series.is_null());
-    let value = (*series).inner.get(index).unwrap();
-    Box::into_raw(Box::new(polars_value_t { inner: value }))
+    let value = match (*series).inner.get(index) {
+        Ok(v) => v,
+        Err(err) => return make_error(err),
+    };
+    *out = Box::into_raw(Box::new(polars_value_t { inner: value }));
+    std::ptr::null()
 }
 
 macro_rules! gen_series_get {

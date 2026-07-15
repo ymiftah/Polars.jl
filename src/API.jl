@@ -245,7 +245,7 @@ function polars_dataframe_read_parquet(path, pathlen, out)
 end
 
 function polars_dataframe_show(df, user, callback)
-    return @ccall libpolars.polars_dataframe_show(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Cvoid
+    return @ccall libpolars.polars_dataframe_show(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
 end
 
 function polars_dataframe_get(df, name, len, out)
@@ -1099,8 +1099,8 @@ function polars_series_name(series, out)
     return @ccall libpolars.polars_series_name(series::Ptr{polars_series_t}, out::Ptr{Ptr{UInt8}})::Csize_t
 end
 
-function polars_series_get(series, index)
-    return @ccall libpolars.polars_series_get(series::Ptr{polars_series_t}, index::Csize_t)::Ptr{polars_value_t}
+function polars_series_get(series, index, out)
+    return @ccall libpolars.polars_series_get(series::Ptr{polars_series_t}, index::Csize_t, out::Ptr{Ptr{polars_value_t}})::Ptr{polars_error_t}
 end
 
 function polars_series_get_bool(series, index, out)

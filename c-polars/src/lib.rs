@@ -307,10 +307,13 @@ pub unsafe extern "C" fn polars_dataframe_show(
     df: *mut polars_dataframe_t,
     user: *const c_void,
     callback: IOCallback,
-) {
+) -> *const polars_error_t {
     let df = &(*df).inner;
     let mut w = UserIOCallback(callback, user);
-    write!(w, "{df}").expect("failed to show dataframe");
+    if let Err(err) = write!(w, "{df}") {
+        return make_error(err);
+    }
+    std::ptr::null()
 }
 
 #[no_mangle]
