@@ -1068,6 +1068,14 @@ ArrowArray polars_series_export_carray(struct polars_series_t *series);
  */
 bool polars_series_is_null(struct polars_series_t *series, uintptr_t index);
 
+/**
+ * Returns a new owned series holding a zero-copy (Arc-refcount clone) slice of `length` elements
+ * starting at `offset`.
+ */
+struct polars_series_t *polars_series_slice(struct polars_series_t *series,
+                                            int64_t offset,
+                                            uintptr_t length);
+
 uintptr_t polars_series_name(struct polars_series_t *series, const uint8_t **out);
 
 const struct polars_error_t *polars_series_get(struct polars_series_t *series,

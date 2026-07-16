@@ -57,6 +57,18 @@ pub unsafe extern "C" fn polars_series_is_null(series: *mut polars_series_t, ind
     }
 }
 
+/// Returns a new owned series holding a zero-copy (Arc-refcount clone) slice of `length` elements
+/// starting at `offset`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_series_slice(
+    series: *mut polars_series_t,
+    offset: i64,
+    length: usize,
+) -> *mut polars_series_t {
+    assert!(!series.is_null());
+    make_series((*series).inner.slice(offset, length))
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_name(
     series: *mut polars_series_t,

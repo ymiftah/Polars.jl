@@ -39,6 +39,16 @@ function polars_series_is_null(series, index)
     return @ccall libpolars.polars_series_is_null(series::Ptr{polars_series_t}, index::Csize_t)::Bool
 end
 
+"""
+    polars_series_slice(series, offset, length)
+
+Returns a new owned series holding a zero-copy (Arc-refcount clone) slice of `length` elements
+starting at `offset`.
+"""
+function polars_series_slice(series, offset, length)
+    return @ccall libpolars.polars_series_slice(series::Ptr{polars_series_t}, offset::Int64, length::Csize_t)::Ptr{polars_series_t}
+end
+
 function polars_series_name(series, out)
     return @ccall libpolars.polars_series_name(series::Ptr{polars_series_t}, out::Ptr{Ptr{UInt8}})::Csize_t
 end

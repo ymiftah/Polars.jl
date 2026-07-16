@@ -37,7 +37,7 @@ Base.unsafe_convert(::Type{Ptr{polars_series_t}}, series::Series) = series.ptr
 Base.size(series::Series) = (series.length,)
 Base.eltype(::Series{T}) where {T} = T
 
-function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissing{Integer}, MaybeMissing{AbstractFloat}}}
+function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Integer}, MaybeMissing{AbstractFloat}}}
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -57,7 +57,7 @@ function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissin
     return out[]
 end
 
-function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissing{Dates.TimeType}, Dates.TimeType, MaybeMissing{Dates.Period}, Dates.Period}}
+function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Dates.TimeType}, Dates.TimeType, MaybeMissing{Dates.Period}, Dates.Period}}
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -75,7 +75,7 @@ function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissin
 end
 
 
-function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissing{Series}, MaybeMissing{String}, MaybeMissing{NamedTuple}, MaybeMissing{Vector{UInt8}}}}
+function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Series}, MaybeMissing{String}, MaybeMissing{NamedTuple}, MaybeMissing{Vector{UInt8}}}}
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -94,9 +94,18 @@ end
 
 # The Null dtype (produced by e.g. `lit(missing)`/`cast(expr, Missing)`) has no data/validity
 # buffers at all -- every element is unconditionally null, so there's nothing to fetch from Rust.
-function Base.getindex(series::Series{Union{Missing, Nothing}}, index)
+function Base.getindex(series::Series{Union{Missing, Nothing}}, index::Integer)
     checkbounds(series, index)
     return missing
+end
+
+# Zero-copy row-range slicing, backed by polars_series_slice (Rust's Series::slice, an
+# Arc-refcount clone under the hood -- no data copy).
+function Base.getindex(series::Series, r::UnitRange)
+    checkbounds(series, r)
+    offset = first(r) - 1
+    len = length(r)
+    return Series(polars_series_slice(series, offset, len))
 end
 
 """
