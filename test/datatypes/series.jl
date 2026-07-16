@@ -215,12 +215,37 @@ end
     @test_throws Exception s_str[0]
 end
 
-@testset "Series slicing (not implemented)" begin
-    # Series has no Base.getindex(::Series, ::AbstractVector/UnitRange) method -- range
-    # indexing throws MethodError rather than returning a sub-series. Documented as a known
-    # gap rather than silently skipped, per the write-path Binary-column precedent.
+@testset "Series slicing" begin
+    # Zero-copy row-range slicing via UnitRange getindex, backed by polars_series_slice.
     s = Series(:nums, [1, 2, 3, 4, 5])
-    @test_broken (s[1:2]; true)
+    @test collect(s[1:2]) == [1, 2]
+    @test collect(s[2:4]) == [2, 3, 4]
+
+    # full range
+    @test collect(s[1:5]) == [1, 2, 3, 4, 5]
+
+    # empty range
+    @test collect(s[3:2]) == Int64[]
+
+    # range at the end
+    @test collect(s[4:5]) == [4, 5]
+
+    # out-of-bounds range raises
+    @test_throws BoundsError s[4:10]
+
+    # non-numeric element types slice correctly too
+    s_str = Series(:names, ["a", "b", "c", "d"])
+    @test collect(s_str[2:3]) == ["b", "c"]
+
+    # null propagation through a slice
+    s_null = Series(:vals, Union{Int64, Missing}[1, missing, 3, missing, 5])
+    sub = s_null[2:4]
+    @test isequal(collect(sub), [missing, 3, missing])
+    @test sub.null_count == 2
+
+    # scalar indexing is unaffected by the new UnitRange method
+    @test s[1] == 1
+    @test_throws ErrorException s[100]
 end
 
 @testset "Boolean Series all/any with nulls" begin
