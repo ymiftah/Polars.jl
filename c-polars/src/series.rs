@@ -1,4 +1,7 @@
-use crate::{value::polars_value_type_t, *};
+use polars::prelude::*;
+use polars_core::utils::arrow::ffi::{self, ArrowArray, ArrowSchema};
+
+use crate::{make_error, polars_error_t, types::*, value::polars_value_type_t};
 
 pub(crate) fn make_series(series: Series) -> *mut polars_series_t {
     Box::into_raw(Box::new(polars_series_t { inner: series }))

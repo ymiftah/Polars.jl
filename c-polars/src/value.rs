@@ -1,4 +1,9 @@
-use crate::{series::make_series, *};
+use std::ffi::c_void;
+use std::io::Write;
+
+use polars::prelude::*;
+
+use crate::{ffi_util::*, make_error, polars_error_t, series::make_series, types::*};
 
 #[repr(C)]
 pub enum polars_value_type_t {
@@ -94,6 +99,7 @@ impl polars_time_unit_t {
 }
 
 #[repr(C)]
+#[allow(dead_code)]
 pub enum polars_closed_window_t {
     PolarsClosedWindowLeft,
     PolarsClosedWindowRight,
@@ -113,6 +119,7 @@ impl polars_closed_window_t {
 }
 
 #[repr(C)]
+#[allow(dead_code)]
 pub enum polars_label_t {
     PolarsLabelLeft,
     PolarsLabelRight,
@@ -130,6 +137,7 @@ impl polars_label_t {
 }
 
 #[repr(C)]
+#[allow(dead_code)]
 pub enum polars_start_by_t {
     PolarsStartByWindowBound,
     PolarsStartByDataPoint,

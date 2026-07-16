@@ -11,8 +11,9 @@ use polars_plan::dsl::DataTypeExpr;
 use polars_plan::prelude::Literal;
 
 use crate::{
+    make_error, polars_error_t,
+    types::*,
     value::{polars_time_unit_t, polars_value_type_t},
-    *,
 };
 
 fn make_expr(expr: Expr) -> *const polars_expr_t {
