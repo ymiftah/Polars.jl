@@ -1,16 +1,19 @@
 use polars::{lazy::dsl::string::StringNameSpace, lazy::dsl::ListNameSpace, prelude::*};
-use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_core::series::ops::NullBehavior;
 use polars_ops::series::round::RoundMode;
+use polars_ops::series::InterpolationMethod;
+use polars_plan::dsl::dt::DateLikeNameSpace;
+use polars_plan::dsl::functions::{
+    all_horizontal, any_horizontal, as_struct, coalesce, max_horizontal, mean_horizontal,
+    min_horizontal, sum_horizontal,
+};
 use polars_plan::dsl::DataTypeExpr;
 use polars_plan::prelude::Literal;
-use polars_plan::dsl::functions::{
-    coalesce, as_struct, all_horizontal, any_horizontal, sum_horizontal, min_horizontal,
-    max_horizontal, mean_horizontal,
-};
-use polars_ops::series::InterpolationMethod;
 
-use crate::{value::{polars_value_type_t, polars_time_unit_t}, *};
+use crate::{
+    value::{polars_time_unit_t, polars_value_type_t},
+    *,
+};
 
 fn make_expr(expr: Expr) -> *const polars_expr_t {
     Box::into_raw(Box::new(polars_expr_t { inner: expr }))
@@ -93,7 +96,7 @@ pub unsafe extern "C" fn polars_expr_nth(
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
     *out = make_expr(Expr::Selector(nth(n)));
-    return std::ptr::null();
+    std::ptr::null()
 }
 
 /// A placeholder for "the values in this group", used to build the `agg` expression passed to
@@ -258,7 +261,12 @@ pub unsafe extern "C" fn polars_expr_interpolate(
     expr: *const polars_expr_t,
     method: polars_interpolation_method_t,
 ) -> *const polars_expr_t {
-    make_expr((*expr).inner.clone().interpolate(method.to_interpolation_method()))
+    make_expr(
+        (*expr)
+            .inner
+            .clone()
+            .interpolate(method.to_interpolation_method()),
+    )
 }
 
 #[no_mangle]
@@ -312,7 +320,7 @@ pub unsafe extern "C" fn polars_expr_suffix(
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_keep_name(expr: *const polars_expr_t) -> *const polars_expr_t {
     let aliased = (*expr).inner.clone().name().keep();
-    return make_expr(aliased);
+    make_expr(aliased)
 }
 
 #[no_mangle]
@@ -440,7 +448,7 @@ pub unsafe extern "C" fn polars_expr_sort_by(
         by,
         SortMultipleOptions {
             descending,
-            nulls_last: std::iter::repeat(nulls_last).take(n_by).collect(),
+            nulls_last: std::iter::repeat_n(nulls_last, n_by).collect(),
             maintain_order,
             multithreaded: true,
             limit: None,
@@ -585,7 +593,10 @@ pub unsafe extern "C" fn polars_expr_value_counts(
         Ok(s) => s,
         Err(err) => return make_error(err),
     };
-    let result = (*expr).inner.clone().value_counts(sort, parallel, name, normalize);
+    let result = (*expr)
+        .inner
+        .clone()
+        .value_counts(sort, parallel, name, normalize);
     *out = make_expr(result);
     std::ptr::null()
 }
@@ -898,14 +909,8 @@ gen_impl_expr_binary_str!(
 );
 
 gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars);
-gen_impl_expr_binary_str!(
-    polars_expr_str_strip_prefix,
-    StringNameSpace::strip_prefix
-);
-gen_impl_expr_binary_str!(
-    polars_expr_str_strip_suffix,
-    StringNameSpace::strip_suffix
-);
+gen_impl_expr_binary_str!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix);
+gen_impl_expr_binary_str!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix);
 gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split);
 gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all);
 gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill);
@@ -918,7 +923,11 @@ pub unsafe extern "C" fn polars_expr_str_contains(
     pat: *const polars_expr_t,
     strict: bool,
 ) -> *const polars_expr_t {
-    let expr = (*a).inner.clone().str().contains((*pat).inner.clone(), strict);
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .contains((*pat).inner.clone(), strict);
     make_expr(expr)
 }
 
@@ -943,11 +952,11 @@ pub unsafe extern "C" fn polars_expr_str_replace(
     value: *const polars_expr_t,
     literal: bool,
 ) -> *const polars_expr_t {
-    let expr = (*a).inner.clone().str().replace(
-        (*pat).inner.clone(),
-        (*value).inner.clone(),
-        literal,
-    );
+    let expr =
+        (*a).inner
+            .clone()
+            .str()
+            .replace((*pat).inner.clone(), (*value).inner.clone(), literal);
     make_expr(expr)
 }
 
@@ -958,11 +967,11 @@ pub unsafe extern "C" fn polars_expr_str_replace_all(
     value: *const polars_expr_t,
     literal: bool,
 ) -> *const polars_expr_t {
-    let expr = (*a).inner.clone().str().replace_all(
-        (*pat).inner.clone(),
-        (*value).inner.clone(),
-        literal,
-    );
+    let expr =
+        (*a).inner
+            .clone()
+            .str()
+            .replace_all((*pat).inner.clone(), (*value).inner.clone(), literal);
     make_expr(expr)
 }
 
@@ -1001,7 +1010,8 @@ unsafe fn read_opt_str(
     if len == 0 {
         Ok(None)
     } else {
-        std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).map(|s| Some(PlSmallStr::from_str(s)))
+        std::str::from_utf8(std::slice::from_raw_parts(ptr, len))
+            .map(|s| Some(PlSmallStr::from_str(s)))
     }
 }
 
@@ -1102,6 +1112,9 @@ gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate);
 gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round);
 gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by);
 
+// Both variants are only ever produced on the Julia side (`@cenum`) and received here as a
+// C-ABI parameter value, never constructed by Rust itself -- a false positive for dead_code.
+#[allow(dead_code)]
 #[repr(C)]
 pub enum polars_non_existent_t {
     PolarsNonExistentRaise,

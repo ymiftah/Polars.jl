@@ -166,11 +166,11 @@ pub unsafe extern "C" fn polars_value_time_unit(value: *mut polars_value_t) -> p
         _ => return polars_time_unit_t::PolarsTimeUnitInvalid,
     };
 
-    return match tu {
+    match tu {
         TimeUnit::Nanoseconds => polars_time_unit_t::PolarsTimeUnitNanosecond,
         TimeUnit::Microseconds => polars_time_unit_t::PolarsTimeUnitMicrosecond,
         TimeUnit::Milliseconds => polars_time_unit_t::PolarsTimeUnitMillisecond,
-    };
+    }
 }
 
 /// Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive
@@ -279,7 +279,7 @@ pub unsafe extern "C" fn polars_value_duration_get(
         _ => return make_error("value is not of type duration"),
     }
 
-    return std::ptr::null();
+    std::ptr::null()
 }
 
 /// Get the underlying int64 for this datetime value.
@@ -293,7 +293,7 @@ pub unsafe extern "C" fn polars_value_datetime_get(
         _ => return make_error("value is not of type datetime"),
     }
 
-    return std::ptr::null();
+    std::ptr::null()
 }
 
 /// Get the underlying int32 (days since UNIX epoch) for this date value.
@@ -307,7 +307,7 @@ pub unsafe extern "C" fn polars_value_date_get(
         _ => return make_error("value is not of type date"),
     }
 
-    return std::ptr::null();
+    std::ptr::null()
 }
 
 #[no_mangle]

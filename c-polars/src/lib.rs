@@ -1,12 +1,21 @@
 #![allow(non_camel_case_types)]
 #![allow(clippy::missing_safety_doc)]
+// The hand-written `#[repr(C)]` enum mirrors (see CLAUDE.md's "Rust enums crossing the
+// boundary" convention) all share one prefix per type by design, and their `to_*` conversion
+// methods take `self` by value since these are small Copy-able marker types -- both trip
+// idioms clippy expects from ordinary Rust enums.
+#![allow(clippy::enum_variant_names)]
+#![allow(clippy::wrong_self_convention)]
 
 use std::ffi::c_void;
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t};
+use polars::io::ipc::IpcScanOptions;
 use polars::prelude::*;
+use polars_core::frame::PivotColumnNaming;
 use polars_core::utils::{
     arrow::{
         self,
@@ -15,14 +24,11 @@ use polars_core::utils::{
     },
     rayon::iter::{self, ParallelIterator},
 };
-use polars_plan::utils::expr_output_name;
-use polars_plan::dsl::{UnifiedScanArgs, FileWriteFormat, MissingColumnsPolicy};
 use polars_plan::dsl::sink::{SinkDestination, SinkTarget, UnifiedSinkArgs};
-use polars::io::ipc::IpcScanOptions;
-use polars_core::frame::PivotColumnNaming;
+use polars_plan::dsl::{FileWriteFormat, MissingColumnsPolicy, UnifiedScanArgs};
+use polars_plan::utils::expr_output_name;
 use polars_utils::compression::{BrotliLevel, GzipLevel, ZstdLevel};
 use polars_utils::slice_enum::Slice;
-use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t};
 
 mod expr;
 mod series;
@@ -38,8 +44,7 @@ pub unsafe extern "C" fn polars_version(out: *mut *const u8) -> usize {
 }
 
 /// The callback provided for display functions, returns -1 on error.
-type IOCallback =
-    unsafe extern "C" fn(user: *const c_void, data: *const u8, len: usize) -> isize;
+type IOCallback = unsafe extern "C" fn(user: *const c_void, data: *const u8, len: usize) -> isize;
 
 pub struct polars_error_t {
     msg: String,
@@ -106,7 +111,7 @@ pub unsafe extern "C" fn polars_error_message(
     let len = str.len();
 
     *data = str.as_ptr();
-    return len;
+    len
 }
 
 #[no_mangle]
@@ -171,7 +176,7 @@ pub unsafe extern "C" fn polars_dataframe_size(
 ///
 /// Returns null if something went wrong.
 #[no_mangle]
-pub extern "C" fn polars_dataframe_new_from_carrow(
+pub unsafe extern "C" fn polars_dataframe_new_from_carrow(
     cfield: *const ArrowSchema,
     carray: ArrowArray,
 ) -> *mut polars_dataframe_t {
@@ -207,7 +212,7 @@ pub unsafe extern "C" fn polars_dataframe_schema(df: *mut polars_dataframe_t) ->
     let schema = (*df).inner.schema().to_arrow(CompatLevel::newest());
     let structfield = arrow::datatypes::Field::new(
         "polars.dataframe".into(),
-        arrow::datatypes::ArrowDataType::Struct(schema.iter_values().map(|c| c.clone()).collect()),
+        arrow::datatypes::ArrowDataType::Struct(schema.iter_values().cloned().collect()),
         false,
     );
     ffi::export_field_to_c(&structfield)
@@ -274,9 +279,12 @@ impl polars_ipc_compression_t {
         Ok(match self {
             Self::PolarsIpcCompressionUncompressed => None,
             Self::PolarsIpcCompressionLz4 => Some(IpcCompression::LZ4),
-            Self::PolarsIpcCompressionZstd => {
-                Some(IpcCompression::ZSTD(level.map(ZstdLevel::try_new).transpose()?.unwrap_or_default()))
-            }
+            Self::PolarsIpcCompressionZstd => Some(IpcCompression::ZSTD(
+                level
+                    .map(ZstdLevel::try_new)
+                    .transpose()?
+                    .unwrap_or_default(),
+            )),
         })
     }
 }
@@ -524,10 +532,7 @@ impl std::io::Write for UserIOCallback {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let n = unsafe { self.0(self.1, buf.as_ptr(), buf.len()) };
         if n < 0 {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "user callback error",
-            ))
+            Err(std::io::Error::other("user callback error"))
         } else {
             Ok(n as usize)
         }
@@ -603,10 +608,11 @@ pub unsafe extern "C" fn polars_dataframe_upsample(
         Ok(names) => names,
         Err(err) => return make_error(err),
     };
-    let time_column = match std::str::from_utf8(std::slice::from_raw_parts(time_column, time_column_len)) {
-        Ok(s) => s,
-        Err(err) => return make_error(err),
-    };
+    let time_column =
+        match std::str::from_utf8(std::slice::from_raw_parts(time_column, time_column_len)) {
+            Ok(s) => s,
+            Err(err) => return make_error(err),
+        };
     let every_str = match std::str::from_utf8(std::slice::from_raw_parts(every, every_len)) {
         Ok(s) => s,
         Err(err) => return make_error(err),
@@ -861,7 +867,9 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
             name,
             offset: row_index_offset,
         }),
-        pre_slice: n_rows.as_ref().map(|&len| Slice::Positive { offset: 0, len }),
+        pre_slice: n_rows
+            .as_ref()
+            .map(|&len| Slice::Positive { offset: 0, len }),
         missing_columns_policy: if allow_missing_columns {
             MissingColumnsPolicy::Insert
         } else {
@@ -871,7 +879,11 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
         ..Default::default()
     };
 
-    match LazyFrame::scan_ipc(PlRefPath::new(path), IpcScanOptions::default(), unified_scan_args) {
+    match LazyFrame::scan_ipc(
+        PlRefPath::new(path),
+        IpcScanOptions::default(),
+        unified_scan_args,
+    ) {
         Ok(lf) => {
             *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
             std::ptr::null()
@@ -1008,7 +1020,8 @@ pub unsafe extern "C" fn polars_dataframe_write_ipc(
 ) -> *const polars_error_t {
     let df = &mut (*df).inner;
 
-    let options = match build_ipc_writer_options(compression, compression_level, record_batch_size) {
+    let options = match build_ipc_writer_options(compression, compression_level, record_batch_size)
+    {
         Ok(options) => options,
         Err(err) => return make_error(err),
     };
@@ -1055,10 +1068,25 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
         Err(err) => return make_error(err),
     };
     let options = match build_csv_writer_options(
-        include_header, include_bom, separator, quote_char, null_value, null_value_len,
-        line_terminator, line_terminator_len, quote_style, date_format, date_format_len,
-        time_format, time_format_len, datetime_format, datetime_format_len, float_precision,
-        decimal_comma, compression, compression_level,
+        include_header,
+        include_bom,
+        separator,
+        quote_char,
+        null_value,
+        null_value_len,
+        line_terminator,
+        line_terminator_len,
+        quote_style,
+        date_format,
+        date_format_len,
+        time_format,
+        time_format_len,
+        datetime_format,
+        datetime_format_len,
+        float_precision,
+        decimal_comma,
+        compression,
+        compression_level,
     ) {
         Ok(options) => options,
         Err(err) => return make_error(err),
@@ -1097,7 +1125,8 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
         Ok(p) => p,
         Err(err) => return make_error(err),
     };
-    let options = match build_ipc_writer_options(compression, compression_level, record_batch_size) {
+    let options = match build_ipc_writer_options(compression, compression_level, record_batch_size)
+    {
         Ok(options) => options,
         Err(err) => return make_error(err),
     };
@@ -1246,7 +1275,7 @@ pub unsafe extern "C" fn polars_lazy_frame_collect_schema(
     let arrow_schema = schema.to_arrow(CompatLevel::newest());
     let structfield = arrow::datatypes::Field::new(
         "polars.dataframe".into(),
-        arrow::datatypes::ArrowDataType::Struct(arrow_schema.iter_values().map(|c| c.clone()).collect()),
+        arrow::datatypes::ArrowDataType::Struct(arrow_schema.iter_values().cloned().collect()),
         false,
     );
     *out = ffi::export_field_to_c(&structfield);
@@ -1290,15 +1319,15 @@ pub unsafe extern "C" fn polars_lazy_frame_group_by_dynamic(
         .map(|expr| (**expr).inner.clone())
         .collect();
 
-    let every_str = std::str::from_utf8(std::slice::from_raw_parts(every, every_len))
-        .unwrap_or_default();
+    let every_str =
+        std::str::from_utf8(std::slice::from_raw_parts(every, every_len)).unwrap_or_default();
     let period_str = if period_len == 0 {
         every_str
     } else {
         std::str::from_utf8(std::slice::from_raw_parts(period, period_len)).unwrap_or_default()
     };
-    let offset_str = std::str::from_utf8(std::slice::from_raw_parts(offset, offset_len))
-        .unwrap_or_default();
+    let offset_str =
+        std::str::from_utf8(std::slice::from_raw_parts(offset, offset_len)).unwrap_or_default();
 
     let every = match Duration::try_parse(every_str) {
         Ok(d) => d,
@@ -1489,8 +1518,16 @@ pub unsafe extern "C" fn polars_lazy_frame_join_asof(
         strategy: strategy.to_asof_strategy(),
         tolerance: None,
         tolerance_str: None,
-        left_by: if left_by.is_empty() { None } else { Some(left_by) },
-        right_by: if right_by.is_empty() { None } else { Some(right_by) },
+        left_by: if left_by.is_empty() {
+            None
+        } else {
+            Some(left_by)
+        },
+        right_by: if right_by.is_empty() {
+            None
+        } else {
+            Some(right_by)
+        },
         allow_eq: true,
         check_sortedness: true,
     };
@@ -1623,7 +1660,11 @@ pub unsafe extern "C" fn polars_lazy_frame_with_row_index(
         Ok(name) => PlSmallStr::from_str(name),
         Err(err) => return make_error(err),
     };
-    let offset = if has_offset { Some(offset as IdxSize) } else { None };
+    let offset = if has_offset {
+        Some(offset as IdxSize)
+    } else {
+        None
+    };
     let result = (*lf).inner.clone().with_row_index(name, offset);
     *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: result }));
     std::ptr::null()
@@ -1758,7 +1799,8 @@ pub unsafe extern "C" fn polars_lazy_frame_pivot(
         Ok(names) => names,
         Err(err) => return make_error(err),
     };
-    let separator = match std::str::from_utf8(std::slice::from_raw_parts(separator, separator_len)) {
+    let separator = match std::str::from_utf8(std::slice::from_raw_parts(separator, separator_len))
+    {
         Ok(s) => PlSmallStr::from_str(s),
         Err(err) => return make_error(err),
     };
@@ -1768,10 +1810,19 @@ pub unsafe extern "C" fn polars_lazy_frame_pivot(
     let lf = (*lf).inner.clone();
 
     let result = lf.pivot(
-        Selector::ByName { names: on_names.into(), strict: true },
+        Selector::ByName {
+            names: on_names.into(),
+            strict: true,
+        },
         on_columns,
-        Selector::ByName { names: index_names.into(), strict: true },
-        Selector::ByName { names: values_names.into(), strict: true },
+        Selector::ByName {
+            names: index_names.into(),
+            strict: true,
+        },
+        Selector::ByName {
+            names: values_names.into(),
+            strict: true,
+        },
         agg,
         maintain_order,
         separator,
