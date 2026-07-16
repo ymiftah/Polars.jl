@@ -5,6 +5,13 @@ built as a hand-written C ABI bridge over the upstream `polars` crate, not a rei
 Query logic runs entirely inside polars; Polars.jl just marshals expressions and frames across the
 boundary.
 
+!!! note "Fork notice"
+    This is a fork of [pangoraw/Polars.jl](https://github.com/pangoraw/Polars.jl) by Paul Berg, who
+    designed the original C ABI bridge and wrapper architecture this package still follows — this
+    fork continues that work rather than inventing a new approach. Much of the code and docs in
+    this fork were written with heavy AI assistance and are **still under review**; treat it as
+    less vetted than the upstream project until that review is further along.
+
 !!! warning "Experimental — read before using"
     - This package is **very experimental and not battle-tested**. Expect rough edges (see
       [Limitations](@ref)) and breaking changes.
@@ -63,6 +70,8 @@ this in depth.
 
 ## Installation
 
+Not yet registered in the General registry — install directly from the repo:
+
 ```julia-repl
-pkg> add Polars
+pkg> add https://github.com/ymiftah/Polars.jl
 ```

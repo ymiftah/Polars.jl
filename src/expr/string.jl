@@ -171,6 +171,15 @@ function to_date(expr::Expr; format::Union{Nothing, String} = nothing, strict::B
 end
 
 """
+    to_date(; format::Union{Nothing,String}=nothing, strict::Bool=true, exact::Bool=true)::Base.Callable
+
+Curried form of [`to_date`](@ref) for use with `|>`.
+"""
+function to_date(; format::Union{Nothing, String} = nothing, strict::Bool = true, exact::Bool = true)
+    return expr -> to_date(expr; format, strict, exact)
+end
+
+"""
     to_datetime(expr::Polars.Expr; format::Union{Nothing,String}=nothing,
                 time_unit::Symbol=:us, strict::Bool=true, exact::Bool=true)::Polars.Expr
 
@@ -197,6 +206,19 @@ function to_datetime(
     )
     polars_error(err)
     return Expr(out[])
+end
+
+"""
+    to_datetime(; format::Union{Nothing,String}=nothing, time_unit::Symbol=:us,
+                strict::Bool=true, exact::Bool=true)::Base.Callable
+
+Curried form of [`to_datetime`](@ref) for use with `|>`.
+"""
+function to_datetime(
+        ; format::Union{Nothing, String} = nothing, time_unit::Symbol = :us,
+        strict::Bool = true, exact::Bool = true
+    )
+    return expr -> to_datetime(expr; format, time_unit, strict, exact)
 end
 
 export contains, slice, replace, replace_all, extract, count_matches, to_date, to_datetime

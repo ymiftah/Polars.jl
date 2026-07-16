@@ -1,8 +1,14 @@
 # Polars.jl
 
-[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://pangoraw.github.io/Polars.jl/docs)
+[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://ymiftah.github.io/Polars.jl/docs)
 
 Polars.jl is a thin wrapper for Julia around the dataframe manipulation library [polars](https://github.com/pola-rs/polars).
+
+> **Fork notice:** this is a fork of [pangoraw/Polars.jl](https://github.com/pangoraw/Polars.jl) by
+> Paul Berg, who designed the original C ABI bridge and wrapper architecture this package still
+> follows — this fork continues that work rather than inventing a new approach. Much of the code
+> and docs in this fork were written with heavy AI assistance and are **still under review**; treat
+> it as less vetted than the upstream project until that review is further along.
 
 ## Example
 

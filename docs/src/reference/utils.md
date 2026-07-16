@@ -11,7 +11,7 @@ using Polars
 `version()` — returns the polars version (as a `VersionNumber`) the C ABI was built against.
 
 ```julia
-Polars.version()  # => v"0.20.0" or similar
+Polars.version()  # => v"0.54.4" or similar
 ```
 
 ## Schema inspection

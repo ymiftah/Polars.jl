@@ -71,10 +71,14 @@ select(dates, Strings.to_date(col("s")) |> alias("d"), Strings.to_datetime(col("
 
 ## Curried forms
 
-Every function above except `to_date`/`to_datetime` has a curried form for `|>` pipelines — see
+Every function above has a curried form for `|>` pipelines — see
 [Curried forms for pipe-based composition](@ref):
 
 ```@example strings
 df2 = DataFrame((; s = ["hello world", "foo bar"]))
 select(df2, col("s") |> Strings.starts_with("hello") |> alias("starts"), col("s") |> Strings.replace_all("o", "0") |> alias("r"))
+```
+
+```@example strings
+select(dates, col("s") |> Strings.to_date(format = "%Y-%m-%d") |> alias("d"))
 ```

@@ -4,6 +4,15 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
 
 ## I/O limitations
 
+- **CSV scanning has no `hive_partitioning` option, unlike parquet/IPC.** This is a real gap in
+  upstream, not a scope choice: `polars_lazy::frame::LazyCsvReader` (the builder `scan_csv` uses)
+  hardcodes hive-partitioning off internally and doesn't expose a way to override it.
+
+- **`allow_missing_columns` (parquet/CSV/IPC scan options) only covers files *missing* a column
+  present in the reference schema, not files with an *extra* column beyond it.** That's a separate
+  `ExtraColumnsPolicy` this wrapper doesn't expose. The reference schema is whichever file/fragment
+  gets scanned first, so ordering matters when relying on this option.
+
 - ~~List and Struct columns cannot be constructed from Julia arrays.~~ **Resolved.**
   `DataFrame(table)` now accepts `Vector{<:Vector{T}}` (including the nullable
   `Vector{Union{Missing,Vector{T}}}` case) for List columns and `Vector{<:NamedTuple}` for Struct

@@ -104,5 +104,18 @@ function replace_time_zone(
     return Expr(out[])
 end
 
+"""
+    replace_time_zone(tz::Union{Nothing,String} = nothing; ambiguous::String = "raise",
+                       non_existent::Symbol = :raise)::Base.Callable
+
+Curried form of [`replace_time_zone`](@ref) for use with `|>`.
+"""
+function replace_time_zone(
+        tz::Union{Nothing, AbstractString} = nothing;
+        ambiguous::AbstractString = "raise", non_existent::Symbol = :raise
+    )
+    return expr -> replace_time_zone(expr, tz; ambiguous, non_existent)
+end
+
 export replace_time_zone
 end # module Dt

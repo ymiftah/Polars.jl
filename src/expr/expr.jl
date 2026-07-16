@@ -356,9 +356,9 @@ end
 # Curried (Fix2-style) forms for the binary namespace-free ops above that have no natural
 # operator equivalent (unlike +/-/*//, which already read fluently as infix). Each promotes a
 # literal second argument via `convert(Expr, ...)`, matching Python polars' `.is_in([1,2,3])`,
-# `.fill_null(0)`, etc. `log`/`rem` (and, elsewhere, `replace`/`diff`) are deliberately excluded --
-# not because of dispatch ambiguity (Julia always prefers Base's existing concrete-type methods,
-# e.g. `log(::Float64)`, over anything added here, so no ambiguity error would ever occur), but
+# `.fill_null(0)`, etc. `log`/`rem` (and, elsewhere, `replace`/`diff`/`round`) are deliberately
+# excluded -- not because of dispatch ambiguity (Julia always prefers Base's existing concrete-type
+# methods, e.g. `log(::Float64)`, over anything added here, so no ambiguity error would ever occur), but
 # because a curry that's actually useful for plain numeric literals has to accept an untyped or
 # broadly-typed argument, and that means claiming argument-type combinations Base currently leaves
 # undefined (e.g. `log(1, 2)` on two bare `Int`s -- currently a MethodError). That's real type
@@ -494,6 +494,15 @@ function var(expr::Expr; ddof::Integer = 1)
 end
 
 """
+    std(; ddof::Integer=1)::Base.Callable
+    var(; ddof::Integer=1)::Base.Callable
+
+Curried forms of [`std`](@ref)/[`var`](@ref) for use with `|>`.
+"""
+std(; ddof::Integer = 1) = expr -> std(expr; ddof)
+var(; ddof::Integer = 1) = expr -> var(expr; ddof)
+
+"""
     quantile(expr::Polars.Expr, q; method::Symbol=:nearest)::Polars.Expr
 
 Computes the `q`-th quantile (`q` an `Expr` or a numeric literal in `[0, 1]`) of the values,
@@ -609,6 +618,13 @@ function arg_sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false
     return Expr(out)
 end
 
+"""
+    arg_sort(; descending::Bool=false, nulls_last::Bool=false)::Base.Callable
+
+Curried form of [`arg_sort`](@ref) for use with `|>`.
+"""
+arg_sort(; descending::Bool = false, nulls_last::Bool = false) = expr -> arg_sort(expr; descending, nulls_last)
+
 export arg_sort
 
 """
@@ -648,6 +664,16 @@ function value_counts(
     err = API.polars_expr_value_counts(expr, sort, parallel, name, length(name), normalize, out)
     polars_error(err)
     return Expr(out[])
+end
+
+"""
+    value_counts(; sort::Bool=false, parallel::Bool=false, name::String="count",
+                 normalize::Bool=false)::Base.Callable
+
+Curried form of [`value_counts`](@ref) for use with `|>`.
+"""
+function value_counts(; sort::Bool = false, parallel::Bool = false, name::String = "count", normalize::Bool = false)
+    return expr -> value_counts(expr; sort, parallel, name, normalize)
 end
 
 export value_counts
@@ -879,6 +905,13 @@ function interpolate(expr::Expr; method::Symbol = :linear)
     return Expr(out)
 end
 
+"""
+    interpolate(; method::Symbol=:linear)::Base.Callable
+
+Curried form of [`interpolate`](@ref) for use with `|>`.
+"""
+interpolate(; method::Symbol = :linear) = expr -> interpolate(expr; method)
+
 export interpolate
 
 """
@@ -920,6 +953,22 @@ Cumulative count of non-null values. If `reverse` is `true`, accumulates from th
 the first.
 """
 cum_count(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_count(expr, reverse))
+
+"""
+    cum_sum(; reverse::Bool=false)::Base.Callable
+    cum_prod(; reverse::Bool=false)::Base.Callable
+    cum_min(; reverse::Bool=false)::Base.Callable
+    cum_max(; reverse::Bool=false)::Base.Callable
+    cum_count(; reverse::Bool=false)::Base.Callable
+
+Curried forms of [`cum_sum`](@ref)/[`cum_prod`](@ref)/[`cum_min`](@ref)/[`cum_max`](@ref)/
+[`cum_count`](@ref) for use with `|>`.
+"""
+cum_sum(; reverse::Bool = false) = expr -> cum_sum(expr; reverse)
+cum_prod(; reverse::Bool = false) = expr -> cum_prod(expr; reverse)
+cum_min(; reverse::Bool = false) = expr -> cum_min(expr; reverse)
+cum_max(; reverse::Bool = false) = expr -> cum_max(expr; reverse)
+cum_count(; reverse::Bool = false) = expr -> cum_count(expr; reverse)
 
 export cum_sum, cum_prod, cum_min, cum_max, cum_count
 
@@ -969,6 +1018,13 @@ function rank(expr::Expr; method::Symbol = :dense, descending::Bool = false)
     out = API.polars_expr_rank(expr, method_enum, descending)
     return Expr(out)
 end
+
+"""
+    rank(; method::Symbol=:dense, descending::Bool=false)::Base.Callable
+
+Curried form of [`rank`](@ref) for use with `|>`.
+"""
+rank(; method::Symbol = :dense, descending::Bool = false) = expr -> rank(expr; method, descending)
 
 export rank
 

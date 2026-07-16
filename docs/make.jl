@@ -5,7 +5,7 @@ using Polars
 makedocs(;
     sitename = "Polars.jl",
     format = DocumenterVitepress.MarkdownVitepress(
-        repo = "https://github.com/pangoraw/Polars.jl",
+        repo = "https://github.com/ymiftah/Polars.jl",
         devbranch = "main",
     ),
     modules = [Polars],

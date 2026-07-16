@@ -143,6 +143,68 @@ end
     @test r_direct6[:r] == r_curried6[:r] == [2, 2, 0]
 end
 
+@testset "curried top-level: arg_sort / rank / value_counts / interpolate / cum_* / std / var" begin
+    df = DataFrame((; g = ["a", "a", "b"], x = [3, 1, 2]))
+
+    r_direct = select(df, alias(arg_sort(col("x"); descending = true), "as"))
+    r_curried = select(df, alias(col("x") |> arg_sort(descending = true), "as"))
+    @test r_direct[:as] == r_curried[:as]
+
+    r_direct2 = select(df, alias(rank(col("x"); method = :ordinal), "rk"))
+    r_curried2 = select(df, alias(col("x") |> rank(method = :ordinal), "rk"))
+    @test r_direct2[:rk] == r_curried2[:rk]
+
+    r_direct3 = select(df, alias(value_counts(col("g"); sort = true), "vc"))
+    r_curried3 = select(df, alias(col("g") |> value_counts(sort = true), "vc"))
+    @test collect(r_direct3[:vc]) == collect(r_curried3[:vc])
+
+    dfi = DataFrame((; y = [missing, 1.0, missing, 4.0]))
+    r_direct4 = select(dfi, alias(interpolate(col("y"); method = :nearest), "i"))
+    r_curried4 = select(dfi, alias(col("y") |> interpolate(method = :nearest), "i"))
+    @test isequal(r_direct4[:i], r_curried4[:i])
+
+    r_direct5 = select(df, alias(cum_sum(col("x"); reverse = true), "cs"))
+    r_curried5 = select(df, alias(col("x") |> cum_sum(reverse = true), "cs"))
+    @test r_direct5[:cs] == r_curried5[:cs]
+
+    r_direct6 = select(df, alias(cum_max(col("x")), "cm"))
+    r_curried6 = select(df, alias(col("x") |> cum_max(), "cm"))
+    @test r_direct6[:cm] == r_curried6[:cm]
+
+    r_direct7 = select(df, alias(cum_prod(col("x")), "cp"))
+    r_curried7 = select(df, alias(col("x") |> cum_prod(), "cp"))
+    @test r_direct7[:cp] == r_curried7[:cp]
+
+    r_direct8 = select(df, alias(cum_min(col("x")), "cn"))
+    r_curried8 = select(df, alias(col("x") |> cum_min(), "cn"))
+    @test r_direct8[:cn] == r_curried8[:cn]
+
+    r_direct9 = select(df, alias(cum_count(col("x")), "cc"))
+    r_curried9 = select(df, alias(col("x") |> cum_count(), "cc"))
+    @test r_direct9[:cc] == r_curried9[:cc]
+
+    r_direct10 = select(df, alias(std(col("x"); ddof = 0), "s"))
+    r_curried10 = select(df, alias(col("x") |> std(ddof = 0), "s"))
+    @test r_direct10[:s] == r_curried10[:s]
+
+    r_direct11 = select(df, alias(var(col("x"); ddof = 0), "v"))
+    r_curried11 = select(df, alias(col("x") |> var(ddof = 0), "v"))
+    @test r_direct11[:v] == r_curried11[:v]
+end
+
+@testset "curried Strings: to_date / to_datetime" begin
+    df = DataFrame((; d = ["2024-01-15", "2024-06-30"]))
+
+    r_direct = select(df, alias(Strings.to_date(col("d")), "date"))
+    r_curried = select(df, alias(col("d") |> Strings.to_date(), "date"))
+    @test collect(r_direct[:date]) == collect(r_curried[:date])
+
+    df2 = DataFrame((; d = ["2024-01-15 09:30:00", "2024-06-30 14:00:00"]))
+    r_direct2 = select(df2, alias(Strings.to_datetime(col("d")), "dt"))
+    r_curried2 = select(df2, alias(col("d") |> Strings.to_datetime(), "dt"))
+    @test collect(r_direct2[:dt]) == collect(r_curried2[:dt])
+end
+
 @testset "curried Dt: truncate / round / offset_by / strftime" begin
     df = DataFrame((; d = [Date(2024, 1, 15), Date(2024, 6, 30)]))
 

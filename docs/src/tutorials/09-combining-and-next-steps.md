@@ -30,5 +30,5 @@ this package today (not just undocumented).
 From here:
 - The [Reference](@ref) section documents every function used in this tutorial (and more) in one
   place, organized by category.
-- The [Polars.jl README](https://github.com/pangoraw/Polars.jl) has build instructions for the
+- The [Polars.jl README](https://github.com/ymiftah/Polars.jl) has build instructions for the
   underlying Rust `c-polars` bridge, useful if you want to extend the wrapper itself.

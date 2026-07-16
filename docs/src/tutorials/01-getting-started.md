@@ -8,8 +8,10 @@ top of each page, so you can copy any snippet into your own REPL and it will jus
 
 ## Installation
 
+Not yet registered in the General registry — install directly from the repo:
+
 ```julia-repl
-pkg> add Polars
+pkg> add https://github.com/ymiftah/Polars.jl
 ```
 
 ## Eager vs. lazy

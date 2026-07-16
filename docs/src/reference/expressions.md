@@ -23,6 +23,7 @@ using Polars
 | `alias(expr, name)` | rename the result |
 | `prefix(expr, str)` | prepend to the name |
 | `suffix(expr, str)` | append to the name |
+| `keep_name(expr)` | keep the input's original name through an operation that would otherwise rename it |
 
 ## Conditional logic
 
@@ -79,10 +80,38 @@ select(
 | `sign`, `is_finite`, `is_infinite`, `is_nan` | `fill_null(expr, value)`, `fill_nan(expr, value)` | comparison via `.>`, `.>=`, `.==`, etc. |
 | `round(expr, decimals)`, `clip(expr, min, max)` | | logical via `.&`, `.|` |
 | `not` | | |
+| `is_null`, `is_not_null`, `null_count` | | |
 | `drop_nans`, `drop_nulls` | `pct_change(expr, n)` | |
 
 ```@example expressions
 select(df, ((col("x") + 1) * 2) |> alias("plus_one_times_two"), (col("x") ^ 2) |> alias("squared"))
+```
+
+## Named binary functions
+
+Every arithmetic/comparison/logical operator has a named-function equivalent. These matter when an
+expression is built programmatically — e.g. picking which comparison to apply from a variable
+instead of hardcoding an infix operator:
+
+| Function | Operator equivalent |
+|---|---|
+| `eq(a, b)` | `a .== b` |
+| `gt(a, b)` | `a .> b` |
+| `and(a, b)` | `a .& b` |
+| `or(a, b)` | `a .\| b` |
+| `add(a, b)`, `sub(a, b)`, `mul(a, b)`, `div(a, b)`, `pow(a, b)` | `+`, `-`, `*`, `/`, `^` |
+| `xor(a, b)` | *(no operator equivalent)* |
+
+```@example expressions
+comparisons = Dict("gt" => gt, "eq" => eq)
+op = comparisons["gt"] # picked at runtime, e.g. from user input
+select(df, op(col("x"), lit(2)) |> alias("cmp"))
+```
+
+`xor` has no operator form at all, so it's the only one of these that must be called by name:
+
+```@example expressions
+select(df, xor(col("y"), lit(true)) |> alias("not_y"))
 ```
 
 ## Combining columns: `coalesce`
@@ -158,6 +187,12 @@ mirroring Python polars' fluent `.method(...)` chaining style.
 | `sample_frac(expr, frac; ...)` | `sample_frac(frac; ...)` |
 | `over(expr, partition_by...)` | `over(partition_by::String...)` |
 | `sort_by(expr, by...; ...)` | `sort_by(by::String...; ...)` |
+| `arg_sort(expr; descending, nulls_last)` | `arg_sort(; descending, nulls_last)` |
+| `rank(expr; method, descending)` | `rank(; method, descending)` |
+| `value_counts(expr; sort, parallel, name, normalize)` | `value_counts(; sort, parallel, name, normalize)` |
+| `interpolate(expr; method)` | `interpolate(; method)` |
+| `cum_sum`/`cum_prod`/`cum_min`/`cum_max`/`cum_count(expr; reverse)` | `cum_sum`/`cum_prod`/`cum_min`/`cum_max`/`cum_count(; reverse)` |
+| `std(expr; ddof)`, `var(expr; ddof)` | `std(; ddof)`, `var(; ddof)` |
 
 ```@example expressions
 df9 = DataFrame((; x = [1, 2, 3, 4, missing]))
@@ -170,10 +205,16 @@ select(df9, col("x") |> fill_null(0) |> clip(0, 3))
 
 **`over`/`sort_by`'s curried forms only accept column-name `String`s, not `Expr`s** — passing an `Expr` is ambiguous with the non-curried form's own leading `expr` argument, and always resolves to that instead. For expression-valued partition/sort keys, call the non-curried `over(expr, partition_by...)` / `sort_by(expr, by...)` directly.
 
-**Deliberately not curried:** `log`, `rem`, `replace`, `diff`. These are `Base`-qualified, and
-since `Expr <: Number` (for promotion — see [Structures](@ref)), an untyped 1-argument curry would
-be genuinely ambiguous with Base's own generic methods for `Number` — a real dispatch conflict,
-not just a style mismatch.
+**Deliberately not curried:** `log`, `rem`, `replace`, `diff`, `round`. These are `Base`-qualified,
+and since `Expr <: Number` (for promotion — see [Structures](@ref)), an untyped 1-argument curry
+would be genuinely ambiguous with Base's own generic methods for `Number` — a real dispatch
+conflict, not just a style mismatch (e.g. a `round(decimals::Integer)` curry would collide with
+Base's own existing `round(::Integer)` method).
+
+```@example expressions
+df13 = DataFrame((; g = ["a", "a", "b"], x = [3, 1, 2]))
+select(df13, col("x") |> arg_sort(descending = true) |> alias("order"), col("x") |> cum_max() |> alias("running_max"))
+```
 
 `sort_by(expr, by...)` sorts `expr`'s values according to a *different* expression/column than `expr` itself — typically used inside `agg`/`over` for "most recent row per group" or "top N per group" style queries:
 
