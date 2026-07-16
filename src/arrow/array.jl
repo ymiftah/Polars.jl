@@ -272,6 +272,32 @@ function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{String}, Strin
     return ArrowArray(ValidityMap(v), Vector[offsets, value_buffer], [])
 end
 
+# Binary (Vector{UInt8}) columns -- structurally identical to String above (offset+data buffers),
+# just with bytes already raw (no codeunits conversion) and length instead of sizeof. Without this
+# method, Vector{UInt8}-element columns fall through to the generic Vector{<:Vector{T}} methods
+# below (T=UInt8 unifies), which build a "+l" list-shaped array while the schema declares "z"
+# (binary) -- a structural mismatch the Rust-side FFI import rejects. This method's fixed bound is
+# more specific than the generic methods' free `T`, so it wins dispatch cleanly.
+function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{Vector{UInt8}}, Vector{UInt8}}}
+    byte_lengths = map(x -> ismissing(x) ? zero(UInt32) : UInt32(length(x)), v)
+
+    offsets = Vector{UInt32}(undef, length(v) + 1)
+    offsets[begin] = zero(UInt32)
+    @views cumsum!(offsets[(begin + 1):end], byte_lengths[begin:end])
+
+    value_buffer = Vector{UInt8}(undef, sum(byte_lengths))
+
+    for (i, s) in enumerate(v)
+        ismissing(s) && continue
+        copyto!(
+            @view(value_buffer[(1 + offsets[i]):offsets[i + 1]]),
+            s
+        )
+    end
+
+    return ArrowArray(ValidityMap(v), Vector[offsets, value_buffer], [])
+end
+
 """
     arrowvector(v::Vector{<:Vector})::ArrowArray
 

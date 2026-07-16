@@ -67,6 +67,7 @@ function parse_format(schema)
     fmt == "vu" && return MaybeMissing{String}
     fmt == "z" && return Vector{UInt8}
     fmt == "Z" && return Vector{UInt8}
+    fmt == "vz" && return Vector{UInt8}
 
     # All three resolutions collapse to the same real `Dates.DateTime` -- there's no
     # resolution-tagged DateTime type in the stdlib, and the actual resolution is re-derived at
