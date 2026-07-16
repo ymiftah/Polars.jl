@@ -123,3 +123,17 @@ end
         @test occursin("1.23", read(path, String))
     end
 end
+
+@testset "DataFrame getindex" begin
+    df = DataFrame((; a = [10, 20, 30], b = ["x", "y", "z"]))
+
+    # Symbol and String column indexing are equivalent
+    @test df[:a] == df["a"]
+    @test df[2, :a] == df[2, "a"]
+
+    # out-of-bounds row index raises a catchable error
+    @test_throws Exception df[100, :a]
+
+    # negative row index also raises (no negative-index support -- errors, doesn't wrap around)
+    @test_throws Exception df[-1, :a]
+end

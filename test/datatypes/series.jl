@@ -189,3 +189,53 @@ end
     @test_throws ErrorException s_struct[5]
     @test s_struct[1].a == 1
 end
+
+@testset "Series getindex out-of-bounds on the numeric/bool path" begin
+    # gen_series_get!-backed getters (numeric/bool) are a separate code path from
+    # polars_series_get (Date/String/List/Struct, covered above) -- confirm they're
+    # independently fallible on out-of-bounds too, not just in-bounds-correct.
+    s_num = Series(:nums, [1, 2, 3])
+    @test_throws ErrorException s_num[5]
+    @test s_num[1] == 1
+
+    s_bool = Series(:flags, [true, false])
+    @test_throws ErrorException s_bool[5]
+    @test s_bool[1] == true
+end
+
+@testset "Series getindex with negative/zero index" begin
+    # No negative-index support (no wraparound-from-end semantics) -- these are simply
+    # invalid indices and error, across both getindex code paths.
+    s_num = Series(:nums, [1, 2, 3])
+    @test_throws Exception s_num[-1]
+    @test_throws Exception s_num[0]
+
+    s_str = Series(:names, ["a", "b"])
+    @test_throws Exception s_str[-1]
+    @test_throws Exception s_str[0]
+end
+
+@testset "Series slicing (not implemented)" begin
+    # Series has no Base.getindex(::Series, ::AbstractVector/UnitRange) method -- range
+    # indexing throws MethodError rather than returning a sub-series. Documented as a known
+    # gap rather than silently skipped, per the write-path Binary-column precedent.
+    s = Series(:nums, [1, 2, 3, 4, 5])
+    @test_broken (s[1:2]; true)
+end
+
+@testset "Boolean Series all/any with nulls" begin
+    # No dedicated Polars all/any override exists for Series -- Series{T} <: AbstractVector{T},
+    # so Julia's generic all/any fallback (iteration-based) already implements correct
+    # three-valued (Kleene) logic for free. Pure test-coverage gap, not a source gap.
+    s_allmissing_true = Series(:flags, Union{Bool, Missing}[true, missing, true])
+    @test ismissing(all(s_allmissing_true))  # can't rule out the missing being false
+    @test any(s_allmissing_true) == true      # short-circuits on a definite true
+
+    s_hasfalse = Series(:flags, Union{Bool, Missing}[false, missing])
+    @test all(s_hasfalse) == false            # short-circuits on a definite false
+    @test ismissing(any(s_hasfalse))          # can't rule out the missing being true
+
+    s_empty = Series(:flags, Bool[])
+    @test all(s_empty) == true
+    @test any(s_empty) == false
+end

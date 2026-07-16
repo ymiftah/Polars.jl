@@ -32,3 +32,34 @@ end
     # Check that at least some column names appear
     @test contains(show_str_wide, "col1") || contains(show_str_wide, "col")
 end
+
+@testset "construction from various shapes" begin
+    # multi-typed NamedTuple-of-vectors (the standard Tables.jl column-oriented shape)
+    df = DataFrame((; i = [1, 2, 3], f = [1.5, 2.5, 3.5], s = ["a", "b", "c"], b = [true, false, true], d = [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3)]))
+    @test size(df) == (3, 5)
+    @test collect(df[:i]) == [1, 2, 3]
+    @test collect(df[:f]) == [1.5, 2.5, 3.5]
+    @test collect(df[:s]) == ["a", "b", "c"]
+    @test collect(df[:b]) == [true, false, true]
+    @test collect(df[:d]) == [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3)]
+
+    # row-oriented Tables.jl input: Vector{<:NamedTuple}
+    rows = [(; a = 1, b = "x"), (; a = 2, b = "y"), (; a = 3, b = "z")]
+    df_rows = DataFrame(rows)
+    @test size(df_rows) == (3, 2)
+    @test collect(df_rows[:a]) == [1, 2, 3]
+    @test collect(df_rows[:b]) == ["x", "y", "z"]
+end
+
+@testset "mixed-type column coercion" begin
+    # Int/Float64 mix in a single column literal promotes to Float64 (plain Julia array
+    # promotion, not a Polars-specific coercion path)
+    df = DataFrame((; x = [1, 2.5, 3]))
+    @test eltype(collect(df[:x])) == Float64
+    @test collect(df[:x]) == [1.0, 2.5, 3.0]
+
+    # missing mixed into a column literal promotes to Union{T,Missing}
+    df_null = DataFrame((; x = [1, missing, 3]))
+    @test isequal(collect(df_null[:x]), [1, missing, 3])
+    @test Polars.schema(df_null).types == (Union{Missing, Int64},)
+end

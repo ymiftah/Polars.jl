@@ -39,4 +39,8 @@
     # custom percentiles
     r2 = describe(df; percentiles = [0.1, 0.9])
     @test r2[:statistic] == ["count", "null_count", "mean", "std", "min", "10%", "90%", "max"]
+
+    # empty percentiles: drops all percentile rows, leaves the rest of the stat set intact
+    r3 = describe(df; percentiles = Float64[])
+    @test r3[:statistic] == ["count", "null_count", "mean", "std", "min", "max"]
 end

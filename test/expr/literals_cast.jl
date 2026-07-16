@@ -19,6 +19,37 @@ end
     @test collect(wc[:k]) == [99, 99, 99]
 end
 
+@testset "literal convert overloads (Base.convert(::Type{Expr}, ...))" begin
+    # one case per Base.convert(::Type{Expr}, ...) method in src/expr/expr.jl -- only Int64
+    # (via lit(99) above) had direct coverage before this
+    df = DataFrame((; a = [1, 2, 3]))
+
+    # lit(v) alone doesn't broadcast to the frame's row count -- it needs a sibling column
+    # expression in the same select (matching the established lit(99) pattern above)
+    @test collect(select(df, col("a"), lit(Int32(7)) |> alias("k"))[:k]) == fill(Int32(7), 3)
+    @test collect(select(df, col("a"), lit(UInt32(7)) |> alias("k"))[:k]) == fill(UInt32(7), 3)
+    @test collect(select(df, col("a"), lit(UInt64(7)) |> alias("k"))[:k]) == fill(UInt64(7), 3)
+    @test collect(select(df, col("a"), lit(true) |> alias("k"))[:k]) == fill(true, 3)
+    @test collect(select(df, col("a"), lit(Float32(1.5)) |> alias("k"))[:k]) == fill(Float32(1.5), 3)
+    @test collect(select(df, col("a"), lit(1.5) |> alias("k"))[:k]) == fill(1.5, 3)
+    @test collect(select(df, col("a"), lit("hi") |> alias("k"))[:k]) == fill("hi", 3)
+
+    # missing -> null literal: the resulting column has Julia eltype Union{Missing,Nothing}
+    # (the Null dtype), which has no getindex/collect support anywhere in src/series.jl --
+    # genuine gap, not a test bug. Documented rather than forced to pass.
+    r_missing = select(df, col("a"), lit(missing) |> alias("k"))
+    @test_broken (collect(r_missing[:k]); true)
+
+    # AbstractVector -> a Series-backed literal (distinct code path: builds a throwaway
+    # DataFrame internally via polars_expr_lit_series) -- zero coverage before this
+    r_vec = select(df, (col("a") + lit([10, 20, 30])) |> alias("k"))
+    @test collect(r_vec[:k]) == [11, 22, 33]
+
+    # Colon -> col("*")
+    r_colon = select(df, convert(Polars.Expr, :))
+    @test Tables.columnnames(r_colon) == (:a,)
+end
+
 @testset "cast" begin
     df = DataFrame((; x = [1, 2, 3]))
 
@@ -37,4 +68,22 @@ end
     dff = DataFrame((; x = [1.7, 2.3, -1.9]))
     truncated = select(dff, col("x") |> cast(Int64))
     @test collect(truncated[:x]) == [1, 2, -1]
+end
+
+@testset "cast to every remaining supported dtype" begin
+    df = DataFrame((; x = [1, 2, 3]))
+
+    for T in (UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Float32)
+        r = select(df, col("x") |> cast(T))
+        @test eltype(r[:x]) == T
+        @test collect(r[:x]) == T[1, 2, 3]
+    end
+
+    # Missing target dtype: casts every value to null. Same Null-dtype collect() gap noted
+    # above (Series{Union{Missing,Nothing}} has no getindex/collect support) -- documented.
+    r_null = select(df, col("x") |> cast(Missing))
+    @test_broken (collect(r_null[:x]); true)
+
+    # unsupported target dtype errors
+    @test_throws ErrorException cast(Complex{Float64})(col("x"))
 end
