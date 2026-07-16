@@ -1,10 +1,12 @@
 @testset "scan_ipc / read_ipc / write_ipc basic" begin
     # Create a test DataFrame
-    df = DataFrame((;
-        id = [1, 2, 3, 4, 5],
-        name = ["alice", "bob", "charlie", "diana", "eve"],
-        value = [10.5, 20.0, 30.5, 40.0, 50.5],
-    ))
+    df = DataFrame(
+        (;
+            id = [1, 2, 3, 4, 5],
+            name = ["alice", "bob", "charlie", "diana", "eve"],
+            value = [10.5, 20.0, 30.5, 40.0, 50.5],
+        )
+    )
 
     # Write to temporary IPC file
     temp_file = mktempdir() * "/test.ipc"
@@ -28,10 +30,12 @@ end
 
 @testset "scan_ipc with n_rows option" begin
     # Create a test DataFrame with more rows
-    df = DataFrame((;
-        id = collect(1:20),
-        val = randn(20),
-    ))
+    df = DataFrame(
+        (;
+            id = collect(1:20),
+            val = randn(20),
+        )
+    )
 
     temp_file = mktempdir() * "/test_nrows.ipc"
     write_ipc(temp_file, df)
@@ -43,10 +47,12 @@ end
 end
 
 @testset "scan_ipc with row_index option" begin
-    df = DataFrame((;
-        a = [10, 20, 30],
-        b = ["x", "y", "z"],
-    ))
+    df = DataFrame(
+        (;
+            a = [10, 20, 30],
+            b = ["x", "y", "z"],
+        )
+    )
 
     temp_file = mktempdir() * "/test_rowindex.ipc"
     write_ipc(temp_file, df)
@@ -59,10 +65,12 @@ end
 end
 
 @testset "read_ipc / write_ipc round-trip with nulls" begin
-    df = DataFrame((;
-        id = [1, 2, 3],
-        data = Union{String, Missing}["hello", missing, "world"],
-    ))
+    df = DataFrame(
+        (;
+            id = [1, 2, 3],
+            data = Union{String, Missing}["hello", missing, "world"],
+        )
+    )
 
     temp_file = mktempdir() * "/test_nulls.ipc"
     write_ipc(temp_file, df)

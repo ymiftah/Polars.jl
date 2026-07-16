@@ -39,10 +39,12 @@
 end
 
 @testset "sort by expression" begin
-    df = DataFrame((;
-        x = [3, 1, 2],
-        y = [30, 10, 20]
-    ))
+    df = DataFrame(
+        (;
+            x = [3, 1, 2],
+            y = [30, 10, 20],
+        )
+    )
 
     # Sort by computed expression (x * 2)
     s_expr = sort(df, col("x") * 2)
@@ -55,10 +57,12 @@ end
 end
 
 @testset "multi-column sort with nulls_last" begin
-    df = DataFrame((;
-        g = ["a", "a", "b", "b"],
-        v = [2, missing, 1, missing]
-    ))
+    df = DataFrame(
+        (;
+            g = ["a", "a", "b", "b"],
+            v = [2, missing, 1, missing],
+        )
+    )
 
     # Sort by g ascending, then v ascending with nulls_last=true
     s_nulls_last = sort(df, col("g"), col("v"); nulls_last = true)

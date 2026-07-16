@@ -13,11 +13,13 @@
 end
 
 @testset "filter with combined predicates" begin
-    df = DataFrame((;
-        x = [1, 2, 3, 4, 5],
-        y = [10, 20, 30, 40, 50],
-        flag = [true, false, true, false, true]
-    ))
+    df = DataFrame(
+        (;
+            x = [1, 2, 3, 4, 5],
+            y = [10, 20, 30, 40, 50],
+            flag = [true, false, true, false, true],
+        )
+    )
 
     # AND predicate: x > 2 AND flag == true
     r_and = filter(df, (col("x") > 2) & (col("flag") == true))
@@ -36,10 +38,12 @@ end
 end
 
 @testset "filter emptying the DataFrame" begin
-    df = DataFrame((;
-        x = [1, 2, 3],
-        y = ["a", "b", "c"]
-    ))
+    df = DataFrame(
+        (;
+            x = [1, 2, 3],
+            y = ["a", "b", "c"],
+        )
+    )
 
     # Filter with impossible condition
     r_empty = filter(df, col("x") > 100)
@@ -48,10 +52,12 @@ end
 end
 
 @testset "filter with null-producing predicates" begin
-    df = DataFrame((;
-        a = [1, 2, 3, missing],
-        b = [10, 20, missing, 40]
-    ))
+    df = DataFrame(
+        (;
+            a = [1, 2, 3, missing],
+            b = [10, 20, missing, 40],
+        )
+    )
 
     # Predicate that produces nulls: a == b (comparing a and b)
     # Rows with null in either a or b will produce null result, which excludes the row

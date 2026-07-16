@@ -23,14 +23,16 @@ end
 
 @testset "Binary DataFrame round-trip through parquet" begin
     # Create a DataFrame with binary column
-    df = DataFrame((;
-        id = [1, 2, 3],
-        data = Union{Vector{UInt8}, Missing}[
-            UInt8[0x48, 0x65, 0x6c, 0x6c, 0x6f],  # "Hello"
-            missing,
-            UInt8[0x57, 0x6f, 0x72, 0x6c, 0x64],  # "World"
-        ],
-    ))
+    df = DataFrame(
+        (;
+            id = [1, 2, 3],
+            data = Union{Vector{UInt8}, Missing}[
+                UInt8[0x48, 0x65, 0x6c, 0x6c, 0x6f],  # "Hello"
+                missing,
+                UInt8[0x57, 0x6f, 0x72, 0x6c, 0x64],  # "World"
+            ],
+        )
+    )
 
     # Write to temporary parquet file
     temp_file = mktempdir() * "/binary_test.parquet"

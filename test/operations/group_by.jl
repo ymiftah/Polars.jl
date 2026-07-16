@@ -46,21 +46,26 @@
 end
 
 @testset "group_by with additional agg scenarios" begin
-    lf = lazy(DataFrame((;
-        cat = ["A", "B", "A", "B", "A"],
-        x = [1, 2, 3, 4, 5],
-        y = [10.0, 20.0, 30.0, 40.0, 50.0]
-    )))
+    lf = lazy(
+        DataFrame(
+            (;
+                cat = ["A", "B", "A", "B", "A"],
+                x = [1, 2, 3, 4, 5],
+                y = [10.0, 20.0, 30.0, 40.0, 50.0],
+            )
+        )
+    )
 
     # Group by with multiple aggregation types
     result = group_by(lf, "cat") |>
-        x -> agg(x,
-            Polars.count(col("x")) |> alias("count"),
-            Polars.sum(col("x")) |> alias("sum_x"),
-            mean(col("y")) |> alias("mean_y"),
-            max(col("x")) |> alias("max_x"),
-            min(col("x")) |> alias("min_x")
-        ) |> collect
+        x -> agg(
+        x,
+        Polars.count(col("x")) |> alias("count"),
+        Polars.sum(col("x")) |> alias("sum_x"),
+        mean(col("y")) |> alias("mean_y"),
+        max(col("x")) |> alias("max_x"),
+        min(col("x")) |> alias("min_x")
+    ) |> collect
 
     # Check aggregations for category A: [1, 3, 5] -> count=3, sum=9, mean_y=30, max=5, min=1
     a_row = findfirst(==(["A"]), [[result[:cat][i]] for i in 1:size(result)[1]])

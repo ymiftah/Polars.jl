@@ -46,7 +46,7 @@
         lst, col("g"),
         Lists.lengths(col("v")) |> alias("len"),
         Lists.get(col("v"), lit(0)) |> alias("get0"),
-        Lists.get(col("v"), lit(99); null_on_oob=true) |> alias("get_oob"),
+        Lists.get(col("v"), lit(99); null_on_oob = true) |> alias("get_oob"),
         Lists.contains(col("v"), lit(2)) |> alias("has2"),
     )
     by_group3(colname) = Dict(zip(r3[:g], r3[colname]))
@@ -61,9 +61,11 @@ end
 
 @testset "Lists namespace with nested nulls and empty lists" begin
     # Create a DataFrame with list operations that produce empty or null lists
-    df = DataFrame((;
-        v = [[1, 2, 3], Int64[], [missing, 4, 5]],
-    ))
+    df = DataFrame(
+        (;
+            v = [[1, 2, 3], Int64[], [missing, 4, 5]],
+        )
+    )
 
     # Lists.head on empty list should return empty list
     r_head_empty = select(df, Lists.head(col("v"), lit(1)) |> alias("h"))

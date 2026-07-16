@@ -50,8 +50,8 @@ function scan_parquet(
         parallel == :columns ? API.PolarsParquetParallelColumns :
         parallel == :row_groups ? API.PolarsParquetParallelRowGroups :
         error(
-        "unknown parallel strategy $parallel, expected one of (:auto, :none, :columns, :row_groups)"
-    )
+            "unknown parallel strategy $parallel, expected one of (:auto, :none, :columns, :row_groups)"
+        )
 
     n_rows_ref = n_rows === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n_rows))
     row_index_name_arg = row_index_name === nothing ? Ptr{UInt8}(C_NULL) : row_index_name

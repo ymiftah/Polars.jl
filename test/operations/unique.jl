@@ -1,9 +1,11 @@
 @testset "unique operations on DataFrame" begin
-    df = DataFrame((;
-        a = [1, 1, 2, 2, 3],
-        b = ["x", "x", "y", "y", "z"],
-        val = [10, 20, 30, 40, 50]
-    ))
+    df = DataFrame(
+        (;
+            a = [1, 1, 2, 2, 3],
+            b = ["x", "x", "y", "y", "z"],
+            val = [10, 20, 30, 40, 50],
+        )
+    )
 
     # unique on single column with keep=:first (row order among groups is not guaranteed
     # without a maintain_order kwarg, which unique doesn't expose -- sort before comparing)
@@ -27,10 +29,12 @@
 end
 
 @testset "n_unique" begin
-    df = DataFrame((;
-        x = [1, 1, 2, 2, 3],
-        y = ["a", "a", "b", "b", "c"]
-    ))
+    df = DataFrame(
+        (;
+            x = [1, 1, 2, 2, 3],
+            y = ["a", "a", "b", "b", "c"],
+        )
+    )
 
     # n_unique in expression form (via group_by)
     result = group_by(lazy(df), "y") |>
@@ -50,10 +54,12 @@ end
 end
 
 @testset "is_unique / is_duplicated" begin
-    df = DataFrame((;
-        a = [1, 1, 2, 3, 3],
-        b = ["x", "x", "y", "z", "z"]
-    ))
+    df = DataFrame(
+        (;
+            a = [1, 1, 2, 3, 3],
+            b = ["x", "x", "y", "z", "z"],
+        )
+    )
 
     # is_unique on column 'a'
     r_unique = select(df, is_unique(col("a")) |> alias("is_unique_a"))

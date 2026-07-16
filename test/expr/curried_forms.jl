@@ -75,25 +75,25 @@ end
     df = DataFrame((; s = ["hello world", "foo bar", "baz"]))
 
     @test select(df, alias(col("s") |> Strings.starts_with("foo"), "r"))[:r] ==
-          select(df, alias(Strings.starts_with(col("s"), lit("foo")), "r"))[:r] ==
-          [false, true, false]
+        select(df, alias(Strings.starts_with(col("s"), lit("foo")), "r"))[:r] ==
+        [false, true, false]
 
     @test select(df, alias(col("s") |> Strings.ends_with("bar"), "r"))[:r] ==
-          select(df, alias(Strings.ends_with(col("s"), lit("bar")), "r"))[:r] ==
-          [false, true, false]
+        select(df, alias(Strings.ends_with(col("s"), lit("bar")), "r"))[:r] ==
+        [false, true, false]
 
     @test select(df, alias(col("s") |> Strings.contains_literal("foo"), "r"))[:r] ==
-          select(df, alias(Strings.contains_literal(col("s"), lit("foo")), "r"))[:r] ==
-          [false, true, false]
+        select(df, alias(Strings.contains_literal(col("s"), lit("foo")), "r"))[:r] ==
+        [false, true, false]
 
     @test select(df, alias(col("s") |> Strings.strip_prefix("hello "), "r"))[:r] ==
-          select(df, alias(Strings.strip_prefix(col("s"), lit("hello ")), "r"))[:r]
+        select(df, alias(Strings.strip_prefix(col("s"), lit("hello ")), "r"))[:r]
 
     @test select(df, alias(col("s") |> Strings.strip_suffix("bar"), "r"))[:r] ==
-          select(df, alias(Strings.strip_suffix(col("s"), lit("bar")), "r"))[:r]
+        select(df, alias(Strings.strip_suffix(col("s"), lit("bar")), "r"))[:r]
 
     @test select(df, alias(col("s") |> Strings.strip_chars("bz"), "r"))[:r] ==
-          select(df, alias(Strings.strip_chars(col("s"), lit("bz")), "r"))[:r]
+        select(df, alias(Strings.strip_chars(col("s"), lit("bz")), "r"))[:r]
 
     r1 = select(df, alias(col("s") |> Strings.split(" "), "r"))
     r2 = select(df, alias(Strings.split(col("s"), lit(" ")), "r"))
@@ -103,16 +103,16 @@ end
 
     df_pad = DataFrame((; n = ["1", "22", "333"]))
     @test select(df_pad, alias(col("n") |> Strings.zfill(5), "r"))[:r] ==
-          select(df_pad, alias(Strings.zfill(col("n"), lit(5)), "r"))[:r] ==
-          ["00001", "00022", "00333"]
+        select(df_pad, alias(Strings.zfill(col("n"), lit(5)), "r"))[:r] ==
+        ["00001", "00022", "00333"]
 
     @test select(df, alias(col("s") |> Strings.head(3), "r"))[:r] ==
-          select(df, alias(Strings.head(col("s"), lit(3)), "r"))[:r] ==
-          ["hel", "foo", "baz"]
+        select(df, alias(Strings.head(col("s"), lit(3)), "r"))[:r] ==
+        ["hel", "foo", "baz"]
 
     @test select(df, alias(col("s") |> Strings.tail(3), "r"))[:r] ==
-          select(df, alias(Strings.tail(col("s"), lit(3)), "r"))[:r] ==
-          ["rld", "bar", "baz"]
+        select(df, alias(Strings.tail(col("s"), lit(3)), "r"))[:r] ==
+        ["rld", "bar", "baz"]
 end
 
 @testset "curried Strings: hand-written ops (contains, slice, replace, replace_all, extract, count_matches)" begin

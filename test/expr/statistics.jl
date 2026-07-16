@@ -27,7 +27,7 @@ end
 
     # default method is :nearest
     @test only(select(df, Polars.quantile(col("x"), 0.5))[:x]) ==
-          only(select(df, Polars.quantile(col("x"), 0.5; method = :nearest))[:x])
+        only(select(df, Polars.quantile(col("x"), 0.5; method = :nearest))[:x])
 
     @test_throws ErrorException Polars.quantile(col("x"), 0.5; method = :bogus)
 end

@@ -1,9 +1,11 @@
 @testset "describe" begin
-    df = DataFrame((;
-        x = [1, 2, 3, 4, missing],
-        s = ["a", "b", "b", "c", "c"],
-        d = [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3), Date(2024, 1, 4), Date(2024, 1, 5)],
-    ))
+    df = DataFrame(
+        (;
+            x = [1, 2, 3, 4, missing],
+            s = ["a", "b", "b", "c", "c"],
+            d = [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3), Date(2024, 1, 4), Date(2024, 1, 5)],
+        )
+    )
     r = describe(df)
 
     @test size(r) == (9, 4)

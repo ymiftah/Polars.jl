@@ -29,7 +29,7 @@ function _tz_aware_datetime_type(tz::AbstractString)
         if e isa MethodError && e.f === _resolve_tz_aware_datetime_type
             error(
                 "column has timezone \"$tz\" -- load TimeZones.jl (`using TimeZones`) to read " *
-                "timezone-aware Datetime columns"
+                    "timezone-aware Datetime columns"
             )
         end
         rethrow()

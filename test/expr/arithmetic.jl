@@ -53,7 +53,7 @@ end
     df_pow = DataFrame((; x = [2.0, 3.0], n = [-1.0, -2.0]))
     r_pow = select(df_pow, col("x")^col("n") |> alias("pow"))
     @test r_pow[:pow][1] ≈ 0.5
-    @test r_pow[:pow][2] ≈ 1/9
+    @test r_pow[:pow][2] ≈ 1 / 9
 
     # Modulo operation
     df_mod = DataFrame((; x = [10, 11, 12], y = [3, 3, 3]))

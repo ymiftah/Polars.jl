@@ -94,10 +94,12 @@ end
 
     # Verify all pairs appear exactly once: (1,x,10), (1,x,20), (1,x,30), (2,y,10), (2,y,20), (2,y,30)
     pairs = [(r[:id][i], r[:v][i], r[:bid][i]) for i in 1:6]
-    expected_pairs = Set([
-        (1, "x", 10), (1, "x", 20), (1, "x", 30),
-        (2, "y", 10), (2, "y", 20), (2, "y", 30)
-    ])
+    expected_pairs = Set(
+        [
+            (1, "x", 10), (1, "x", 20), (1, "x", 30),
+            (2, "y", 10), (2, "y", 20), (2, "y", 30),
+        ]
+    )
     @test Set(pairs) == expected_pairs
 end
 

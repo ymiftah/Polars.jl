@@ -390,7 +390,7 @@ function Base.round(expr::Expr, decimals::Integer = 0; mode::Symbol = :half_to_e
     else
         error(
             "unknown round mode $mode, expected one of " *
-            "(:half_to_even, :half_away_from_zero, :to_zero)"
+                "(:half_to_even, :half_away_from_zero, :to_zero)"
         )
     end
     out = API.polars_expr_round(expr, UInt32(decimals), mode_enum)
@@ -517,7 +517,7 @@ function quantile(expr::Expr, q; method::Symbol = :nearest)
     else
         error(
             "unknown quantile method $method, expected one of " *
-            "(:nearest, :lower, :higher, :midpoint, :linear, :equiprobable)"
+                "(:nearest, :lower, :higher, :midpoint, :linear, :equiprobable)"
         )
     end
     out = API.polars_expr_quantile(expr, q, method_enum)
