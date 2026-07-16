@@ -8,7 +8,30 @@
 **Phase 4: Complete** ✅ (IO option depth: scan_parquet allow_missing_columns + documented asymmetry regression + passthrough flags, scan_csv missing_is_null/skip_rows_after_header/truncate_ragged_lines/infer_schema_length/ignore_errors, sink_parquet full compression matrix + data_page_size + maintain_order, sink_csv formatting options, sink_ipc compression/record_batch_size/maintain_order)
 **Phase 5: Complete** ✅ (constructors, DataFrame/Series misc, expr literals — see commit `0746ed6`; also fixed a genuine source bug along the way, see `7f8c53e`)
 **All planned phases (0-5) complete.**
-**Verified: full suite passes 1051/1061 (10 broken: 4 documented Binary-column write-path gap, 1 Series slicing gap, 2 Null-dtype getindex/collect gap, 3 pre-existing unrelated), 0 failed, 0 errored.**
+
+**Gap closure (post-Phase-5):** all 7 genuine gaps found during Phases 0-5 have been closed —
+- Null-dtype `getindex`/`collect` (`8b944d3`, test flip `b75725a`): `Series{Union{Missing,Nothing}}`
+  now supports indexing/collection (trivial pure-Julia fix — a Null-dtype series carries no real
+  data, every index is `missing`); also fixed `DataFrame` `show`/printing for Null-dtype columns as
+  a bonus, since it hit the same underlying gap.
+- Binary (`Vector{UInt8}`) write-path (`434982f`, test flip `e27013e`): two coordinated pure-Julia
+  fixes — a missing `arrowvector` method for `Vector{UInt8}` columns (`src/arrow/array.jl`), and a
+  missing `"vz"` (Arrow BinaryView) case in `parse_format` (`src/arrow/schema.jl`).
+- Series slicing (`acb3694`, test flip `5bf8bdb`): the only gap requiring a Rust change — added
+  `polars_series_slice` to `c-polars/src/series.rs` (zero-copy, mirrors the existing
+  `polars_dataframe_get`/`make_series` pattern) plus a Julia `@ccall` wrapper and
+  `Base.getindex(::Series, ::UnitRange)`. Required tightening the 4 existing scalar `getindex`
+  methods' `index` parameter to `::Integer` to resolve a dispatch ambiguity against the new
+  `UnitRange` method (safe, non-behavior-changing — they already assumed scalar semantics).
+
+**Left open, deliberately** (see `~/.claude/plans/explore-the-test-cases-silly-moonbeam.md` for
+full reasoning): `test/aqua.jl`'s `ambiguities`/`unbound_args` (documented Aqua static-analysis
+false positives, not reachable through normal use) and `test/datatypes/strings.jl`'s
+`Strings.titlecase` (blocked on upstream polars' `to_titlecase` requiring a Rust nightly feature
+this repo deliberately avoids per `CLAUDE.md`).
+
+**Verified: full suite passes 1081/1084 (3 broken: the 2 Aqua + 1 titlecase items above, all
+deliberate exclusions), 0 failed, 0 errored** — stable across repeated runs.
 
 Tests are on branch **`test-porting`**, rebuilt from `scan-parquet` (not `main`). The original
 `test-porting` branch (commits `4fb5c70`..`03f763c`+plan-status commits) branched from `main`,
