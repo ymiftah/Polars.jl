@@ -18,6 +18,13 @@
     # LazyFrame form agrees
     sel_lazy = select(lazy(df), col("x")) |> collect
     @test sel_lazy[:x] == sel_str[:x]
+
+    # selecting non-existent column raises error
+    @test_throws ErrorException select(df, col("nonexistent"))
+
+    # select with zero expressions returns empty DataFrame
+    df_zero = select(df)
+    @test size(df_zero) == (3, 0)
 end
 
 @testset "with_columns" begin
@@ -36,4 +43,10 @@ end
     # LazyFrame form agrees
     wc_lazy = with_columns(lazy(df), (col("x") + col("y")) |> alias("total")) |> collect
     @test wc_lazy[:total] == wc[:total]
+
+    # with_columns overwriting an existing column name
+    wc_overwrite = with_columns(df, col("x") * 10 |> alias("x"))
+    @test Tables.columnnames(wc_overwrite) == (:x, :y)
+    @test wc_overwrite[:x] == [10, 20, 30]  # original x values multiplied by 10
+    @test wc_overwrite[:y] == [10, 20, 30]  # y unchanged
 end

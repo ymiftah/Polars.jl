@@ -34,6 +34,13 @@ end
 
     r2 = drop(df, ["a", "c"])
     @test Tables.columnnames(r2) == (:b,)
+
+    # drop non-existent column should error
+    @test_throws ErrorException drop(df, ["nonexistent"])
+
+    # drop all columns results in 0-column DataFrame
+    r_all = drop(df, ["a", "b", "c"])
+    @test size(r_all) == (2, 0)
 end
 
 @testset "rename" begin
@@ -50,6 +57,9 @@ end
     r_lenient = Base.rename(df, ["a", "nonexistent"], ["A", "X"]; strict = false)
     @test Tables.columnnames(r_lenient) == (:A, :b, :c)  # only 'a' was renamed; 'nonexistent' was ignored
     @test r_lenient[:A] == [1, 2]
+
+    # rename creating a name collision should error
+    @test_throws ErrorException Base.rename(df, ["a", "b"], ["X", "X"])
 end
 
 @testset "drop_nulls (frame-level)" begin
@@ -60,6 +70,19 @@ end
 
     r_subset = drop_nulls(df, ["a"])
     @test size(r_subset) == (2, 2) # drops only the row where `a` is null
+
+    # drop_nulls on subset: row with null in non-subset column is retained
+    df2 = DataFrame((; a = [1, 2, 3], b = [missing, missing, 3], c = [10, 20, 30]))
+    r_subset_b = drop_nulls(df2, ["b"])
+    @test size(r_subset_b) == (1, 3)  # only row 3 has non-null b
+    @test r_subset_b[:a] == [3]
+    @test r_subset_b[:c] == [30]
+
+    # drop_nulls on all columns vs on subset ["a", "b"] (c has no nulls)
+    r_abc = drop_nulls(df2, ["a", "b", "c"])
+    r_ab = drop_nulls(df2, ["a", "b"])
+    @test size(r_abc) == (1, 3)  # rows 1 and 2 have nulls in b
+    @test size(r_ab) == (1, 3)   # same result since we're only checking a and b
 end
 
 @testset "tail" begin

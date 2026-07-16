@@ -36,9 +36,19 @@
     b4 = DataFrame((; id = [4, 5, 6], w = [100, 200, 300]))
     r4 = innerjoin(a4, b4, col("id"))
     @test size(r4) == (0, 3)
+
+    # multi-key join with nulls in key columns (nulls should not match)
+    a5 = DataFrame((; k1 = [1, 1, 2, missing], k2 = ["x", "y", "x", "x"], v = [10, 20, 30, 40]))
+    b5 = DataFrame((; k1 = [1, 2, missing], k2 = ["x", "x", "x"], w = [100, 200, 300]))
+    r5 = innerjoin(a5, b5, [col("k1"), col("k2")])
+    @test size(r5) == (3, 4)  # (1,"x"), (1,"x"), (2,"x") match; missing doesn't match anything
+    @test r5[:k1] == [1, 1, 2]
+    @test r5[:k2] == ["x", "x", "x"]
+    @test r5[:v] == [10, 20, 30]
+    @test r5[:w] == [100, 100, 200]
 end
 
-@testset "leftjoin / rightjoin / outerjoin / semijoin / antijoin / crossjoin" begin
+@testset "leftjoin / rightjoin / outerjoin / semijoin / antijoin" begin
     a = DataFrame((; id = [1, 2, 3], name = ["x", "y", "z"]))
     b = DataFrame((; id = [2, 3, 4], val = [20, 30, 40]))
 
@@ -50,9 +60,11 @@ end
     r_right = rightjoin(a, b, col("id"))
     @test size(r_right) == (3, 3)
     @test r_right[:id] == [2, 3, 4]
+    @test isequal(r_right[:name], ["y", "z", missing])  # left column has null for non-matching rows
 
     r_full = outerjoin(a, b, col("id"))
     @test size(r_full) == (4, 4) # keys not coalesced by default: id, name, id_right, val
+    @test r_full[:id] == [1, 2, 3, 4]  # has all unique ids from both sides
 
     r_semi = semijoin(a, b, col("id"))
     @test size(r_semi) == (2, 2) # only left columns
@@ -62,11 +74,24 @@ end
     @test size(r_anti) == (1, 2)
     @test r_anti[:id] == [1]
 
-    r_cross = crossjoin(a, b)
-    @test size(r_cross) == (9, 4) # 3 * 3 rows, no shared keys
-
     # LazyFrame entry points agree
     @test collect(leftjoin(lazy(a), lazy(b), col("id")))[:val] |> collect |> x -> isequal(x, [missing, 20, 30])
+end
+
+@testset "crossjoin" begin
+    a = DataFrame((; id = [1, 2], v = ["x", "y"]))
+    b = DataFrame((; bid = [10, 20, 30]))
+
+    r = crossjoin(a, b)
+    @test size(r) == (6, 3) # 2 * 3 rows, Cartesian product
+
+    # Verify all pairs appear exactly once: (1,x,10), (1,x,20), (1,x,30), (2,y,10), (2,y,20), (2,y,30)
+    pairs = [(r[:id][i], r[:v][i], r[:bid][i]) for i in 1:6]
+    expected_pairs = Set([
+        (1, "x", 10), (1, "x", 20), (1, "x", 30),
+        (2, "y", 10), (2, "y", 20), (2, "y", 30)
+    ])
+    @test Set(pairs) == expected_pairs
 end
 
 @testset "join_asof" begin

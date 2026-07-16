@@ -37,3 +37,42 @@
     twos_indices = findall(==(2), s_unstable[:key])
     @test isempty(ones_indices) || isempty(twos_indices) || maximum(ones_indices) < minimum(twos_indices)
 end
+
+@testset "sort by expression" begin
+    df = DataFrame((;
+        x = [3, 1, 2],
+        y = [30, 10, 20]
+    ))
+
+    # Sort by computed expression (x * 2)
+    s_expr = sort(df, col("x") * 2)
+    @test s_expr[:x] == [1, 2, 3]
+
+    # Sort by string length expression
+    df_str = DataFrame((; s = ["apple", "pie", "banana"], val = [1, 2, 3]))
+    s_len = sort(df_str, Strings.len_chars(col("s")))
+    @test s_len[:s] == ["pie", "apple", "banana"]  # lengths: 3, 5, 6
+end
+
+@testset "multi-column sort with nulls_last" begin
+    df = DataFrame((;
+        g = ["a", "a", "b", "b"],
+        v = [2, missing, 1, missing]
+    ))
+
+    # Sort by g ascending, then v ascending with nulls_last=true
+    s_nulls_last = sort(df, col("g"), col("v"); nulls_last = true)
+    @test s_nulls_last[:g] == ["a", "a", "b", "b"]
+    # For group "a": [2, missing] → 2 comes first, missing last
+    # For group "b": [1, missing] → 1 comes first, missing last
+    @test s_nulls_last[:v][1] == 2
+    @test ismissing(s_nulls_last[:v][2])
+    @test s_nulls_last[:v][3] == 1
+    @test ismissing(s_nulls_last[:v][4])
+
+    # Sort with nulls_last=false
+    s_nulls_first = sort(df, col("g"), col("v"); nulls_last = false)
+    # For each group, nulls should come first
+    @test ismissing(s_nulls_first[:v][2])
+    @test s_nulls_first[:v][1] == 2
+end

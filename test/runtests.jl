@@ -29,6 +29,7 @@ include("fixtures.jl")
     include("operations/group_by_dynamic.jl")
     include("operations/empty.jl")
     include("operations/frame_verbs.jl")
+    include("operations/unique.jl")
     include("operations/reshape.jl")
 
     include("expr/literals_cast.jl")

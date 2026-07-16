@@ -38,4 +38,35 @@
     @test by_key["a"] == 3
     @test by_key["b"] == 5
     @test by_key[missing] == 7
+
+    # empty frame group_by should return empty result
+    df_empty = DataFrame((; key = String[], value = Int64[]))
+    result_empty = group_by(lazy(df_empty), "key") |> x -> agg(x, Polars.sum(col("value"))) |> collect
+    @test size(result_empty) == (0, 2)
+end
+
+@testset "group_by with additional agg scenarios" begin
+    lf = lazy(DataFrame((;
+        cat = ["A", "B", "A", "B", "A"],
+        x = [1, 2, 3, 4, 5],
+        y = [10.0, 20.0, 30.0, 40.0, 50.0]
+    )))
+
+    # Group by with multiple aggregation types
+    result = group_by(lf, "cat") |>
+        x -> agg(x,
+            Polars.count(col("x")) |> alias("count"),
+            Polars.sum(col("x")) |> alias("sum_x"),
+            mean(col("y")) |> alias("mean_y"),
+            max(col("x")) |> alias("max_x"),
+            min(col("x")) |> alias("min_x")
+        ) |> collect
+
+    # Check aggregations for category A: [1, 3, 5] -> count=3, sum=9, mean_y=30, max=5, min=1
+    a_row = findfirst(==(["A"]), [[result[:cat][i]] for i in 1:size(result, 1)])
+    @test result[:count][a_row] == 3
+    @test result[:sum_x][a_row] == 9
+    @test result[:mean_y][a_row] == 30.0
+    @test result[:max_x][a_row] == 5
+    @test result[:min_x][a_row] == 1
 end
