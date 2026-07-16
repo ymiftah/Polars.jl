@@ -58,3 +58,32 @@
     # `get` errors (rather than returning null) on an out-of-bounds index by default.
     @test_throws Exception collect(select(lst, Lists.get(col("v"), lit(99))))
 end
+
+@testset "Lists namespace with nested nulls and empty lists" begin
+    # Create a DataFrame with list operations that produce empty or null lists
+    df = DataFrame((;
+        v = [[1, 2, 3], Int64[], [missing, 4, 5]],
+    ))
+
+    # Lists.head on empty list should return empty list
+    r_head_empty = select(df, Lists.head(col("v"), lit(1)) |> alias("h"))
+    @test collect(r_head_empty[:h][2]) == Int64[]
+
+    # Lists.max/min on lists with nulls should handle correctly
+    r_max = select(df, Lists.max(col("v")) |> alias("max"))
+    max_vals = collect(r_max[:max])
+    @test max_vals[1] == 3  # [1, 2, 3] -> 3
+    @test ismissing(max_vals[2])  # [] -> missing
+    @test max_vals[3] == 5  # [missing, 4, 5] -> 5
+
+    # Lists.lengths on empty lists
+    r_len = select(df, Lists.lengths(col("v")) |> alias("len"))
+    @test r_len[:len] == [3, 0, 3]
+
+    # Lists.get with null elements
+    r_get = select(df, Lists.get(col("v"), lit(0); null_on_oob = true) |> alias("g0"))
+    get_vals = collect(r_get[:g0])
+    @test get_vals[1] == 1
+    @test ismissing(get_vals[2])  # empty list -> null
+    @test ismissing(get_vals[3])  # [missing, ...] at index 0 is missing
+end

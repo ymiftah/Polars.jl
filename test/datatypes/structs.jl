@@ -20,3 +20,24 @@
     fa2 = select(r, col("s") |> Structs.field_by_index(0))
     @test fa2[:a] == [1, 2, 3]
 end
+
+@testset "Structs namespace edge cases" begin
+    # Struct with multiple fields
+    df = DataFrame((; s = [(x = 10, y = 20, z = 30), (x = 11, y = 21, z = 31)]))
+    r = read_parquet(write_temp_parquet(df))
+
+    # Access each field by index
+    fx = select(r, Structs.field_by_index(col("s"), 0))
+    fy = select(r, Structs.field_by_index(col("s"), 1))
+    fz = select(r, Structs.field_by_index(col("s"), 2))
+    @test fx[:x] == [10, 11]
+    @test fy[:y] == [20, 21]
+    @test fz[:z] == [30, 31]
+
+    # Rename multiple fields
+    renamed_multi = select(r, Structs.rename_fields(col("s"), ["a", "b", "c"]))
+    @test Set(propertynames(renamed_multi[:s][1])) == Set([:a, :b, :c])
+    @test renamed_multi[:s][1].a == 10
+    @test renamed_multi[:s][1].b == 20
+    @test renamed_multi[:s][1].c == 30
+end
