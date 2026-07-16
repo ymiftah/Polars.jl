@@ -40,3 +40,54 @@ end
     @test collect(r[:or]) == [true, true, true, false]
     @test collect(r[:xorcol]) == [false, true, true, false]
 end
+
+@testset "arithmetic edge cases" begin
+    # Division by zero produces Inf (for float division)
+    df_div = DataFrame((; x = [1.0, 2.0, 3.0], y = [1.0, 0.0, -1.0]))
+    r_div = select(df_div, col("x") / col("y") |> alias("div"))
+    @test r_div[:div][1] == 1.0
+    @test isinf(r_div[:div][2]) && r_div[:div][2] > 0
+    @test r_div[:div][3] == -3.0
+
+    # Negative exponent produces fractional result
+    df_pow = DataFrame((; x = [2.0, 3.0], n = [-1.0, -2.0]))
+    r_pow = select(df_pow, col("x")^col("n") |> alias("pow"))
+    @test r_pow[:pow][1] ≈ 0.5
+    @test r_pow[:pow][2] ≈ 1/9
+
+    # Modulo operation
+    df_mod = DataFrame((; x = [10, 11, 12], y = [3, 3, 3]))
+    r_mod = select(df_mod, (col("x") % col("y")) |> alias("rem"))
+    @test collect(r_mod[:rem]) == [1, 2, 0]
+end
+
+@testset "direct-call arithmetic functions" begin
+    # These functions are often called via operators, but also exist as direct callables
+    df = DataFrame((; x = [1, 2, 3], y = [2, 2, 2]))
+
+    # Direct-call forms should match operator forms
+    r_op = select(df, (col("x") + col("y")) |> alias("add"))
+    r_fn = select(df, add(col("x"), col("y")) |> alias("add"))
+    @test r_op[:add] == r_fn[:add]
+
+    r_op_sub = select(df, (col("x") - col("y")) |> alias("sub"))
+    r_fn_sub = select(df, sub(col("x"), col("y")) |> alias("sub"))
+    @test r_op_sub[:sub] == r_fn_sub[:sub]
+
+    # Comparison functions
+    r_eq = select(df, eq(col("x"), col("y")) |> alias("eq"))
+    @test collect(r_eq[:eq]) == [false, true, false]
+
+    r_lt = select(df, lt(col("x"), col("y")) |> alias("lt"))
+    @test collect(r_lt[:lt]) == [true, false, false]
+
+    r_gt = select(df, gt(col("x"), col("y")) |> alias("gt"))
+    @test collect(r_gt[:gt]) == [false, false, true]
+
+    # Boolean functions
+    r_and = select(df, and(col("x") > 1, col("y") == 2) |> alias("and"))
+    @test collect(r_and[:and]) == [false, true, true]
+
+    r_or = select(df, or(col("x") < 2, col("y") > 2) |> alias("or"))
+    @test collect(r_or[:or]) == [true, false, false]
+end

@@ -63,3 +63,33 @@ end
 
     @test_throws ErrorException pivot(df, "var", "id", "val"; column_naming = :bogus)
 end
+
+@testset "element" begin
+    # element() is a placeholder for accessing individual values in aggregation contexts
+    # It's commonly used inside pivot/group_by when you want to apply an aggregate function
+    # to extracted values (e.g. sum of values at a specific (id, var) pair in a pivot)
+
+    df = DataFrame((; id = [1, 1, 1, 2], var = ["a", "a", "b", "a"], val = [10, 20, 30, 40]))
+
+    # element() in a sum aggregation: duplicates get summed
+    r = select(df, alias(Base.sum(element()), "total"))
+    @test only(r[:total]) == 100
+
+    # element() in a mean aggregation
+    r_mean = select(df, alias(Base.mean(element()), "avg"))
+    @test only(r_mean[:avg]) == 25.0
+
+    # element() in a max aggregation
+    r_max = select(df, alias(Polars.max(element()), "maximum"))
+    @test only(r_max[:maximum]) == 40
+
+    # element() in a min aggregation
+    r_min = select(df, alias(Polars.min(element()), "minimum"))
+    @test only(r_min[:minimum]) == 10
+
+    # Verify element() inside pivot (sum aggregation of duplicates)
+    r_pivot = pivot(df, "var", "id", "val"; agg = Base.sum(element()))
+    r_pivot = sort(r_pivot, col("id"))
+    @test r_pivot[:a] == [30, 40]  # id=1: 10+20, id=2: 40
+    @test r_pivot[:b] == [30, 0]   # id=1: 30, id=2: 0 (missing)
+end

@@ -95,6 +95,32 @@ end
     @test isnan(collect(select(df2, drop_nulls(col("x")))[:x])[2])
 end
 
+@testset "aggregation edge cases" begin
+    # All-null column
+    df_null = DataFrame((; x = Union{Float64, Missing}[missing, missing, missing]))
+    r_null = select(df_null, median(col("x")) |> alias("med"), prod(col("x")) |> alias("prod"))
+    @test ismissing(only(r_null[:med]))
+    @test ismissing(only(r_null[:prod]))
+
+    # Single-element column
+    df_single = DataFrame((; x = [42.0]))
+    r_single = select(df_single, median(col("x")) |> alias("med"), prod(col("x")) |> alias("prod"))
+    @test only(r_single[:med]) == 42.0
+    @test only(r_single[:prod]) == 42.0
+
+    # Empty column
+    df_empty = DataFrame((; x = Float64[]))
+    r_empty = select(df_empty, median(col("x")) |> alias("med"), prod(col("x")) |> alias("prod"))
+    @test ismissing(only(r_empty[:med]))
+    @test ismissing(only(r_empty[:prod]))
+
+    # nan_min/max with all-null
+    df_nan_null = DataFrame((; x = Union{Float64, Missing}[missing, missing]))
+    r_nan_null = select(df_nan_null, nan_min(col("x")) |> alias("nm"), nan_max(col("x")) |> alias("xm"))
+    @test ismissing(only(r_nan_null[:nm]))
+    @test ismissing(only(r_nan_null[:xm]))
+end
+
 @testset "keep_name / implode / flatten / reverse" begin
     df = DataFrame((; x = [1, 2, 3]))
 
