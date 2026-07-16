@@ -92,6 +92,13 @@ function Base.getindex(series::Series{MT}, index) where {MT <: Union{MaybeMissin
     return load_value(value_at_index)
 end
 
+# The Null dtype (produced by e.g. `lit(missing)`/`cast(expr, Missing)`) has no data/validity
+# buffers at all -- every element is unconditionally null, so there's nothing to fetch from Rust.
+function Base.getindex(series::Series{Union{Missing, Nothing}}, index)
+    checkbounds(series, index)
+    return missing
+end
+
 """
     name(series::Series)::String
 
