@@ -5,23 +5,24 @@
 **Phase 1: Complete** ✅ (14 items: joins, group_by, select, filter, sort, frame_verbs, unique)
 **Phase 2: Complete** ✅ (4 items: Strings, Dt, Lists, Structs namespaces)
 **Phase 3: Complete** ✅ (expression-level ops: aggregation edge cases, arithmetic edge cases, direct-call functions, coalesce variants, element() patterns)
-**Verified: full suite passes 928/935 (7 broken: 4 documented Binary-column write-path gap, 3 pre-existing unrelated), 0 failed, 0 errored.**
-**Phases 4-5: Not started** ⏳
+**Phase 4: Complete** ✅ (IO option depth: scan_parquet allow_missing_columns + documented asymmetry regression + passthrough flags, scan_csv missing_is_null/skip_rows_after_header/truncate_ragged_lines/infer_schema_length/ignore_errors, sink_parquet full compression matrix + data_page_size + maintain_order, sink_csv formatting options, sink_ipc compression/record_batch_size/maintain_order)
+**Verified: full suite passes 982/989 (7 broken: 4 documented Binary-column write-path gap, 3 pre-existing unrelated), 0 failed, 0 errored.**
+**Phase 5: Not started** ⏳
 
-Tests now on branch **`test-porting-v2`**, rebuilt from `scan-parquet` (not `main`) — the
-original `test-porting` branch (commits `4fb5c70`..`03f763c`+plan-status commits) branched from
-`main`, which turned out to be 18+ commits behind `scan-parquet` and missing a same-day FFI
-panic-safety fix (`c940fd2`, fixes `polars_series_get`/`polars_dataframe_show` crashing the whole
-process on out-of-bounds access) plus substantial feature work (`write_ipc`, real parquet/CSV/IPC
-options, timezones, `coalesce`, `pivot`, `describe`). Testing the old branch's Julia bindings
-against a `.so` built from `scan-parquet`'s newer Rust source produced an ABI mismatch (wrong
-argument count in `@ccall`s) that looked exactly like random memory-corruption crashes and briefly
-looked like a Polars.jl bug before the mismatch was found. `test-porting-v2`'s four phase commits
-are clean incremental patches of `test-porting`'s phase diffs replayed onto `scan-parquet`'s
-current tree (not a raw `git rebase`, which would conflict on every file since `test-porting`'s
-first commit bulk-copied the whole `test/` directory) — verified to apply with zero content
-collisions against `scan-parquet`'s independent evolution of the same files. The old `test-porting`
-branch is left untouched; `test-porting-v2` is the one to continue from.
+Tests are on branch **`test-porting`**, rebuilt from `scan-parquet` (not `main`). The original
+`test-porting` branch (commits `4fb5c70`..`03f763c`+plan-status commits) branched from `main`,
+which turned out to be 18+ commits behind `scan-parquet` and missing a same-day FFI panic-safety
+fix (`c940fd2`, fixes `polars_series_get`/`polars_dataframe_show` crashing the whole process on
+out-of-bounds access) plus substantial feature work (`write_ipc`, real parquet/CSV/IPC options,
+timezones, `coalesce`, `pivot`, `describe`). Testing the old branch's Julia bindings against a
+`.so` built from `scan-parquet`'s newer Rust source produced an ABI mismatch (wrong argument count
+in `@ccall`s) that looked exactly like random memory-corruption crashes and briefly looked like a
+Polars.jl bug before the mismatch was found. The rebuilt branch's Phase 0-3 commits are clean
+incremental patches of the old branch's phase diffs replayed onto `scan-parquet`'s tree (not a raw
+`git rebase`, which would conflict on every file since the old branch's first commit bulk-copied
+the whole `test/` directory) — verified to apply with zero content collisions against
+`scan-parquet`'s independent evolution of the same files. The old, superseded branch is preserved
+as `old-test-porting-broken-base`; `test-porting` is the one to continue from.
 
 A same-day full-suite run (the *first* one ever run cleanly to completion — the crash bug above
 made this impossible before) surfaced 87 real test-authoring bugs across Phases 0-3, now all fixed
