@@ -41,3 +41,9 @@ makedocs(;
         "Limitations" => "limitations.md",
     ],
 )
+
+DocumenterVitepress.deploydocs(;
+    repo = "github.com/ymiftah/Polars.jl",
+    devbranch = "main",
+    push_preview = false,
+)

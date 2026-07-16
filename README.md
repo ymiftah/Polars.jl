@@ -1,6 +1,6 @@
 # Polars.jl
 
-[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://ymiftah.github.io/Polars.jl/docs)
+[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://ymiftah.github.io/Polars.jl/dev/)
 
 Polars.jl is a thin wrapper for Julia around the dataframe manipulation library [polars](https://github.com/pola-rs/polars).
 
