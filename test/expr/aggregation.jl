@@ -119,6 +119,16 @@ end
     r_nan_null = select(df_nan_null, nan_min(col("x")) |> alias("nm"), nan_max(col("x")) |> alias("xm"))
     @test ismissing(only(r_nan_null[:nm]))
     @test ismissing(only(r_nan_null[:xm]))
+
+    # nan_min/max with a single-element column
+    r_nan_single = select(df_single, nan_min(col("x")) |> alias("nm"), nan_max(col("x")) |> alias("xm"))
+    @test only(r_nan_single[:nm]) == 42.0
+    @test only(r_nan_single[:xm]) == 42.0
+
+    # nan_min/max with an empty column
+    r_nan_empty = select(df_empty, nan_min(col("x")) |> alias("nm"), nan_max(col("x")) |> alias("xm"))
+    @test ismissing(only(r_nan_empty[:nm]))
+    @test ismissing(only(r_nan_empty[:xm]))
 end
 
 @testset "keep_name / implode / flatten / reverse" begin

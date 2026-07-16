@@ -40,4 +40,7 @@ end
     @test renamed_multi[:s][1].a == 10
     @test renamed_multi[:s][1].b == 20
     @test renamed_multi[:s][1].c == 30
+
+    # Renaming two fields to the same name errors at collect/select time
+    @test_throws ErrorException select(r, Structs.rename_fields(col("s"), ["same", "same", "c"]))
 end

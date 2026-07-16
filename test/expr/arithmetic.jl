@@ -74,6 +74,22 @@ end
     r_fn_sub = select(df, sub(col("x"), col("y")) |> alias("sub"))
     @test r_op_sub[:sub] == r_fn_sub[:sub]
 
+    r_op_mul = select(df, (col("x") * col("y")) |> alias("mul"))
+    r_fn_mul = select(df, mul(col("x"), col("y")) |> alias("mul"))
+    @test r_op_mul[:mul] == r_fn_mul[:mul]
+
+    r_op_div = select(df, (col("x") / col("y")) |> alias("div"))
+    r_fn_div = select(df, div(col("x"), col("y")) |> alias("div"))
+    @test collect(r_op_div[:div]) == collect(r_fn_div[:div])
+
+    r_op_pow = select(df, (col("x")^2) |> alias("pow"))
+    r_fn_pow = select(df, pow(col("x"), lit(2)) |> alias("pow"))
+    @test collect(r_op_pow[:pow]) == collect(r_fn_pow[:pow])
+
+    r_op_rem = select(df, (col("x") % col("y")) |> alias("rem"))
+    r_fn_rem = select(df, rem(col("x"), col("y")) |> alias("rem"))
+    @test collect(r_op_rem[:rem]) == collect(r_fn_rem[:rem])
+
     # Comparison functions
     r_eq = select(df, eq(col("x"), col("y")) |> alias("eq"))
     @test collect(r_eq[:eq]) == [false, true, false]

@@ -33,6 +33,27 @@ this repo deliberately avoids per `CLAUDE.md`).
 **Verified: full suite passes 1081/1084 (3 broken: the 2 Aqua + 1 titlecase items above, all
 deliberate exclusions), 0 failed, 0 errored** — stable across repeated runs.
 
+**Post-completion audit:** a follow-up review (research agent, cross-referencing every exported
+name against `test/`, spot-checking phase-table claims against actual file content, checking for
+unregistered files) confirmed the "Complete" status is substantially accurate — zero untested
+exported functions, all 55 test files registered, only 2 legitimate TODOs
+(`unique_counts`/`approx_n_unique`, genuinely absent from `src/`). It also surfaced 3 concrete
+under-deliveries against the plan's own stated scope, now closed:
+- `test/expr/arithmetic.jl`: Phase 3 promised direct-call tests for `mul,div,pow,rem` alongside
+  `add,sub,eq,lt,gt,and,or` — only the latter group had them. Added direct-call cases for all 4
+  missing functions to the "direct-call arithmetic functions" testset.
+- `test/expr/aggregation.jl`: Phase 3 promised all-null/single-element/empty-column cases for
+  `median`/`prod`/`nan_min`/`nan_max` — `nan_min`/`nan_max` only had the all-null case. Added
+  single-element and empty-column cases (verified live: single-element returns the value itself,
+  empty returns a 1-row `missing`, matching `median`'s existing empty-column behavior).
+- `test/datatypes/structs.jl`: Phase 2 promised a rename-to-colliding-name error case for
+  `Structs.rename_fields` — it was silently dropped with no TODO (breaking the plan's own
+  "leave a TODO when skipping" discipline). Verified live that colliding names do error
+  (`"duplicate: multiple fields with name '...' found"`) and added the case.
+
+**Re-verified: full suite passes 1090/1093 (3 broken, same deliberate exclusions), 0 failed, 0
+errored** — stable across 2 consecutive runs.
+
 Tests are on branch **`test-porting`**, rebuilt from `scan-parquet` (not `main`). The original
 `test-porting` branch (commits `4fb5c70`..`03f763c`+plan-status commits) branched from `main`,
 which turned out to be 18+ commits behind `scan-parquet` and missing a same-day FFI panic-safety
