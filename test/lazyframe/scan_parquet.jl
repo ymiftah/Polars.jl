@@ -64,4 +64,32 @@ end
         df = read_parquet(dir; include_file_paths = "src_path")
         @test length(unique(Vector(df[:src_path]))) == 2
     end
+
+    @testset "rechunk / cache / glob / low_memory / use_statistics accepted, results unaffected" begin
+        for kwargs in ((rechunk = true,), (cache = false,), (glob = false,), (low_memory = true,), (use_statistics = false,))
+            @test size(collect(scan_parquet(dir; kwargs...))) == (8, 3)
+        end
+    end
+
+    @testset "allow_missing_columns" begin
+        multi = mkpath(joinpath(mktempdir(), "multi"))
+        write_parquet(joinpath(multi, "f1.parquet"), DataFrame((; x = [1, 2], y = [3, 4])))
+        write_parquet(joinpath(multi, "f2.parquet"), DataFrame((; x = [5, 6])))
+        @test_throws Exception collect(scan_parquet(joinpath(multi, "*.parquet")))
+        df = read_parquet(joinpath(multi, "*.parquet"); allow_missing_columns = true)
+        @test size(df) == (4, 2)
+        # missing column in f2 is filled with nulls
+        @test isequal(sort(df, col("x"))[:y], [3, 4, missing, missing])
+    end
+
+    @testset "allow_missing_columns asymmetry: extra columns still fail (documented in CLAUDE.md)" begin
+        # allow_missing_columns only covers files *missing* a column present in the reference
+        # schema (whichever file is scanned first) -- it does not cover files with an *extra*
+        # column beyond the reference schema, which is a separate policy this wrapper doesn't
+        # expose. Regression guard for that documented asymmetry.
+        multi = mkpath(joinpath(mktempdir(), "extra"))
+        write_parquet(joinpath(multi, "f1.parquet"), DataFrame((; x = [1, 2])))  # reference: 1 col
+        write_parquet(joinpath(multi, "f2.parquet"), DataFrame((; x = [3, 4], y = [5, 6])))  # extra col
+        @test_throws Exception collect(scan_parquet(joinpath(multi, "*.parquet"); allow_missing_columns = true))
+    end
 end

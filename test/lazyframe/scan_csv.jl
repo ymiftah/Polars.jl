@@ -67,6 +67,50 @@ end
         write(path, "a,b\n1,NA\n2,20\n")
         df = read_csv(path; null_value = "NA")
         @test isequal(collect(df[:b]), [missing, 20])
+
+        # missing_is_null: default true means an empty field is null; false keeps it as ""
+        empty_path = joinpath(dir, "empty_field.csv")
+        write(empty_path, "a,b\n1,\n2,x\n")
+        default_df = read_csv(empty_path)
+        @test isequal(collect(default_df[:b]), [missing, "x"])
+        kept_df = read_csv(empty_path; missing_is_null = false)
+        @test collect(kept_df[:b]) == ["", "x"]
+    end
+
+    @testset "skip_rows_after_header" begin
+        path = joinpath(dir, "skip_after_header.csv")
+        write(path, "a,b\n1,x\n2,y\n3,z\n")
+        df = read_csv(path; skip_rows_after_header = 1)
+        @test collect(df[:a]) == [2, 3]
+        @test collect(df[:b]) == ["y", "z"]
+    end
+
+    @testset "truncate_ragged_lines" begin
+        path = joinpath(dir, "ragged.csv")
+        write(path, "a,b\n1,2,3\n4,5\n")
+        @test_throws Exception collect(scan_csv(path))
+        df = read_csv(path; truncate_ragged_lines = true)
+        @test collect(df[:a]) == [1, 4]
+        @test collect(df[:b]) == [2, 5]
+    end
+
+    @testset "infer_schema_length" begin
+        # first 2 rows look like small integers; a later row has a string value -- a short
+        # infer_schema_length can miss the true (String) dtype and error/mis-parse, while
+        # scanning the full file (infer_schema_length = nothing) infers String correctly
+        path = joinpath(dir, "infer.csv")
+        write(path, "a\n1\n2\nnot_a_number\n")
+        df_full = read_csv(path; infer_schema_length = nothing)
+        @test collect(df_full[:a]) == ["1", "2", "not_a_number"]
+    end
+
+    @testset "ignore_errors" begin
+        path = joinpath(dir, "type_errors.csv")
+        write(path, "a\n1\n2\n")
+        # sanity: with a schema/dtype conflict avoided, ignore_errors just doesn't break a
+        # well-formed parse
+        df = read_csv(path; ignore_errors = true)
+        @test collect(df[:a]) == [1, 2]
     end
 
     @testset "try_parse_dates" begin

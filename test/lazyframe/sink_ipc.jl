@@ -107,4 +107,48 @@ end
         missing_dir_path = joinpath(dir, "does", "not", "exist", "out.arrow")
         @test_throws Exception sink_ipc(df, missing_dir_path)
     end
+
+    @testset "sink_ipc compression round-trips for every algorithm" begin
+        dir = mktempdir()
+        df = DataFrame((; x = collect(1:100), y = string.(1:100)))
+        for c in (:uncompressed, :lz4, :zstd)
+            path = joinpath(dir, "c_$c.arrow")
+            sink_ipc(df, path; compression = c)
+            df2 = read_ipc(path)
+            @test df2[:x] == df[:x]
+            @test df2[:y] == df[:y]
+        end
+    end
+
+    @testset "sink_ipc compression_level tunes zstd output size" begin
+        dir = mktempdir()
+        words = ["the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "and", "cat"]
+        compressible = DataFrame((; s = [join(rand(words, 30), ' ') for _ in 1:20_000]))
+        p1 = joinpath(dir, "zstd1.arrow")
+        p22 = joinpath(dir, "zstd22.arrow")
+        sink_ipc(compressible, p1; compression = :zstd, compression_level = 1)
+        sink_ipc(compressible, p22; compression = :zstd, compression_level = 22)
+        @test filesize(p22) < filesize(p1)
+        @test read_ipc(p22)[:s] == compressible[:s]
+    end
+
+    @testset "sink_ipc record_batch_size accepted" begin
+        dir = mktempdir()
+        df = DataFrame((; x = collect(1:100)))
+        path = joinpath(dir, "rb.arrow")
+        sink_ipc(df, path; record_batch_size = 10)
+        @test read_ipc(path)[:x] == df[:x]
+    end
+
+    @testset "sink_ipc maintain_order preserves row order; false doesn't break correctness" begin
+        dir = mktempdir()
+        df = DataFrame((; x = collect(1:20)))
+        path_ordered = joinpath(dir, "ordered.arrow")
+        sink_ipc(df, path_ordered; maintain_order = true)
+        @test read_ipc(path_ordered)[:x] == df[:x]
+
+        path_unordered = joinpath(dir, "unordered.arrow")
+        sink_ipc(df, path_unordered; maintain_order = false)
+        @test Set(collect(read_ipc(path_unordered)[:x])) == Set(collect(df[:x]))
+    end
 end

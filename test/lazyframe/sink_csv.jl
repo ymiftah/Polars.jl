@@ -49,6 +49,63 @@ end
         @test read_csv(path; separator = ';')[:x] == df[:x]
     end
 
+    @testset "include_header=false" begin
+        path = joinpath(dir, "noheader.csv")
+        sink_csv(df, path; include_header = false)
+        @test !occursin("x", first(split(read(path, String), '\n')))
+    end
+
+    @testset "include_bom prefixes a UTF-8 BOM" begin
+        path = joinpath(dir, "bom.csv")
+        sink_csv(df, path; include_bom = true)
+        @test read(path)[1:3] == [0xef, 0xbb, 0xbf]
+    end
+
+    @testset "null_value" begin
+        path = joinpath(dir, "nulls.csv")
+        sink_csv(DataFrame((; a = [1, missing, 3])), path; null_value = "NULL")
+        @test occursin("NULL", read(path, String))
+    end
+
+    @testset "line_terminator" begin
+        path = joinpath(dir, "crlf.csv")
+        sink_csv(DataFrame((; a = [1, 2])), path; line_terminator = "\r\n")
+        @test occursin("\r\n", read(path, String))
+    end
+
+    @testset "date_format" begin
+        path = joinpath(dir, "dates.csv")
+        sink_csv(DataFrame((; d = [Date(2024, 1, 1), Date(2024, 1, 2)])), path; date_format = "%Y/%m/%d")
+        @test occursin("2024/01/01", read(path, String))
+    end
+
+    @testset "float_precision" begin
+        path = joinpath(dir, "prec.csv")
+        sink_csv(DataFrame((; f = [1.23456])), path; float_precision = 2)
+        @test occursin("1.23", read(path, String))
+    end
+
+    @testset "compression_level tunes zstd output size" begin
+        words = ["the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "and", "cat"]
+        compressible = DataFrame((; s = [join(rand(words, 30), ' ') for _ in 1:20_000]))
+        p1 = joinpath(dir, "zstd1.csv")
+        p22 = joinpath(dir, "zstd22.csv")
+        sink_csv(compressible, p1; compression = :zstd, compression_level = 1)
+        sink_csv(compressible, p22; compression = :zstd, compression_level = 22)
+        @test filesize(p22) < filesize(p1)
+        @test read_csv(p22)[:s] == compressible[:s]
+    end
+
+    @testset "maintain_order preserves row order; false doesn't break correctness" begin
+        path_ordered = joinpath(dir, "ordered.csv")
+        sink_csv(df, path_ordered; maintain_order = true)
+        @test read_csv(path_ordered)[:x] == df[:x]
+
+        path_unordered = joinpath(dir, "unordered.csv")
+        sink_csv(df, path_unordered; maintain_order = false)
+        @test Set(collect(read_csv(path_unordered)[:x])) == Set(collect(df[:x]))
+    end
+
     @testset "mkdir creates missing parent directories" begin
         nested = joinpath(dir, "a", "b", "c", "out.csv")
         @test !isdir(dirname(nested))

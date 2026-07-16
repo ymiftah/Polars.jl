@@ -38,6 +38,32 @@ end
         @test read_parquet(path)[:x] == df[:x]
     end
 
+    @testset "compression round-trips for every algorithm" begin
+        for c in (:uncompressed, :snappy, :gzip, :brotli, :zstd, :lz4_raw)
+            path = joinpath(dir, "c_$c.parquet")
+            sink_parquet(df, path; compression = c)
+            df2 = read_parquet(path)
+            @test df2[:x] == df[:x]
+            @test df2[:g] == df[:g]
+        end
+    end
+
+    @testset "data_page_size accepted" begin
+        path = joinpath(dir, "dps.parquet")
+        sink_parquet(df, path; data_page_size = 1024)
+        @test read_parquet(path)[:x] == df[:x]
+    end
+
+    @testset "maintain_order preserves row order; false doesn't break correctness" begin
+        path_ordered = joinpath(dir, "ordered.parquet")
+        sink_parquet(df, path_ordered; maintain_order = true)
+        @test read_parquet(path_ordered)[:x] == df[:x]
+
+        path_unordered = joinpath(dir, "unordered.parquet")
+        sink_parquet(df, path_unordered; maintain_order = false)
+        @test Set(collect(read_parquet(path_unordered)[:x])) == Set(collect(df[:x]))
+    end
+
     @testset "mkdir creates missing parent directories" begin
         nested = joinpath(dir, "a", "b", "c", "out.parquet")
         @test !isdir(dirname(nested))
