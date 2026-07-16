@@ -6,8 +6,9 @@
 **Phase 2: Complete** ✅ (4 items: Strings, Dt, Lists, Structs namespaces)
 **Phase 3: Complete** ✅ (expression-level ops: aggregation edge cases, arithmetic edge cases, direct-call functions, coalesce variants, element() patterns)
 **Phase 4: Complete** ✅ (IO option depth: scan_parquet allow_missing_columns + documented asymmetry regression + passthrough flags, scan_csv missing_is_null/skip_rows_after_header/truncate_ragged_lines/infer_schema_length/ignore_errors, sink_parquet full compression matrix + data_page_size + maintain_order, sink_csv formatting options, sink_ipc compression/record_batch_size/maintain_order)
-**Verified: full suite passes 982/989 (7 broken: 4 documented Binary-column write-path gap, 3 pre-existing unrelated), 0 failed, 0 errored.**
-**Phase 5: Not started** ⏳
+**Phase 5: Complete** ✅ (constructors, DataFrame/Series misc, expr literals — see commit `0746ed6`; also fixed a genuine source bug along the way, see `7f8c53e`)
+**All planned phases (0-5) complete.**
+**Verified: full suite passes 1051/1061 (10 broken: 4 documented Binary-column write-path gap, 1 Series slicing gap, 2 Null-dtype getindex/collect gap, 3 pre-existing unrelated), 0 failed, 0 errored.**
 
 Tests are on branch **`test-porting`**, rebuilt from `scan-parquet` (not `main`). The original
 `test-porting` branch (commits `4fb5c70`..`03f763c`+plan-status commits) branched from `main`,
