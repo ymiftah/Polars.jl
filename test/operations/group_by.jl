@@ -63,7 +63,7 @@ end
         ) |> collect
 
     # Check aggregations for category A: [1, 3, 5] -> count=3, sum=9, mean_y=30, max=5, min=1
-    a_row = findfirst(==(["A"]), [[result[:cat][i]] for i in 1:size(result, 1)])
+    a_row = findfirst(==(["A"]), [[result[:cat][i]] for i in 1:size(result)[1]])
     @test result[:count][a_row] == 3
     @test result[:sum_x][a_row] == 9
     @test result[:mean_y][a_row] == 30.0

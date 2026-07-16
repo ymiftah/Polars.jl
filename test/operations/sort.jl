@@ -72,7 +72,9 @@ end
 
     # Sort with nulls_last=false
     s_nulls_first = sort(df, col("g"), col("v"); nulls_last = false)
-    # For each group, nulls should come first
-    @test ismissing(s_nulls_first[:v][2])
-    @test s_nulls_first[:v][1] == 2
+    # For each group, nulls should come first: [missing, 2, missing, 1]
+    @test ismissing(s_nulls_first[:v][1])
+    @test s_nulls_first[:v][2] == 2
+    @test ismissing(s_nulls_first[:v][3])
+    @test s_nulls_first[:v][4] == 1
 end

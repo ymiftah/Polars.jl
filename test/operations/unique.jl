@@ -5,20 +5,22 @@
         val = [10, 20, 30, 40, 50]
     ))
 
-    # unique on single column with keep=:first
-    r_first = unique(df, ["a"]; keep = :first)
+    # unique on single column with keep=:first (row order among groups is not guaranteed
+    # without a maintain_order kwarg, which unique doesn't expose -- sort before comparing)
+    r_first = sort(unique(df, ["a"]; keep = :first), col("a"))
     @test size(r_first) == (3, 3)
     @test r_first[:a] == [1, 2, 3]
     @test r_first[:val] == [10, 30, 50]  # first occurrence of each a value
 
-    # unique on single column with keep=:last
-    r_last = unique(df, ["a"]; keep = :last)
+    # unique on single column with keep=:last (row order among groups is not guaranteed
+    # without a maintain_order kwarg, which unique doesn't expose -- sort before comparing)
+    r_last = sort(unique(df, ["a"]; keep = :last), col("a"))
     @test size(r_last) == (3, 3)
     @test r_last[:a] == [1, 2, 3]
     @test r_last[:val] == [20, 40, 50]  # last occurrence of each a value
 
     # unique on multi-column subset
-    r_multi = unique(df, ["a", "b"]; keep = :first)
+    r_multi = sort(unique(df, ["a", "b"]; keep = :first), col("a"))
     @test size(r_multi) == (3, 3)  # (1,x), (2,y), (3,z)
     @test r_multi[:a] == [1, 2, 3]
     @test r_multi[:b] == ["x", "y", "z"]
@@ -61,33 +63,11 @@ end
     r_dup = select(df, is_duplicated(col("a")) |> alias("is_dup_a"))
     @test r_dup[:is_dup_a] == [true, true, false, true, true]
 
-    # is_unique on multi-column subset
-    r_unique_multi = select(df, is_unique(col("a"), col("b")) |> alias("is_unique_pair"))
+    # is_unique on multi-column subset: is_unique takes a single Expr, so combine columns
+    # via as_struct first (matches (a,b) pair uniqueness)
+    r_unique_multi = select(df, is_unique(as_struct(col("a"), col("b"))) |> alias("is_unique_pair"))
     @test r_unique_multi[:is_unique_pair] == [false, false, true, false, false]
 end
 
-@testset "approx_n_unique" begin
-    df = DataFrame((; x = collect(1:100)))
-
-    # Approximate unique count on large column
-    approx_result = select(lazy(df), approx_n_unique(col("x")) |> alias("approx_nuniq")) |> collect
-    approx_count = approx_result[:approx_nuniq][1]
-
-    # Approximate count should be close to the true count (100)
-    # Allow some tolerance in the approximation
-    @test 80 < approx_count < 120
-end
-
-@testset "unique_counts" begin
-    df = DataFrame((;
-        x = [1, 1, 1, 2, 2, 3],
-        y = ["a", "a", "b", "b", "c", "c"]
-    ))
-
-    # Get counts of unique values in column x
-    result = select(df, unique_counts(col("x")) |> alias("counts"))
-    counts = result[:counts]
-
-    # Should have counts for each row corresponding to how many times that value appears
-    @test counts == [3, 3, 3, 2, 2, 1]  # 1 appears 3 times, 2 appears 2 times, 3 appears 1 time
-end
+# TODO: approx_n_unique not exposed in Polars.jl (no such function in src/), see plans/test_porting.md
+# TODO: unique_counts not exposed in Polars.jl (no such function in src/), see plans/test_porting.md

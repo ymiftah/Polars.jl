@@ -41,11 +41,13 @@
     a5 = DataFrame((; k1 = [1, 1, 2, missing], k2 = ["x", "y", "x", "x"], v = [10, 20, 30, 40]))
     b5 = DataFrame((; k1 = [1, 2, missing], k2 = ["x", "x", "x"], w = [100, 200, 300]))
     r5 = innerjoin(a5, b5, [col("k1"), col("k2")])
-    @test size(r5) == (3, 4)  # (1,"x"), (1,"x"), (2,"x") match; missing doesn't match anything
-    @test r5[:k1] == [1, 1, 2]
-    @test r5[:k2] == ["x", "x", "x"]
-    @test r5[:v] == [10, 20, 30]
-    @test r5[:w] == [100, 100, 200]
+    # a: (1,x,10) (1,y,20) (2,x,30) (missing,x,40); b: (1,x,100) (2,x,200) (missing,x,300)
+    # only (1,x) and (2,x) match on both sides; (1,y) has no partner; missing never matches
+    @test size(r5) == (2, 4)
+    @test r5[:k1] == [1, 2]
+    @test r5[:k2] == ["x", "x"]
+    @test r5[:v] == [10, 30]
+    @test r5[:w] == [100, 200]
 end
 
 @testset "leftjoin / rightjoin / outerjoin / semijoin / antijoin" begin
@@ -64,7 +66,12 @@ end
 
     r_full = outerjoin(a, b, col("id"))
     @test size(r_full) == (4, 4) # keys not coalesced by default: id, name, id_right, val
-    @test r_full[:id] == [1, 2, 3, 4]  # has all unique ids from both sides
+    # id (left) is missing for the right-only row (id 4, which shows up in id_right instead);
+    # row order isn't guaranteed, so compare as sets
+    @test Set(skipmissing(r_full[:id])) == Set([1, 2, 3])
+    @test count(ismissing, r_full[:id]) == 1
+    @test Set(skipmissing(r_full[:id_right])) == Set([2, 3, 4])
+    @test count(ismissing, r_full[:id_right]) == 1
 
     r_semi = semijoin(a, b, col("id"))
     @test size(r_semi) == (2, 2) # only left columns
@@ -137,7 +144,8 @@ end
     r_by = join_asof(trades2, quotes2, "time"; by_left = ["g"], by_right = ["g"])
     @test r_by[:val] == [1, 2, 4]
 
-    # nearest strategy: matches to the nearest row (either before or after)
+    # nearest strategy: matches to the nearest row (either before or after); ties (9:00:01 is
+    # equidistant from 9:00:00/9:00:02, 9:00:03 from 9:00:02/9:00:04) break toward the later quote
     r_nearest = join_asof(trades, quotes, "time"; strategy = :nearest)
-    @test r_nearest[:bid] == [10.0, 11.0, 13.0]  # Check against the nearest available quote for each trade
+    @test r_nearest[:bid] == [11.0, 12.0, 13.0]
 end

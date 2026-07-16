@@ -36,8 +36,8 @@ end
             x -> agg(x, Polars.count(col("value"))) |>
             collect
         # Just verify it runs and produces a result
-        @test size(r, 1) > 0
-        @test size(r, 2) == 2
+        @test size(r)[1] > 0
+        @test size(r)[2] == 2
     end
 
     # Test offset parameter variants (positive and negative durations)
@@ -45,15 +45,15 @@ end
         r = rolling(lf, "time"; period = "3h", offset = offset_str) |>
             x -> agg(x, Polars.count(col("value"))) |>
             collect
-        @test size(r, 1) > 0
-        @test size(r, 2) == 2
+        @test size(r)[1] > 0
+        @test size(r)[2] == 2
     end
 
     # Test combination of offset and closed
     r = rolling(lf, "time"; period = "3h", offset = "1h", closed = :both) |>
         x -> agg(x, Polars.count(col("value"))) |>
         collect
-    @test size(r, 1) > 0
+    @test size(r)[1] > 0
 end
 
 @testset "group_by_dynamic with kwarg variants" begin
@@ -64,8 +64,8 @@ end
         r = group_by_dynamic(lf, "time"; every = "6h", closed = closed_val) |>
             x -> agg(x, Polars.count(col("value"))) |>
             collect
-        @test size(r, 1) > 0
-        @test size(r, 2) == 2
+        @test size(r)[1] > 0
+        @test size(r)[2] == 2
     end
 
     # Test label parameter variants
@@ -73,8 +73,8 @@ end
         r = group_by_dynamic(lf, "time"; every = "6h", label = label_val) |>
             x -> agg(x, Polars.count(col("value"))) |>
             collect
-        @test size(r, 1) > 0
-        @test size(r, 2) == 2
+        @test size(r)[1] > 0
+        @test size(r)[2] == 2
     end
 
     # Test include_boundaries parameter
@@ -84,15 +84,15 @@ end
     r_without_boundaries = group_by_dynamic(lf, "time"; every = "6h", include_boundaries = false) |>
         x -> agg(x, Polars.count(col("value"))) |>
         collect
-    @test size(r_with_boundaries, 1) > 0
-    @test size(r_without_boundaries, 1) > 0
+    @test size(r_with_boundaries)[1] > 0
+    @test size(r_without_boundaries)[1] > 0
 
     # Test start_by parameter variants
     for start_by_val in [:window_bound, :data_point, :monday, :tuesday, :wednesday, :thursday, :friday, :saturday, :sunday]
         r = group_by_dynamic(lf, "time"; every = "1d", start_by = start_by_val) |>
             x -> agg(x, Polars.count(col("value"))) |>
             collect
-        @test size(r, 1) > 0
-        @test size(r, 2) == 2
+        @test size(r)[1] > 0
+        @test size(r)[2] == 2
     end
 end

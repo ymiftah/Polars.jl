@@ -59,6 +59,6 @@ end
     @test size(r_nullpred) == (0, 2)  # No row matches (1≠10, 2≠20, etc.)
 
     # Filter with is_null produces nulls for non-null values, which excludes those rows
-    r_has_null = filter(df, col("a") |> is_null | (col("b") |> is_null))
+    r_has_null = filter(df, (col("a") |> is_null) | (col("b") |> is_null))
     @test size(r_has_null) == (2, 2)  # rows 3 and 4 have nulls
 end

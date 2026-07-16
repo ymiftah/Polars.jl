@@ -132,8 +132,7 @@ end
     # Invalid regex with strict=true should raise an error
     @test_throws ErrorException select(df, alias(Strings.contains(col("s"), lit("[invalid")), "match"))
 
-    # Invalid regex with strict=false should return false or missing instead of erroring
+    # Invalid regex with strict=false should return missing instead of erroring
     r_strict_false = select(df, alias(Strings.contains(col("s"), lit("[invalid"); strict = false), "match"))
-    # The result should be a vector of falses (since the invalid pattern matches nothing)
-    @test all(==(false), r_strict_false[:match])
+    @test all(ismissing, collect(r_strict_false[:match]))
 end

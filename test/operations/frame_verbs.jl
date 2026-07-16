@@ -38,9 +38,11 @@ end
     # drop non-existent column should error
     @test_throws ErrorException drop(df, ["nonexistent"])
 
-    # drop all columns results in 0-column DataFrame
+    # drop all columns results in a fully empty DataFrame (0 rows, 0 cols) -- with no columns
+    # to carry a row count, there's nothing to preserve it against (matches select() with zero
+    # expressions, see test/operations/select_with_columns.jl)
     r_all = drop(df, ["a", "b", "c"])
-    @test size(r_all) == (2, 0)
+    @test size(r_all) == (0, 0)
 end
 
 @testset "rename" begin

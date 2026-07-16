@@ -66,7 +66,7 @@ end
 end
 
 @testset "Dt.strftime with various formats" begin
-    df = DataFrame((; dt = DateTime(2024, 1, 15, 9, 30, 45)))
+    df = DataFrame((; dt = [DateTime(2024, 1, 15, 9, 30, 45)]))
 
     # Test various format strings
     formats = [

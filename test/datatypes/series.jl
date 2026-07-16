@@ -7,19 +7,19 @@ end
 @testset "Series name" begin
     # Test name on directly constructed Series
     s = Series(:test_col, [1, 2, 3])
-    @test name(s) == "test_col"
+    @test Polars.name(s) == "test_col"
 
     # Test name on Series obtained via DataFrame column access
     df = DataFrame((; x = [10, 20, 30], y = ["a", "b", "c"]))
     s_x = df[:x]
-    @test name(s_x) == "x"
+    @test Polars.name(s_x) == "x"
     s_y = df[:y]
-    @test name(s_y) == "y"
+    @test Polars.name(s_y) == "y"
 
     # Test name consistency after operations (e.g., via select)
     result = select(df, col("x") |> alias("renamed"))
     s_renamed = result[:renamed]
-    @test name(s_renamed) == "renamed"
+    @test Polars.name(s_renamed) == "renamed"
 end
 
 @testset "Series getindex across dtypes" begin

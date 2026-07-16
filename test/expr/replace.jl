@@ -32,9 +32,9 @@ end
         c = Union{Int64, Missing}[missing, missing, missing]
     ))
     r_null = select(df_null, alias(Base.coalesce(col("a"), col("b"), col("c")), "result"))
-    @test ismissing(r_null[:result][1])
-    @test r_null[:result][2] == 2
-    @test r_null[:result][3] == 30
+    @test ismissing(r_null[:result][1])  # all three missing
+    @test r_null[:result][2] == 2        # a[2] non-missing, picked first
+    @test r_null[:result][3] == 3        # a[3] non-missing, picked before b[3]=30
 
     # More than 3 arguments
     df_many = DataFrame((;

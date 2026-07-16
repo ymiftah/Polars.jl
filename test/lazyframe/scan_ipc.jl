@@ -38,8 +38,7 @@ end
 
     # scan_ipc with n_rows limit
     df_limited = scan_ipc(temp_file; n_rows = 5) |> collect
-    @test size(df_limited, 1) == 5
-    @test size(df_limited, 2) == 2
+    @test size(df_limited) == (5, 2)
     @test df_limited[:id] == 1:5
 end
 
@@ -53,7 +52,7 @@ end
     write_ipc(temp_file, df)
 
     # scan_ipc with row_index
-    df_indexed = scan_ipc(temp_file; row_index = "idx") |> collect
+    df_indexed = scan_ipc(temp_file; row_index_name = "idx") |> collect
     @test Tables.columnnames(df_indexed) == (:idx, :a, :b)
     @test df_indexed[:idx] == UInt32[0, 1, 2]
     @test df_indexed[:a] == [10, 20, 30]

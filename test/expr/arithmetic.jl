@@ -78,7 +78,9 @@ end
     r_eq = select(df, eq(col("x"), col("y")) |> alias("eq"))
     @test collect(r_eq[:eq]) == [false, true, false]
 
-    r_lt = select(df, lt(col("x"), col("y")) |> alias("lt"))
+    # lt collides with the non-exported Base.lt (used internally for sorting), so Polars
+    # extends that method directly instead of exporting a bare `lt`
+    r_lt = select(df, Base.lt(col("x"), col("y")) |> alias("lt"))
     @test collect(r_lt[:lt]) == [true, false, false]
 
     r_gt = select(df, gt(col("x"), col("y")) |> alias("gt"))

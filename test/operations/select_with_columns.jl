@@ -22,9 +22,10 @@
     # selecting non-existent column raises error
     @test_throws ErrorException select(df, col("nonexistent"))
 
-    # select with zero expressions returns empty DataFrame
+    # select with zero expressions returns a fully empty DataFrame (0 rows, 0 cols) --
+    # with no columns to carry a row count, there's nothing to preserve it against
     df_zero = select(df)
-    @test size(df_zero) == (3, 0)
+    @test size(df_zero) == (0, 0)
 end
 
 @testset "with_columns" begin

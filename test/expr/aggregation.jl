@@ -100,7 +100,7 @@ end
     df_null = DataFrame((; x = Union{Float64, Missing}[missing, missing, missing]))
     r_null = select(df_null, median(col("x")) |> alias("med"), prod(col("x")) |> alias("prod"))
     @test ismissing(only(r_null[:med]))
-    @test ismissing(only(r_null[:prod]))
+    @test only(r_null[:prod]) == 1.0  # prod of no values is the multiplicative identity
 
     # Single-element column
     df_single = DataFrame((; x = [42.0]))
@@ -112,7 +112,7 @@ end
     df_empty = DataFrame((; x = Float64[]))
     r_empty = select(df_empty, median(col("x")) |> alias("med"), prod(col("x")) |> alias("prod"))
     @test ismissing(only(r_empty[:med]))
-    @test ismissing(only(r_empty[:prod]))
+    @test only(r_empty[:prod]) == 1.0  # prod of no values is the multiplicative identity
 
     # nan_min/max with all-null
     df_nan_null = DataFrame((; x = Union{Float64, Missing}[missing, missing]))
