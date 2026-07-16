@@ -347,7 +347,7 @@ function arrowtable(table, table_name)
         children
     )
 
-    ℓ = Tables.rowcount(table)
+    ℓ = Tables.rowcount(Tables.columns(table))
     array = ArrowArray(
         ValidityMap(ℓ, 0, UInt8[]), [], [
             arrowvector(t)
