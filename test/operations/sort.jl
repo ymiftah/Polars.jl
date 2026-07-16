@@ -26,4 +26,14 @@
     # LazyFrame form agrees with the DataFrame form
     s5 = sort(lazy(df), col("letters")) |> collect
     @test isequal(collect(s5[:letters]), collect(s1[:letters]))
+
+    # stable=false: order among equal sort keys is unspecified
+    df3 = DataFrame((; key = [1, 2, 1, 2, 1], val = [10, 20, 30, 40, 50]))
+    s_unstable = sort(df3, col("key"); stable = false)
+    # Check that values are correctly sorted by key (but order among ties is not guaranteed)
+    sorted_vals = s_unstable[:val]
+    # All 1's should come before all 2's
+    ones_indices = findall(==(1), s_unstable[:key])
+    twos_indices = findall(==(2), s_unstable[:key])
+    @test isempty(ones_indices) || isempty(twos_indices) || maximum(ones_indices) < minimum(twos_indices)
 end

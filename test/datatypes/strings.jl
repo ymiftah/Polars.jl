@@ -121,3 +121,19 @@ end
     r_bad = select(df_bad, alias(Strings.to_date(col("d"); strict = false), "date"))
     @test ismissing(r_bad[:date][2])
 end
+
+@testset "Strings.contains strict parameter" begin
+    df = DataFrame((; s = ["hello", "world", "testing"]))
+
+    # Valid regex with strict=true (default, should error on invalid regex)
+    r_valid = select(df, alias(Strings.contains(col("s"), lit("he")), "match"))
+    @test r_valid[:match] == [true, false, false]
+
+    # Invalid regex with strict=true should raise an error
+    @test_throws ErrorException select(df, alias(Strings.contains(col("s"), lit("[invalid")), "match"))
+
+    # Invalid regex with strict=false should return false or missing instead of erroring
+    r_strict_false = select(df, alias(Strings.contains(col("s"), lit("[invalid"); strict = false), "match"))
+    # The result should be a vector of falses (since the invalid pattern matches nothing)
+    @test all(==(false), r_strict_false[:match])
+end

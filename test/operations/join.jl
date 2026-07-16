@@ -111,4 +111,8 @@ end
     )
     r_by = join_asof(trades2, quotes2, "time"; by_left = ["g"], by_right = ["g"])
     @test r_by[:val] == [1, 2, 4]
+
+    # nearest strategy: matches to the nearest row (either before or after)
+    r_nearest = join_asof(trades, quotes, "time"; strategy = :nearest)
+    @test r_nearest[:bid] == [10.0, 11.0, 13.0]  # Check against the nearest available quote for each trade
 end

@@ -8,6 +8,10 @@
     r_last = Base.unique(df, ["g"]; keep = :last)
     @test size(r_last) == (2, 2)
 
+    # keep=:none drops ALL rows sharing a duplicate key (not just extras)
+    r_none = Base.unique(df, ["g"]; keep = :none)
+    @test size(r_none) == (0, 2)  # all rows are duplicates, so all are dropped
+
     # no subset -> unique across all columns
     df2 = DataFrame((; x = [1, 1, 2], y = [1, 1, 2]))
     r_all = Base.unique(df2)
@@ -41,6 +45,11 @@ end
     @test r[:C] == [5, 6]
 
     @test_throws ErrorException Base.rename(df, ["a"], ["A", "B"])
+
+    # strict=false: attempting to rename a column that doesn't exist should NOT error
+    r_lenient = Base.rename(df, ["a", "nonexistent"], ["A", "X"]; strict = false)
+    @test Tables.columnnames(r_lenient) == (:A, :b, :c)  # only 'a' was renamed; 'nonexistent' was ignored
+    @test r_lenient[:A] == [1, 2]
 end
 
 @testset "drop_nulls (frame-level)" begin
@@ -91,6 +100,12 @@ end
     )
     r2 = upsample(df2, "time"; by = ["g"], every = "1h")
     @test size(r2) == (5, 3) # a: 0,1,2 (3 rows) + b: 0,1 (2 rows)
+
+    # stable=false: allow unstable ordering among upsampled rows
+    r_unstable = upsample(df, "time"; every = "1h", stable = false)
+    # Just verify it runs and produces correct values (row order may vary)
+    @test size(r_unstable) == (4, 2)
+    @test r_unstable[:time] |> collect |> sort == r[:time] |> collect |> sort
 end
 
 @testset "with_row_index" begin
