@@ -35,10 +35,10 @@ end
     @test collect(select(df, col("a"), lit("hi") |> alias("k"))[:k]) == fill("hi", 3)
 
     # missing -> null literal: the resulting column has Julia eltype Union{Missing,Nothing}
-    # (the Null dtype), which has no getindex/collect support anywhere in src/series.jl --
-    # genuine gap, not a test bug. Documented rather than forced to pass.
+    # (the Null dtype)
     r_missing = select(df, col("a"), lit(missing) |> alias("k"))
-    @test_broken (collect(r_missing[:k]); true)
+    @test eltype(r_missing[:k]) == Union{Missing, Nothing}
+    @test all(ismissing, collect(r_missing[:k]))
 
     # AbstractVector -> a Series-backed literal (distinct code path: builds a throwaway
     # DataFrame internally via polars_expr_lit_series) -- zero coverage before this
@@ -79,11 +79,20 @@ end
         @test collect(r[:x]) == T[1, 2, 3]
     end
 
-    # Missing target dtype: casts every value to null. Same Null-dtype collect() gap noted
-    # above (Series{Union{Missing,Nothing}} has no getindex/collect support) -- documented.
+    # Missing target dtype: casts every value to null
     r_null = select(df, col("x") |> cast(Missing))
-    @test_broken (collect(r_null[:x]); true)
+    @test all(ismissing, collect(r_null[:x]))
 
     # unsupported target dtype errors
     @test_throws ErrorException cast(Complex{Float64})(col("x"))
+end
+
+@testset "Null-dtype DataFrame show/print" begin
+    # Base.show(io, df) routes through the same scalar Series getindex as collect() -- a
+    # regression guard beyond the collect()-only cases above.
+    df = DataFrame((; a = [1, 2, 3]))
+    r = select(df, col("a"), lit(missing) |> alias("k"))
+    show_str = sprint(show, r)
+    @test !isempty(show_str)
+    @test contains(show_str, "missing")
 end
