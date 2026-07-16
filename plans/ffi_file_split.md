@@ -8,7 +8,19 @@ Done. `lib.rs` (1868 lines) decomposed into `lib.rs` (56), `ffi_util.rs` (67), `
 their consuming functions moved out of `lib.rs` — see "Sharp edges" below). Build clean (zero
 warnings, matches pre-split baseline), `cargo fmt --check` and
 `cargo clippy --all-targets -- -D warnings` both pass, live Julia smoke test covers every moved
-category (write_parquet/write_csv/scan_parquet/sink_parquet/select/group_by+agg/join/join_asof).
+category (write_parquet/write_csv/scan_parquet/sink_parquet/select/group_by+agg/join/join_asof),
+full `test/runtests.jl` passes (1090 passed, 3 pre-existing broken, 0 failures). Merged into
+`scan-parquet` at `3842aaf`.
+
+**Note (post-merge):** the "mirrors `src/api/*.jl`'s per-category split" rationale below describes
+the state of the Julia side *when this work was planned and done*. In parallel, `scan-parquet`
+picked up a separate change (`0af9d45`, "Regenerate src/api/ from c-polars/include/polars.h via
+Clang.jl") that collapsed `src/api/{dataframe,expr,series,types,value}.jl` into one generated
+`src/api/generated.jl`, so that specific Julia-side mirror no longer exists post-merge. The
+Rust-side split documented here still stands on its own merits (a 1868-line flat file was hard to
+navigate regardless of what the Julia side looks like) — just don't expect a live 1:1 file
+correspondence to `src/api/` anymore; check `CLAUDE.md`'s current "Where things live" table instead
+of this doc for the up-to-date Julia-side layout.
 
 ## Context
 
