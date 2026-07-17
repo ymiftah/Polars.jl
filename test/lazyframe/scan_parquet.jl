@@ -1,0 +1,95 @@
+@testset "scan_parquet" begin
+    dir = mktempdir()
+    write_parquet(
+        joinpath(mkpath(joinpath(dir, "year=2023")), "part.parquet"),
+        DataFrame((; category = ["a", "b", "a", "b"], amount = [10, 20, 30, 40]))
+    )
+    write_parquet(
+        joinpath(mkpath(joinpath(dir, "year=2024")), "part.parquet"),
+        DataFrame((; category = ["a", "b", "a", "b"], amount = [100, 200, 300, 400]))
+    )
+
+    lf = scan_parquet(dir)
+    @test lf isa Polars.LazyFrame
+
+    all_rows = collect(lf)
+    @test size(all_rows) == (8, 3)
+    @test Set(all_rows[:year]) == Set([2023, 2024])
+
+    result = lf |>
+        x -> filter(x, col("year") == 2024) |>
+        x -> group_by(x, "category") |>
+        x -> agg(x, Polars.sum(col("amount"))) |>
+        collect
+
+    by_category = Dict(zip(result[:category], result[:amount]))
+    @test by_category["a"] == 400
+    @test by_category["b"] == 600
+end
+
+@testset "scan_parquet options" begin
+    dir = mktempdir()
+    write_parquet(
+        joinpath(mkpath(joinpath(dir, "year=2023")), "part.parquet"),
+        DataFrame((; category = ["a", "b", "a", "b"], amount = [10, 20, 30, 40]))
+    )
+    write_parquet(
+        joinpath(mkpath(joinpath(dir, "year=2024")), "part.parquet"),
+        DataFrame((; category = ["a", "b", "a", "b"], amount = [100, 200, 300, 400]))
+    )
+
+    @testset "n_rows truncates" begin
+        @test size(read_parquet(dir; n_rows = 3)) == (3, 3)
+    end
+
+    @testset "row_index_name / row_index_offset" begin
+        df = read_parquet(dir; row_index_name = "idx", row_index_offset = 5)
+        @test Tables.columnnames(df)[1] == :idx
+        @test Vector(df[:idx]) == 5:12
+    end
+
+    @testset "parallel strategies all succeed" begin
+        for p in (:auto, :none, :columns, :row_groups)
+            @test size(collect(scan_parquet(dir; parallel = p))) == (8, 3)
+        end
+        @test_throws Exception scan_parquet(dir; parallel = :bogus)
+    end
+
+    @testset "hive_partitioning=false disables partition-column detection" begin
+        df = read_parquet(dir; hive_partitioning = false)
+        @test Set(Tables.columnnames(df)) == Set([:category, :amount])
+    end
+
+    @testset "include_file_paths adds a source-path column" begin
+        df = read_parquet(dir; include_file_paths = "src_path")
+        @test length(unique(Vector(df[:src_path]))) == 2
+    end
+
+    @testset "rechunk / cache / glob / low_memory / use_statistics accepted, results unaffected" begin
+        for kwargs in ((rechunk = true,), (cache = false,), (glob = false,), (low_memory = true,), (use_statistics = false,))
+            @test size(collect(scan_parquet(dir; kwargs...))) == (8, 3)
+        end
+    end
+
+    @testset "allow_missing_columns" begin
+        multi = mkpath(joinpath(mktempdir(), "multi"))
+        write_parquet(joinpath(multi, "f1.parquet"), DataFrame((; x = [1, 2], y = [3, 4])))
+        write_parquet(joinpath(multi, "f2.parquet"), DataFrame((; x = [5, 6])))
+        @test_throws Exception collect(scan_parquet(joinpath(multi, "*.parquet")))
+        df = read_parquet(joinpath(multi, "*.parquet"); allow_missing_columns = true)
+        @test size(df) == (4, 2)
+        # missing column in f2 is filled with nulls
+        @test isequal(sort(df, col("x"))[:y], [3, 4, missing, missing])
+    end
+
+    @testset "allow_missing_columns asymmetry: extra columns still fail (documented in CLAUDE.md)" begin
+        # allow_missing_columns only covers files *missing* a column present in the reference
+        # schema (whichever file is scanned first) -- it does not cover files with an *extra*
+        # column beyond the reference schema, which is a separate policy this wrapper doesn't
+        # expose. Regression guard for that documented asymmetry.
+        multi = mkpath(joinpath(mktempdir(), "extra"))
+        write_parquet(joinpath(multi, "f1.parquet"), DataFrame((; x = [1, 2])))  # reference: 1 col
+        write_parquet(joinpath(multi, "f2.parquet"), DataFrame((; x = [3, 4], y = [5, 6])))  # extra col
+        @test_throws Exception collect(scan_parquet(joinpath(multi, "*.parquet"); allow_missing_columns = true))
+    end
+end

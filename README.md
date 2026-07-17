@@ -1,8 +1,19 @@
 # Polars.jl
 
-[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://pangoraw.github.io/Polars.jl/docs)
+[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://ymiftah.github.io/Polars.jl/dev/)
 
 Polars.jl is a thin wrapper for Julia around the dataframe manipulation library [polars](https://github.com/pola-rs/polars).
+
+> **Fork notice:** this is a fork of [pangoraw/Polars.jl](https://github.com/pangoraw/Polars.jl) by
+> Paul Berg, who designed the original C ABI bridge and wrapper architecture this package still
+> follows — this fork continues that work rather than inventing a new approach. Much of the code
+> and docs in this fork were written with heavy AI assistance and are **still under review**; treat
+> it as less vetted than thWe upstream project until that review is further along.
+
+## See Also
+
+Julia already has a very good dataframe story with [DataFrames.jl](https://github.com/JuliaData/DataFrames.jl), which provides a more Julian experience since any types of collections can be used as a column. On the other hand, Polars works through the Arrow data format and therefore only supports certain physical vectors (materialized in memory) such as `Vector{Int}`. Polars.jl focuses on wrapping operations on lazy frames since it is one of the main differentiating factor with DataFrames. Consider trying DataFrames.jl if your problem involves a lot of Julia "interopability" where Polars would not offer the same level of interopability.
+
 
 ## Example
 
@@ -45,10 +56,6 @@ julia> select(gbagg_sorted,
       ⋮                      ⋮                     ⋮
                                          17 rows omitted
 ```
-
-## References
-
-Julia already has a very good dataframe story with [DataFrames.jl](https://github.com/JuliaData/DataFrames.jl), which provides a more Julian experience since any types of collections can be used as a column. On the other hand, Polars works through the Arrow data format and therefore only supports certain physical vectors (materialized in memory) such as `Vector{Int}`. Polars.jl focuses on wrapping operations on lazy frames since it is one of the main differentiating factor with DataFrames. Indeed eager operations are implemented as `collect∘op∘lazy`. Consider trying DataFrames.jl if your problem involves a lot of Julia "interopability" where Polars would not offer the same level of interopability.
 
 ## Polars C-API
 

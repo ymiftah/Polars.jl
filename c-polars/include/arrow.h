@@ -43,4 +43,4 @@ struct ArrowArray {
 typedef struct ArrowSchema ArrowSchema;
 typedef struct ArrowArray ArrowArray;
 
-#endif // ARROW_C_DATA_INTERFACE
+#endif  // ARROW_C_DATA_INTERFACE

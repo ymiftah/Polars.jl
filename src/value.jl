@@ -1,3 +1,17 @@
+"""
+    Polars.Value{T}
+
+Internal type which represents a reference to a value of type `T` in a series or as a field to
+a struct.
+"""
+mutable struct Value{T}
+    ptr::Ptr{polars_value_t}
+    parent::Union{Series, Value}
+
+    Value{T}(ptr, parent) where {T} =
+        finalizer(polars_value_destroy, new{T}(ptr, parent))
+end
+
 Base.unsafe_convert(::Type{Ptr{polars_value_t}}, value::Value) = value.ptr
 
 """
@@ -12,7 +26,7 @@ function load_value(value::Value{T}) where {T <: PhysicalDType}
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     letter = T <: AbstractFloat ? "f" :
-             T <: Signed ? "i" : "u"
+        T <: Signed ? "i" : "u"
     name = T == Bool ? :polars_value_get_bool : Symbol("polars_value_get_", letter, 8sizeof(T))
     f = getproperty(API, name)
 
@@ -20,7 +34,7 @@ function load_value(value::Value{T}) where {T <: PhysicalDType}
     err = f(value, out)
     polars_error(err)
 
-    out[]
+    return out[]
 end
 
 function load_value(value::Value{String})
@@ -32,7 +46,7 @@ function load_value(value::Value{String})
     err = polars_value_string_get(value, io, callback)
     polars_error(err)
 
-    String(take!(io[]))
+    return String(take!(io[]))
 end
 
 function load_value(value::Value{Vector{UInt8}})
@@ -44,7 +58,7 @@ function load_value(value::Value{Vector{UInt8}})
     err = polars_value_binary_get(value, io, callback)
     polars_error(err)
 
-    take!(io[])
+    return take!(io[])
 end
 
 function load_value(value::Value{S}) where {S <: Series}
@@ -55,10 +69,10 @@ function load_value(value::Value{S}) where {S <: Series}
     err = polars_value_list_get(value, out)
     polars_error(err)
 
-    Series(out[])
+    return Series(out[])
 end
 
-function load_value(value::Value{NT}) where {NT<:NamedTuple}
+function load_value(value::Value{NT}) where {NT <: NamedTuple}
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     _, types = NT.parameters
@@ -80,10 +94,10 @@ function load_value(value::Value{NT}) where {NT<:NamedTuple}
         load_value(Value{T}(field_value, value))
     end
 
-    NT(field_values)
+    return NT(field_values)
 end
 
-function load_value(value::Value{TT}) where {TT<:Duration}
+function load_value(value::Value{TT}) where {TT <: Dates.Period}
     v = Ref{Int64}()
     err = polars_value_duration_get(value.ptr, v)
     polars_error(err)
@@ -94,15 +108,32 @@ function load_value(value::Value{TT}) where {TT<:Duration}
     elseif tu == API.PolarsTimeUnitMicrosecond
         return Dates.Microsecond(v[])
     elseif tu == API.PolarsTimeUnitMillisecond
-        return Dates.Milliseconds(v[])
+        return Dates.Millisecond(v[])
     end
 
     error("invalid duration")
 end
 
-function load_value(value::Value{TT}) where {TT<:Datetime}
+function load_value(value::Value{Dates.DateTime})
     v = Ref{Int64}()
     err = polars_value_datetime_get(value.ptr, v)
     polars_error(err)
-    return DateTime(1970, 01, 01) + Dates.Nanosecond(v[])
+
+    tu = polars_value_time_unit(value)
+    if tu == API.PolarsTimeUnitNanosecond
+        return DateTime(1970, 01, 01) + Dates.Nanosecond(v[])
+    elseif tu == API.PolarsTimeUnitMicrosecond
+        return DateTime(1970, 01, 01) + Dates.Microsecond(v[])
+    elseif tu == API.PolarsTimeUnitMillisecond
+        return DateTime(1970, 01, 01) + Dates.Millisecond(v[])
+    end
+
+    error("invalid datetime")
+end
+
+function load_value(value::Value{Date})
+    v = Ref{Int32}()
+    err = polars_value_date_get(value.ptr, v)
+    polars_error(err)
+    return Date(1970, 01, 01) + Dates.Day(v[])
 end

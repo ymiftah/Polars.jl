@@ -1,4 +1,7 @@
-use crate::{value::polars_value_type_t, *};
+use polars::prelude::*;
+use polars_core::utils::arrow::ffi::{self, ArrowArray, ArrowSchema};
+
+use crate::{make_error, polars_error_t, types::*, value::polars_value_type_t};
 
 pub(crate) fn make_series(series: Series) -> *mut polars_series_t {
     Box::into_raw(Box::new(polars_series_t { inner: series }))
@@ -33,6 +36,18 @@ pub unsafe extern "C" fn polars_series_schema(series: *mut polars_series_t) -> A
     ffi::export_field_to_c(&(*series).inner.field().to_arrow(CompatLevel::newest()))
 }
 
+/// Exports the series' data as a single Arrow C Data Interface `ArrowArray`, collapsing the
+/// series to one chunk first if necessary. The returned `ArrowArray` is self-contained (owns its
+/// buffers via the release callback) and can outlive `series` -- the caller takes ownership and
+/// must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly
+/// once.
+#[no_mangle]
+pub unsafe extern "C" fn polars_series_export_carray(series: *mut polars_series_t) -> ArrowArray {
+    assert!(!series.is_null());
+    let rechunked = (*series).inner.rechunk();
+    ffi::export_array_to_c(rechunked.chunks()[0].to_boxed())
+}
+
 /// Returns whether or not the value at index `index` is null, return false if the index is out of
 /// bounds.
 #[no_mangle]
@@ -43,6 +58,18 @@ pub unsafe extern "C" fn polars_series_is_null(series: *mut polars_series_t, ind
         Ok(_) => false,
         Err(_) => false,
     }
+}
+
+/// Returns a new owned series holding a zero-copy (Arc-refcount clone) slice of `length` elements
+/// starting at `offset`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_series_slice(
+    series: *mut polars_series_t,
+    offset: i64,
+    length: usize,
+) -> *mut polars_series_t {
+    assert!(!series.is_null());
+    make_series((*series).inner.slice(offset, length))
 }
 
 #[no_mangle]
@@ -60,10 +87,15 @@ pub unsafe extern "C" fn polars_series_name(
 pub unsafe extern "C" fn polars_series_get<'a>(
     series: *mut polars_series_t,
     index: usize,
-) -> *const polars_value_t<'a> {
+    out: *mut *mut polars_value_t<'a>,
+) -> *const polars_error_t {
     assert!(!series.is_null());
-    let value = (*series).inner.get(index).unwrap();
-    Box::into_raw(Box::new(polars_value_t { inner: value }))
+    let value = match (*series).inner.get(index) {
+        Ok(v) => v,
+        Err(err) => return make_error(err),
+    };
+    *out = Box::into_raw(Box::new(polars_value_t { inner: value }));
+    std::ptr::null()
 }
 
 macro_rules! gen_series_get {
