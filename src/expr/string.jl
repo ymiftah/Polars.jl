@@ -4,7 +4,6 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
 @generate_expr_fns begin
     gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase)
     gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase)
-    gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::titlecase)
     gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes)
     gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars)
     # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
@@ -24,6 +23,27 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
     gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill)
     gen_impl_expr_binary_str!(polars_expr_str_head, StringNameSpace::head)
     gen_impl_expr_binary_str!(polars_expr_str_tail, StringNameSpace::tail)
+end
+
+"""
+    titlecase(expr::Polars.Expr)
+
+!!! warning "Unavailable in a default build"
+    Upstream `StringNameSpace::to_titlecase` sits behind polars' own `nightly` Cargo feature
+    (it still depends on unstable stdlib internals as of polars 0.54.4), and this repo pins a
+    stable toolchain deliberately -- so `c-polars` does not compile the symbol and no binding for
+    it is generated. To enable it, build `c-polars` with a nightly toolchain and
+    `cargo build --features nightly`, then regenerate the bindings.
+
+This method exists only to fail with that explanation: without it, calling `Strings.titlecase`
+raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
+"""
+function titlecase(::Expr)
+    return error(
+        "Strings.titlecase is unavailable in this build: polars' `to_titlecase` requires " *
+            "polars' `nightly` Cargo feature and a nightly rustc, while c-polars pins a stable " *
+            "toolchain (see CLAUDE.md). Rebuild with `cargo build --features nightly` to enable it."
+    )
 end
 
 # Curried (Fix2-style) forms for the binary namespace ops above, e.g.
@@ -165,7 +185,7 @@ a value that fails to parse raises an error; if `false`, it becomes `null`. If `
 function to_date(expr::Expr; format::Union{Nothing, String} = nothing, strict::Bool = true, exact::Bool = true)
     format_str = something(format, "")
     out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_str_to_date(expr, format_str, length(format_str), strict, exact, out)
+    err = API.polars_expr_str_to_date(expr, format_str, ncodeunits(format_str), strict, exact, out)
     polars_error(err)
     return Expr(out[])
 end
@@ -202,7 +222,7 @@ function to_datetime(
     format_str = something(format, "")
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_str_to_datetime(
-        expr, format_str, length(format_str), time_unit_enum, strict, exact, out
+        expr, format_str, ncodeunits(format_str), time_unit_enum, strict, exact, out
     )
     polars_error(err)
     return Expr(out[])

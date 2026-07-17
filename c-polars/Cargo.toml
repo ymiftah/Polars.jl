@@ -21,5 +21,10 @@ polars-core = "0.54.4"
 polars-plan = "0.54.4"
 polars-compute = "0.54.4"
 polars-utils = "0.54.4"
-polars-ops = { version = "0.54.4", features = ["round_series"] }
-polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress"] }
+# `dtype-time` is NOT implied by polars' defaults: `dtype-slim` (in `default`) is only
+# date+datetime+duration, and `temporal` pulls polars-time without it. polars-core/-io/-lazy/-expr
+# happen to get it transitively, but polars-ops does *not* -- leaving its `take_chunked_unchecked`
+# Time arm compiled out and falling through to `_ => unreachable!()`, i.e. a process abort on any
+# gather (join/gather) over a Time column. Enable it explicitly on both.
+polars-ops = { version = "0.54.4", features = ["round_series", "dtype-time"] }
+polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time"] }

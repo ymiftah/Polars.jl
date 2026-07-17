@@ -106,7 +106,7 @@ function scan_csv(
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = GC.@preserve n_rows_ref quote_char_ref infer_schema_length_ref begin
         polars_lazy_frame_scan_csv(
-            path, length(path), n_rows_ref, row_index_name_arg, row_index_name_len,
+            path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
             UInt32(row_index_offset), has_header, UInt8(separator), quote_char_ref,
             comment_prefix_arg, comment_prefix_len, Csize_t(skip_rows),
             Csize_t(skip_rows_after_header), null_value_arg, null_value_len, missing_is_null,
@@ -254,7 +254,7 @@ function sink_csv(
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = GC.@preserve float_precision_ref compression_level_ref begin
         polars_lazy_frame_sink_csv(
-            lf, path, length(path), include_header, include_bom, UInt8(separator),
+            lf, path, ncodeunits(path), include_header, include_bom, UInt8(separator),
             UInt8(quote_char), null_value_arg, null_value_len, line_terminator_arg,
             line_terminator_len, quote_style_enum, date_format_arg, date_format_len,
             time_format_arg, time_format_len, datetime_format_arg, datetime_format_len,

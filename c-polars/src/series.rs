@@ -15,6 +15,7 @@ pub unsafe extern "C" fn polars_series_destroy(series: *mut polars_series_t) {
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_type(series: *mut polars_series_t) -> polars_value_type_t {
+    assert!(!series.is_null());
     polars_value_type_t::from_dtype((*series).inner.dtype())
 }
 
@@ -72,6 +73,8 @@ pub unsafe extern "C" fn polars_series_slice(
     make_series((*series).inner.slice(offset, length))
 }
 
+/// Borrowed pointer into the series' name, valid only as long as `series` is alive (the same
+/// borrowed-pointer convention `polars_value_time_zone` cites this function as the reference for).
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_name(
     series: *mut polars_series_t,

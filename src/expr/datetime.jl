@@ -29,7 +29,7 @@ Formats a Date/Datetime/Duration/Time expression using a `chrono`-style format s
 """
 function strftime(expr::Expr, format::AbstractString)
     out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_dt_strftime(expr, format, length(format), out)
+    err = API.polars_expr_dt_strftime(expr, format, ncodeunits(format), out)
     polars_error(err)
     return Expr(out[])
 end
@@ -57,7 +57,7 @@ wall-clock value, changes the instant).
 """
 function convert_time_zone(expr::Expr, tz::AbstractString)
     out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_dt_convert_time_zone(expr, tz, length(tz), out)
+    err = API.polars_expr_dt_convert_time_zone(expr, tz, ncodeunits(tz), out)
     polars_error(err)
     return Expr(out[])
 end
@@ -98,7 +98,7 @@ function replace_time_zone(
     tz_str = tz === nothing ? "" : tz
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_dt_replace_time_zone(
-        expr, tz_str, length(tz_str), convert(Expr, ambiguous), non_existent_enum, out
+        expr, tz_str, ncodeunits(tz_str), convert(Expr, ambiguous), non_existent_enum, out
     )
     polars_error(err)
     return Expr(out[])

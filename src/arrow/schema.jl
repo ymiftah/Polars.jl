@@ -87,6 +87,11 @@ function parse_format(schema)
 
     fmt == "tdD" && return MaybeMissing{Date}
 
+    # Arrow spells time-of-day as time32 ("tts"/"ttm") or time64 ("ttu"/"ttn"). All four collapse
+    # to `Dates.Time`, which is itself nanosecond-resolution; polars only ever produces "ttn"
+    # (its `Time` is always nanoseconds since midnight), but accept the narrower encodings too.
+    fmt in ("tts", "ttm", "ttu", "ttn") && return MaybeMissing{Dates.Time}
+
     # Unlike Datetime, the stdlib's Period subtypes are themselves genuinely resolution-specific
     # real types, so these use them directly instead of a custom wrapper.
     fmt == "tDm" && return MaybeMissing{Dates.Millisecond}

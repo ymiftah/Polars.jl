@@ -13,11 +13,10 @@ A wrapper around an immutable polars dataframe object.
 function DataFrame(table)
     array, schema = Polars.arrowtable(table, "polars.dataframe")
     return try
-        df_ptr = API.polars_dataframe_new_from_carrow(schema, array)
-        if df_ptr == C_NULL
-            throw("something went wrong when creating dataframe; please report.")
-        end
-        DataFrame(df_ptr)
+        out = Ref{Ptr{polars_dataframe_t}}()
+        err = API.polars_dataframe_new_from_carrow(schema, array, out)
+        polars_error(err)
+        DataFrame(out[])
     finally
         release_schema!(schema)
     end
@@ -35,7 +34,7 @@ Base.getindex(df::DataFrame, s::String) = getindex(df, Symbol(s))
 function Base.getindex(df::DataFrame, s::Symbol)
     s = string(s)::String
     out = Ref{Ptr{polars_series_t}}()
-    err = polars_dataframe_get(df, s, length(s), out)
+    err = polars_dataframe_get(df, s, ncodeunits(s), out)
     polars_error(err)
     return Series(out[])
 end

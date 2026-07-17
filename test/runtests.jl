@@ -52,6 +52,7 @@ include("fixtures.jl")
 
     include("datatypes/strings.jl")
     include("datatypes/datetimes.jl")
+    include("datatypes/times.jl")
     include("datatypes/timezones.jl")
     include("datatypes/lists.jl")
     include("datatypes/structs.jl")
@@ -60,4 +61,5 @@ include("fixtures.jl")
     include("datatypes/list_struct_write.jl")
 
     include("misc.jl")
+    include("misc_ffi_safety.jl")
 end

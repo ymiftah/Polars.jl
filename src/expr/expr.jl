@@ -52,7 +52,7 @@ function Base.convert(::Type{Expr}, ::Missing)
 end
 function Base.convert(::Type{Expr}, s::String)
     out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_literal_utf8(s, length(s), out)
+    err = polars_expr_literal_utf8(s, ncodeunits(s), out)
     polars_error(err)
     return Expr(out[])
 end
@@ -92,7 +92,7 @@ column name `"*"` will select all columns in the dataframe.
 """
 function col(name)
     expr = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_col(name, length(name), expr)
+    err = polars_expr_col(name, ncodeunits(name), expr)
     polars_error(err)
     return Expr(expr[])
 end
@@ -130,7 +130,7 @@ Renames the result of this expression to a new name.
 """
 function alias(expr, alias)
     out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_alias(expr, alias, length(alias), out)
+    err = polars_expr_alias(expr, alias, ncodeunits(alias), out)
     polars_error(err)
     return Expr(out[])
 end
@@ -144,7 +144,7 @@ Adds a prefix to the name of the resulting expression.
 """
 function prefix(expr, pref)
     out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_prefix(expr, pref, length(pref), out)
+    err = polars_expr_prefix(expr, pref, ncodeunits(pref), out)
     polars_error(err)
     return Expr(out[])
 end
@@ -158,7 +158,7 @@ Adds a suffix to the name of the resulting expression.
 """
 function suffix(expr, suf)
     out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_suffix(expr, suf, length(suf), out)
+    err = polars_expr_suffix(expr, suf, ncodeunits(suf), out)
     polars_error(err)
     return Expr(out[])
 end
@@ -207,12 +207,20 @@ function cast(expr, dtype)
         PolarsValueTypeFloat64
     elseif dtype == String
         PolarsValueTypeString
+    elseif dtype == Vector{UInt8}
+        PolarsValueTypeBinary
+    elseif dtype == Date
+        PolarsValueTypeDate
+    elseif dtype == Dates.Time
+        PolarsValueTypeTime
     else
         error("could not cast to type $dtype")
     end
 
-    casted = API.polars_expr_cast(expr, value_type)
-    return Expr(casted)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_cast(expr, value_type, out)
+    polars_error(err)
+    return Expr(out[])
 end
 cast(dtype) = Base.Fix2(cast, dtype)
 
@@ -661,7 +669,7 @@ function value_counts(
         normalize::Bool = false
     )
     out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_value_counts(expr, sort, parallel, name, length(name), normalize, out)
+    err = API.polars_expr_value_counts(expr, sort, parallel, name, ncodeunits(name), normalize, out)
     polars_error(err)
     return Expr(out[])
 end

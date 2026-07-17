@@ -1,5 +1,5 @@
 module Structs
-using ..Polars: Expr, API
+using ..Polars: API, polars_expr_t, Expr, polars_error
 
 """
     field_by_name(expr::Polars.Expr, name::String)::Polars.Expr
@@ -8,8 +8,10 @@ using ..Polars: Expr, API
 Returns a new series corresponding to values of the selected field.
 """
 function field_by_name(expr, name)
-    field = API.polars_expr_struct_field_by_name(expr, name, length(name))
-    return Expr(field)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_struct_field_by_name(expr, name, ncodeunits(name), out)
+    polars_error(err)
+    return Expr(out[])
 end
 field_by_name(name) = Base.Fix2(field_by_name, name)
 
@@ -33,9 +35,10 @@ Renames the fields of the struct series with the provided new names.
 """
 function rename_fields(expr, new_names)
     new_names = convert(Vector{String}, new_names)
-    new_struct = API.polars_expr_struct_rename_fields(expr, new_names, length.(new_names), length(new_names))
-    @assert new_struct != C_NULL "failed to rename fields"
-    return Expr(new_struct)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_struct_rename_fields(expr, new_names, ncodeunits.(new_names), length(new_names), out)
+    polars_error(err)
+    return Expr(out[])
 end
 rename_fields(new_names) = Base.Fix2(rename_fields, new_names)
 

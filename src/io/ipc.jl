@@ -55,7 +55,7 @@ function scan_ipc(
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = GC.@preserve n_rows_ref hive_partitioning_ref begin
         polars_lazy_frame_scan_ipc(
-            path, length(path), n_rows_ref, row_index_name_arg, row_index_name_len,
+            path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
             UInt32(row_index_offset), rechunk, cache, glob, include_file_paths_arg,
             include_file_paths_len, hive_partitioning_ref, allow_missing_columns, out
         )
@@ -135,7 +135,7 @@ function sink_ipc(
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = GC.@preserve compression_level_ref record_batch_size_ref begin
         polars_lazy_frame_sink_ipc(
-            lf, path, length(path), compression_enum, compression_level_ref,
+            lf, path, ncodeunits(path), compression_enum, compression_level_ref,
             record_batch_size_ref, mkdir, maintain_order, out
         )
     end

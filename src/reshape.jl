@@ -47,7 +47,7 @@ function unpivot(
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_unpivot(
             lf, index_ptrs, index_lens, length(index_ptrs), on_ptrs, on_lens, length(on_ptrs),
-            variable_name, length(variable_name), value_name, length(value_name), out
+            variable_name, ncodeunits(variable_name), value_name, ncodeunits(value_name), out
         )
         polars_error(err)
     end
@@ -97,7 +97,7 @@ function pivot(
             lazy(df), on_ptrs, on_lens, length(on_ptrs), on_columns,
             index_ptrs, index_lens, length(index_ptrs),
             values_ptrs, values_lens, length(values_ptrs),
-            agg, maintain_order, separator, length(separator), naming_enum, out
+            agg, maintain_order, separator, ncodeunits(separator), naming_enum, out
         )
         polars_error(err)
     end
@@ -124,8 +124,8 @@ function upsample(
         by_ptrs, by_lens = _name_ptrs(by)
         out = Ref{Ptr{polars_dataframe_t}}()
         err = polars_dataframe_upsample(
-            df, by_ptrs, by_lens, length(by_ptrs), time_column, length(time_column), every,
-            length(every), stable, out
+            df, by_ptrs, by_lens, length(by_ptrs), time_column, ncodeunits(time_column), every,
+            ncodeunits(every), stable, out
         )
         polars_error(err)
     end

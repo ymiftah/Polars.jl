@@ -2,7 +2,12 @@ use polars::prelude::*;
 use polars_core::frame::PivotColumnNaming;
 use polars_utils::compression::ZstdLevel;
 
-// TODO: investigate what the lifetime implies.
+/// Borrows from its parent (a `Series`, or another `polars_value_t` for struct-field access via
+/// `polars_value_struct_get`) rather than owning its data. The lifetime parameter enforces
+/// nothing across the C boundary -- it is a caller invariant, not a compiler-checked one: the
+/// caller must keep the parent alive for as long as this value is alive, and must destroy this
+/// value before the parent. The Julia side roots the parent via `Value.parent` (`src/value.jl`).
+/// See `polars_value_struct_get`'s `# Safety` doc for the struct-field case specifically.
 pub struct polars_value_t<'a> {
     pub(crate) inner: AnyValue<'a>,
 }
@@ -29,6 +34,14 @@ pub struct polars_expr_t {
 
 pub(crate) fn make_dataframe(df: DataFrame) -> *mut polars_dataframe_t {
     Box::into_raw(Box::new(polars_dataframe_t { inner: df }))
+}
+
+pub(crate) fn make_lazy_frame(lf: LazyFrame) -> *mut polars_lazy_frame_t {
+    Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }))
+}
+
+pub(crate) fn make_lazy_group_by(gb: LazyGroupBy) -> *mut polars_lazy_group_by_t {
+    Box::into_raw(Box::new(polars_lazy_group_by_t { inner: gb }))
 }
 
 #[repr(C)]

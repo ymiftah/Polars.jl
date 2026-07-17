@@ -91,6 +91,12 @@ function read_series(series::Series; zerocopy::Bool = false)
     elseif fmt == "tdD"
         h = ExportedArray(polars_series_export_carray(series))
         return _read_transformed(Date, Int32, h, v -> Date(1970, 1, 1) + Dates.Day(v))
+    elseif fmt in ("ttu", "ttn")
+        # time64: nanoseconds ("ttn", what polars produces) or microseconds ("ttu"). The time32
+        # encodings ("tts"/"ttm") are Int32-backed and fall through to the generic path below.
+        NsPer = fmt == "ttn" ? 1 : 1000
+        h = ExportedArray(polars_series_export_carray(series))
+        return _read_transformed(Dates.Time, Int64, h, v -> Dates.Time(Dates.Nanosecond(v * NsPer)))
     elseif fmt in ("tDn", "tDu", "tDm")
         PeriodT = fmt == "tDn" ? Dates.Nanosecond :
             fmt == "tDu" ? Dates.Microsecond : Dates.Millisecond

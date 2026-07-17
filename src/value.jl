@@ -137,3 +137,12 @@ function load_value(value::Value{Date})
     polars_error(err)
     return Date(1970, 01, 01) + Dates.Day(v[])
 end
+
+function load_value(value::Value{Dates.Time})
+    v = Ref{Int64}()
+    err = polars_value_time_get(value.ptr, v)
+    polars_error(err)
+    # polars' `Time` is always nanoseconds since midnight (it carries no TimeUnit, unlike
+    # Datetime/Duration), and `Dates.Time` is nanosecond-resolution too, so this is exact.
+    return Dates.Time(Dates.Nanosecond(v[]))
+end

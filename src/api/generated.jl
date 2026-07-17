@@ -95,7 +95,8 @@ end
     PolarsValueTypeDatetime = 16
     PolarsValueTypeDate = 17
     PolarsValueTypeDuration = 18
-    PolarsValueTypeUnknown = 19
+    PolarsValueTypeTime = 19
+    PolarsValueTypeUnknown = 20
 end
 
 @cenum polars_quantile_method_t::UInt32 begin
@@ -231,16 +232,14 @@ function polars_dataframe_size(df, rows, cols)
 end
 
 """
-    polars_dataframe_new_from_carrow(cfield, carray)
+    polars_dataframe_new_from_carrow(cfield, carray, out)
 
-Creates a DataFrame from a series of [`ArrowArray`](@ref) and [`ArrowSchema`](@ref) compatible the arrow C-ABI.
+Creates a DataFrame from an [`ArrowArray`](@ref) + [`ArrowSchema`](@ref) pair per the Arrow C Data Interface.
 
-# Safety The field array should be valid [`ArrowSchema`](@ref) according to the C Data Interface. The array array should be valid [`ArrowArray`](@ref) according to the C Data Interface, this means that the memory ownership is transferred in the created arrow::Array. Therefore, the caller should *not* free the underlying memories for this arrow as this will be done through the release field of the array.
-
-Returns null if something went wrong.
+# Safety `cfield` must be a valid [`ArrowSchema`](@ref) per the C Data Interface. `carray` must be a valid [`ArrowArray`](@ref) per the C Data Interface, and **ownership of it transfers to this call**: the caller must not release it. It is released either via the resulting DataFrame's destructor ([`polars_dataframe_destroy`](@ref)) on success, or before returning on failure.
 """
-function polars_dataframe_new_from_carrow(cfield, carray)
-    return @ccall libpolars.polars_dataframe_new_from_carrow(cfield::Ptr{ArrowSchema}, carray::ArrowArray)::Ptr{polars_dataframe_t}
+function polars_dataframe_new_from_carrow(cfield, carray, out)
+    return @ccall libpolars.polars_dataframe_new_from_carrow(cfield::Ptr{ArrowSchema}, carray::ArrowArray, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
 
 """
@@ -534,8 +533,8 @@ function polars_expr_keep_name(expr)
     return @ccall libpolars.polars_expr_keep_name(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_cast(expr, dtype)
-    return @ccall libpolars.polars_expr_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t)::Ptr{polars_expr_t}
+function polars_expr_cast(expr, dtype, out)
+    return @ccall libpolars.polars_expr_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_sum(expr)
@@ -1070,16 +1069,16 @@ function polars_expr_dt_strftime(expr, format, len, out)
     return @ccall libpolars.polars_expr_dt_strftime(expr::Ptr{polars_expr_t}, format::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
-function polars_expr_struct_field_by_name(a, name, len)
-    return @ccall libpolars.polars_expr_struct_field_by_name(a::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t)::Ptr{polars_expr_t}
+function polars_expr_struct_field_by_name(a, name, len, out)
+    return @ccall libpolars.polars_expr_struct_field_by_name(a::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_struct_field_by_index(a, fieldidx)
     return @ccall libpolars.polars_expr_struct_field_by_index(a::Ptr{polars_expr_t}, fieldidx::Int64)::Ptr{polars_expr_t}
 end
 
-function polars_expr_struct_rename_fields(a, names, lens, num_names)
-    return @ccall libpolars.polars_expr_struct_rename_fields(a::Ptr{polars_expr_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, num_names::Csize_t)::Ptr{polars_expr_t}
+function polars_expr_struct_rename_fields(a, names, lens, num_names, out)
+    return @ccall libpolars.polars_expr_struct_rename_fields(a::Ptr{polars_expr_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, num_names::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_series_destroy(series)
@@ -1279,6 +1278,10 @@ Get the underlying int32 (days since UNIX epoch) for this date value.
 """
 function polars_value_date_get(value, out)
     return @ccall libpolars.polars_value_date_get(value::Ptr{polars_value_t}, out::Ptr{Int32})::Ptr{polars_error_t}
+end
+
+function polars_value_time_get(value, out)
+    return @ccall libpolars.polars_value_time_get(value::Ptr{polars_value_t}, out::Ptr{Int64})::Ptr{polars_error_t}
 end
 
 function polars_value_binary_get(value, user, callback)

@@ -102,7 +102,7 @@ with_row_index(df::DataFrame, name::String = "index"; offset::Integer = 0) =
     with_row_index(lazy(df), name; offset) |> collect
 function with_row_index(lf::LazyFrame, name::String = "index"; offset::Integer = 0)
     out = Ref{Ptr{polars_lazy_frame_t}}()
-    err = polars_lazy_frame_with_row_index(lf, name, length(name), Int64(offset), true, out)
+    err = polars_lazy_frame_with_row_index(lf, name, ncodeunits(name), Int64(offset), true, out)
     polars_error(err)
     return LazyFrame(out[])
 end

@@ -21,12 +21,30 @@ jobs:
       - name: Run pre-commit
         run: uvx --with "pre-commit>=4.1.0" pre-commit run --all-files
 
+      - name: Check the C header matches the Rust FFI surface
+        run: python3 c-polars/check_header_drift.py
+
       - name: Check generated API bindings are up to date
         run: |
           julia --project=gen -e 'import Pkg; Pkg.instantiate()'
           julia --project=gen gen/generate.jl
           uvx --with "pre-commit>=4.1.0" pre-commit run runic --files src/api/generated.jl
           git diff --exit-code -- src/api/generated.jl
+
+  rust:
+    runs-on: "ubuntu-latest"
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: ./c-polars
+      - name: Rustfmt
+        run: cargo fmt --check
+        working-directory: ./c-polars
+      - name: Rust smoke tests (C ABI safety)
+        run: cargo test
+        working-directory: ./c-polars
 
   test:
     runs-on: "ubuntu-latest"

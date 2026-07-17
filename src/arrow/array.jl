@@ -118,6 +118,7 @@ format(::Type{Vector{<:Any}}) = "+l"
 format(::Type{String}) = "u"
 format(::Type{DateTime}) = "tsn:"
 format(::Type{Date}) = "tdD"
+format(::Type{Dates.Time}) = "ttn"
 
 mutable struct ArrowArray
     vm::ValidityMap
@@ -242,6 +243,15 @@ function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{Dates.Date}}}
     # dates are stored as the number of days since 1970; see the DateTime method above for why
     # missing entries can be mapped to a dummy 0.
     values = map(d -> ismissing(d) ? zero(Int32) : Int32(Dates.value(d - Dates.Date(1970, 01, 01))), v)
+    return ArrowArray(ValidityMap(v), Vector[values])
+end
+
+function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{Dates.Time}, Dates.Time}}
+    # time-of-day is stored as nanoseconds since midnight (arrow time64, format "ttn"), matching
+    # polars' `Time`; see the DateTime method above for why missing entries can be mapped to 0.
+    # NB: `Dates.value(t)` is the *total* nanoseconds; `Dates.Nanosecond(t)` would be the 0-999
+    # nanosecond component accessor instead.
+    values = map(t -> ismissing(t) ? zero(Int64) : Int64(Dates.value(t)), v)
     return ArrowArray(ValidityMap(v), Vector[values])
 end
 

@@ -10,7 +10,7 @@ use polars_utils::slice_enum::Slice;
 
 use crate::ffi_util::*;
 use crate::types::*;
-use crate::{make_error, polars_error_t};
+use crate::{guard_error, make_error, polars_error_t};
 
 /// Builds `ParquetWriteOptions` from the primitive knobs shared by `write_parquet` and
 /// `sink_parquet`. `compression_level` (null = unset) is only meaningful for the leveled
@@ -129,7 +129,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
     hive_partitioning: *const bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
+    let path = match read_str(path, pathlen) {
         Ok(p) => p,
         Err(err) => return make_error(err),
     };
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
 
     match LazyFrame::scan_parquet(PlRefPath::new(path), args) {
         Ok(lf) => {
-            *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
+            *out = make_lazy_frame(lf);
             std::ptr::null()
         }
         Err(err) => make_error(err),
@@ -204,7 +204,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
     allow_missing_columns: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
+    let path = match read_str(path, pathlen) {
         Ok(p) => p,
         Err(err) => return make_error(err),
     };
@@ -258,7 +258,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
         Ok(lf) => lf,
         Err(err) => return make_error(err),
     };
-    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
+    *out = make_lazy_frame(lf);
     std::ptr::null()
 }
 
@@ -279,7 +279,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
     allow_missing_columns: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
+    let path = match read_str(path, pathlen) {
         Ok(p) => p,
         Err(err) => return make_error(err),
     };
@@ -322,7 +322,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
         unified_scan_args,
     ) {
         Ok(lf) => {
-            *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }));
+            *out = make_lazy_frame(lf);
             std::ptr::null()
         }
         Err(err) => make_error(err),
@@ -343,36 +343,38 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
     maintain_order: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
-        Ok(p) => p,
-        Err(err) => return make_error(err),
-    };
-    let options = match build_parquet_write_options(
-        compression,
-        compression_level,
-        statistics,
-        row_group_size,
-        data_page_size,
-    ) {
-        Ok(options) => options,
-        Err(err) => return make_error(err),
-    };
-    let lf = (*lf).inner.clone();
-    let sink_type = SinkDestination::File {
-        target: SinkTarget::Path(PlRefPath::new(path)),
-    };
-    let file_format = FileWriteFormat::Parquet(Arc::new(options));
-    let sink_args = UnifiedSinkArgs {
-        mkdir,
-        maintain_order,
-        ..Default::default()
-    };
-    let sunk = match lf.sink(sink_type, file_format, sink_args) {
-        Ok(sunk) => sunk,
-        Err(err) => return make_error(err),
-    };
-    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: sunk }));
-    std::ptr::null()
+    guard_error(|| {
+        let path = match read_str(path, pathlen) {
+            Ok(p) => p,
+            Err(err) => return make_error(err),
+        };
+        let options = match build_parquet_write_options(
+            compression,
+            compression_level,
+            statistics,
+            row_group_size,
+            data_page_size,
+        ) {
+            Ok(options) => options,
+            Err(err) => return make_error(err),
+        };
+        let lf = (*lf).inner.clone();
+        let sink_type = SinkDestination::File {
+            target: SinkTarget::Path(PlRefPath::new(path)),
+        };
+        let file_format = FileWriteFormat::Parquet(Arc::new(options));
+        let sink_args = UnifiedSinkArgs {
+            mkdir,
+            maintain_order,
+            ..Default::default()
+        };
+        let sunk = match lf.sink(sink_type, file_format, sink_args) {
+            Ok(sunk) => sunk,
+            Err(err) => return make_error(err),
+        };
+        *out = make_lazy_frame(sunk);
+        std::ptr::null()
+    })
 }
 
 /// Builds `CsvWriterOptions` from the primitive knobs shared by `sink_csv` (write_csv builds a
@@ -475,50 +477,52 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
     maintain_order: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
-        Ok(p) => p,
-        Err(err) => return make_error(err),
-    };
-    let options = match build_csv_writer_options(
-        include_header,
-        include_bom,
-        separator,
-        quote_char,
-        null_value,
-        null_value_len,
-        line_terminator,
-        line_terminator_len,
-        quote_style,
-        date_format,
-        date_format_len,
-        time_format,
-        time_format_len,
-        datetime_format,
-        datetime_format_len,
-        float_precision,
-        decimal_comma,
-        compression,
-        compression_level,
-    ) {
-        Ok(options) => options,
-        Err(err) => return make_error(err),
-    };
-    let lf = (*lf).inner.clone();
-    let sink_type = SinkDestination::File {
-        target: SinkTarget::Path(PlRefPath::new(path)),
-    };
-    let file_format = FileWriteFormat::Csv(options);
-    let sink_args = UnifiedSinkArgs {
-        mkdir,
-        maintain_order,
-        ..Default::default()
-    };
-    let sunk = match lf.sink(sink_type, file_format, sink_args) {
-        Ok(sunk) => sunk,
-        Err(err) => return make_error(err),
-    };
-    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: sunk }));
-    std::ptr::null()
+    guard_error(|| {
+        let path = match read_str(path, pathlen) {
+            Ok(p) => p,
+            Err(err) => return make_error(err),
+        };
+        let options = match build_csv_writer_options(
+            include_header,
+            include_bom,
+            separator,
+            quote_char,
+            null_value,
+            null_value_len,
+            line_terminator,
+            line_terminator_len,
+            quote_style,
+            date_format,
+            date_format_len,
+            time_format,
+            time_format_len,
+            datetime_format,
+            datetime_format_len,
+            float_precision,
+            decimal_comma,
+            compression,
+            compression_level,
+        ) {
+            Ok(options) => options,
+            Err(err) => return make_error(err),
+        };
+        let lf = (*lf).inner.clone();
+        let sink_type = SinkDestination::File {
+            target: SinkTarget::Path(PlRefPath::new(path)),
+        };
+        let file_format = FileWriteFormat::Csv(options);
+        let sink_args = UnifiedSinkArgs {
+            mkdir,
+            maintain_order,
+            ..Default::default()
+        };
+        let sunk = match lf.sink(sink_type, file_format, sink_args) {
+            Ok(sunk) => sunk,
+            Err(err) => return make_error(err),
+        };
+        *out = make_lazy_frame(sunk);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -533,29 +537,31 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
     maintain_order: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let path = match std::str::from_utf8(std::slice::from_raw_parts(path, pathlen)) {
-        Ok(p) => p,
-        Err(err) => return make_error(err),
-    };
-    let options = match build_ipc_writer_options(compression, compression_level, record_batch_size)
-    {
-        Ok(options) => options,
-        Err(err) => return make_error(err),
-    };
-    let lf = (*lf).inner.clone();
-    let sink_type = SinkDestination::File {
-        target: SinkTarget::Path(PlRefPath::new(path)),
-    };
-    let file_format = FileWriteFormat::Ipc(options);
-    let sink_args = UnifiedSinkArgs {
-        mkdir,
-        maintain_order,
-        ..Default::default()
-    };
-    let sunk = match lf.sink(sink_type, file_format, sink_args) {
-        Ok(sunk) => sunk,
-        Err(err) => return make_error(err),
-    };
-    *out = Box::into_raw(Box::new(polars_lazy_frame_t { inner: sunk }));
-    std::ptr::null()
+    guard_error(|| {
+        let path = match read_str(path, pathlen) {
+            Ok(p) => p,
+            Err(err) => return make_error(err),
+        };
+        let options =
+            match build_ipc_writer_options(compression, compression_level, record_batch_size) {
+                Ok(options) => options,
+                Err(err) => return make_error(err),
+            };
+        let lf = (*lf).inner.clone();
+        let sink_type = SinkDestination::File {
+            target: SinkTarget::Path(PlRefPath::new(path)),
+        };
+        let file_format = FileWriteFormat::Ipc(options);
+        let sink_args = UnifiedSinkArgs {
+            mkdir,
+            maintain_order,
+            ..Default::default()
+        };
+        let sunk = match lf.sink(sink_type, file_format, sink_args) {
+            Ok(sunk) => sunk,
+            Err(err) => return make_error(err),
+        };
+        *out = make_lazy_frame(sunk);
+        std::ptr::null()
+    })
 }
