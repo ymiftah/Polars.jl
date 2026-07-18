@@ -51,6 +51,8 @@ function drop(lf::LazyFrame, columns::Vector{String})
     return LazyFrame(out[])
 end
 
+import Base: rename
+
 """
     rename(lf::LazyFrame, existing::Vector{String}, new::Vector{String}; strict::Bool=true)::LazyFrame
     rename(df::DataFrame, existing::Vector{String}, new::Vector{String}; strict::Bool=true)::DataFrame
@@ -58,6 +60,12 @@ end
 Renames `existing` columns to the corresponding `new` names (same length, paired by position).
 If `strict` is `true` (default), every `existing` column must be present; otherwise, missing
 ones are silently ignored.
+
+Extends `Base.rename` (a `Base.Filesystem` path-renaming function). Like `tail` in `select.jl`,
+this is `isdefined(Base, :rename) == true` but **not exported**, so the explicit `import Base:
+rename` above is required for the `export rename` in `Polars.jl` to resolve to anything --
+without it, plain `rename(df, ...)` raises `UndefVarError` even though `Base.rename(df, ...)`
+works.
 """
 Base.rename(df::DataFrame, existing::Vector{String}, new::Vector{String}; strict::Bool = true) =
     Base.rename(lazy(df), existing, new; strict) |> collect

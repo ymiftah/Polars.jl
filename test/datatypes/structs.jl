@@ -42,5 +42,47 @@ end
     @test renamed_multi[:s][1].c == 30
 
     # Renaming two fields to the same name errors at collect/select time
-    @test_throws ErrorException select(r, Structs.rename_fields(col("s"), ["same", "same", "c"]))
+    @test_throws PolarsError select(r, Structs.rename_fields(col("s"), ["same", "same", "c"]))
+end
+
+@testset "Struct field holding a null temporal value (Julia-side P0.9)" begin
+    # `load_value(::Value{<:Period})`/`(::Value{DateTime})`/`(::Value{Date})`/`(::Value{Time})`
+    # used to lack the `PolarsValueTypeNull` guard every other `load_value` method has. A
+    # *bare* untyped null (e.g. `lit(missing)`) is caught one level up by the NamedTuple loader's
+    # `PolarsValueTypeUnknown` check -- but a null value in a schema-typed struct field reports
+    # its real dtype even while null, bypassing that check and reaching these methods directly,
+    # where they used to error ("value is not of type datetime") instead of returning `missing`.
+    dt_nt = NamedTuple{(:a, :b), Tuple{Union{DateTime, Missing}, Int}}
+    df = DataFrame((; s = dt_nt[(a = DateTime(2024, 1, 1), b = 1), (a = missing, b = 2)]))
+    r = collect(df[:s])
+    @test r[1].a == DateTime(2024, 1, 1)
+    @test ismissing(r[2].a)
+
+    date_nt = NamedTuple{(:a, :b), Tuple{Union{Date, Missing}, Int}}
+    df2 = DataFrame((; s = date_nt[(a = Date(2024, 1, 1), b = 1), (a = missing, b = 2)]))
+    r2 = collect(df2[:s])
+    @test r2[1].a == Date(2024, 1, 1)
+    @test ismissing(r2[2].a)
+
+    time_nt = NamedTuple{(:a, :b), Tuple{Union{Dates.Time, Missing}, Int}}
+    df3 = DataFrame((; s = time_nt[(a = Dates.Time(1, 2, 3), b = 1), (a = missing, b = 2)]))
+    r3 = collect(df3[:s])
+    @test r3[1].a == Dates.Time(1, 2, 3)
+    @test ismissing(r3[2].a)
+end
+
+@testset "Column type Any raises a clear error, not infinite recursion (Julia-side, found during P0.9)" begin
+    # `MaybeMissing{Any}` (== `Union{Any, Union{Any,Missing}}`) collapses to the literal type
+    # `Any`, so `format(Any)` used to dispatch to the `MaybeMissing{T}` method with `T = Any`
+    # solved from that same collapse -- whose body calls `format(Any)` again: unconditional
+    # infinite recursion (`StackOverflowError`, not a catchable Julia error). Reachable from a
+    # `Vector{<:NamedTuple}` built from row literals whose fields don't share one concrete type
+    # across rows (e.g. mixing a concrete value and bare `missing` without a `Union` annotation).
+    @test_throws Exception DataFrame((; s = [(a = DateTime(2024, 1, 1), b = 1), (a = missing, b = 2)]))
+    @test_throws Exception DataFrame((; x = Any[1, missing]))
+    try
+        DataFrame((; x = Any[1, missing]))
+    catch e
+        @test !(e isa StackOverflowError)
+    end
 end

@@ -27,7 +27,7 @@
     @test isequal(r_direct5[:pc], r_curried5[:pc])
 end
 
-@testset "curried top-level: clip / replace_strict / quantile / top_k / sample_n / sample_frac" begin
+@testset "curried top-level: clip / replace_strict / top_k / sample_n / sample_frac" begin
     df = DataFrame((; x = [1, 2, 3, 4]))
 
     r_direct = select(df, alias(clip(col("x"), 2, 3), "c"))
@@ -38,9 +38,12 @@ end
     r_curried2 = select(df, alias(col("x") |> replace_strict([1, 2], [10, 20]; default = -1), "rs"))
     @test r_direct2[:rs] == r_curried2[:rs] == [10, 20, -1, -1]
 
+    # `quantile` has no curried (`|>`) form now that it extends `Statistics.quantile` (see
+    # expr/expr.jl) -- a bare `x -> quantile(x, 0.5)` lambda is the documented replacement for
+    # `|>`-composition.
     r_direct3 = select(df, alias(quantile(col("x"), 0.5), "q"))
-    r_curried3 = select(df, alias(col("x") |> quantile(0.5), "q"))
-    @test r_direct3[:q] == r_curried3[:q]
+    r_lambda3 = select(df, alias(col("x") |> (x -> quantile(x, 0.5)), "q"))
+    @test r_direct3[:q] == r_lambda3[:q]
 
     r_direct4 = select(df, alias(top_k(col("x"), 2), "tk"))
     r_curried4 = select(df, alias(col("x") |> top_k(2), "tk"))
@@ -143,7 +146,7 @@ end
     @test r_direct6[:r] == r_curried6[:r] == [2, 2, 0]
 end
 
-@testset "curried top-level: arg_sort / rank / value_counts / interpolate / cum_* / std / var" begin
+@testset "curried top-level: arg_sort / rank / value_counts / interpolate / cum_*" begin
     df = DataFrame((; g = ["a", "a", "b"], x = [3, 1, 2]))
 
     r_direct = select(df, alias(arg_sort(col("x"); descending = true), "as"))
@@ -182,14 +185,21 @@ end
     r_direct9 = select(df, alias(cum_count(col("x")), "cc"))
     r_curried9 = select(df, alias(col("x") |> cum_count(), "cc"))
     @test r_direct9[:cc] == r_curried9[:cc]
+end
 
-    r_direct10 = select(df, alias(std(col("x"); ddof = 0), "s"))
-    r_curried10 = select(df, alias(col("x") |> std(ddof = 0), "s"))
-    @test r_direct10[:s] == r_curried10[:s]
+@testset "std/var have no curried form -- lambda is the documented replacement (P2.2)" begin
+    # `std`/`var` extend `Statistics.std`/`Statistics.var` now (see expr/expr.jl); a curried
+    # (Fix2-style) form taking only keyword arguments would be type piracy (nothing in
+    # `std(; ddof=0)`'s signature mentions `Expr`). `x -> std(x; ddof=0)` is the replacement.
+    df = DataFrame((; x = [3, 1, 2]))
 
-    r_direct11 = select(df, alias(var(col("x"); ddof = 0), "v"))
-    r_curried11 = select(df, alias(col("x") |> var(ddof = 0), "v"))
-    @test r_direct11[:v] == r_curried11[:v]
+    r_direct = select(df, alias(std(col("x"); ddof = 0), "s"))
+    r_lambda = select(df, alias(col("x") |> (x -> std(x; ddof = 0)), "s"))
+    @test r_direct[:s] == r_lambda[:s]
+
+    r_direct2 = select(df, alias(var(col("x"); ddof = 0), "v"))
+    r_lambda2 = select(df, alias(col("x") |> (x -> var(x; ddof = 0)), "v"))
+    @test r_direct2[:v] == r_lambda2[:v]
 end
 
 @testset "curried Strings: to_date / to_datetime" begin

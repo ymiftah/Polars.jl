@@ -39,6 +39,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./c-polars"
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
         working-directory: ./c-polars
@@ -51,19 +54,34 @@ jobs:
 
   test:
     runs-on: "ubuntu-latest"
+    strategy:
+      fail-fast: false
+      matrix:
+        julia-version: ["1.10", "1"]
 
     steps:
       - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./c-polars"
       - name: Build libpolars
         run: cargo build --verbose
         working-directory: ./c-polars
       - uses: julia-actions/setup-julia@v2
         with:
-          version: "1"
+          version: ${{ matrix.julia-version }}
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-runtest@v1
         with:
-          coverage: false
+          coverage: true
+      - uses: julia-actions/julia-processcoverage@v1
+        if: matrix.julia-version == '1'
+      - uses: codecov/codecov-action@v4
+        if: matrix.julia-version == '1'
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   docs:
     runs-on: "ubuntu-latest"
@@ -79,6 +97,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./c-polars"
       - name: Build libpolars
         run: cargo build --verbose
         working-directory: ./c-polars

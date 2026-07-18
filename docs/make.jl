@@ -9,9 +9,15 @@ makedocs(;
         devbranch = "main",
     ),
     modules = [Polars],
-    checkdocs = :none,
+    checkdocs = :exports,
     linkcheck = false,
-    warnonly = true,
+    # `:missing_docs` alone stays non-fatal: `checkdocs = :exports` currently reports ~200
+    # exported symbols whose docstring isn't pulled into any reference page's `@docs`/`@autodocs`
+    # block (a pre-existing reference-page curation gap, not something this pass attempts to
+    # close wholesale) -- but every *other* Documenter error category (broken cross-refs,
+    # doctests, footnotes, ...) that the previous blanket `warnonly = true` was also silencing
+    # now fails the build for real.
+    warnonly = [:missing_docs],
     pages = [
         "Home" => "index.md",
         "Tutorials" => [

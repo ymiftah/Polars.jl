@@ -186,7 +186,7 @@ function write_csv(
     float_precision_ref = float_precision === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(float_precision))
     quote_style_enum = _quote_style_enum(quote_style)
 
-    callback = @cfunction(_write_callback, Cssize_t, (Any, Ptr{Cchar}, Cuint))
+    callback = _io_callback()
     ref = Ref(io)
     err = GC.@preserve float_precision_ref begin
         polars_dataframe_write_csv(

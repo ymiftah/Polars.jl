@@ -131,7 +131,7 @@ end
     @test r_valid[:match] == [true, false, false]
 
     # Invalid regex with strict=true should raise an error
-    @test_throws ErrorException select(df, alias(Strings.contains(col("s"), lit("[invalid")), "match"))
+    @test_throws PolarsError select(df, alias(Strings.contains(col("s"), lit("[invalid")), "match"))
 
     # Invalid regex with strict=false should return missing instead of erroring
     r_strict_false = select(df, alias(Strings.contains(col("s"), lit("[invalid"); strict = false), "match"))

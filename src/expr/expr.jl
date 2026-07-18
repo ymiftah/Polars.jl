@@ -4,10 +4,24 @@
 Internal structure representing a value in a Polars expression.
 This should not be constructed directly but rather use helper functions
 such as [`col`](@ref).
+
+!!! note "Not `<: Number`, not sortable/hashable as a DSL value"
+    Earlier versions of this package made `Expr <: Number` purely so that mixed arguments (e.g.
+    `col("x") + 1`) would reach the operators below via Julia's `Number`-specific promotion
+    fallbacks. That piggybacked correctness on a lie -- an `Expr` is not a number, and the
+    supertype silently broke `isequal`/`isless`'s contracts (both must return `Bool`; both
+    returned another `Expr` instead, matching the DSL's `==`/`<` behavior) and let `Expr` values
+    leak into arbitrary generic `Number` code paths that assume real arithmetic semantics. Every
+    operator below is now defined explicitly instead (`Expr`-`Expr` and both mixed-argument
+    orders), so no promotion machinery is needed. `isless`/`isequal` are deliberately *not*
+    defined for `Expr`: `Expr`s are therefore not valid `sort`/`Dict`/`Set` keys. Both fail loudly
+    rather than silently misbehaving -- `isless` with a clear `MethodError` (no fallback exists in
+    Base for arbitrary types), `isequal` with a `TypeError` (Base's own generic fallback is
+    `isequal(x, y) = (x == y)::Bool`, and our `==` returns an `Expr`, which fails that type
+    assertion). This matches Python polars, where `Expr.__eq__` also builds a new expression
+    rather than comparing identity.
 """
-mutable struct Expr <: Number
-    #                  ↑
-    #                  this is needed to use type promotion
+mutable struct Expr
     ptr::Ptr{polars_expr_t}
 
     Expr(ptr) = finalizer(polars_expr_destroy, new(ptr))
@@ -15,7 +29,14 @@ end
 
 Base.unsafe_convert(::Type{Ptr{polars_expr_t}}, expr::Expr) = expr.ptr
 
-Base.promote_rule(::Type{Expr}, ::Type{T}) where {T <: PhysicalDType} = Expr
+# `Expr <: Number` used to make Julia's default `broadcastable(x::Number) = x` fallback treat an
+# `Expr` as a scalar during dot-broadcasting (e.g. `col("x") .> 1`, used throughout this package's
+# own tests). Without a supertype, `Expr` would instead hit Base's generic
+# `broadcastable(x) = collect(x)` fallback for otherwise-unmatched types, which tries to iterate
+# it and fails with a confusing `MethodError: no method matching length(::Expr)`. `Ref(expr)`
+# matches how `AbstractString`/`Symbol`/`Missing`/etc. (also not `<: Number`) opt into the same
+# scalar-broadcasting behavior.
+Base.Broadcast.broadcastable(expr::Expr) = Ref(expr)
 
 Base.convert(::Type{Expr}, ::Colon) = col("*")
 function Base.convert(::Type{Expr}, v::Int32)
@@ -63,39 +84,78 @@ function Base.convert(::Type{Expr}, v::AbstractVector)
     return Expr(out)
 end
 
-Base.:(==)(a::Expr, b::Expr) = eq(a, b)
-Base.isequal(a::Expr, b::Expr) = eq(a, b)
-Base.isless(a::Expr, b::Expr) = Base.lt(a, b)
-Base.isless(a::Expr, b) = isless(promote(a, b)...)
-Base.isless(a, b::Expr) = isless(promote(a, b)...)
-Base.isequal(a, b::Expr) = eq(promote(a, b)...)
-Base.isequal(a::Expr, b) = eq(promote(a, b)...)
+"""Derived comparison DSL primitives -- polars' C ABI only wraps `eq`/`lt`/`gt` directly (see
+`@generate_expr_fns` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
+propagation correctly (`not` of a null is null, matching what `<=`/`>=`/`!=` must do when an
+operand is incomparable). Not exported -- these are an internal implementation detail of the
+operators below, unlike `eq`/`gt`/`lt`, which mirror real `polars::Expr` methods 1:1."""
+_le(a::Expr, b::Expr) = not(gt(a, b))
+_ge(a::Expr, b::Expr) = not(Base.lt(a, b))
+_neq(a::Expr, b::Expr) = not(eq(a, b))
 
-Base.:+(a::Expr, b::Expr) = add(a, b)
-Base.:-(a::Expr, b::Expr) = sub(a, b)
-Base.:*(a::Expr, b::Expr) = mul(a, b)
-Base.:/(a::Expr, b::Expr) = div(a, b)
-Base.:^(a::Expr, b::Expr) = pow(a, b)
-
-Base.:&(a::Expr, b::Expr) = and(promote(a, b)...)
-Base.:|(a::Expr, b::Expr) = or(promote(a, b)...)
-Base.:&(a, b::Expr) = and(promote(a, b)...)
-Base.:|(a, b::Expr) = or(promote(a, b)...)
-Base.:&(a::Expr, b) = and(promote(a, b)...)
-Base.:|(a::Expr, b) = or(promote(a, b)...)
+# Every arithmetic/comparison/logical operator needs five methods -- `Expr`-`Expr`, both
+# mixed-argument orders (`Expr(x) op literal` and `literal op Expr(x)`), and both `Missing`
+# orders -- now that `Expr` isn't `<: Number` and can no longer piggyback on Julia's
+# `Number`-specific promotion fallbacks (see the struct docstring above). `dsl` is looked up
+# unqualified except `Base.lt`, which -- unlike `eq`/`gt`/`add`/... -- collides with an
+# *unexported* internal `Base.lt` binding, so `@generate_expr_fns` qualified its own definition to
+# `Base.lt` and it must be called that way too (the same class of gotcha as
+# `Expr::product`/`Base.product` documented in CLAUDE.md, just for an operator this package still
+# needs to call internally rather than export).
+#
+# The dedicated `(Expr, Missing)`/`(Missing, Expr)` pair exists only to resolve a method
+# ambiguity, not to add new behavior: `Base.$op(a::Expr, b) = ...` (b unconstrained) is exactly as
+# specific as Base's own `missing.jl` fallbacks (e.g. `==(::Any, ::Missing) = missing`,
+# `<(::Any, ::Missing) = missing`) for a literal `missing` second argument, so
+# `col("x") == missing` raised `MethodError: ==(::Expr, ::Missing) is ambiguous` without these --
+# Julia's own suggested fix is to add the strictly-more-specific `(Expr, Missing)` method, which
+# routes through `convert(Expr, missing)` (a real DSL null literal) same as any other literal,
+# rather than short-circuiting to Julia's `missing`-propagation the way plain `Any` values never
+# would have reached anyway.
+for (op, dsl) in (
+        (:(==), :eq), (:!=, :_neq),
+        (:<, :(Base.lt)), (:<=, :_le),
+        (:>, :gt), (:>=, :_ge),
+        (:+, :add), (:-, :sub), (:*, :mul), (:/, :div), (:^, :pow),
+        (:&, :and), (:|, :or),
+    )
+    @eval begin
+        Base.$op(a::Expr, b::Expr) = $dsl(a, b)
+        Base.$op(a::Expr, b) = $dsl(a, convert(Expr, b))
+        Base.$op(a, b::Expr) = $dsl(convert(Expr, a), b)
+        Base.$op(a::Expr, ::Missing) = $dsl(a, convert(Expr, missing))
+        Base.$op(::Missing, b::Expr) = $dsl(convert(Expr, missing), b)
+    end
+end
 
 """
-    col(name::String)::Polars.Expr
+    col(name::Union{String,Symbol})::Polars.Expr
 
 Returns an expression referencing a column in a dataframe. The special
 column name `"*"` will select all columns in the dataframe.
 """
-function col(name)
+function col(name::AbstractString)
     expr = Ref{Ptr{polars_expr_t}}()
     err = polars_expr_col(name, ncodeunits(name), expr)
     polars_error(err)
     return Expr(expr[])
 end
+col(name::Symbol) = col(String(name))
+
+"""
+    _as_expr(x)::Expr
+
+Coerces a column reference to an `Expr`: a `String`/`Symbol` becomes `col(x)`; an existing `Expr`
+passes through unchanged. Shared by every verb that accepts either a column name or a full
+expression (`select`, `filter`, `group_by`, `sort`, `join`, `over`, ...) in place of each one
+repeating its own `ex -> ex isa String ? col(ex) : ex` inline. Exhaustive over the three accepted
+input shapes (no generic fallback method): passing anything else raises a clear `MethodError`
+right at the coercion site rather than deferring to a more confusing failure further downstream
+(e.g. inside a later `convert(Vector{Expr}, ...)`).
+"""
+_as_expr(x::AbstractString) = col(String(x))
+_as_expr(x::Symbol) = col(String(x))
+_as_expr(x::Expr) = x
 
 """
     nth(n::Int64)::Polars.Expr
@@ -292,8 +352,6 @@ end
     gen_impl_expr!(polars_expr_keep_name, Expr::keep_name)
 
     gen_impl_expr!(polars_expr_sum, Expr::sum)
-    gen_impl_expr!(polars_expr_mean, Expr::mean)
-    gen_impl_expr!(polars_expr_median, Expr::median)
     gen_impl_expr!(polars_expr_min, Expr::min)
     gen_impl_expr!(polars_expr_max, Expr::max)
     gen_impl_expr!(polars_expr_arg_min, Expr::arg_min)
@@ -473,19 +531,45 @@ Product of the values.
 Extends `Base.prod` (hand-written outside the `@generate_expr_fns` block rather than
 auto-qualified, so it lands on the *exported* `Base.prod` -- not the unexported, unrelated
 internal `Base.product` binding the Rust method name `Expr::product` would otherwise collide
-with via `isdefined(Base, :product)`). This matches the `Base.sum`/`Base.mean` precedent: since
-`prod` is an exported Base name, plain `prod(expr)` resolves here with no qualification needed,
-unlike the `Base.product(...)`-qualification this used to require.
+with via `isdefined(Base, :product)`). This matches the `Base.sum` precedent: since `prod` is an
+exported Base name, plain `prod(expr)` resolves here with no qualification needed, unlike the
+`Base.product(...)`-qualification this used to require. `mean`/`median`/`std`/`var`/`quantile`
+follow the analogous pattern one level up, against `Statistics` instead of `Base` -- see their
+docstrings below.
 """
 Base.prod(expr::Expr) = Expr(API.polars_expr_product(expr))
+
+import Statistics: mean, median, std, var, quantile
+
+"""
+    mean(expr::Polars.Expr)::Polars.Expr
+    median(expr::Polars.Expr)::Polars.Expr
+
+Arithmetic mean / median of the values. Extends `Statistics.mean`/`Statistics.median` (rather
+than the `@generate_expr_fns` block above, which would otherwise define brand-new top-level
+`mean`/`median` bindings that *look* like the Statistics stdlib functions but aren't actually
+the same generic -- so `using Statistics, Polars` would force callers to disambiguate with
+`Polars.mean`/`Statistics.mean` even though nothing about the two ever needs to differ). Adding
+an `Expr` method to the real `Statistics.mean`/`Statistics.median` instead means the two packages
+share one generic function with no clash, and this package still re-exports the name so plain
+`mean(col("x"))` works with just `using Polars` -- `using Statistics` is not required.
+"""
+Statistics.mean(expr::Expr) = Expr(API.polars_expr_mean(expr))
+Statistics.median(expr::Expr) = Expr(API.polars_expr_median(expr))
 
 """
     std(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
 Standard deviation of the values, with `ddof` degrees of freedom subtracted (defaults to
-`ddof=1`, matching `Statistics.std`).
+`ddof=1`). Extends `Statistics.std` (see the [`mean`](@ref)/[`median`](@ref) docstring above for
+why).
+
+!!! note
+    No curried (`|>`) form: `Statistics.std(; ddof=2)` with no positional argument at all would
+    be type piracy (nothing in that signature mentions `Expr`) -- use `x -> std(x; ddof=2)`
+    instead.
 """
-function std(expr::Expr; ddof::Integer = 1)
+function Statistics.std(expr::Expr; ddof::Integer = 1)
     out = API.polars_expr_std(expr, UInt8(ddof))
     return Expr(out)
 end
@@ -493,31 +577,24 @@ end
 """
     var(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
-Variance of the values, with `ddof` degrees of freedom subtracted (defaults to `ddof=1`,
-matching `Statistics.var`).
+Variance of the values, with `ddof` degrees of freedom subtracted (defaults to `ddof=1`).
+Extends `Statistics.var` -- see [`std`](@ref)'s docstring for why there's no curried form.
 """
-function var(expr::Expr; ddof::Integer = 1)
+function Statistics.var(expr::Expr; ddof::Integer = 1)
     out = API.polars_expr_var(expr, UInt8(ddof))
     return Expr(out)
 end
-
-"""
-    std(; ddof::Integer=1)::Base.Callable
-    var(; ddof::Integer=1)::Base.Callable
-
-Curried forms of [`std`](@ref)/[`var`](@ref) for use with `|>`.
-"""
-std(; ddof::Integer = 1) = expr -> std(expr; ddof)
-var(; ddof::Integer = 1) = expr -> var(expr; ddof)
 
 """
     quantile(expr::Polars.Expr, q; method::Symbol=:nearest)::Polars.Expr
 
 Computes the `q`-th quantile (`q` an `Expr` or a numeric literal in `[0, 1]`) of the values,
 using the given interpolation `method`: one of `:nearest` (default), `:lower`, `:higher`,
-`:midpoint`, `:linear`, `:equiprobable`.
+`:midpoint`, `:linear`, `:equiprobable`. Extends `Statistics.quantile` -- see [`std`](@ref)'s
+docstring for why there's no curried form (`q |> quantile(0.5)`-style currying would need a
+piratical zero-`Expr`-argument method).
 """
-function quantile(expr::Expr, q; method::Symbol = :nearest)
+function Statistics.quantile(expr::Expr, q; method::Symbol = :nearest)
     q = convert(Expr, q)
     method_enum = if method == :nearest
         API.PolarsQuantileMethodNearest
@@ -541,14 +618,7 @@ function quantile(expr::Expr, q; method::Symbol = :nearest)
     return Expr(out)
 end
 
-"""
-    quantile(q; method::Symbol=:nearest)::Base.Callable
-
-Curried form of [`quantile`](@ref) for use with `|>` -- e.g. `col("x") |> quantile(0.5)`.
-"""
-quantile(q; method::Symbol = :nearest) = expr -> quantile(expr, q; method = method)
-
-export std, var, quantile
+export mean, median, std, var, quantile
 
 """
     over(expr::Polars.Expr, partition_by...)::Polars.Expr
@@ -558,7 +628,7 @@ the per-group result back over every row of that group — e.g. `sum(col("x")) |
 returns, per row, the sum of `x` within that row's `g` group.
 """
 function over(expr::Expr, partition_by...)
-    partition_by = map(ex -> ex isa String ? col(ex) : ex, partition_by)
+    partition_by = map(_as_expr, partition_by)
     partition_by = convert(Vector{Expr}, collect(partition_by))
     GC.@preserve partition_by begin
         partition_ptrs = Ptr{polars_expr_t}[p.ptr for p in partition_by]
@@ -570,14 +640,14 @@ function over(expr::Expr, partition_by...)
 end
 
 """
-    over(partition_by::String...)::Base.Callable
+    over(partition_by::Union{String,Symbol}...)::Base.Callable
 
 Curried form of [`over`](@ref) for use with `|>`, mirroring Python polars' `.over("g")` — e.g.
-`sum(col("x")) |> over("g")`. Only accepts column-name strings, not `Expr` partition keys (an
-`Expr` argument is ambiguous with `over`'s own `expr` argument and always resolves to that
+`sum(col("x")) |> over("g")`. Only accepts column-name strings/symbols, not `Expr` partition keys
+(an `Expr` argument is ambiguous with `over`'s own `expr` argument and always resolves to that
 instead); for expression-valued partition keys, call `over(expr, partition_by...)` directly.
 """
-over(partition_by::String...) = expr -> over(expr, partition_by...)
+over(partition_by::Union{String, Symbol}...) = expr -> over(expr, partition_by...)
 
 export over
 
@@ -590,7 +660,7 @@ own values -- typically used inside [`over`](@ref)/[`agg`](@ref) for "most recen
 `Vector{Bool}` the same length as `by`.
 """
 function sort_by(expr::Expr, by...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
-    by = map(ex -> ex isa String ? col(ex) : ex, by)
+    by = map(_as_expr, by)
     by = convert(Vector{Expr}, collect(by))
     n_by = length(by)
     descending = rev isa Bool ? fill(rev, n_by) : rev
@@ -603,14 +673,14 @@ function sort_by(expr::Expr, by...; rev = false, nulls_last::Bool = false, maint
 end
 
 """
-    sort_by(by::String...; rev=false, nulls_last::Bool=false, maintain_order::Bool=false)::Base.Callable
+    sort_by(by::Union{String,Symbol}...; rev=false, nulls_last::Bool=false, maintain_order::Bool=false)::Base.Callable
 
 Curried form of [`sort_by`](@ref) for use with `|>` — e.g. `col("x") |> sort_by("y"; rev=true)`.
-Only accepts column-name strings, not `Expr` by-keys (an `Expr` argument is ambiguous with
-`sort_by`'s own `expr` argument and always resolves to that instead); for expression-valued
+Only accepts column-name strings/symbols, not `Expr` by-keys (an `Expr` argument is ambiguous
+with `sort_by`'s own `expr` argument and always resolves to that instead); for expression-valued
 by-keys, call `sort_by(expr, by...; kwargs...)` directly.
 """
-function sort_by(by::String...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
+function sort_by(by::Union{String, Symbol}...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
     return expr -> sort_by(expr, by...; rev, nulls_last, maintain_order)
 end
 
@@ -746,7 +816,7 @@ end
 export sample_frac
 
 function _expr_vector(args)
-    exprs = map(ex -> ex isa String ? col(ex) : ex, args)
+    exprs = map(_as_expr, args)
     return convert(Vector{Expr}, collect(exprs))
 end
 

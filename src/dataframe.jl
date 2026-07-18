@@ -56,7 +56,14 @@ function _pretty_tables_highlighter_func(data, i::Integer, j::Integer)
     end
 end
 
-function Base.show(io::IO, df::DataFrame)
+# Compact 2-arg form (e.g. `println(df)`, `string(df)`, a `DataFrame` nested inside another
+# container's own display) -- unlike the full PrettyTables render below, this never grows with
+# the number of rows/columns, so a `Vector{DataFrame}` or similar doesn't turn into a wall of
+# tables. The verbose, human-facing render is reserved for MIME"text/plain" (the REPL's own
+# top-level display), matching Julia's own two-tier convention for `AbstractArray`.
+Base.show(io::IO, df::DataFrame) = print(io, Base.summary(df))
+
+function Base.show(io::IO, ::MIME"text/plain", df::DataFrame)
     # Copied from the nice PrettyTables setup in DataFrames.jl
     # https://github.com/JuliaData/DataFrames.jl/blob/e341cc7873a08977cc8e4d56f28303883582c920/src/abstractdataframe/show.jl#L253-L279
     # Still needs some tuning/options
@@ -88,9 +95,21 @@ end
 
 import Tables: schema
 
+"""Reads column names straight from the Arrow schema, with no query executed -- the cheap half
+of what [`schema`](@ref) below does (it additionally refines nullability from real null counts,
+which needs a `select` over the whole frame)."""
+_column_names(df::DataFrame) = load_dataframe_schema(API.polars_dataframe_schema(df)).names
+
+"""
+    Base.names(df::DataFrame)::Vector{String}
+
+Returns the column names of `df`. Unlike [`schema`](@ref)/`Tables.schema(df)`, this reads only
+the Arrow schema and runs no query at all, so it's cheap regardless of `df`'s size.
+"""
+Base.names(df::DataFrame) = collect(String.(_column_names(df)))
+
 function schema(df::DataFrame)
-    schema = API.polars_dataframe_schema(df)
-    (; names, types) = load_dataframe_schema(schema)
+    (; names, types) = load_dataframe_schema(API.polars_dataframe_schema(df))
 
     # Refine types by fetching real null counts, this should be quite
     # cheap.
@@ -113,6 +132,10 @@ Tables.rowaccess(::DataFrame) = true # enables Pluto.jl viewer
 
 Tables.columns(df::DataFrame) = df
 
-Tables.columnnames(df::DataFrame) = schema(df).names
+# Cheap (schema-only, no query) -- see `_column_names`'s docstring. This used to call
+# `schema(df).names`, so simply materializing column names -- or, via `getcolumn(df, ::Int)`
+# below, reading a *single* column by position -- ran a null-count `select` over every column of
+# the whole frame first.
+Tables.columnnames(df::DataFrame) = _column_names(df)
 Tables.getcolumn(df::DataFrame, col::Symbol) = getindex(df, col)
 Tables.getcolumn(df::DataFrame, idx::Int) = Tables.getcolumn(df, Tables.columnnames(df)[idx])

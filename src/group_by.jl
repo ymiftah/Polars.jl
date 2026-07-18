@@ -14,6 +14,15 @@ end
 Base.unsafe_convert(::Type{Ptr{polars_lazy_group_by_t}}, gb::LazyGroupBy) = gb.ptr
 
 """
+    Base.show(io::IO, gb::LazyGroupBy)
+
+Prints a short, non-pointer-leaking placeholder -- unlike [`LazyFrame`](@ref), a group-by has no
+resolved schema of its own to show (that depends on the [`agg`](@ref) call that hasn't happened
+yet), so there's nothing cheap and meaningful to display beyond this.
+"""
+Base.show(io::IO, ::LazyGroupBy) = print(io, "LazyGroupBy(...) (call agg(...) to materialize)")
+
+"""
     group_by(df::LazyFrame, exprs...)
 
 Returns a lazy group-by object over the provided [`LazyFrame`](@ref).
@@ -21,7 +30,7 @@ The values for the group-by can be aggregated using the [`agg`](@ref) function.
 """
 group_by(df::LazyFrame, exprs...) = groupby(df, collect(exprs)::Vector)
 function groupby(df::LazyFrame, exprs::Vector)
-    exprs = map(ex -> ex isa String ? col(ex) : ex, exprs)
+    exprs = map(_as_expr, exprs)
     exprs = convert(Vector{Expr}, exprs)
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
@@ -37,7 +46,7 @@ Aggregates the value over the group-by object and return a resulting [`LazyFrame
 """
 agg(gb::LazyGroupBy, exprs...) = agg(gb, collect(exprs)::Vector)
 function agg(gb::LazyGroupBy, exprs::Vector)
-    exprs = map(ex -> ex isa String ? col(ex) : ex, exprs)
+    exprs = map(_as_expr, exprs)
     exprs = convert(Vector{Expr}, exprs)
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
@@ -77,8 +86,8 @@ function group_by_dynamic(
         include_boundaries::Bool = false,
         start_by::Symbol = :window_bound,
     )
-    index_expr = index_column isa String ? col(index_column) : index_column
-    group_by = convert(Vector{Expr}, map(ex -> ex isa String ? col(ex) : ex, group_by))
+    index_expr = _as_expr(index_column)
+    group_by = convert(Vector{Expr}, map(_as_expr, group_by))
     period = something(period, every)
 
     label_cenum = label === :left ? API.PolarsLabelLeft :
@@ -103,7 +112,11 @@ function group_by_dynamic(
         start_by === :sunday ? API.PolarsStartBySunday :
         error("invalid start_by $start_by")
 
-    GC.@preserve index_expr group_by begin
+    # `every`/`period`/`offset` are passed as raw (pointer, len) pairs below (not through a
+    # `String`-accepting ccall wrapper that would `cconvert` them itself), so they must be listed
+    # here too -- otherwise nothing roots them past their last "normal" use and the GC is free to
+    # collect them before the ccall actually runs.
+    GC.@preserve index_expr group_by every period offset begin
         group_by_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in group_by]
         out = Ref{Ptr{polars_lazy_group_by_t}}()
         err = polars_lazy_frame_group_by_dynamic(
@@ -149,8 +162,8 @@ function rolling(
         offset = "0ns",
         closed::Symbol = :right,
     )
-    index_expr = index_column isa String ? col(index_column) : index_column
-    group_by = convert(Vector{Expr}, map(ex -> ex isa String ? col(ex) : ex, group_by))
+    index_expr = _as_expr(index_column)
+    group_by = convert(Vector{Expr}, map(_as_expr, group_by))
 
     closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
         closed === :right ? API.PolarsClosedWindowRight :
@@ -158,7 +171,9 @@ function rolling(
         closed === :none ? API.PolarsClosedWindowNone :
         error("invalid closed $closed, expected :left, :right, :both, or :none")
 
-    GC.@preserve index_expr group_by begin
+    # See the matching comment in `group_by_dynamic` above: `period`/`offset` are passed as raw
+    # (pointer, len) pairs, so they must be preserved through the ccall explicitly.
+    GC.@preserve index_expr group_by period offset begin
         group_by_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in group_by]
         out = Ref{Ptr{polars_lazy_group_by_t}}()
         err = polars_lazy_frame_rolling(

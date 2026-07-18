@@ -88,6 +88,20 @@ function read_series(series::Series; zerocopy::Bool = false)
     elseif fmt == "b"
         h = ExportedArray(polars_series_export_carray(series))
         return _read_bool(h)
+    elseif fmt == "vu" # Utf8View -- what polars actually produces for every String series
+        h = ExportedArray(polars_series_export_carray(series))
+        return _read_view(String, h)
+    elseif fmt == "vz" # BinaryView -- what polars actually produces for every Binary series
+        h = ExportedArray(polars_series_export_carray(series))
+        return _read_view(Vector{UInt8}, h)
+    elseif fmt in ("u", "U") # classic Utf8/LargeUtf8 (Int32/Int64 offsets) -- not produced by
+        # polars itself (it always exports "vu"), but a defensive fallback for any other Arrow
+        # producer this path might see in the future.
+        h = ExportedArray(polars_series_export_carray(series))
+        return _read_offset(String, fmt == "u" ? Int32 : Int64, h)
+    elseif fmt in ("z", "Z") # classic Binary/LargeBinary -- see the "u"/"U" note above.
+        h = ExportedArray(polars_series_export_carray(series))
+        return _read_offset(Vector{UInt8}, fmt == "z" ? Int32 : Int64, h)
     elseif fmt == "tdD"
         h = ExportedArray(polars_series_export_carray(series))
         return _read_transformed(Date, Int32, h, v -> Date(1970, 1, 1) + Dates.Day(v))
@@ -219,6 +233,142 @@ function _read_transformed(::Type{OutT}, ::Type{RawT}, h::ExportedArray, transfo
     out = Vector{Union{OutT, Missing}}(undef, n)
     for i in 0:(n - 1)
         out[i + 1] = isvalid(validity_ptr, offset + i) ? transform(unsafe_load(data_ptr, i + 1)) : missing
+    end
+    release!(h)
+    return out
+end
+
+"""
+    _materialize(::Type{String}, ptr::Ptr{UInt8}, len::Integer)
+    _materialize(::Type{Vector{UInt8}}, ptr::Ptr{UInt8}, len::Integer)
+
+Copies `len` raw bytes starting at `ptr` into an owned Julia `String`/`Vector{UInt8}`. Shared by
+both the view-array (`_read_view`) and classic offset-array (`_read_offset`) bulk readers below.
+"""
+_materialize(::Type{String}, ptr::Ptr{UInt8}, len::Integer) = unsafe_string(ptr, len)
+function _materialize(::Type{Vector{UInt8}}, ptr::Ptr{UInt8}, len::Integer)
+    out = Vector{UInt8}(undef, len)
+    unsafe_copyto!(pointer(out), ptr, len)
+    return out
+end
+
+"""
+    _view_bytes(views_ptr::Ptr{UInt8}, i::Integer, data_ptrs::Vector{Ptr{UInt8}})
+
+Decodes the 16-byte Arrow "view" struct at 0-based logical position `i`: an `Int32` length,
+followed either by 12 bytes of inline data (`length <= 12`) or by a 4-byte prefix (ignored here
+-- the real bytes are read from the referenced data buffer instead), an `Int32` buffer index, and
+an `Int32` offset (`length > 12`). Returns `(len, ptr)`, where `ptr` points at the actual byte
+data -- either into the view struct itself (inline case) or into
+`data_ptrs[buffer_index + 1]` (out-of-line case).
+"""
+@inline function _view_bytes(views_ptr::Ptr{UInt8}, i::Integer, data_ptrs::Vector{Ptr{UInt8}})
+    base = views_ptr + 16 * i
+    len = unsafe_load(Ptr{Int32}(base))
+    len <= 12 && return Int(len), base + 4
+    buf_idx = unsafe_load(Ptr{Int32}(base + 8))
+    off = unsafe_load(Ptr{Int32}(base + 12))
+    return Int(len), data_ptrs[buf_idx + 1] + off
+end
+
+"""
+    _read_view(::Type{T}, h::ExportedArray) where {T <: Union{String, Vector{UInt8}}}
+
+Bulk reader for Arrow's view-array formats ("vu" Utf8View / "vz" BinaryView) -- what polars
+actually exports for every String/Binary series (confirmed live: `polars_series_schema` reports
+"vu"/"vz" even for a `Series` built from this package's own classic-offset ("U"/"Z") write path,
+since polars re-encodes to its native view representation on import). Replaces materializing
+string/binary columns one element at a time through `polars_series_get` + `polars_value_*_get` +
+an `IOBuffer` -- 2 ccalls and an allocation per row -- with a single bulk pass directly over the
+exported Arrow buffers.
+
+The C Data Interface's convention for a variadic buffer count: `buffers[0]` = validity,
+`buffers[1]` = views, `buffers[2..end-1]` = the data buffers (zero or more, each up to ~2 GiB),
+`buffers[end]` = a required trailing sizes buffer (one `Int64` per data buffer) that this reader
+doesn't need to consult -- each view's `(buffer_index, offset, length)` is self-contained and
+never crosses a buffer boundary.
+"""
+function _read_view(::Type{T}, h::ExportedArray) where {T <: Union{String, Vector{UInt8}}}
+    ca, bufs = _buffers(h)
+    n = Int(ca.length)
+
+    if n == 0
+        release!(h)
+        return T[]
+    end
+
+    views_ptr = Ptr{UInt8}(bufs[2])
+    n_data_buffers = Int(ca.n_buffers) - 3 # validity + views + the trailing sizes buffer
+    data_ptrs = Ptr{UInt8}[Ptr{UInt8}(bufs[2 + k]) for k in 1:n_data_buffers]
+    offset = Int(ca.offset)
+
+    if ca.null_count == 0
+        out = Vector{T}(undef, n)
+        for i in 0:(n - 1)
+            len, ptr = _view_bytes(views_ptr, offset + i, data_ptrs)
+            out[i + 1] = _materialize(T, ptr, len)
+        end
+        release!(h)
+        return out
+    end
+
+    validity_ptr = Ptr{UInt8}(bufs[1])
+    out = Vector{Union{T, Missing}}(undef, n)
+    for i in 0:(n - 1)
+        if isvalid(validity_ptr, offset + i)
+            len, ptr = _view_bytes(views_ptr, offset + i, data_ptrs)
+            out[i + 1] = _materialize(T, ptr, len)
+        else
+            out[i + 1] = missing
+        end
+    end
+    release!(h)
+    return out
+end
+
+"""
+    _read_offset(::Type{T}, ::Type{OffT}, h::ExportedArray) where {T <: Union{String, Vector{UInt8}}, OffT <: Union{Int32, Int64}}
+
+Bulk reader for Arrow's classic offset-array formats (Utf8/LargeUtf8/Binary/LargeBinary):
+`buffers[0]` = validity, `buffers[1]` = `length(v)+1` cumulative `OffT` offsets, `buffers[2]` =
+the single concatenated data buffer. Not reachable from polars itself (it always exports the view
+formats `_read_view` handles -- see that docstring), but kept for robustness against any other
+Arrow C Data Interface producer this path might one day see.
+"""
+function _read_offset(::Type{T}, ::Type{OffT}, h::ExportedArray) where {T <: Union{String, Vector{UInt8}}, OffT}
+    ca, bufs = _buffers(h)
+    n = Int(ca.length)
+
+    if n == 0
+        release!(h)
+        return T[]
+    end
+
+    offsets_ptr = Ptr{OffT}(bufs[2]) + Int(ca.offset) * sizeof(OffT)
+    data_ptr = Ptr{UInt8}(bufs[3])
+
+    if ca.null_count == 0
+        out = Vector{T}(undef, n)
+        for i in 1:n
+            lo = unsafe_load(offsets_ptr, i)
+            hi = unsafe_load(offsets_ptr, i + 1)
+            out[i] = _materialize(T, data_ptr + lo, Int(hi - lo))
+        end
+        release!(h)
+        return out
+    end
+
+    validity_ptr = Ptr{UInt8}(bufs[1])
+    offset = Int(ca.offset)
+    out = Vector{Union{T, Missing}}(undef, n)
+    for i in 0:(n - 1)
+        if isvalid(validity_ptr, offset + i)
+            lo = unsafe_load(offsets_ptr, i + 1)
+            hi = unsafe_load(offsets_ptr, i + 2)
+            out[i + 1] = _materialize(T, data_ptr + lo, Int(hi - lo))
+        else
+            out[i + 1] = missing
+        end
     end
     release!(h)
     return out

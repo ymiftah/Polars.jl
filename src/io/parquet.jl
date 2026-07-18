@@ -126,7 +126,7 @@ function write_parquet(
     row_group_size_ref = row_group_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(row_group_size))
     data_page_size_ref = data_page_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(data_page_size))
 
-    callback = @cfunction(_write_callback, Cssize_t, (Any, Ptr{Cchar}, Cuint))
+    callback = _io_callback()
     ref = Ref(io)
     err = GC.@preserve compression_level_ref row_group_size_ref data_page_size_ref begin
         polars_dataframe_write_parquet(

@@ -2,7 +2,7 @@ module Polars
 
 import PrettyTables, Tables
 
-const MaybeMissing{T} = Union{T, Union{T, Missing}}
+const MaybeMissing{T} = Union{T, Missing}
 const PhysicalDType = Union{
     Bool, Int8, Int16, Int32, Int64, UInt8,
     UInt16, UInt32, UInt64, Float32, Float64,
@@ -21,11 +21,23 @@ function _write_callback(user, data, len)
     end
 end
 
+"""
+    _io_callback()
+
+Builds the `@cfunction` pointer for [`_write_callback`](@ref), shared by every FFI site that
+streams bytes back into a Julia `IO` (parquet/CSV/IPC writers, `Value` string/binary getters).
+Defined once here, rather than re-typed at each call site, so the argument types can't drift
+from the C `IOCallback` typedef again -- the length argument was `Cuint` (32-bit) at all 5 sites
+until this fix, silently narrowing the C side's `uintptr_t` (64-bit on any real platform).
+"""
+_io_callback() = @cfunction(_write_callback, Cssize_t, (Any, Ptr{Cchar}, Csize_t))
+
 include("./api/API.jl")
 
 using .API
 
 using Dates
+using Statistics
 
 include("./arrow/schema.jl")
 include("./arrow/array.jl")
@@ -45,13 +57,26 @@ function version()
     return VersionNumber(ver)
 end
 
+"""
+    PolarsError <: Exception
+
+Raised when the underlying Rust polars library reports a failure -- an unexecutable query, a
+malformed argument to a fallible operation (e.g. an invalid duration string), and the like.
+`message` is polars' own (Rust-side) error text, unmodified.
+"""
+struct PolarsError <: Exception
+    message::String
+end
+
+Base.showerror(io::IO, err::PolarsError) = print(io, "PolarsError: ", err.message)
+
 function polars_error(err::Ptr{polars_error_t})
     err == C_NULL && return
     str = Ref{Ptr{UInt8}}()
     len = polars_error_message(err, str)
     message = unsafe_string(str[], len)
     polars_error_destroy(err)
-    error(message)
+    throw(PolarsError(message))
 end
 
 # `dataframe.jl`/`lazyframe.jl` must precede every other file below: they define `DataFrame`
@@ -80,14 +105,14 @@ include("./io/parquet.jl")
 include("./io/csv.jl")
 include("./io/ipc.jl")
 
-export Series, DataFrame,
-    read_series,
-    select, with_columns, head, collect_schema,
+export Series, DataFrame, PolarsError,
+    read_series, names,
+    select, with_columns, head, tail, collect_schema,
     read_parquet, write_parquet, scan_parquet,
     read_csv, write_csv, scan_csv, sink_parquet,
     read_ipc, write_ipc, scan_ipc, sink_csv, sink_ipc,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
-    drop, with_row_index, explode, unpivot
+    drop, rename, drop_nulls, with_row_index, explode, unpivot, nth
 
 end # module Polars

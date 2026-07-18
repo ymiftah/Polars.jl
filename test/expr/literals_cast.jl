@@ -88,11 +88,11 @@ end
 end
 
 @testset "Null-dtype DataFrame show/print" begin
-    # Base.show(io, df) routes through the same scalar Series getindex as collect() -- a
-    # regression guard beyond the collect()-only cases above.
+    # The full PrettyTables render (MIME"text/plain" -- see P2.5) routes through the same scalar
+    # Series getindex as collect() -- a regression guard beyond the collect()-only cases above.
     df = DataFrame((; a = [1, 2, 3]))
     r = select(df, col("a"), lit(missing) |> alias("k"))
-    show_str = sprint(show, r)
+    show_str = repr("text/plain", r)
     @test !isempty(show_str)
     @test contains(show_str, "missing")
 end

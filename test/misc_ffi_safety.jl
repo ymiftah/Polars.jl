@@ -116,3 +116,98 @@ end
         @test collect(Polars.collect(scan_csv(c))[:x]) == [1, 2, 3]
     end
 end
+
+@testset "tail/rename are reachable unqualified (Julia-side P0.1)" begin
+    # Both used to extend an unexported Base binding (Base.tail/Base.rename) with no local
+    # binding to `export`, so plain `tail(df, n)`/`rename(df, ...)` raised UndefVarError even
+    # though `Base.tail(df, n)` worked.
+    df = DataFrame((; x = [1, 2, 3, 4, 5]))
+    @test collect(tail(df, 2)[:x]) == [4, 5]
+    @test Tables.columnnames(rename(df, ["x"], ["y"])) == (:y,)
+end
+
+@testset "String/binary/list write path uses 64-bit offsets (Julia-side P0.7)" begin
+    # `format(String)`/`format(Vector{UInt8})`/list columns used to declare the 32-bit-offset
+    # Arrow formats ("u"/"z"/"+l") while building `UInt32`/`Int32` offset buffers -- a column
+    # whose total byte length (or, for lists, total flattened element count) crosses 2^31/2^32
+    # would silently wrap `cumsum!` and corrupt every offset past that point. Switched to the
+    # large-offset formats ("U"/"Z"/"+L") with `Int64` offsets, which have no such practical
+    # limit. This doesn't fabricate multi-GB data (impractical for a test) -- it locks in the
+    # format constants themselves and exercises the actual round trip through polars.
+    @test Polars.format(String) == "U"
+    @test Polars.format(Vector{UInt8}) == "Z"
+    @test Polars.format(Vector{Int}) == "+L"
+    @test Polars.format(Vector{Vector{Int}}) == "+L"
+
+    df = DataFrame((; s = ["hello", "café", missing], x = [[1, 2, 3], [4], Int[]]))
+    @test isequal(collect(df[:s]), ["hello", "café", missing])
+    @test collect(df[:x])[1] == [1, 2, 3]
+
+    mktempdir() do dir
+        p = joinpath(dir, "t.parquet")
+        write_parquet(p, df)
+        r = read_parquet(p)
+        @test isequal(collect(r[:s]), ["hello", "café", missing])
+        @test collect(r[:x])[1] == [1, 2, 3]
+    end
+end
+
+@testset "fixed-size-list schema raises a clear error, not a TypeError (Julia-side P0.2)" begin
+    # `@assert schema.n_children` (an Int64) instead of `@assert schema.n_children == 1` blew up
+    # with a TypeError before ever reaching the "not supported" message. There's no way to
+    # construct an Array-dtype column through this package's own API (only reachable by scanning
+    # a file written by another Arrow implementation), so drive `parse_format` directly against a
+    # hand-built schema.
+    child = Polars.ArrowSchema(; format = "i", name = "item")
+    sch = Polars.ArrowSchema(; format = "+w4", name = "col", children = [child])
+    csch = unsafe_load(Base.unsafe_convert(Ptr{Polars.API.ArrowSchema}, sch))
+    @test_throws Exception Polars.parse_format(csch)
+    try
+        Polars.parse_format(csch)
+    catch e
+        @test !(e isa TypeError)
+    end
+end
+
+@testset "_read_offset: classic Utf8/LargeUtf8 bulk reader (Julia-side P1.2)" begin
+    # polars itself only ever exports the view formats ("vu"/"vz"), which `_read_view` handles
+    # and the "string/binary" testset in datatypes/series.jl exercises live -- `_read_offset`
+    # (classic Utf8/LargeUtf8/Binary/LargeBinary, Int32/Int64 offset buffers) is unreachable
+    # through the normal polars-backed API, so it's driven directly here against a hand-built
+    # `ArrowArray` to confirm the offset arithmetic itself is correct.
+    noop_release(::Ptr{Polars.API.ArrowArray}) = nothing
+    # `@cfunction` normally needs a name resolvable at top level; `$noop_release` (interpolating
+    # the function *value*) uses the runtime closure-cfunction form instead, since this local
+    # function is only defined inside the enclosing `@testset`'s local scope. That form returns a
+    # GC-tracked `Base.CFunction` box (not a raw `Ptr{Cvoid}`), so it must be explicitly converted
+    # and kept alive as long as the C struct holding its address might be invoked.
+    noop_box = @cfunction($noop_release, Cvoid, (Ptr{Polars.API.ArrowArray},))
+    noop_ptr = Base.unsafe_convert(Ptr{Cvoid}, noop_box)
+
+    function make_offset_carray(::Type{OffT}, strs::Vector{Union{String, Missing}}) where {OffT}
+        n = length(strs)
+        nc = count(ismissing, strs)
+        validity = zeros(UInt8, cld(n, 8))
+        for i in 0:(n - 1)
+            ismissing(strs[i + 1]) || (validity[1 + i ÷ 8] |= UInt8(1) << (i % 8))
+        end
+        lens = [ismissing(s) ? 0 : sizeof(s) for s in strs]
+        offsets = Vector{OffT}(undef, n + 1)
+        offsets[1] = 0
+        cumsum!(@view(offsets[2:end]), lens)
+        data = reduce(vcat, (codeunits(s) for s in strs if !ismissing(s)); init = UInt8[])
+        bufptrs = Ptr{Cvoid}[nc > 0 ? pointer(validity) : C_NULL, pointer(offsets), pointer(data)]
+        ca = Polars.API.ArrowArray(n, nc, 0, 3, 0, pointer(bufptrs), C_NULL, C_NULL, noop_ptr, C_NULL)
+        return ca, (validity, offsets, data, bufptrs) # keep the backing arrays alive
+    end
+
+    strs = Union{String, Missing}["hi", missing, "café", "", "x"^30]
+    for OffT in (Int32, Int64)
+        ca, keepalive = make_offset_carray(OffT, strs)
+        GC.@preserve keepalive noop_box begin
+            h = Polars.ExportedArray(ca)
+            result = Polars._read_offset(String, OffT, h)
+            @test isequal(result, strs)
+        end
+    end
+end

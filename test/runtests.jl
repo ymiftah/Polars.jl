@@ -1,4 +1,4 @@
-using Polars, Test, Dates, Tables
+using Polars, Test, Dates, Tables, Statistics
 
 include("fixtures.jl")
 

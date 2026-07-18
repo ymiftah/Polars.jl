@@ -35,7 +35,42 @@ end
 Base.unsafe_convert(::Type{Ptr{polars_series_t}}, series::Series) = series.ptr
 
 Base.size(series::Series) = (series.length,)
-Base.eltype(::Series{T}) where {T} = T
+# No `Base.eltype(::Series{T}) where {T} = T` needed: `Series{T} <: AbstractVector{T}` already
+# gets this for free from `AbstractArray`'s own default (`eltype(::Type{<:AbstractArray{T}}) where
+# T = T`), which resolves identically -- verified via `@code_typed`, both fold to the same
+# `Core.Const` field-type extraction. The explicit method here was pure duplication.
+
+"""
+    Base.copy(series::Series)
+
+Materializes `series` into a native Julia `Vector`, same as [`collect`](@ref) -- lets generic
+code that calls `copy` on an `AbstractVector` (rather than `collect` specifically) still hit the
+bulk `read_series` path instead of falling back to the default `AbstractArray` `copy`
+implementation, which would loop over `getindex` one element at a time.
+"""
+Base.copy(series::Series) = collect(series)
+
+"""
+    _series_getter(::Type{T})
+
+Compile-time dispatch table from a physical dtype `T` to its `polars_series_get_*` ccall
+wrapper, one method per type. This replaces building a `Symbol` from string pieces and resolving
+it via `getproperty(API, name)` at every single element access -- that was a dynamic (runtime)
+global lookup returning an un-inferred `Function`, so the actual ccall couldn't be inlined or
+specialized. Since `T` is known at compile time inside each `getindex` specialization (see below),
+this call constant-folds to a direct, inlinable reference to the right ccall wrapper instead.
+"""
+_series_getter(::Type{Bool}) = API.polars_series_get_bool
+_series_getter(::Type{Int8}) = API.polars_series_get_i8
+_series_getter(::Type{Int16}) = API.polars_series_get_i16
+_series_getter(::Type{Int32}) = API.polars_series_get_i32
+_series_getter(::Type{Int64}) = API.polars_series_get_i64
+_series_getter(::Type{UInt8}) = API.polars_series_get_u8
+_series_getter(::Type{UInt16}) = API.polars_series_get_u16
+_series_getter(::Type{UInt32}) = API.polars_series_get_u32
+_series_getter(::Type{UInt64}) = API.polars_series_get_u64
+_series_getter(::Type{Float32}) = API.polars_series_get_f32
+_series_getter(::Type{Float64}) = API.polars_series_get_f64
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Integer}, MaybeMissing{AbstractFloat}}}
     index = index - 1
@@ -47,11 +82,7 @@ function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{Ma
     T = nomissing(MT)
     out = Ref{T}()
 
-    letter = T <: AbstractFloat ? "f" :
-        T <: Signed ? "i" : "u"
-    name = T == Bool ? :polars_series_get_bool : Symbol("polars_series_get_", letter, 8sizeof(T))
-    f = getproperty(API, name)
-
+    f = _series_getter(T)
     err = f(series, index, out)
     polars_error(err)
     return out[]

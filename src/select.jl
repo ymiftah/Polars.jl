@@ -1,6 +1,6 @@
 _select!(df::LazyFrame, exprs...) = _select!(df, collect(exprs)::Vector)
 function _select!(df::LazyFrame, exprs::Vector)
-    exprs = map(ex -> ex isa String ? col(ex) : ex, exprs)
+    exprs = map(_as_expr, exprs)
     exprs = convert(Vector{Expr}, exprs)
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
@@ -49,7 +49,7 @@ with_columns(df::LazyFrame, exprs...) = _with_columns!(clone(df), collect(exprs)
 with_columns(df::DataFrame, exprs...) = _with_columns!(lazy(df), collect(exprs)::Vector) |> collect
 
 function _with_columns!(df::LazyFrame, exprs::Vector)
-    exprs = map(ex -> ex isa String ? col(ex) : ex, exprs)
+    exprs = map(_as_expr, exprs)
     exprs = convert(Vector{Expr}, exprs)
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
@@ -73,11 +73,21 @@ function _head!(df::LazyFrame, n)
     return df
 end
 
+import Base: tail
+
 """
     tail(lf::LazyFrame, n)::LazyFrame
     tail(df::DataFrame, n)::DataFrame
 
 Returns the last `n` rows of the frame.
+
+Extends `Base.tail` (operates on `Tuple`/`NamedTuple`). Unlike `sum`/`diff`/`prod`/`replace`,
+which are *exported* Base names already visible unqualified inside any module, `tail` is
+`isdefined(Base, :tail) == true` but **not exported** -- so it isn't visible unqualified without
+the explicit `import Base: tail` above, and a plain `export tail` below would otherwise fail with
+`UndefVarError` (there being no local `tail` binding to export). This is the same trap documented
+in CLAUDE.md for `Expr::product`/`Base.product`, just on a plain `Base.foo(...) = ...` extension
+instead of the `@generate_expr_fns` macro.
 """
 Base.tail(df::LazyFrame, n = 5) = _tail!(clone(df), n)
 Base.tail(df::DataFrame, n = 5) = _tail!(lazy(df), n) |> collect

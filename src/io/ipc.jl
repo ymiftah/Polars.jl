@@ -95,7 +95,7 @@ function write_ipc(
     compression_level_ref = compression_level === nothing ? Ptr{Int32}(C_NULL) : Ref(Int32(compression_level))
     record_batch_size_ref = record_batch_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(record_batch_size))
 
-    callback = @cfunction(_write_callback, Cssize_t, (Any, Ptr{Cchar}, Cuint))
+    callback = _io_callback()
     ref = Ref(io)
     err = GC.@preserve compression_level_ref record_batch_size_ref begin
         polars_dataframe_write_ipc(
