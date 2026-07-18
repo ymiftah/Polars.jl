@@ -504,7 +504,15 @@ pub unsafe extern "C" fn polars_lazy_frame_collect_schema(
             arrow::datatypes::ArrowDataType::Struct(arrow_schema.iter_values().cloned().collect()),
             false,
         );
-        *out = ffi::export_field_to_c(&structfield);
+        // `out` points at caller-allocated but *uninitialized* memory (the Julia side passes
+        // `Ref{ArrowSchema}()`, never a previously-valid schema) -- `*out = ...` would first run
+        // `ArrowSchema`'s `Drop` impl (it has a `release` callback) on whatever garbage bytes are
+        // already there before overwriting them, which is UB: on one allocator's leftover
+        // garbage that's a harmless no-op, on another's it's a segfault deep in the drop glue.
+        // `write` (aka `std::ptr::write`) stores the value without touching/dropping the
+        // destination first, which is the correct way to populate caller-allocated-but-not-yet-
+        // initialized memory.
+        out.write(ffi::export_field_to_c(&structfield));
         std::ptr::null()
     })
 }
