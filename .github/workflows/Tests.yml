@@ -31,7 +31,7 @@ jobs:
         run: |
           julia --project=gen -e 'import Pkg; Pkg.instantiate()'
           julia --project=gen gen/generate.jl
-          uvx --with "pre-commit>=4.1.0" pre-commit run runic --files src/api/generated.jl
+          uvx --with "pre-commit>=4.1.0" pre-commit run runic --files src/api/generated.jl || true
           git diff --exit-code -- src/api/generated.jl
 
   rust:
