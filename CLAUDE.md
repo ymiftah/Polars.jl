@@ -229,6 +229,31 @@ machine's RAM (~9 GB available) and the OOM killer takes the session down with i
 already killed a session mid-refactor. Dependencies are cached, so only a feature change forces
 the full ~3 min rebuild.
 
+**Dependencies build optimized even in the default dev profile** (`c-polars/Cargo.toml`'s
+`[profile.dev.package."*"] opt-level = 3`) — a plain `cargo build` used to run every polars
+kernel unoptimized (opt-level 0), which silently invalidated any live timing/benchmark taken
+against a dev build. `c-polars`'s own thin FFI shim stays unoptimized/incremental, so a
+header/binding-only change still rebuilds fast; only a dependency-affecting change (a fresh
+clone, a `Cargo.toml`/`Cargo.lock` change, or the very first build after this profile was added)
+forces a full from-scratch optimized rebuild of every vendored crate.
+
+**That full rebuild is real memory pressure, not just "slower" — cap it at `-j 1` the first
+time.** Optimized (opt-level 3) compilation of `polars-ops`/`polars-core`/etc. uses far more RAM
+per rustc worker than the old opt-level-0 baseline the `-j 4` cap above was calibrated for —
+confirmed by a real incident: a full dependency rebuild at `-j 4` right after adding this profile
+setting exhausted RAM+swap and the OOM killer picked off the VS Code host process itself (killing
+this session with it, since Claude Code runs as a VS Code extension here), even though baseline
+memory pressure before the build was already fairly high. `-j 1` (one rustc worker at a time,
+peaking around the size of the single largest crate rather than four of them at once) completed
+the same rebuild without incident, just slower. Once the full dependency set is built once,
+subsequent `-j 4` builds are back to the normal fast/cheap `c-polars`-only incremental case.
+
+**`cargo build --release`** (`[profile.release]`: thin LTO + `codegen-units = 1`) is available for
+a genuinely optimized distribution artifact; `gen/prologue.jl` prefers `target/release/` over
+`target/debug/` when both exist. This is not the default dev-loop build — building it pays the
+same full-rebuild memory cost as above (release and dev profiles don't share cached artifacts),
+so don't reach for it during ordinary iteration.
+
 **Build `c-polars` with the stable Rust toolchain**, not nightly — `c-polars/rust-toolchain` is
 pinned to `stable` deliberately. A polars dependency (`polars-ops`) auto-detects a nightly rustc via
 its own `build.rs` and unconditionally opts into a nightly-only internal code path that depends on
@@ -270,3 +295,10 @@ Create one with `Pkg.develop(path=".")` plus `Pkg.add(["Aqua", "Test", "Tables",
   present in the reference schema, not files with an *extra* column beyond it** — that's a
   separate `ExtraColumnsPolicy` this wrapper doesn't expose. The reference schema is whichever
   file/fragment gets scanned first; ordering matters when testing this.
+- **No handle (`DataFrame`/`LazyFrame`/`Series`/`Expr`/`Value`) is safe to share across Julia
+  tasks/threads without external synchronization** — they're thin unsynchronized pointer wrappers.
+  The only internal locks (`LIVE_SCHEMAS_LOCK`/`LIVE_ARRAYS_LOCK`) guard Arrow C Data Interface
+  release-callback bookkeeping, not query concurrency; polars' own rayon-backed parallelism
+  (`multithreaded: true` on select Rust operations) runs on its own pool sized by
+  `POLARS_MAX_THREADS`, independent of `JULIA_NUM_THREADS`. See "Concurrency" in
+  `docs/src/limitations.md` for the user-facing version of this.
