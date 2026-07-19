@@ -1,8 +1,9 @@
 # Batch: coalesce, upsample, interpolate, horizontal reductions, as_struct
 
 ## Status
-Everything through `972e6d1` (Datetime/Duration eltype fix) is done, 9 commits ahead of
-`origin/scan-parquet`, not pushed. This plan covers the 5-item batch identified in the latest gap
+Everything through `972e6d1` (Datetime/Duration eltype fix) is done, committed, and pushed
+(`scan-parquet` has since merged into `main` via PR #1). This plan covers the 5-item batch
+identified in the latest gap
 analysis, in priority order: `coalesce`, `upsample`, `interpolate`, horizontal reductions
 (`all_horizontal`/`any_horizontal`/`sum_horizontal`/`min_horizontal`/`max_horizontal`, +
 `mean_horizontal` as a bonus, same shape), `as_struct`.

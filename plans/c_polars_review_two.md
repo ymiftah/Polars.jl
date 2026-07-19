@@ -2,7 +2,7 @@
 
 ## Status
 
-**Done** (branch `review-one`, all 7 items below fixed; not yet committed). Findings from a full
+**Done** (branch `review-one`, all 7 items below fixed; committed and pushed). Findings from a full
 re-review of `c-polars/` after the `review-one` hardening branch (see `plans/c_polars_hardening.md`,
 whose work this review confirms: memory management is sound, every `rev.md` item verified fixed or
 deliberately deferred). The items below were the *residuals* that pass missed — mostly latent-UB

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Done** (branch `review-one`, 2026-07-18; not yet committed). Every item below (P0-P3) landed.
+**Done** (branch `review-one`, 2026-07-18; committed and pushed). Every item below (P0-P3) landed.
 Final verification: full suite in the scratch env (`Pkg.develop(path=".")` +
 Aqua/Test/Tables/TimeZones/Statistics) **1235 passed / 2 broken (pre-existing) / 0 failed**
 (up from the pre-change baseline of 1151/2/0 — 84 new/updated regression tests added across the

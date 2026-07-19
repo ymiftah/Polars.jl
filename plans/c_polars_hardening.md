@@ -2,7 +2,7 @@
 
 ## Status
 
-**Done** (branch `review-one`, 1151 Julia tests + 7 Rust tests, not yet committed); only the
+**Done** (branch `review-one`, 1151 Julia tests + 7 Rust tests, committed and pushed); only the
 deliberately-deferred cosmetic items below remain out of scope for this branch. Reviewer comments
 captured verbatim in `rev.md` (expr.rs / dataframe.rs / value.rs, rated C+ / weak-B- / B-). This
 plan addresses every reviewer comment plus defects found first-hand in the files the reviewer did
