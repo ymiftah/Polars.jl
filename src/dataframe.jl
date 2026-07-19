@@ -98,7 +98,12 @@ import Tables: schema
 """Reads column names straight from the Arrow schema, with no query executed -- the cheap half
 of what [`schema`](@ref) below does (it additionally refines nullability from real null counts,
 which needs a `select` over the whole frame)."""
-_column_names(df::DataFrame) = load_dataframe_schema(API.polars_dataframe_schema(df)).names
+function _column_names(df::DataFrame)
+    out = Ref{CArrowSchema}()
+    err = API.polars_dataframe_schema(df, out)
+    polars_error(err)
+    return load_dataframe_schema(out[]).names
+end
 
 """
     Base.names(df::DataFrame)::Vector{String}
@@ -109,7 +114,10 @@ the Arrow schema and runs no query at all, so it's cheap regardless of `df`'s si
 Base.names(df::DataFrame) = collect(String.(_column_names(df)))
 
 function schema(df::DataFrame)
-    (; names, types) = load_dataframe_schema(API.polars_dataframe_schema(df))
+    schema_out = Ref{CArrowSchema}()
+    err = API.polars_dataframe_schema(df, schema_out)
+    polars_error(err)
+    (; names, types) = load_dataframe_schema(schema_out[])
 
     # Refine types by fetching real null counts, this should be quite
     # cheap.

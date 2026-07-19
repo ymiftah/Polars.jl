@@ -79,14 +79,21 @@ pub unsafe extern "C" fn polars_dataframe_new_from_carrow(
 
 /// Returns a ArrowSchema describing the dataframe's schema according to Arrow C Data interface.
 #[no_mangle]
-pub unsafe extern "C" fn polars_dataframe_schema(df: *mut polars_dataframe_t) -> ArrowSchema {
-    let schema = (*df).inner.schema().to_arrow(CompatLevel::newest());
-    let structfield = arrow::datatypes::Field::new(
-        "polars.dataframe".into(),
-        arrow::datatypes::ArrowDataType::Struct(schema.iter_values().cloned().collect()),
-        false,
-    );
-    ffi::export_field_to_c(&structfield)
+pub unsafe extern "C" fn polars_dataframe_schema(
+    df: *mut polars_dataframe_t,
+    out: *mut ArrowSchema,
+) -> *const polars_error_t {
+    assert!(!df.is_null());
+    guard_error(|| {
+        let schema = (*df).inner.schema().to_arrow(CompatLevel::newest());
+        let structfield = arrow::datatypes::Field::new(
+            "polars.dataframe".into(),
+            arrow::datatypes::ArrowDataType::Struct(schema.iter_values().cloned().collect()),
+            false,
+        );
+        out.write(ffi::export_field_to_c(&structfield));
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -128,6 +135,7 @@ pub unsafe extern "C" fn polars_dataframe_new_from_series(
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_dataframe_destroy(df: *mut polars_dataframe_t) {
+    assert!(!df.is_null());
     let _ = Box::from_raw(df);
 }
 

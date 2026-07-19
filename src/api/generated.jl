@@ -243,12 +243,12 @@ function polars_dataframe_new_from_carrow(cfield, carray, out)
 end
 
 """
-    polars_dataframe_schema(df)
+    polars_dataframe_schema(df, out)
 
 Returns a [`ArrowSchema`](@ref) describing the dataframe's schema according to Arrow C Data interface.
 """
-function polars_dataframe_schema(df)
-    return @ccall libpolars.polars_dataframe_schema(df::Ptr{polars_dataframe_t})::ArrowSchema
+function polars_dataframe_schema(df, out)
+    return @ccall libpolars.polars_dataframe_schema(df::Ptr{polars_dataframe_t}, out::Ptr{ArrowSchema})::Ptr{polars_error_t}
 end
 
 function polars_dataframe_new_from_series(series, nseries, out)
@@ -1097,17 +1097,17 @@ function polars_series_null_count(series)
     return @ccall libpolars.polars_series_null_count(series::Ptr{polars_series_t})::Csize_t
 end
 
-function polars_series_schema(series)
-    return @ccall libpolars.polars_series_schema(series::Ptr{polars_series_t})::ArrowSchema
+function polars_series_schema(series, out)
+    return @ccall libpolars.polars_series_schema(series::Ptr{polars_series_t}, out::Ptr{ArrowSchema})::Ptr{polars_error_t}
 end
 
 """
-    polars_series_export_carray(series)
+    polars_series_export_carray(series, out)
 
 Exports the series' data as a single Arrow C Data Interface [`ArrowArray`](@ref), collapsing the series to one chunk first if necessary. The returned [`ArrowArray`](@ref) is self-contained (owns its buffers via the release callback) and can outlive `series` -- the caller takes ownership and must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly once.
 """
-function polars_series_export_carray(series)
-    return @ccall libpolars.polars_series_export_carray(series::Ptr{polars_series_t})::ArrowArray
+function polars_series_export_carray(series, out)
+    return @ccall libpolars.polars_series_export_carray(series::Ptr{polars_series_t}, out::Ptr{ArrowArray})::Ptr{polars_error_t}
 end
 
 """

@@ -73,9 +73,9 @@ handled for free.
 - Functions that *construct a new* object (`scan_parquet`, `group_by`, `clone`) do
   `Box::into_raw(Box::new(...))` and return a fresh pointer; the input, if any, is only
   read/cloned, never consumed.
-- Functions that *mutate in place* (`filter`, `select`, `with_columns`, `sort`) reclaim ownership
-  via `Box::from_raw`, mutate `.inner`, then `std::mem::forget` to hand the same pointer back
-  without dropping it.
+- Functions that *mutate in place* (`filter`, `select`, `with_columns`, `sort`) borrow `&mut
+  (*handle).inner` directly and mutate through it, returning void; the Julia wrapper clones first
+  (`select(df) = _select!(clone(df), ...)`), so no caller ever observes the mutation.
 - Every `*_destroy` function does `Box::from_raw(...)` and lets it drop.
 
 **Error handling.** Fallible functions return `*const polars_error_t` (null = success); the actual

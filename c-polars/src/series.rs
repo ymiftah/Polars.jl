@@ -1,7 +1,7 @@
 use polars::prelude::*;
 use polars_core::utils::arrow::ffi::{self, ArrowArray, ArrowSchema};
 
-use crate::{make_error, polars_error_t, types::*, value::polars_value_type_t};
+use crate::{guard_error, make_error, polars_error_t, types::*, value::polars_value_type_t};
 
 pub(crate) fn make_series(series: Series) -> *mut polars_series_t {
     Box::into_raw(Box::new(polars_series_t { inner: series }))
@@ -32,9 +32,17 @@ pub unsafe extern "C" fn polars_series_null_count(series: *mut polars_series_t) 
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_series_schema(series: *mut polars_series_t) -> ArrowSchema {
+pub unsafe extern "C" fn polars_series_schema(
+    series: *mut polars_series_t,
+    out: *mut ArrowSchema,
+) -> *const polars_error_t {
     assert!(!series.is_null());
-    ffi::export_field_to_c(&(*series).inner.field().to_arrow(CompatLevel::newest()))
+    guard_error(|| {
+        out.write(ffi::export_field_to_c(
+            &(*series).inner.field().to_arrow(CompatLevel::newest()),
+        ));
+        std::ptr::null()
+    })
 }
 
 /// Exports the series' data as a single Arrow C Data Interface `ArrowArray`, collapsing the
@@ -43,10 +51,19 @@ pub unsafe extern "C" fn polars_series_schema(series: *mut polars_series_t) -> A
 /// must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly
 /// once.
 #[no_mangle]
-pub unsafe extern "C" fn polars_series_export_carray(series: *mut polars_series_t) -> ArrowArray {
+pub unsafe extern "C" fn polars_series_export_carray(
+    series: *mut polars_series_t,
+    out: *mut ArrowArray,
+) -> *const polars_error_t {
     assert!(!series.is_null());
-    let rechunked = (*series).inner.rechunk();
-    ffi::export_array_to_c(rechunked.chunks()[0].to_boxed())
+    guard_error(|| {
+        let rechunked = (*series).inner.rechunk();
+        let Some(chunk) = rechunked.chunks().first() else {
+            return make_error("series has no chunks to export");
+        };
+        out.write(ffi::export_array_to_c(chunk.to_boxed()));
+        std::ptr::null()
+    })
 }
 
 /// Returns whether or not the value at index `index` is null, return false if the index is out of

@@ -61,6 +61,16 @@ const _NUMERIC_FORMATS = Dict{String, DataType}(
     "e" => Float16, "f" => Float32, "g" => Float64,
 )
 
+"""Exports `series`' data via `polars_series_export_carray` and wraps the result as an
+[`ExportedArray`](@ref), hoisting the out-param `Ref` + error-check dance shared by every
+`read_series` branch below."""
+function _export_carray(series::Series)
+    out = Ref{CArrowArray}()
+    err = polars_series_export_carray(series, out)
+    polars_error(err)
+    return ExportedArray(out[])
+end
+
 """
     read_series(series::Series; zerocopy::Bool = false)
 
@@ -77,51 +87,53 @@ is silently not honored (falls back to the safe copy) whenever the true zero-cop
 (no nulls, fixed-width numeric) doesn't hold.
 """
 function read_series(series::Series; zerocopy::Bool = false)
-    schema = polars_series_schema(series)
-    fmt, is_dictionary = _schema_format!(schema)
+    schema_out = Ref{CArrowSchema}()
+    err = polars_series_schema(series, schema_out)
+    polars_error(err)
+    fmt, is_dictionary = _schema_format!(schema_out[])
     is_dictionary && return nothing
 
     if haskey(_NUMERIC_FORMATS, fmt)
         T = _NUMERIC_FORMATS[fmt]
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_numeric(T, h, zerocopy)
     elseif fmt == "b"
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_bool(h)
     elseif fmt == "vu" # Utf8View -- what polars actually produces for every String series
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_view(String, h)
     elseif fmt == "vz" # BinaryView -- what polars actually produces for every Binary series
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_view(Vector{UInt8}, h)
     elseif fmt in ("u", "U") # classic Utf8/LargeUtf8 (Int32/Int64 offsets) -- not produced by
         # polars itself (it always exports "vu"), but a defensive fallback for any other Arrow
         # producer this path might see in the future.
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_offset(String, fmt == "u" ? Int32 : Int64, h)
     elseif fmt in ("z", "Z") # classic Binary/LargeBinary -- see the "u"/"U" note above.
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_offset(Vector{UInt8}, fmt == "z" ? Int32 : Int64, h)
     elseif fmt == "tdD"
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_transformed(Date, Int32, h, v -> Date(1970, 1, 1) + Dates.Day(v))
     elseif fmt in ("ttu", "ttn")
         # time64: nanoseconds ("ttn", what polars produces) or microseconds ("ttu"). The time32
         # encodings ("tts"/"ttm") are Int32-backed and fall through to the generic path below.
         NsPer = fmt == "ttn" ? 1 : 1000
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_transformed(Dates.Time, Int64, h, v -> Dates.Time(Dates.Nanosecond(v * NsPer)))
     elseif fmt in ("tDn", "tDu", "tDm")
         PeriodT = fmt == "tDn" ? Dates.Nanosecond :
             fmt == "tDu" ? Dates.Microsecond : Dates.Millisecond
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_transformed(PeriodT, Int64, h, PeriodT)
     elseif startswith(fmt, "tsn:") || startswith(fmt, "tsu:") || startswith(fmt, "tsm:")
         tz = fmt[5:end]
         isempty(tz) || return nothing # tz-aware: needs the TimeZones extension, fall back for now
         PeriodT = fmt[3] == 'n' ? Dates.Nanosecond :
             fmt[3] == 'u' ? Dates.Microsecond : Dates.Millisecond
-        h = ExportedArray(polars_series_export_carray(series))
+        h = _export_carray(series)
         return _read_transformed(DateTime, Int64, h, v -> DateTime(1970, 1, 1) + PeriodT(v))
     else
         return nothing

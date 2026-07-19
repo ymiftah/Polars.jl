@@ -16,8 +16,10 @@ mutable struct Series{T} <: AbstractVector{T}
         # fixed-size list, see `src/arrow/schema.jl`) would otherwise leak `ptr` -- catch, destroy
         # the still-owned pointer, and rethrow the original error.
         try
-            schema = polars_series_schema(ptr)
-            _, T = load_series_schema(schema)
+            schema_out = Ref{CArrowSchema}()
+            err = polars_series_schema(ptr, schema_out)
+            polars_error(err)
+            _, T = load_series_schema(schema_out[])
 
             len = polars_series_length(ptr)
             null_count = polars_series_null_count(ptr)

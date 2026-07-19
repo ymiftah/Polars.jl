@@ -119,7 +119,10 @@ end
                 ([UInt8[1, 2, 3], UInt8[], rand(UInt8, 30), rand(UInt8, 5)], Vector{UInt8}),
             )
             s = Series(:x, values)
-            fmt, _ = Polars._schema_format!(Polars.API.polars_series_schema(s))
+            schema_out = Ref{Polars.API.ArrowSchema}()
+            err = Polars.API.polars_series_schema(s, schema_out)
+            Polars.polars_error(err)
+            fmt, _ = Polars._schema_format!(schema_out[])
             @test fmt in ("vu", "vz")
             bulk = collect(s)
             @test bulk == [s[i] for i in eachindex(s)]
@@ -169,7 +172,7 @@ end
 
     @testset "double-release is idempotent (no double-free)" begin
         s = Series(:x, Union{Int64, Missing}[1, missing, 3])
-        h = Polars.ExportedArray(Polars.polars_series_export_carray(s))
+        h = Polars._export_carray(s)
         Polars.release!(h)  # eager release, as the copy path does
         Polars.release!(h)  # must be a no-op, not a double-free
         finalize(h)          # forcing the finalizer too must also be a no-op

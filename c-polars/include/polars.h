@@ -206,7 +206,8 @@ const struct polars_error_t *polars_dataframe_new_from_carrow(const ArrowSchema 
 /**
  * Returns a ArrowSchema describing the dataframe's schema according to Arrow C Data interface.
  */
-ArrowSchema polars_dataframe_schema(struct polars_dataframe_t *df);
+const struct polars_error_t *polars_dataframe_schema(struct polars_dataframe_t *df,
+                                                     ArrowSchema *out);
 
 const struct polars_error_t *polars_dataframe_new_from_series(struct polars_series_t *const *series,
                                                               uintptr_t nseries,
@@ -1058,7 +1059,8 @@ uintptr_t polars_series_length(struct polars_series_t *series);
 
 uintptr_t polars_series_null_count(struct polars_series_t *series);
 
-ArrowSchema polars_series_schema(struct polars_series_t *series);
+const struct polars_error_t *polars_series_schema(struct polars_series_t *series,
+                                                  ArrowSchema *out);
 
 /**
  * Exports the series' data as a single Arrow C Data Interface `ArrowArray`, collapsing the
@@ -1067,7 +1069,8 @@ ArrowSchema polars_series_schema(struct polars_series_t *series);
  * must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly
  * once.
  */
-ArrowArray polars_series_export_carray(struct polars_series_t *series);
+const struct polars_error_t *polars_series_export_carray(struct polars_series_t *series,
+                                                         ArrowArray *out);
 
 /**
  * Returns whether or not the value at index `index` is null, return false if the index is out of
