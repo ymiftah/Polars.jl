@@ -24,6 +24,7 @@ pub unsafe extern "C" fn polars_dataframe_size(
     rows: *mut usize,
     cols: *mut usize,
 ) {
+    assert!(!df.is_null());
     let df = &(*df).inner;
     *rows = df.height();
     *cols = df.width();
@@ -398,7 +399,11 @@ pub unsafe extern "C" fn polars_lazy_frame_sort(
     let exprs = read_exprs(exprs, nexprs);
     let descending = read_bool_mask(descending, nexprs);
     let df = &mut (*df).inner;
-    *df = df.clone().sort_by_exprs(
+    // `sort_by_exprs` takes `self` by value; the caller cannot observe `*df` between this move
+    // and the following assignment (single-threaded within one ccall), so moving the plan out via
+    // `mem::take` (leaving a cheap `LazyFrame::default()` behind momentarily) avoids the otherwise
+    // redundant plan clone -- the Julia-side eager wrappers already clone before calling in.
+    *df = std::mem::take(df).sort_by_exprs(
         &exprs,
         SortMultipleOptions {
             descending,
@@ -435,7 +440,8 @@ pub unsafe extern "C" fn polars_lazy_frame_with_columns(
 ) {
     let exprs = read_exprs(exprs, nexprs);
     let df = &mut (*df).inner;
-    *df = df.clone().with_columns(&exprs);
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).with_columns(&exprs);
 }
 
 #[no_mangle]
@@ -446,7 +452,8 @@ pub unsafe extern "C" fn polars_lazy_frame_select(
 ) {
     let exprs = read_exprs(exprs, nexprs);
     let df = &mut (*df).inner;
-    *df = df.clone().select(&exprs);
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).select(&exprs);
 }
 
 #[no_mangle]
@@ -460,7 +467,8 @@ pub unsafe extern "C" fn polars_lazy_frame_filter(
     // the `polars_expr_t` handle (destroyed separately via `polars_expr_destroy`).
     let predicate = (*expr).inner.clone();
     let df = &mut (*df).inner;
-    *df = df.clone().filter(predicate);
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).filter(predicate);
 }
 
 #[no_mangle]
@@ -978,13 +986,15 @@ pub unsafe extern "C" fn polars_lazy_frame_pivot(
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_head(df: *mut polars_lazy_frame_t, n: usize) {
     let df = &mut (*df).inner;
-    *df = df.clone().limit(n.min(IdxSize::MAX as usize) as IdxSize);
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).limit(n.min(IdxSize::MAX as usize) as IdxSize);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_tail(df: *mut polars_lazy_frame_t, n: usize) {
     let df = &mut (*df).inner;
-    *df = df.clone().tail(n.min(IdxSize::MAX as usize) as IdxSize);
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).tail(n.min(IdxSize::MAX as usize) as IdxSize);
 }
 
 #[no_mangle]

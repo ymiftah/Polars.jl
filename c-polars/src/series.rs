@@ -50,6 +50,11 @@ pub unsafe extern "C" fn polars_series_schema(
 /// buffers via the release callback) and can outlive `series` -- the caller takes ownership and
 /// must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly
 /// once.
+///
+/// `rechunk()` is a cheap Arc-clone when `series` is already single-chunk (the common case), but
+/// a genuinely fragmented series (many small chunks, e.g. after repeated `concat`/streaming
+/// appends without an explicit rechunk) pays a real one-time data copy here to produce the single
+/// contiguous chunk the C Data Interface export needs.
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_export_carray(
     series: *mut polars_series_t,
