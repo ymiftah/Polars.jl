@@ -11,17 +11,26 @@ mutable struct Series{T} <: AbstractVector{T}
     function Series(ptr)
         @assert ptr != C_NULL
 
-        schema = polars_series_schema(ptr)
-        _, T = load_series_schema(schema)
+        # No finalizer is registered yet at this point, so an error anywhere below (e.g.
+        # `load_series_schema`/`parse_format` throwing on an unsupported dtype such as a
+        # fixed-size list, see `src/arrow/schema.jl`) would otherwise leak `ptr` -- catch, destroy
+        # the still-owned pointer, and rethrow the original error.
+        try
+            schema = polars_series_schema(ptr)
+            _, T = load_series_schema(schema)
 
-        len = polars_series_length(ptr)
-        null_count = polars_series_null_count(ptr)
+            len = polars_series_length(ptr)
+            null_count = polars_series_null_count(ptr)
 
-        T = iszero(null_count) ? nomissing(T) : T
+            T = iszero(null_count) ? nomissing(T) : T
 
-        series = new{T}(ptr, null_count, len)
+            series = new{T}(ptr, null_count, len)
 
-        return finalizer(polars_series_destroy, series)
+            return finalizer(polars_series_destroy, series)
+        catch
+            API.polars_series_destroy(ptr)
+            rethrow()
+        end
     end
 end
 

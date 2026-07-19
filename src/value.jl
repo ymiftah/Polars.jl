@@ -121,7 +121,7 @@ function load_value(value::Value{TT}) where {TT <: Dates.Period}
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int64}()
-    err = polars_value_duration_get(value.ptr, v)
+    err = polars_value_duration_get(value, v)
     polars_error(err)
 
     tu = polars_value_time_unit(value)
@@ -141,7 +141,7 @@ function load_value(value::Value{Dates.DateTime})
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int64}()
-    err = polars_value_datetime_get(value.ptr, v)
+    err = polars_value_datetime_get(value, v)
     polars_error(err)
 
     tu = polars_value_time_unit(value)
@@ -161,7 +161,7 @@ function load_value(value::Value{Date})
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int32}()
-    err = polars_value_date_get(value.ptr, v)
+    err = polars_value_date_get(value, v)
     polars_error(err)
     return Date(1970, 01, 01) + Dates.Day(v[])
 end
@@ -171,7 +171,7 @@ function load_value(value::Value{Dates.Time})
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int64}()
-    err = polars_value_time_get(value.ptr, v)
+    err = polars_value_time_get(value, v)
     polars_error(err)
     # polars' `Time` is always nanoseconds since midnight (it carries no TimeUnit, unlike
     # Datetime/Duration), and `Dates.Time` is nanosecond-resolution too, so this is exact.

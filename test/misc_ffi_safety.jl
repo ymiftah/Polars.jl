@@ -3,6 +3,8 @@
 # process rather than raising a catchable Julia error -- so "the test process is still alive" is
 # itself part of what is being asserted.
 
+using TimeZones
+
 @testset "empty expr list / null pointer into read_exprs (P0.3)" begin
     # `slice::from_raw_parts` requires a non-null aligned pointer even for len 0, and the Julia
     # side may pass null/dangling for an empty list. Pre-fix this was UB; it must now be a plain
@@ -166,6 +168,63 @@ end
         Polars.parse_format(csch)
     catch e
         @test !(e isa TypeError)
+    end
+end
+
+@testset "GC stress: Value accessors survive interleaved GC (P1 GC use-after-free fix)" begin
+    # `Value` ccalls (polars_value_duration_get/datetime_get/date_get/time_get) used to pass the
+    # raw `value.ptr` instead of `value` itself, bypassing the `unsafe_convert`-based rooting that
+    # keeps the wrapper (and the Rust-owned pointee) alive for the ccall's duration -- a GC
+    # running on another thread mid-ccall could finalize (and destroy) the `Value` while Rust was
+    # still using it. This doesn't deterministically reproduce that race (it needs an unlucky
+    # concurrent GC), but repeatedly materializing every accessor affected by the fix with a
+    # `GC.gc()` forced in between at least exercises the fixed call sites under GC pressure.
+    #
+    # The companion fix -- the Series constructor leaking its owned pointer when `parse_format`
+    # throws on an unsupported dtype (`src/series.jl`) -- has no independent regression test here:
+    # there's no way to construct a genuinely unsupported-dtype `Series` through this package's
+    # public API (see the fixed-size-list testset above), so the only assertion available for that
+    # fix is that ordinary construction still installs a working finalizer, which the rest of this
+    # suite already exercises continuously.
+    df = DataFrame((;
+        dt = [DateTime(2024, 1, 1) + Dates.Day(i) for i in 1:50],
+        dt2 = [DateTime(2024, 1, 1) for _ in 1:50],
+        d = [Date(2024, 1, 1) + Dates.Day(i) for i in 1:50],
+        t = [Dates.Time(0, 0, 0) + Dates.Second(i) for i in 1:50],
+    ))
+    # Duration columns have no write-side arrow support (see test/datatypes/series.jl) -- derive
+    # one from datetime subtraction instead, same as that file does.
+    dur = select(df, (col("dt") - col("dt2")) |> alias("dur"))[:dur]
+    for i in 1:50
+        v = df[:dt][i]
+        GC.gc()
+        @test v isa DateTime
+
+        v = df[:d][i]
+        GC.gc()
+        @test v isa Date
+
+        v = df[:t][i]
+        GC.gc()
+        @test v isa Dates.Time
+
+        v = dur[i]
+        GC.gc()
+        @test v isa Dates.Nanosecond
+    end
+end
+
+@testset "GC stress: tz-aware Value accessor survives interleaved GC (P1 fix, PolarsTimeZonesExt)" begin
+    # Same rationale as above, for the extension's `load_value(::Value{ZonedDateTime})` method,
+    # which also fixed a cross-statement borrow: `polars_value_time_zone` returns a pointer into
+    # `value`'s Rust-owned memory, and the subsequent `unsafe_string` call (itself a GC point) used
+    # to read through it outside of any `GC.@preserve`.
+    df = DataFrame((; t = [DateTime(2024, 6, 15, 12, 0, 0) + Dates.Hour(i) for i in 1:50]))
+    utc = select(df, alias(Dt.replace_time_zone(col("t"), "UTC"), "t"))
+    for i in 1:50
+        v = utc[:t][i]
+        GC.gc()
+        @test v isa ZonedDateTime
     end
 end
 

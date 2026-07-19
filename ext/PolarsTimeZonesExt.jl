@@ -11,7 +11,7 @@ Polars._resolve_tz_aware_datetime_type(::AbstractString) = ZonedDateTime
 
 function Polars.load_value(value::Polars.Value{ZonedDateTime})
     v = Ref{Int64}()
-    err = Polars.polars_value_datetime_get(value.ptr, v)
+    err = Polars.polars_value_datetime_get(value, v)
     Polars.polars_error(err)
 
     tu = Polars.polars_value_time_unit(value)
@@ -25,10 +25,16 @@ function Polars.load_value(value::Polars.Value{ZonedDateTime})
         error("invalid datetime")
     end
 
-    tz_ptr = Ref{Ptr{UInt8}}()
-    tz_len = Polars.polars_value_time_zone(value.ptr, tz_ptr)
-    tz_len == 0 && error("expected a timezone-aware datetime value, got a naive one")
-    tz = unsafe_string(tz_ptr[], tz_len)
+    # `polars_value_time_zone` returns a pointer into `value`'s Rust-owned memory; `unsafe_string`
+    # is itself an allocating call (a GC point), so the whole borrow must stay inside one
+    # `GC.@preserve value` block -- otherwise `value` could be finalized (destroying the Rust-side
+    # data the pointer refers to) between the ccall and `unsafe_string` reading through it.
+    tz = GC.@preserve value begin
+        tz_ptr = Ref{Ptr{UInt8}}()
+        tz_len = Polars.polars_value_time_zone(value, tz_ptr)
+        tz_len == 0 && error("expected a timezone-aware datetime value, got a naive one")
+        unsafe_string(tz_ptr[], tz_len)
+    end
 
     utc = ZonedDateTime(naive_utc, tz"UTC")
     return astimezone(utc, TimeZone(tz))
