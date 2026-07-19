@@ -2,8 +2,26 @@
 
 ## Status
 
-In progress (branch `review-one`). P0 was already resolved by an earlier commit on this branch
-(`9bf0fbd`) before this plan's execution began — verified below, no new commit needed for it.
+**Done** (branch `review-one`). P0 was already resolved by an earlier commit on this branch
+(`9bf0fbd`) before this plan's execution began — verified, no new commit needed for it. P1-P4
+landed as four (well, seven, counting sub-tier splits) separate commits, each independently
+verified (targeted tests + live exercise) before the next tier began. Final full-suite run in the
+scratch env: **1485 passed / 2 broken (pre-existing, same Aqua categories as baseline) / 0
+failed** (up from the pre-change baseline of 1235/2/1237 — the +250 are almost entirely the new
+P1 GC-stress regression tests, which loop 50 iterations across several assertions each). Rust:
+`cargo build/clippy/fmt/test` clean throughout, header drift check clean after every regeneration.
+
+One notable mid-execution finding: a concurrent, unrelated session was independently mid-edit
+(uncommitted) on `src/expr/expr.jl` for a separate docs-coverage plan
+(`plans/docstring_and_examples_coverage.md`) when this plan's P4 tier needed to touch the same
+file (the `@generate_expr_fns` macro). That in-progress edit added an optional 3rd-arg description
+to one macro call (`gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values...")`)
+without updating the macro's `fname` extraction to account for the extra argument, so `fname`
+silently became the description string instead of `:sum`, throwing a `TypeError` on precompile --
+not a bug on this branch's actual committed history, just a transient state from the other
+session's incomplete work. Per instruction, that in-progress edit was reverted to the clean
+committed baseline and this plan's own P4 macro change (a `call.args[3]`-based, always-correct
+extraction) was built on top of it instead.
 
 ## Context
 
