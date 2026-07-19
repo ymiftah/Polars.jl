@@ -14,6 +14,15 @@ using Polars
 | `Strings.titlecase` | ⚠️ broken (see Limitations) |
 | `Strings.len_chars`, `Strings.len_bytes` | character/byte count (differ on unicode) |
 
+```@example strings
+dfcase = DataFrame((; s = ["Hello World", "foo BAR"]))
+select(
+    dfcase,
+    Strings.uppercase(col("s")) |> alias("upper"), Strings.lowercase(col("s")) |> alias("lower"),
+    Strings.len_chars(col("s")) |> alias("chars"), Strings.len_bytes(col("s")) |> alias("bytes"),
+)
+```
+
 ## Substring operations
 
 | Function | Purpose |
@@ -21,6 +30,10 @@ using Polars
 | `Strings.slice(expr, offset, length)` | extract substring (0-indexed, negative from end) |
 | `Strings.head(expr, n)` | first n characters |
 | `Strings.tail(expr, n)` | last n characters |
+
+```@example strings
+select(DataFrame((; s = ["Hello World"])), Strings.head(col("s"), lit(5)) |> alias("head"), Strings.tail(col("s"), lit(5)) |> alias("tail"))
+```
 
 ## Searching & matching
 
@@ -33,6 +46,11 @@ using Polars
 | `Strings.extract_all(expr, pat)` | all matches as a list |
 | `Strings.count_matches(expr, pat; literal=false)` | count non-overlapping matches |
 
+```@example strings
+dfmatch = DataFrame((; s = ["Hello World", "foo BAR"]))
+select(dfmatch, col("s") |> Strings.ends_with("World") |> alias("ends"), col("s") |> Strings.contains_literal("oo") |> alias("has_oo"))
+```
+
 ## Replacement & stripping
 
 | Function | Purpose |
@@ -43,6 +61,30 @@ using Polars
 | `Strings.strip_chars(expr, chars)` | remove leading/trailing characters |
 | `Strings.strip_prefix`, `Strings.strip_suffix` | remove prefix/suffix |
 | `Strings.zfill(expr, width)` | left-pad with zeros |
+
+```@example strings
+select(DataFrame((; s = ["  padded  "])), col("s") |> Strings.strip_chars(" ") |> alias("stripped"))
+```
+
+```@example strings
+select(DataFrame((; s = ["prefix_val"])), col("s") |> Strings.strip_prefix("prefix_") |> alias("no_prefix"))
+```
+
+```@example strings
+select(DataFrame((; s = ["val_suffix"])), col("s") |> Strings.strip_suffix("_suffix") |> alias("no_suffix"))
+```
+
+```@example strings
+select(DataFrame((; s = ["a,b,c"])), col("s") |> Strings.split(",") |> alias("parts"))
+```
+
+```@example strings
+select(DataFrame((; s = ["cat hat bat"])), col("s") |> Strings.extract_all(raw"\w+at") |> alias("matches"))
+```
+
+```@example strings
+select(DataFrame((; n = [7, 42])), Strings.zfill(cast(col("n"), String), lit(4)) |> alias("padded"))
+```
 
 Example: extract email domain:
 

@@ -25,6 +25,11 @@ using Polars
 | `suffix(expr, str)` | append to the name |
 | `keep_name(expr)` | keep the input's original name through an operation that would otherwise rename it |
 
+```@example expressions
+dfk = DataFrame((; x = [1, 2, 3]))
+select(dfk, keep_name(alias(col("x"), "renamed")))
+```
+
 ## Conditional logic
 
 `when(cond, then, otherwise)` — ternary: evaluates to `then` where `cond` is true, `otherwise` elsewhere. Both branches can be `Expr`s or scalar values (promoted via `lit`).
@@ -42,7 +47,7 @@ These collapse a column to a single value per group (or one value total for the 
 |---|---|
 | `sum`, `prod`, `mean`, `median`, `min`, `max` | basic stats |
 | `arg_min`, `arg_max` | index of min/max value |
-| `nan_min`, `nan_max` | min/max ignoring NaN |
+| `nan_min`, `nan_max` | min/max that propagate `NaN` (regular `min`/`max` ignore it) |
 | `std`, `var` | standard deviation, variance (ddof=1 by default) |
 | `quantile(expr, q)` | qth quantile |
 | `count` | number of non-null values |
@@ -52,6 +57,33 @@ These collapse a column to a single value per group (or one value total for the 
 
 ```@example expressions
 select(df, sum(col("x")) |> alias("sum"), mean(col("x")) |> alias("mean"), std(col("x")) |> alias("std"))
+```
+
+`arg_min`/`arg_max`/`count`/`n_unique`/`first`/`last` all reduce to a single value per group the same way:
+
+```@example expressions
+dfagg = DataFrame((; x = [3, 1, 4, 2]))
+select(
+    dfagg,
+    min(col("x")) |> alias("min"), max(col("x")) |> alias("max"),
+    arg_min(col("x")) |> alias("arg_min"), arg_max(col("x")) |> alias("arg_max"),
+    count(col("x")) |> alias("count"), n_unique(col("x")) |> alias("n_unique"),
+    first(col("x")) |> alias("first"), last(col("x")) |> alias("last"),
+)
+```
+
+Unlike `min`/`max`, which ignore `NaN` (it never wins the comparison), `nan_min`/`nan_max` propagate it -- if any value in the group is `NaN`, the result is `NaN`:
+
+```@example expressions
+dfnan = DataFrame((; x = [1.0, NaN, 3.0]))
+select(dfnan, min(col("x")) |> alias("min"), nan_min(col("x")) |> alias("nan_min"), max(col("x")) |> alias("max"), nan_max(col("x")) |> alias("nan_max"))
+```
+
+`unique` returns the distinct values of a column; inside `agg`, per-group results are automatically collected into a `List` (see [Lists](@ref)) so the aggregation still produces one row per group:
+
+```@example expressions
+dfu = DataFrame((; g = ["a", "a", "b"], x = [1, 1, 2]))
+collect(agg(group_by(lazy(dfu), "g"), unique(col("x")) |> alias("distinct_x")))
 ```
 
 ## Horizontal (row-wise) reductions
@@ -87,6 +119,65 @@ select(
 select(df, ((col("x") + 1) * 2) |> alias("plus_one_times_two"), (col("x") ^ 2) |> alias("squared"))
 ```
 
+The named unary/binary functions in the table above work the same as their operator forms:
+
+```@example expressions
+dfmath = DataFrame((; x = [-4.0, 9.0, 2.5]))
+select(
+    dfmath,
+    abs(col("x")) |> alias("abs"), floor(col("x")) |> alias("floor"), ceil(col("x")) |> alias("ceil"),
+    sqrt(abs(col("x"))) |> alias("sqrt"), exp(col("x")) |> alias("exp"), sign(col("x")) |> alias("sign"),
+)
+```
+
+```@example expressions
+select(dfmath, pow(col("x"), lit(2.0)) |> alias("squared"), log(abs(col("x")), lit(2.0)) |> alias("log2"), rem(col("x"), lit(3.0)) |> alias("rem3"))
+```
+
+```@example expressions
+dftrig = DataFrame((; theta = [0.0, pi / 2, pi]))
+select(
+    dftrig,
+    cos(col("theta")) |> alias("cos"), sin(col("theta")) |> alias("sin"), tan(col("theta")) |> alias("tan"),
+    cosh(col("theta")) |> alias("cosh"), sinh(col("theta")) |> alias("sinh"), tanh(col("theta")) |> alias("tanh"),
+)
+```
+
+`is_finite`/`is_infinite`/`is_nan`/`is_null`/`is_not_null` are row-wise boolean flags; `null_count`
+counts nulls the way `count` counts non-nulls; `not` negates a boolean expression, matching polars'
+three-valued logic (`not` of `null` is `null`, not `true`):
+
+```@example expressions
+dfflags = DataFrame((; x = Union{Float64, Missing}[1.0, NaN, Inf, missing]))
+select(
+    dfflags,
+    col("x"), is_finite(col("x")) |> alias("finite"), is_infinite(col("x")) |> alias("infinite"),
+    is_nan(col("x")) |> alias("nan"), is_null(col("x")) |> alias("null"), is_not_null(col("x")) |> alias("not_null"),
+)
+```
+
+```@example expressions
+select(dfflags, null_count(col("x")) |> alias("nulls"), drop_nans(col("x")) |> alias("no_nans"))
+```
+
+```@example expressions
+select(df, not(col("y")) |> alias("not_y"))
+```
+
+`fill_nan` replaces `NaN` values, the `NaN`-specific counterpart to `fill_null`:
+
+```@example expressions
+dfnan2 = DataFrame((; x = [1.0, NaN, 3.0]))
+select(dfnan2, fill_nan(col("x"), lit(0.0)) |> alias("filled"))
+```
+
+`shift`/`pct_change` look back (or, with a negative argument, ahead) within the column:
+
+```@example expressions
+dfshift = DataFrame((; x = [10, 20, 30]))
+select(dfshift, shift(col("x"), lit(1)) |> alias("shifted"), pct_change(col("x"), lit(1)) |> alias("pct_change"))
+```
+
 ## Named binary functions
 
 Every arithmetic/comparison/logical operator has a named-function equivalent. These matter when an
@@ -112,6 +203,17 @@ select(df, op(col("x"), lit(2)) |> alias("cmp"))
 
 ```@example expressions
 select(df, xor(col("y"), lit(true)) |> alias("not_y"))
+```
+
+The rest work the same, called directly instead of via their operator:
+
+```@example expressions
+dfbin = DataFrame((; a = [1, 2, 3], b = [3, 2, 1]))
+select(dfbin, eq(col("a"), col("b")) |> alias("eq"), and(col("a") .> 1, col("b") .> 1) |> alias("and"), or(col("a") .> 2, col("b") .> 2) |> alias("or"))
+```
+
+```@example expressions
+select(dfbin, add(col("a"), col("b")) |> alias("add"), sub(col("a"), col("b")) |> alias("sub"), mul(col("a"), col("b")) |> alias("mul"), Base.div(col("a"), col("b")) |> alias("div"))
 ```
 
 ## Combining columns: `coalesce`
@@ -149,6 +251,19 @@ select(df12, interpolate(col("x")) |> alias("linear"), interpolate(col("x"); met
 | `top_k(expr, k)` | the `k` largest elements (not necessarily sorted — combine with `sort_by`) |
 | `arg_sort(expr; descending=false, nulls_last=false)` | index values that would sort `expr` |
 | `as_struct(exprs...)` | collect `exprs` into one Struct-typed expression, one field per input (see [Structs](@ref)) |
+
+`reverse` reverses row order; `flatten` is the expression-level inverse of `implode` -- it explodes
+a `List`-typed column back into one row per element (see [Lists](@ref)):
+
+```@example expressions
+dfshape = DataFrame((; x = [10, 20, 30]))
+select(dfshape, reverse(col("x")) |> alias("reversed"))
+```
+
+```@example expressions
+imploded = select(dfshape, implode(col("x")) |> alias("x"))
+select(imploded, flatten(col("x")) |> alias("flattened"))
+```
 
 ## Windowing and ranking
 
@@ -205,11 +320,15 @@ select(df9, col("x") |> fill_null(0) |> clip(0, 3))
 
 **`over`/`sort_by`'s curried forms only accept column-name `String`s, not `Expr`s** — passing an `Expr` is ambiguous with the non-curried form's own leading `expr` argument, and always resolves to that instead. For expression-valued partition/sort keys, call the non-curried `over(expr, partition_by...)` / `sort_by(expr, by...)` directly.
 
-**Deliberately not curried:** `log`, `rem`, `replace`, `diff`, `round`. These are `Base`-qualified,
-and since `Expr <: Number` (for promotion — see [Structures](@ref)), an untyped 1-argument curry
-would be genuinely ambiguous with Base's own generic methods for `Number` — a real dispatch
-conflict, not just a style mismatch (e.g. a `round(decimals::Integer)` curry would collide with
-Base's own existing `round(::Integer)` method).
+**Deliberately not curried:** `log`, `rem`, `replace`, `diff`, `round`. These are `Base`-qualified
+names, and a curry useful for plain numeric literals needs an untyped (or broadly-typed) argument —
+e.g. a hypothetical `log(2)` curry would have to accept a bare `Int`. Julia always prefers Base's
+own existing concrete-type methods (`log(::Float64)`, ...) over a package addition, so this
+wouldn't raise a dispatch *ambiguity* error, but it would still be real type piracy: claiming
+argument combinations Base currently leaves undefined (e.g. plain `log(1, 2)`), which silently
+changes global `Base` behavior outside this package's own types. A curry typed narrowly to `Expr`
+would avoid the piracy but would then only accept already-constructed `Expr`s, defeating the
+ergonomic point of currying — so these five are called in their full, non-curried form instead.
 
 ```@example expressions
 df13 = DataFrame((; g = ["a", "a", "b"], x = [3, 1, 2]))

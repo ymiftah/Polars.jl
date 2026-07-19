@@ -304,7 +304,16 @@ macro generate_expr_fns(ex)
     for call in ex.args
         call isa Base.Expr || continue
         cname = call.args[2]
-        orig_fname = last(last(call.args).args)
+        # Fixed position, not `last(call.args)`: an optional 4th arg (the description below)
+        # would otherwise become `last(call.args)` itself once present, silently corrupting
+        # `orig_fname`/`namespace` extraction below (this broke once already -- see
+        # plans/docstring_and_examples_coverage.md's "Rebaseline" section).
+        ns_fname_node = call.args[3]
+        orig_fname = last(ns_fname_node.args)
+        # Optional 4th call arg: a hand-written description, e.g.
+        # `gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values...")`, threaded
+        # into the docstring below instead of the bare Rust-doc-link fallback.
+        desc = length(call.args) >= 4 ? call.args[4] : nothing
         # A name colliding with an existing Base binding is never exported here -- for the
         # top-level `Polars` module that's because the function below is instead defined as a new
         # `Base.fname` method (which already works unqualified via Base's own export, see
@@ -337,15 +346,25 @@ macro generate_expr_fns(ex)
         # unqualified name (`orig_fname`), not `Base.fname`: that's how `fname` resolves inside
         # this module anyway (every module sees Base unqualified), and it's what `?fname` in the
         # REPL expects.
-        namespace = string(first(last(call.args).args))
+        namespace = string(first(ns_fname_node.args))
         namespace_type = namespace == "Expr" ? "enum" : "struct"
         rust_doc_url = "https://docs.rs/polars/latest/polars/prelude/$(namespace_type).$(namespace).html#method.$orig_fname"
         string_sig = replace(string(sig), "Expr" => "Polars.Expr")
-        docstring = """
-            $(string_sig)::Polars.Expr
+        docstring = if desc === nothing
+            """
+                $(string_sig)::Polars.Expr
 
-        Refer to [the polars documentation]($rust_doc_url).
-        """
+            Refer to [the polars documentation]($rust_doc_url).
+            """
+        else
+            """
+                $(string_sig)::Polars.Expr
+
+            $desc
+
+            See also [the polars documentation]($rust_doc_url).
+            """
+        end
         push!(
             out.args, quote
                 Docs.@doc $docstring $sig
@@ -358,74 +377,74 @@ end
 
 # We just copy the rust code here and generate functions on the fly.
 @generate_expr_fns begin
-    gen_impl_expr!(polars_expr_keep_name, Expr::keep_name)
+    gen_impl_expr!(polars_expr_keep_name, Expr::keep_name, "Keeps `expr`'s original column name, overriding any rename that would otherwise result from the operation it's applied to (e.g. after an arithmetic operator or a namespaced function call).")
 
-    gen_impl_expr!(polars_expr_sum, Expr::sum)
-    gen_impl_expr!(polars_expr_min, Expr::min)
-    gen_impl_expr!(polars_expr_max, Expr::max)
-    gen_impl_expr!(polars_expr_arg_min, Expr::arg_min)
-    gen_impl_expr!(polars_expr_arg_max, Expr::arg_max)
-    gen_impl_expr!(polars_expr_nan_min, Expr::nan_min)
-    gen_impl_expr!(polars_expr_nan_max, Expr::nan_max)
+    gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values of `expr`, one result per group (or a single overall value outside a `group_by`).")
+    gen_impl_expr!(polars_expr_min, Expr::min, "Returns the minimum non-null value of `expr`, one result per group (or a single overall value outside a `group_by`). Like other aggregations, `NaN` values are ignored -- see [`nan_min`](@ref) to propagate `NaN` into the result instead.")
+    gen_impl_expr!(polars_expr_max, Expr::max, "Returns the maximum non-null value of `expr`, one result per group (or a single overall value outside a `group_by`). Like other aggregations, `NaN` values are ignored -- see [`nan_max`](@ref) to propagate `NaN` into the result instead.")
+    gen_impl_expr!(polars_expr_arg_min, Expr::arg_min, "Returns the (0-indexed) row position of the minimum value of `expr` within its group.")
+    gen_impl_expr!(polars_expr_arg_max, Expr::arg_max, "Returns the (0-indexed) row position of the maximum value of `expr` within its group.")
+    gen_impl_expr!(polars_expr_nan_min, Expr::nan_min, "Like [`min`](@ref), but propagates `NaN`: if any value in the group is `NaN`, the result is `NaN` instead of the ordinary minimum.")
+    gen_impl_expr!(polars_expr_nan_max, Expr::nan_max, "Like [`max`](@ref), but propagates `NaN`: if any value in the group is `NaN`, the result is `NaN` instead of the ordinary maximum.")
 
-    gen_impl_expr!(polars_expr_floor, Expr::floor)
-    gen_impl_expr!(polars_expr_ceil, Expr::ceil)
-    gen_impl_expr!(polars_expr_abs, Expr::abs)
-    gen_impl_expr!(polars_expr_cos, Expr::cos)
-    gen_impl_expr!(polars_expr_sin, Expr::sin)
-    gen_impl_expr!(polars_expr_tan, Expr::tan)
-    gen_impl_expr!(polars_expr_cosh, Expr::cosh)
-    gen_impl_expr!(polars_expr_sinh, Expr::sinh)
-    gen_impl_expr!(polars_expr_tanh, Expr::tanh)
+    gen_impl_expr!(polars_expr_floor, Expr::floor, "Rounds each value of `expr` down to the nearest integer.")
+    gen_impl_expr!(polars_expr_ceil, Expr::ceil, "Rounds each value of `expr` up to the nearest integer.")
+    gen_impl_expr!(polars_expr_abs, Expr::abs, "Absolute value of each value of `expr`.")
+    gen_impl_expr!(polars_expr_cos, Expr::cos, "Cosine of each value of `expr`, in radians.")
+    gen_impl_expr!(polars_expr_sin, Expr::sin, "Sine of each value of `expr`, in radians.")
+    gen_impl_expr!(polars_expr_tan, Expr::tan, "Tangent of each value of `expr`, in radians.")
+    gen_impl_expr!(polars_expr_cosh, Expr::cosh, "Hyperbolic cosine of each value of `expr`.")
+    gen_impl_expr!(polars_expr_sinh, Expr::sinh, "Hyperbolic sine of each value of `expr`.")
+    gen_impl_expr!(polars_expr_tanh, Expr::tanh, "Hyperbolic tangent of each value of `expr`.")
 
-    gen_impl_expr!(polars_expr_sqrt, Expr::sqrt)
-    gen_impl_expr!(polars_expr_sign, Expr::sign)
-    gen_impl_expr!(polars_expr_exp, Expr::exp)
+    gen_impl_expr!(polars_expr_sqrt, Expr::sqrt, "Square root of each value of `expr`.")
+    gen_impl_expr!(polars_expr_sign, Expr::sign, "Sign of each value of `expr`: `-1`, `0`, or `1` (float dtypes only; `NaN` maps to `NaN`).")
+    gen_impl_expr!(polars_expr_exp, Expr::exp, "`e` raised to each value of `expr`.")
 
-    gen_impl_expr!(polars_expr_n_unique, Expr::n_unique)
-    gen_impl_expr!(polars_expr_unique, Expr::unique)
-    gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated)
-    gen_impl_expr!(polars_expr_is_unique, Expr::is_unique)
-    gen_impl_expr!(polars_expr_count, Expr::count)
-    gen_impl_expr!(polars_expr_first, Expr::first)
-    gen_impl_expr!(polars_expr_last, Expr::last)
+    gen_impl_expr!(polars_expr_n_unique, Expr::n_unique, "Counts the number of distinct values in `expr` (`null` counts as one distinct value), one result per group (or a single overall count outside a `group_by`).")
+    gen_impl_expr!(polars_expr_unique, Expr::unique, "Returns the distinct values of `expr` (order not guaranteed), shortening the column. Inside `agg`, per-group distinct values are automatically collected into a `List` (see [Lists](@ref)) so the aggregation still produces one row per group.")
+    gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated, "Row-wise boolean flag: `true` for every occurrence of a value that appears more than once in `expr`. See [`is_unique`](@ref) for the complementary flag.")
+    gen_impl_expr!(polars_expr_is_unique, Expr::is_unique, "Row-wise boolean flag: `true` for every value that appears exactly once in `expr`. See [`is_duplicated`](@ref) for the complementary flag.")
+    gen_impl_expr!(polars_expr_count, Expr::count, "Counts the number of non-null values in `expr`, one result per group (or a single overall count outside a `group_by`). See [`null_count`](@ref) for the complementary count.")
+    gen_impl_expr!(polars_expr_first, Expr::first, "Returns the first value of `expr` within its group, by row order (not sorted order).")
+    gen_impl_expr!(polars_expr_last, Expr::last, "Returns the last value of `expr` within its group, by row order (not sorted order).")
 
-    gen_impl_expr!(polars_expr_not, Expr::not)
-    gen_impl_expr!(polars_expr_is_finite, Expr::is_finite)
-    gen_impl_expr!(polars_expr_is_infinite, Expr::is_infinite)
-    gen_impl_expr!(polars_expr_is_nan, Expr::is_nan)
-    gen_impl_expr!(polars_expr_is_null, Expr::is_null)
-    gen_impl_expr!(polars_expr_is_not_null, Expr::is_not_null)
-    gen_impl_expr!(polars_expr_null_count, Expr::null_count)
-    gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans)
-    gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls)
+    gen_impl_expr!(polars_expr_not, Expr::not, "Logical negation of a boolean expression: `true`↔`false`, and `null` stays `null` (matches polars' three-valued logic). There is no unary operator form -- `not` must be called directly.")
+    gen_impl_expr!(polars_expr_is_finite, Expr::is_finite, "Row-wise boolean flag: `true` where the (float) value is finite (neither `±Inf` nor `NaN`); `null` stays `null`.")
+    gen_impl_expr!(polars_expr_is_infinite, Expr::is_infinite, "Row-wise boolean flag: `true` where the (float) value is `Inf` or `-Inf`; `null` stays `null`.")
+    gen_impl_expr!(polars_expr_is_nan, Expr::is_nan, "Row-wise boolean flag: `true` where the (float) value is `NaN`; `null` stays `null` (a `null` is not `NaN`).")
+    gen_impl_expr!(polars_expr_is_null, Expr::is_null, "Row-wise boolean flag: `true` where the value is `null`.")
+    gen_impl_expr!(polars_expr_is_not_null, Expr::is_not_null, "Row-wise boolean flag: `true` where the value is not `null`.")
+    gen_impl_expr!(polars_expr_null_count, Expr::null_count, "Counts the number of `null` values in `expr`, one result per group (or a single overall count outside a `group_by`). See [`count`](@ref) for the complementary count.")
+    gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans, "Removes `NaN` values from `expr`, shortening the column. Compare the frame-level `drop_nulls` (see [Manipulation](@ref)), which drops whole rows instead of individual values.")
+    gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls, "Removes `null` values from `expr`, shortening the column -- the expression-level counterpart to the frame-level `drop_nulls` (see [Manipulation](@ref)), which drops whole rows instead of individual values.")
 
-    gen_impl_expr!(polars_expr_implode, Expr::implode)
-    gen_impl_expr!(polars_expr_flatten, Expr::flatten)
-    gen_impl_expr!(polars_expr_reverse, Expr::reverse)
+    gen_impl_expr!(polars_expr_implode, Expr::implode, "Collects every value of `expr` in the current context (or per group, inside `agg`) into a single `List` value (see [Lists](@ref)).")
+    gen_impl_expr!(polars_expr_flatten, Expr::flatten, "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref).")
+    gen_impl_expr!(polars_expr_reverse, Expr::reverse, "Reverses the row order of `expr`'s values.")
 
-    gen_impl_expr_binary!(polars_expr_eq, Expr::eq)
-    gen_impl_expr_binary!(polars_expr_lt, Expr::lt)
-    gen_impl_expr_binary!(polars_expr_gt, Expr::gt)
-    gen_impl_expr_binary!(polars_expr_or, Expr::or)
-    gen_impl_expr_binary!(polars_expr_xor, Expr::xor)
-    gen_impl_expr_binary!(polars_expr_and, Expr::and)
+    gen_impl_expr_binary!(polars_expr_eq, Expr::eq, "Elementwise equality between `a` and `b` -- the named-function form of `a .== b` (see [Named binary functions](@ref)). Comparing against `null` gives `null`, not `false` (three-valued logic).")
+    gen_impl_expr_binary!(polars_expr_lt, Expr::lt, "Elementwise `a < b` -- the named-function form of the `<` operator. Bound as `Base.lt` since plain `lt` is an unexported internal `Base` binding; call it qualified (`Base.lt(a, b)`), or use `.>` with the arguments flipped.")
+    gen_impl_expr_binary!(polars_expr_gt, Expr::gt, "Elementwise `a > b` -- the named-function form of `a .> b`.")
+    gen_impl_expr_binary!(polars_expr_or, Expr::or, "Elementwise logical OR between two boolean expressions -- the named-function form of `a .| b`.")
+    gen_impl_expr_binary!(polars_expr_xor, Expr::xor, "Elementwise logical XOR between two boolean expressions. Has no operator equivalent in this package -- must be called by name.")
+    gen_impl_expr_binary!(polars_expr_and, Expr::and, "Elementwise logical AND between two boolean expressions -- the named-function form of `a .& b`.")
 
-    gen_impl_expr_binary!(polars_expr_pow, Expr::pow)
-    gen_impl_expr_binary!(polars_expr_add, Expr::add)
-    gen_impl_expr_binary!(polars_expr_sub, Expr::sub)
-    gen_impl_expr_binary!(polars_expr_mul, Expr::mul)
-    gen_impl_expr_binary!(polars_expr_div, Expr::div)
+    gen_impl_expr_binary!(polars_expr_pow, Expr::pow, "Elementwise `a ^ b` -- the named-function form of the `^` operator.")
+    gen_impl_expr_binary!(polars_expr_add, Expr::add, "Elementwise `a + b` -- the named-function form of the `+` operator.")
+    gen_impl_expr_binary!(polars_expr_sub, Expr::sub, "Elementwise `a - b` -- the named-function form of the `-` operator.")
+    gen_impl_expr_binary!(polars_expr_mul, Expr::mul, "Elementwise `a * b` -- the named-function form of the `*` operator.")
+    gen_impl_expr_binary!(polars_expr_div, Expr::div, "Elementwise `a / b` -- the named-function form of the `/` operator.")
 
-    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null)
-    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan)
-    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in)
+    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression). Has a curried form `fill_null(value)` for `|>` pipelines -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`. Has a curried form `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column). Has a curried form `is_in(values)` -- see [Curried forms for pipe-based composition](@ref) and the `lit(::Vector)` section below for how to build `b`.")
 
-    gen_impl_expr_binary!(polars_expr_shift, Expr::shift)
-    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change)
+    gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`. Has a curried form `shift(n)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`. Has a curried form `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref).")
 
-    gen_impl_expr_binary!(polars_expr_log, Expr::log)
-    gen_impl_expr_binary!(polars_expr_rem, Expr::rem)
+    gen_impl_expr_binary!(polars_expr_log, Expr::log, "Logarithm of `a` with base `b` (e.g. `log(expr, lit(2))` for log base 2; use `lit(ℯ)` for natural log). Bound as `Base.log`, an exported Base name, so it works unqualified.")
+    gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
 
 # Curried (Fix2-style) forms for the binary namespace-free ops above that have no natural

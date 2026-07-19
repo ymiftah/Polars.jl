@@ -2,18 +2,18 @@ module Dt
 using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
 
 @generate_expr_fns begin
-    gen_impl_expr_dt!(polars_expr_dt_year, DateLikeNameSpace::year)
-    gen_impl_expr_dt!(polars_expr_dt_month, DateLikeNameSpace::month)
-    gen_impl_expr_dt!(polars_expr_dt_day, DateLikeNameSpace::day)
-    gen_impl_expr_dt!(polars_expr_dt_hour, DateLikeNameSpace::hour)
-    gen_impl_expr_dt!(polars_expr_dt_minute, DateLikeNameSpace::minute)
-    gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second)
-    gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday)
-    gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day)
+    gen_impl_expr_dt!(polars_expr_dt_year, DateLikeNameSpace::year, "Extracts the year component of each Date/Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_month, DateLikeNameSpace::month, "Extracts the month component (1-12) of each Date/Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_day, DateLikeNameSpace::day, "Extracts the day-of-month component (1-31) of each Date/Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_hour, DateLikeNameSpace::hour, "Extracts the hour component (0-23) of each Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_minute, DateLikeNameSpace::minute, "Extracts the minute component (0-59) of each Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second, "Extracts the second component (0-59) of each Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday, "Day of the week for each Date/Datetime value in `expr`: `1` (Monday) through `7` (Sunday), ISO 8601 numbering.")
+    gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day, "Day of the year (1-366) for each Date/Datetime value in `expr`.")
 
-    gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate)
-    gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round)
-    gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by)
+    gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate, "Truncates each Date/Datetime value of `a` down to the start of the enclosing interval named by the duration string `b` (e.g. `\"1h\"` zeroes out minutes/seconds). Has a curried form `truncate(every)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round, "Rounds each Date/Datetime value of `a` to the nearest interval named by the duration string `b`, rather than always truncating down like [`truncate`](@ref). Has a curried form `round(every)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by, "Shifts each Date/Datetime value of `a` by the (possibly signed) duration string `b` (e.g. `\"+1d\"`, `\"-2h\"`). Has a curried form `offset_by(by)` -- see [Curried forms for pipe-based composition](@ref).")
 end
 
 # Curried (Fix2-style) forms, e.g. `col("d") |> Dt.truncate("1mo")`.

@@ -20,6 +20,33 @@ using Polars, Chain
 | `Lists.get(expr, index; null_on_oob=false)` | element at index (0-indexed; errors on oob unless null_on_oob=true) |
 | `Lists.contains(expr, value; nulls_equal=true)` | check if value is in the list |
 
+Each per-list aggregation reduces a `List` column to one scalar per row:
+
+```@example lists
+lf = DataFrame((; xs = [[3, 1, 4], [1, 5, 9, 2]]))
+select(
+    lf,
+    Lists.lengths(col("xs")) |> alias("lengths"),
+    Lists.max(col("xs")) |> alias("max"), Lists.min(col("xs")) |> alias("min"),
+    Lists.arg_max(col("xs")) |> alias("arg_max"), Lists.arg_min(col("xs")) |> alias("arg_min"),
+    Lists.sum(col("xs")) |> alias("sum"), Lists.mean(col("xs")) |> alias("mean"),
+    Lists.first(col("xs")) |> alias("first"), Lists.last(col("xs")) |> alias("last"),
+)
+```
+
+`Lists.reverse` reverses the element order *within* each list (row order is unchanged); `unique`
+and `unique_stable` both return the distinct elements of each list, differing only in whether
+first-occurrence order is preserved (more expensive) or not:
+
+```@example lists
+select(lf, Lists.reverse(col("xs")) |> alias("reversed"))
+```
+
+```@example lists
+dfdup = DataFrame((; xs = [[3, 1, 3, 2]]))
+select(dfdup, Lists.unique(col("xs")) |> alias("unique"), Lists.unique_stable(col("xs")) |> alias("unique_stable"))
+```
+
 Example: distinct product IDs per store, collected via `implode` in a `group_by`:
 
 ```@example lists
