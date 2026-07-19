@@ -46,6 +46,21 @@
 #![allow(clippy::enum_variant_names)]
 #![allow(clippy::wrong_self_convention)]
 
+/// Unwraps a `Result`, or early-returns a boxed `polars_error_t` from the enclosing function
+/// (or `guard_error` closure) on `Err` -- both return `*const polars_error_t`, so the same
+/// `return make_error(err)` is valid in either context. Collapses the ~58 hand-written
+/// `match read_str(...) { Ok(v) => v, Err(err) => return make_error(err) }` blocks across
+/// `dataframe`/`expr`/`io`. Defined here, before the `mod` declarations, so textual macro
+/// scoping makes it visible in every submodule; uses `$crate::make_error` for hygiene.
+macro_rules! tri {
+    ($e:expr) => {
+        match $e {
+            Ok(v) => v,
+            Err(err) => return $crate::make_error(err),
+        }
+    };
+}
+
 mod dataframe;
 mod expr;
 mod ffi_util;

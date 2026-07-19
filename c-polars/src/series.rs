@@ -115,10 +115,7 @@ pub unsafe extern "C" fn polars_series_get<'a>(
     out: *mut *mut polars_value_t<'a>,
 ) -> *const polars_error_t {
     assert!(!series.is_null());
-    let value = match (*series).inner.get(index) {
-        Ok(v) => v,
-        Err(err) => return make_error(err),
-    };
+    let value = tri!((*series).inner.get(index));
     *out = Box::into_raw(Box::new(polars_value_t { inner: value }));
     std::ptr::null()
 }

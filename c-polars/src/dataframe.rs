@@ -49,15 +49,9 @@ pub unsafe extern "C" fn polars_dataframe_new_from_carrow(
     guard_error(move || {
         // Safety: the field ptr is expected to be a valid pointer to an ArrowSchema according to
         // the C Data interface.
-        let field = match ffi::import_field_from_c(&*cfield) {
-            Ok(field) => field,
-            Err(err) => return make_error(err),
-        };
+        let field = tri!(ffi::import_field_from_c(&*cfield));
 
-        let array = match ffi::import_array_from_c(carray, field.dtype.clone()) {
-            Ok(array) => array,
-            Err(err) => return make_error(err),
-        };
+        let array = tri!(ffi::import_array_from_c(carray, field.dtype.clone()));
 
         // The caller is expected to provide a struct array (arrow format "+s") whose fields are
         // the dataframe's columns.
@@ -68,10 +62,7 @@ pub unsafe extern "C" fn polars_dataframe_new_from_carrow(
             ));
         };
 
-        let df = match DataFrame::try_from(sarray.clone()) {
-            Ok(df) => df,
-            Err(err) => return make_error(err),
-        };
+        let df = tri!(DataFrame::try_from(sarray.clone()));
 
         *out = make_dataframe(df);
         std::ptr::null()
@@ -126,10 +117,7 @@ pub unsafe extern "C" fn polars_dataframe_new_from_series(
             .collect()
     };
     let height = series.first().map_or(0, |s| s.len());
-    let df = match DataFrame::new(height, series) {
-        Ok(df) => df,
-        Err(err) => return make_error(err),
-    };
+    let df = tri!(DataFrame::new(height, series));
     *out = make_dataframe(df);
     std::ptr::null()
 }
@@ -152,16 +140,13 @@ pub unsafe extern "C" fn polars_dataframe_write_parquet(
     data_page_size: *const usize,
 ) -> *const polars_error_t {
     guard_error(|| {
-        let options = match build_parquet_write_options(
+        let options = tri!(build_parquet_write_options(
             compression,
             compression_level,
             statistics,
             row_group_size,
             data_page_size,
-        ) {
-            Ok(options) => options,
-            Err(err) => return make_error(err),
-        };
+        ));
 
         let df = &mut (*df).inner;
         let w = UserIOCallback(callback, user);
@@ -205,26 +190,11 @@ pub unsafe extern "C" fn polars_dataframe_write_csv(
     guard_error(|| {
         let df = &mut (*df).inner;
 
-        let null_value = match read_opt_str(null_value, null_value_len) {
-            Ok(v) => v,
-            Err(err) => return make_error(err),
-        };
-        let line_terminator = match read_opt_str(line_terminator, line_terminator_len) {
-            Ok(v) => v,
-            Err(err) => return make_error(err),
-        };
-        let date_format = match read_opt_str(date_format, date_format_len) {
-            Ok(v) => v,
-            Err(err) => return make_error(err),
-        };
-        let time_format = match read_opt_str(time_format, time_format_len) {
-            Ok(v) => v,
-            Err(err) => return make_error(err),
-        };
-        let datetime_format = match read_opt_str(datetime_format, datetime_format_len) {
-            Ok(v) => v,
-            Err(err) => return make_error(err),
-        };
+        let null_value = tri!(read_opt_str(null_value, null_value_len));
+        let line_terminator = tri!(read_opt_str(line_terminator, line_terminator_len));
+        let date_format = tri!(read_opt_str(date_format, date_format_len));
+        let time_format = tri!(read_opt_str(time_format, time_format_len));
+        let datetime_format = tri!(read_opt_str(datetime_format, datetime_format_len));
 
         let w = UserIOCallback(callback, user);
         let mut writer = CsvWriter::new(w)
@@ -276,16 +246,10 @@ pub unsafe extern "C" fn polars_dataframe_get(
     len: usize,
     out: *mut *mut polars_series_t,
 ) -> *const polars_error_t {
-    let name = match read_str(name, len) {
-        Ok(name) => name,
-        Err(err) => return make_error(err),
-    };
+    let name = tri!(read_str(name, len));
 
     let df = &(*df).inner;
-    let column = match df.column(name) {
-        Ok(column) => column,
-        Err(err) => return make_error(err),
-    };
+    let column = tri!(df.column(name));
 
     *out = series::make_series(column.as_materialized_series().clone());
 
@@ -314,22 +278,10 @@ pub unsafe extern "C" fn polars_dataframe_upsample(
     out: *mut *mut polars_dataframe_t,
 ) -> *const polars_error_t {
     guard_error(|| {
-        let by = match read_names(by_names, by_lens, n_by) {
-            Ok(names) => names,
-            Err(err) => return make_error(err),
-        };
-        let time_column = match read_str(time_column, time_column_len) {
-            Ok(s) => s,
-            Err(err) => return make_error(err),
-        };
-        let every_str = match read_str(every, every_len) {
-            Ok(s) => s,
-            Err(err) => return make_error(err),
-        };
-        let every = match Duration::try_parse(every_str) {
-            Ok(d) => d,
-            Err(err) => return make_error(err),
-        };
+        let by = tri!(read_names(by_names, by_lens, n_by));
+        let time_column = tri!(read_str(time_column, time_column_len));
+        let every_str = tri!(read_str(every, every_len));
+        let every = tri!(Duration::try_parse(every_str));
 
         let result = if stable {
             (*df).inner.upsample_stable(by, time_column, every)
@@ -372,11 +324,11 @@ pub unsafe extern "C" fn polars_dataframe_write_ipc(
     guard_error(|| {
         let df = &mut (*df).inner;
 
-        let options =
-            match build_ipc_writer_options(compression, compression_level, record_batch_size) {
-                Ok(options) => options,
-                Err(err) => return make_error(err),
-            };
+        let options = tri!(build_ipc_writer_options(
+            compression,
+            compression_level,
+            record_batch_size
+        ));
 
         let w = UserIOCallback(callback, user);
         if let Err(err) = options.to_writer(w).finish(df) {
@@ -423,10 +375,7 @@ pub unsafe extern "C" fn polars_lazy_frame_concat(
 ) -> *const polars_error_t {
     let frames: Vec<LazyFrame> = (0..n).map(|i| (**lfs.add(i)).inner.clone()).collect();
 
-    let df = match concat(&frames, UnionArgs::default()) {
-        Ok(df) => df,
-        Err(err) => return make_error(err),
-    };
+    let df = tri!(concat(&frames, UnionArgs::default()));
     *out = make_lazy_frame(df);
 
     std::ptr::null()
@@ -483,10 +432,7 @@ pub unsafe extern "C" fn polars_lazy_frame_collect(
             polars_engine_t::PolarsEngineInMemory => Engine::InMemory,
             polars_engine_t::PolarsEngineStreaming => Engine::Streaming,
         };
-        let result = match df.collect_with_engine(engine) {
-            Ok(result) => result,
-            Err(err) => return make_error(err),
-        };
+        let result = tri!(df.collect_with_engine(engine));
         let df = match result {
             QueryResult::Single(df) => df,
             QueryResult::Multiple(_) => {
@@ -510,10 +456,7 @@ pub unsafe extern "C" fn polars_lazy_frame_collect_schema(
 ) -> *const polars_error_t {
     guard_error(|| {
         let mut df = (*df).inner.clone();
-        let schema = match df.collect_schema() {
-            Ok(schema) => schema,
-            Err(err) => return make_error(err),
-        };
+        let schema = tri!(df.collect_schema());
         let arrow_schema = schema.to_arrow(CompatLevel::newest());
         let structfield = arrow::datatypes::Field::new(
             "polars.dataframe".into(),
@@ -564,41 +507,20 @@ pub unsafe extern "C" fn polars_lazy_frame_group_by_dynamic(
 ) -> *const polars_error_t {
     let group_by = read_exprs(group_by_exprs, n_group_by);
 
-    let every_str = match read_str(every, every_len) {
-        Ok(s) => s,
-        Err(err) => return make_error(err),
-    };
+    let every_str = tri!(read_str(every, every_len));
     // A zero-length `period` deliberately defaults to `every` (a window as wide as its step).
     let period_str = if period_len == 0 {
         every_str
     } else {
-        match read_str(period, period_len) {
-            Ok(s) => s,
-            Err(err) => return make_error(err),
-        }
+        tri!(read_str(period, period_len))
     };
-    let offset_str = match read_str(offset, offset_len) {
-        Ok(s) => s,
-        Err(err) => return make_error(err),
-    };
+    let offset_str = tri!(read_str(offset, offset_len));
 
-    let every = match Duration::try_parse(every_str) {
-        Ok(d) => d,
-        Err(err) => return make_error(err),
-    };
-    let period = match Duration::try_parse(period_str) {
-        Ok(d) => d,
-        Err(err) => return make_error(err),
-    };
-    let offset = match Duration::try_parse(offset_str) {
-        Ok(d) => d,
-        Err(err) => return make_error(err),
-    };
+    let every = tri!(Duration::try_parse(every_str));
+    let period = tri!(Duration::try_parse(period_str));
+    let offset = tri!(Duration::try_parse(offset_str));
 
-    let index_col_name = match expr_output_name(&(*index_expr).inner) {
-        Ok(name) => name,
-        Err(err) => return make_error(err),
-    };
+    let index_col_name = tri!(expr_output_name(&(*index_expr).inner));
 
     let opts = DynamicGroupOptions {
         index_column: index_col_name,
@@ -634,28 +556,13 @@ pub unsafe extern "C" fn polars_lazy_frame_rolling(
 ) -> *const polars_error_t {
     let group_by = read_exprs(group_by_exprs, n_group_by);
 
-    let period_str = match read_str(period, period_len) {
-        Ok(s) => s,
-        Err(err) => return make_error(err),
-    };
-    let offset_str = match read_str(offset, offset_len) {
-        Ok(s) => s,
-        Err(err) => return make_error(err),
-    };
+    let period_str = tri!(read_str(period, period_len));
+    let offset_str = tri!(read_str(offset, offset_len));
 
-    let period = match Duration::try_parse(period_str) {
-        Ok(d) => d,
-        Err(err) => return make_error(err),
-    };
-    let offset = match Duration::try_parse(offset_str) {
-        Ok(d) => d,
-        Err(err) => return make_error(err),
-    };
+    let period = tri!(Duration::try_parse(period_str));
+    let offset = tri!(Duration::try_parse(offset_str));
 
-    let index_col_name = match expr_output_name(&(*index_expr).inner) {
-        Ok(name) => name,
-        Err(err) => return make_error(err),
-    };
+    let index_col_name = tri!(expr_output_name(&(*index_expr).inner));
 
     let opts = RollingGroupOptions {
         index_column: index_col_name,
@@ -709,14 +616,8 @@ pub unsafe extern "C" fn polars_lazy_frame_join_asof(
     strategy: polars_asof_strategy_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let left_by = match read_names(by_a, by_a_lens, by_a_len) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
-    let right_by = match read_names(by_b, by_b_lens, by_b_len) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
+    let left_by = tri!(read_names(by_a, by_a_lens, by_a_len));
+    let right_by = tri!(read_names(by_b, by_b_lens, by_b_len));
 
     let asof_options = AsOfOptions {
         strategy: strategy.to_asof_strategy(),
@@ -758,10 +659,7 @@ pub unsafe extern "C" fn polars_lazy_frame_unique(
     keep: polars_unique_keep_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let names = match read_names(names, lens, n) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
+    let names = tri!(read_names(names, lens, n));
     let subset = selector_by_name_opt(names, true);
     let result = (*lf).inner.clone().unique(subset, keep.to_keep_strategy());
     *out = make_lazy_frame(result);
@@ -776,10 +674,7 @@ pub unsafe extern "C" fn polars_lazy_frame_drop(
     n: usize,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let names = match read_names(names, lens, n) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
+    let names = tri!(read_names(names, lens, n));
     let result = (*lf).inner.clone().drop(selector_by_name(names, true));
     *out = make_lazy_frame(result);
     std::ptr::null()
@@ -796,14 +691,8 @@ pub unsafe extern "C" fn polars_lazy_frame_rename(
     strict: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let existing = match read_names(existing, existing_lens, n) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
-    let new = match read_names(new, new_lens, n) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
+    let existing = tri!(read_names(existing, existing_lens, n));
+    let new = tri!(read_names(new, new_lens, n));
     let result = (*lf).inner.clone().rename(existing, new, strict);
     *out = make_lazy_frame(result);
     std::ptr::null()
@@ -817,10 +706,7 @@ pub unsafe extern "C" fn polars_lazy_frame_drop_nulls(
     n: usize,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let names = match read_names(names, lens, n) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
+    let names = tri!(read_names(names, lens, n));
     let subset = selector_by_name_opt(names, true);
     let result = (*lf).inner.clone().drop_nulls(subset);
     *out = make_lazy_frame(result);
@@ -836,10 +722,7 @@ pub unsafe extern "C" fn polars_lazy_frame_with_row_index(
     has_offset: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let name = match read_str(name, name_len) {
-        Ok(name) => PlSmallStr::from_str(name),
-        Err(err) => return make_error(err),
-    };
+    let name = PlSmallStr::from_str(tri!(read_str(name, name_len)));
     let offset = if has_offset {
         match IdxSize::try_from(offset) {
             Ok(o) => Some(o),
@@ -866,10 +749,7 @@ pub unsafe extern "C" fn polars_lazy_frame_explode(
     n: usize,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let names = match read_names(names, lens, n) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
+    let names = tri!(read_names(names, lens, n));
     let result = (*lf).inner.clone().explode(
         selector_by_name(names, true),
         // `empty_as_null`: exploding an empty list produces one `null` row rather than
@@ -900,22 +780,10 @@ pub unsafe extern "C" fn polars_lazy_frame_unpivot(
     value_name_len: usize,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let index_names = match read_names(index_names, index_lens, n_index) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
-    let on_names = match read_names(on_names, on_lens, n_on) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
-    let variable_name = match read_opt_str(variable_name, variable_name_len) {
-        Ok(name) => name,
-        Err(err) => return make_error(err),
-    };
-    let value_name = match read_opt_str(value_name, value_name_len) {
-        Ok(name) => name,
-        Err(err) => return make_error(err),
-    };
+    let index_names = tri!(read_names(index_names, index_lens, n_index));
+    let on_names = tri!(read_names(on_names, on_lens, n_on));
+    let variable_name = tri!(read_opt_str(variable_name, variable_name_len));
+    let value_name = tri!(read_opt_str(value_name, value_name_len));
 
     let args = UnpivotArgsDSL {
         on: selector_by_name_opt(on_names, true),
@@ -948,22 +816,10 @@ pub unsafe extern "C" fn polars_lazy_frame_pivot(
     column_naming: polars_pivot_column_naming_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    let on_names = match read_names(on_names, on_lens, n_on) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
-    let index_names = match read_names(index_names, index_lens, n_index) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
-    let values_names = match read_names(values_names, values_lens, n_values) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
-    let separator = match read_str(separator, separator_len) {
-        Ok(s) => PlSmallStr::from_str(s),
-        Err(err) => return make_error(err),
-    };
+    let on_names = tri!(read_names(on_names, on_lens, n_on));
+    let index_names = tri!(read_names(index_names, index_lens, n_index));
+    let values_names = tri!(read_names(values_names, values_lens, n_values));
+    let separator = PlSmallStr::from_str(tri!(read_str(separator, separator_len)));
 
     let on_columns = Arc::new((*on_columns).inner.clone());
     let agg = (*agg).inner.clone();

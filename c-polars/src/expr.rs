@@ -66,10 +66,7 @@ pub unsafe extern "C" fn polars_expr_literal_utf8(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let value = match read_str(s, len) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
+    let value = tri!(read_str(s, len));
     *out = make_expr(Expr::Literal(LiteralValue::Scalar(Scalar::new(
         DataType::String,
         AnyValue::StringOwned(PlSmallStr::from_str(value)),
@@ -83,10 +80,7 @@ pub unsafe extern "C" fn polars_expr_col(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = match read_str(name, len) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
+    let name = tri!(read_str(name, len));
     let expr = col(name);
     *out = make_expr(expr);
     std::ptr::null()
@@ -223,10 +217,7 @@ pub unsafe extern "C" fn polars_expr_alias(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = match read_str(name, len) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
+    let name = tri!(read_str(name, len));
     let aliased = (*expr).inner.clone().alias(name);
     *out = make_expr(aliased);
     std::ptr::null()
@@ -239,10 +230,7 @@ pub unsafe extern "C" fn polars_expr_prefix(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = match read_str(name, len) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
+    let name = tri!(read_str(name, len));
     let aliased = (*expr).inner.clone().name().prefix(name);
     *out = make_expr(aliased);
     std::ptr::null()
@@ -255,10 +243,7 @@ pub unsafe extern "C" fn polars_expr_suffix(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = match read_str(name, len) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
+    let name = tri!(read_str(name, len));
     let aliased = (*expr).inner.clone().name().suffix(name);
     *out = make_expr(aliased);
     std::ptr::null()
@@ -278,10 +263,7 @@ pub unsafe extern "C" fn polars_expr_cast(
 ) -> *const polars_error_t {
     // Fallible since `to_dtype` rejects type codes it cannot encode, rather than silently
     // producing a cast to `Unknown` (see `polars_value_type_t::to_dtype`).
-    let dtype = match dtype.to_dtype() {
-        Ok(dtype) => dtype,
-        Err(err) => return make_error(err),
-    };
+    let dtype = tri!(dtype.to_dtype());
     *out = make_expr(cast((*expr).inner.clone(), dtype));
     std::ptr::null()
 }
@@ -372,10 +354,7 @@ pub unsafe extern "C" fn polars_expr_over(
 ) -> *const polars_error_t {
     let partition_by = read_exprs(partition_by, n_partition_by);
     let expr = (*expr).inner.clone();
-    let result = match expr.over(partition_by) {
-        Ok(result) => result,
-        Err(err) => return make_error(err),
-    };
+    let result = tri!(expr.over(partition_by));
     *out = make_expr(result);
     std::ptr::null()
 }
@@ -537,10 +516,7 @@ pub unsafe extern "C" fn polars_expr_value_counts(
     normalize: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = match read_str(name, name_len) {
-        Ok(s) => s,
-        Err(err) => return make_error(err),
-    };
+    let name = tri!(read_str(name, name_len));
     let result = (*expr)
         .inner
         .clone()
@@ -971,10 +947,7 @@ pub unsafe extern "C" fn polars_expr_str_to_date(
     exact: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let format = match read_opt_str(format, format_len) {
-        Ok(format) => format,
-        Err(err) => return make_error(err),
-    };
+    let format = tri!(read_opt_str(format, format_len));
     let options = StrptimeOptions {
         format,
         strict,
@@ -996,20 +969,14 @@ pub unsafe extern "C" fn polars_expr_str_to_datetime(
     exact: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let format = match read_opt_str(format, format_len) {
-        Ok(format) => format,
-        Err(err) => return make_error(err),
-    };
+    let format = tri!(read_opt_str(format, format_len));
     let options = StrptimeOptions {
         format,
         strict,
         exact,
         cache: true,
     };
-    let time_unit = match time_unit.to_time_unit() {
-        Ok(tu) => tu,
-        Err(err) => return make_error(err),
-    };
+    let time_unit = tri!(time_unit.to_time_unit());
     let result = (*expr).inner.clone().str().to_datetime(
         Some(time_unit),
         None,
@@ -1084,10 +1051,7 @@ pub unsafe extern "C" fn polars_expr_dt_convert_time_zone(
     tz_len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let tz = match read_str(tz, tz_len) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
+    let tz = tri!(read_str(tz, tz_len));
     let time_zone = match TimeZone::opt_try_new(Some(tz)) {
         Ok(Some(time_zone)) => time_zone,
         Ok(None) => return make_error("invalid time zone"),
@@ -1110,14 +1074,8 @@ pub unsafe extern "C" fn polars_expr_dt_replace_time_zone(
     non_existent: polars_non_existent_t,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let tz = match read_opt_str(tz, tz_len) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
-    let time_zone = match TimeZone::opt_try_new(tz) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
+    let tz = tri!(read_opt_str(tz, tz_len));
+    let time_zone = tri!(TimeZone::opt_try_new(tz));
     let result = (*expr).inner.clone().dt().replace_time_zone(
         time_zone,
         (*ambiguous).inner.clone(),
@@ -1134,10 +1092,7 @@ pub unsafe extern "C" fn polars_expr_dt_strftime(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let format = match read_str(format, len) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
+    let format = tri!(read_str(format, len));
     let result = (*expr).inner.clone().dt().strftime(format);
     *out = make_expr(result);
     std::ptr::null()
@@ -1150,10 +1105,7 @@ pub unsafe extern "C" fn polars_expr_struct_field_by_name(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = match read_str(name, len) {
-        Ok(name) => name,
-        Err(err) => return make_error(err),
-    };
+    let name = tri!(read_str(name, len));
     *out = make_expr((*a).inner.clone().struct_().field_by_name(name));
     std::ptr::null()
 }
@@ -1177,10 +1129,7 @@ pub unsafe extern "C" fn polars_expr_struct_rename_fields(
 ) -> *const polars_error_t {
     // `read_names` validates UTF-8; this previously used `from_utf8_unchecked`, which is UB on
     // invalid input rather than the error every peer function returns.
-    let names = match read_names(names, lens, num_names) {
-        Ok(names) => names,
-        Err(err) => return make_error(err),
-    };
+    let names = tri!(read_names(names, lens, num_names));
     *out = make_expr((*a).inner.clone().struct_().rename_fields(names));
     std::ptr::null()
 }

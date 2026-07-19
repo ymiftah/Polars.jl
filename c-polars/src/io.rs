@@ -143,18 +143,9 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
     // resolve `hive_partitioning`/path arguments eagerly, and upstream's scan-builder chain is
     // less audited for panic-freedom than the simple expression constructors.
     guard_error(|| {
-        let path = match read_str(path, pathlen) {
-            Ok(p) => p,
-            Err(err) => return make_error(err),
-        };
-        let row_index_name = match read_opt_str(row_index_name, row_index_name_len) {
-            Ok(name) => name,
-            Err(err) => return make_error(err),
-        };
-        let include_file_paths = match read_opt_str(include_file_paths, include_file_paths_len) {
-            Ok(name) => name,
-            Err(err) => return make_error(err),
-        };
+        let path = tri!(read_str(path, pathlen));
+        let row_index_name = tri!(read_opt_str(row_index_name, row_index_name_len));
+        let include_file_paths = tri!(read_opt_str(include_file_paths, include_file_paths_len));
 
         let args = ScanArgsParquet {
             n_rows: n_rows.as_ref().copied(),
@@ -223,26 +214,11 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
     // also purely lazy DSL node construction (no file content is read yet), but is guarded as
     // defense-in-depth the same way.
     guard_error(|| {
-        let path = match read_str(path, pathlen) {
-            Ok(p) => p,
-            Err(err) => return make_error(err),
-        };
-        let row_index_name = match read_opt_str(row_index_name, row_index_name_len) {
-            Ok(name) => name,
-            Err(err) => return make_error(err),
-        };
-        let comment_prefix = match read_opt_str(comment_prefix, comment_prefix_len) {
-            Ok(v) => v,
-            Err(err) => return make_error(err),
-        };
-        let null_value = match read_opt_str(null_value, null_value_len) {
-            Ok(v) => v,
-            Err(err) => return make_error(err),
-        };
-        let include_file_paths = match read_opt_str(include_file_paths, include_file_paths_len) {
-            Ok(name) => name,
-            Err(err) => return make_error(err),
-        };
+        let path = tri!(read_str(path, pathlen));
+        let row_index_name = tri!(read_opt_str(row_index_name, row_index_name_len));
+        let comment_prefix = tri!(read_opt_str(comment_prefix, comment_prefix_len));
+        let null_value = tri!(read_opt_str(null_value, null_value_len));
+        let include_file_paths = tri!(read_opt_str(include_file_paths, include_file_paths_len));
 
         let reader = LazyCsvReader::new(PlRefPath::new(path))
             .with_n_rows(n_rows.as_ref().copied())
@@ -273,10 +249,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
                 MissingColumnsPolicy::Raise
             }));
 
-        let lf = match reader.finish() {
-            Ok(lf) => lf,
-            Err(err) => return make_error(err),
-        };
+        let lf = tri!(reader.finish());
         *out = make_lazy_frame(lf);
         std::ptr::null()
     })
@@ -302,18 +275,9 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
     // See the matching comment on `polars_lazy_frame_scan_parquet` above: `scan_ipc` is also
     // purely lazy DSL node construction, but is guarded as defense-in-depth the same way.
     guard_error(|| {
-        let path = match read_str(path, pathlen) {
-            Ok(p) => p,
-            Err(err) => return make_error(err),
-        };
-        let row_index_name = match read_opt_str(row_index_name, row_index_name_len) {
-            Ok(name) => name,
-            Err(err) => return make_error(err),
-        };
-        let include_file_paths = match read_opt_str(include_file_paths, include_file_paths_len) {
-            Ok(name) => name,
-            Err(err) => return make_error(err),
-        };
+        let path = tri!(read_str(path, pathlen));
+        let row_index_name = tri!(read_opt_str(row_index_name, row_index_name_len));
+        let include_file_paths = tri!(read_opt_str(include_file_paths, include_file_paths_len));
 
         let unified_scan_args = UnifiedScanArgs {
             hive_options: HiveOptions {
@@ -368,20 +332,14 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     guard_error(|| {
-        let path = match read_str(path, pathlen) {
-            Ok(p) => p,
-            Err(err) => return make_error(err),
-        };
-        let options = match build_parquet_write_options(
+        let path = tri!(read_str(path, pathlen));
+        let options = tri!(build_parquet_write_options(
             compression,
             compression_level,
             statistics,
             row_group_size,
             data_page_size,
-        ) {
-            Ok(options) => options,
-            Err(err) => return make_error(err),
-        };
+        ));
         let lf = (*lf).inner.clone();
         let sink_type = SinkDestination::File {
             target: SinkTarget::Path(PlRefPath::new(path)),
@@ -392,10 +350,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
             maintain_order,
             ..Default::default()
         };
-        let sunk = match lf.sink(sink_type, file_format, sink_args) {
-            Ok(sunk) => sunk,
-            Err(err) => return make_error(err),
-        };
+        let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
         *out = make_lazy_frame(sunk);
         std::ptr::null()
     })
@@ -502,11 +457,8 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     guard_error(|| {
-        let path = match read_str(path, pathlen) {
-            Ok(p) => p,
-            Err(err) => return make_error(err),
-        };
-        let options = match build_csv_writer_options(
+        let path = tri!(read_str(path, pathlen));
+        let options = tri!(build_csv_writer_options(
             include_header,
             include_bom,
             separator,
@@ -526,10 +478,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
             decimal_comma,
             compression,
             compression_level,
-        ) {
-            Ok(options) => options,
-            Err(err) => return make_error(err),
-        };
+        ));
         let lf = (*lf).inner.clone();
         let sink_type = SinkDestination::File {
             target: SinkTarget::Path(PlRefPath::new(path)),
@@ -540,10 +489,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
             maintain_order,
             ..Default::default()
         };
-        let sunk = match lf.sink(sink_type, file_format, sink_args) {
-            Ok(sunk) => sunk,
-            Err(err) => return make_error(err),
-        };
+        let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
         *out = make_lazy_frame(sunk);
         std::ptr::null()
     })
@@ -562,15 +508,12 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     guard_error(|| {
-        let path = match read_str(path, pathlen) {
-            Ok(p) => p,
-            Err(err) => return make_error(err),
-        };
-        let options =
-            match build_ipc_writer_options(compression, compression_level, record_batch_size) {
-                Ok(options) => options,
-                Err(err) => return make_error(err),
-            };
+        let path = tri!(read_str(path, pathlen));
+        let options = tri!(build_ipc_writer_options(
+            compression,
+            compression_level,
+            record_batch_size
+        ));
         let lf = (*lf).inner.clone();
         let sink_type = SinkDestination::File {
             target: SinkTarget::Path(PlRefPath::new(path)),
@@ -581,10 +524,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
             maintain_order,
             ..Default::default()
         };
-        let sunk = match lf.sink(sink_type, file_format, sink_args) {
-            Ok(sunk) => sunk,
-            Err(err) => return make_error(err),
-        };
+        let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
         *out = make_lazy_frame(sunk);
         std::ptr::null()
     })
