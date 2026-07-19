@@ -364,7 +364,16 @@ function arrowvector(v::Vector{<:Vector{T}}) where {T}
     offsets = Vector{Int64}(undef, length(v) + 1)
     offsets[begin] = zero(Int64)
     @views cumsum!(offsets[(begin + 1):end], length.(v))
-    flattened = reduce(vcat, v; init = T[])
+    # `reduce(vcat, v; init = T[])` degrades to an O(n^2) left-fold concatenation -- it misses
+    # Base's optimized single-allocation `vcat(v...)` since it goes through the `init` keyword.
+    # The cumulative offsets just computed already give the total flattened length, so preallocate
+    # once and copy each sublist into place instead.
+    flattened = Vector{T}(undef, Int(offsets[end]))
+    i = 1
+    for x in v
+        copyto!(flattened, i, x, 1, length(x))
+        i += length(x)
+    end
     return ArrowArray(ValidityMap(v), Vector[offsets], [arrowvector(flattened)])
 end
 function arrowvector(v::Vector{S}) where {T, S <: MaybeMissing{Vector{T}}}
@@ -372,7 +381,14 @@ function arrowvector(v::Vector{S}) where {T, S <: MaybeMissing{Vector{T}}}
     offsets = Vector{Int64}(undef, length(v) + 1)
     offsets[begin] = zero(Int64)
     @views cumsum!(offsets[(begin + 1):end], lengths)
-    flattened = reduce(vcat, (ismissing(x) ? T[] : x for x in v); init = T[])
+    # See the non-missing method above for why this avoids `reduce(vcat, ...; init = T[])`.
+    flattened = Vector{T}(undef, Int(offsets[end]))
+    i = 1
+    for x in v
+        ismissing(x) && continue
+        copyto!(flattened, i, x, 1, length(x))
+        i += length(x)
+    end
     return ArrowArray(ValidityMap(v), Vector[offsets], [arrowvector(flattened)])
 end
 

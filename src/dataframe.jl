@@ -27,6 +27,7 @@ function Base.size(df::DataFrame)
     API.polars_dataframe_size(df, rows, cols)
     return (Int(rows[]), Int(cols[]))
 end
+Base.size(df::DataFrame, dim::Integer) = size(df)[dim]
 
 Base.getindex(df::DataFrame, row_index, col_index) = getindex(getindex(df, col_index), row_index)
 Base.getindex(df::DataFrame, idx::Int) = Tables.getcolumn(df, idx)
@@ -119,15 +120,12 @@ function schema(df::DataFrame)
     polars_error(err)
     (; names, types) = load_dataframe_schema(schema_out[])
 
-    # Refine types by fetching real null counts, this should be quite
-    # cheap.
-    null_counts = select(df, map(null_count ∘ col ∘ string, names)...)
+    # Refine types by real null counts -- each `df[name]` is an Arc-refcount clone
+    # (`polars_dataframe_get`), and the `Series` constructor already fetches
+    # `polars_series_null_count` (a validity-bitmap count, no query engine), so this is a plain
+    # per-column metadata read rather than a `select` query over the whole frame.
     types = map(zip(names, types)) do (name, T)
-        if iszero(only(null_counts[name]))
-            nomissing(T)
-        else
-            T
-        end
+        iszero(df[string(name)].null_count) ? nomissing(T) : T
     end
 
     return Tables.Schema(names, types)
@@ -138,12 +136,29 @@ Tables.istable(::DataFrame) = true
 Tables.columnaccess(::DataFrame) = true
 Tables.rowaccess(::DataFrame) = true # enables Pluto.jl viewer
 
-Tables.columns(df::DataFrame) = df
+"""
+    DataFrameColumns
 
-# Cheap (schema-only, no query) -- see `_column_names`'s docstring. This used to call
-# `schema(df).names`, so simply materializing column names -- or, via `getcolumn(df, ::Int)`
-# below, reading a *single* column by position -- ran a null-count `select` over every column of
-# the whole frame first.
+`Tables.columns(df)`'s return value: a thin snapshot holding `df` plus its column names computed
+once. Without this, `Tables.getcolumn(df, ::Int)` re-ran `_column_names` (a ccall + full Arrow
+schema parse) on *every* call, so iterating a `DataFrame`'s columns positionally (as many Tables.jl
+consumers do via `Tables.columns`) cost O(ncols²) rather than O(ncols).
+"""
+struct DataFrameColumns
+    df::DataFrame
+    names::Tuple{Vararg{Symbol}}
+end
+
+Tables.columns(df::DataFrame) = DataFrameColumns(df, _column_names(df))
+
+Tables.istable(::DataFrameColumns) = true
+Tables.columnaccess(::DataFrameColumns) = true
+Tables.columnnames(cols::DataFrameColumns) = cols.names
+Tables.getcolumn(cols::DataFrameColumns, col::Symbol) = getindex(cols.df, col)
+Tables.getcolumn(cols::DataFrameColumns, idx::Int) = Tables.getcolumn(cols, cols.names[idx])
+schema(cols::DataFrameColumns) = schema(cols.df)
+
+# Cheap (schema-only, no query) -- see `_column_names`'s docstring.
 Tables.columnnames(df::DataFrame) = _column_names(df)
 Tables.getcolumn(df::DataFrame, col::Symbol) = getindex(df, col)
 Tables.getcolumn(df::DataFrame, idx::Int) = Tables.getcolumn(df, Tables.columnnames(df)[idx])

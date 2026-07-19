@@ -91,6 +91,21 @@ Base's optimized single-allocation `vcat` and degrades to left-fold concatenatio
 preallocated `Vector{T}(undef, Int(offsets[end]))` + `copyto!` loop, using the offsets already
 computed two lines earlier.
 
+Benchmark (`Vector{Vector{Int}}`, random sublist length 1-5, warmed up, `@elapsed`):
+
+| sublists (n) | old (`reduce(vcat, ...; init=T[])`) | new (preallocate + `copyto!`) | speedup |
+|---|---|---|---|
+| 10,000 | 0.39 s | 0.00015 s | ~2,600x |
+| 20,000 | 2.09 s | 0.00058 s | ~3,600x |
+| 40,000 | 10.31 s | 0.00108 s | ~9,500x |
+| 100,000 | (extrapolated: ~64 s) | 0.00280 s | -- |
+
+The old method's timings roughly quadruple on each size doubling (quintic-ish growth observed:
+0.39 → 2.09 → 10.31 s for 10k → 20k → 40k), confirming O(n²); the new method scales linearly (its
+100k timing, 2.8 ms, is barely 2.6x its 40k timing despite 2.5x the input size). The 500k-sublist
+old-method run was aborted after several minutes without completing -- consistent with the O(n²)
+extrapolation (~27 minutes) -- since the scaling trend from smaller sizes was already conclusive.
+
 `schema(df)` (`src/dataframe.jl:111-126`): replace the full-frame `null_count` `select` query with
 per-column `iszero(df[string(name)].null_count)` — identical semantics (the `Series` constructor
 already fetches `polars_series_null_count`, a validity-bitmap count, no query engine), no query.
