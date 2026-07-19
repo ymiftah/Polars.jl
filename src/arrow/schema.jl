@@ -144,11 +144,19 @@ end
 """
     Internal API
 
+Returns `(name, T, fmt)`: `T` is the same fully-resolved Julia element type `parse_format` always
+computed; `fmt` is the raw top-level Arrow format string (`""` for a dictionary-encoded column --
+`read.jl`'s `_dispatch_read` treats this as its "unsupported, fall back" sentinel) -- cheap to
+carry alongside `T` since `schema.format` is already being read here, and lets `Series` cache it
+at construction time so `read_series` doesn't need to re-fetch and re-parse the schema on every
+`collect`.
+
 !!! warning
     The schema should not be used afterwards.
 """
 function load_series_schema(schema::CArrowSchema)
-    res = unsafe_string(schema.name) => parse_format(schema)
+    fmt = schema.dictionary != C_NULL ? "" : unsafe_string(schema.format)
+    res = (unsafe_string(schema.name), parse_format(schema), fmt)
 
     schema_ref = Ref(schema)
     @ccall $(schema.release)(schema_ref::Ptr{CArrowSchema})::Cvoid

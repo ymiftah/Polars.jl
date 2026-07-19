@@ -119,11 +119,7 @@ end
                 ([UInt8[1, 2, 3], UInt8[], rand(UInt8, 30), rand(UInt8, 5)], Vector{UInt8}),
             )
             s = Series(:x, values)
-            schema_out = Ref{Polars.API.ArrowSchema}()
-            err = Polars.API.polars_series_schema(s, schema_out)
-            Polars.polars_error(err)
-            fmt, _ = Polars._schema_format!(schema_out[])
-            @test fmt in ("vu", "vz")
+            @test s.fmt in ("vu", "vz")
             bulk = collect(s)
             @test bulk == [s[i] for i in eachindex(s)]
             @test bulk isa Vector{T}

@@ -7,6 +7,10 @@ mutable struct Series{T} <: AbstractVector{T}
     ptr::Ptr{polars_series_t}
     null_count::Int
     length::Int
+    # Raw top-level Arrow format string captured once at construction (`""` for a
+    # dictionary-encoded column) -- lets `read_series` dispatch directly instead of re-fetching
+    # and re-parsing the schema via `polars_series_schema` on every `collect`/`copy`.
+    fmt::String
 
     function Series(ptr)
         @assert ptr != C_NULL
@@ -19,14 +23,14 @@ mutable struct Series{T} <: AbstractVector{T}
             schema_out = Ref{CArrowSchema}()
             err = polars_series_schema(ptr, schema_out)
             polars_error(err)
-            _, T = load_series_schema(schema_out[])
+            _, T, fmt = load_series_schema(schema_out[])
 
             len = polars_series_length(ptr)
             null_count = polars_series_null_count(ptr)
 
             T = iszero(null_count) ? nomissing(T) : T
 
-            series = new{T}(ptr, null_count, len)
+            series = new{T}(ptr, null_count, len, fmt)
 
             return finalizer(polars_series_destroy, series)
         catch
@@ -157,6 +161,8 @@ Returns the name of this polars series.
 """
 function name(series)
     ptr = Ref{Ptr{UInt8}}()
-    len = polars_series_name(series, ptr)
-    return unsafe_string(ptr[], len)
+    return GC.@preserve series begin
+        len = polars_series_name(series, ptr)
+        unsafe_string(ptr[], len)
+    end
 end

@@ -4,9 +4,7 @@
 # owns the exported buffers, so `ExportedArray` defers/guards the `release` callback instead of
 # eagerly building one. See plans/zero_copy_rust_to_julia.md for the full design rationale.
 
-using .API:
-    ArrowSchema as CArrowSchema,
-    ArrowArray as CArrowArray
+using .API: ArrowArray as CArrowArray
 
 """
     ExportedArray
@@ -87,11 +85,15 @@ is silently not honored (falls back to the safe copy) whenever the true zero-cop
 (no nulls, fixed-width numeric) doesn't hold.
 """
 function read_series(series::Series; zerocopy::Bool = false)
-    schema_out = Ref{CArrowSchema}()
-    err = polars_series_schema(series, schema_out)
-    polars_error(err)
-    fmt, is_dictionary = _schema_format!(schema_out[])
-    is_dictionary && return nothing
+    return _dispatch_read(series.fmt, series, zerocopy)
+end
+
+"""Dispatches on a raw Arrow format string (`series.fmt`, cached at `Series` construction time --
+see `load_series_schema`) to the matching bulk reader, or `nothing` if unsupported. A function
+barrier: `fmt` is dynamic (a runtime `String`), so keeping the big format-string comparison chain
+in its own small function lets each branch's body still compile fully type-stable once inlined."""
+function _dispatch_read(fmt::String, series::Series, zerocopy::Bool)
+    isempty(fmt) && return nothing # dictionary-encoded -- see `load_series_schema`'s sentinel
 
     if haskey(_NUMERIC_FORMATS, fmt)
         T = _NUMERIC_FORMATS[fmt]
@@ -138,15 +140,6 @@ function read_series(series::Series; zerocopy::Bool = false)
     else
         return nothing
     end
-end
-
-"""Reads the format string and releases the schema; the array export (if any) is independent."""
-function _schema_format!(schema::CArrowSchema)
-    is_dictionary = schema.dictionary != C_NULL
-    fmt = is_dictionary ? "" : unsafe_string(schema.format)
-    ref = Ref(schema)
-    @ccall $(schema.release)(ref::Ptr{CArrowSchema})::Cvoid
-    return fmt, is_dictionary
 end
 
 function _read_numeric(::Type{T}, h::ExportedArray, zerocopy::Bool) where {T}
