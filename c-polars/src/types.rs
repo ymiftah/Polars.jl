@@ -145,7 +145,7 @@ impl polars_parquet_parallel_strategy_t {
 
 #[repr(C)]
 #[allow(dead_code)]
-pub enum PolarsEngine {
+pub enum polars_engine_t {
     PolarsEngineInMemory,
     PolarsEngineStreaming,
 }

@@ -158,7 +158,7 @@ fn end_to_end_select_collect_through_the_c_abi() {
         polars_lazy_frame_select(lf, exprs.as_ptr(), exprs.len());
 
         let mut out: *mut polars_dataframe_t = std::ptr::null_mut();
-        let err = polars_lazy_frame_collect(lf, PolarsEngine::PolarsEngineInMemory, &mut out);
+        let err = polars_lazy_frame_collect(lf, polars_engine_t::PolarsEngineInMemory, &mut out);
         assert!(err.is_null());
 
         let (mut rows, mut cols) = (0usize, 0usize);

@@ -6,10 +6,10 @@
 #include <stdlib.h>
 #include "arrow.h"
 
-typedef enum PolarsEngine {
+typedef enum polars_engine_t {
   PolarsEngineInMemory,
   PolarsEngineStreaming,
-} PolarsEngine;
+} polars_engine_t;
 
 typedef enum polars_time_unit_t {
   PolarsTimeUnitNanosecond,
@@ -415,7 +415,7 @@ void polars_lazy_frame_filter(struct polars_lazy_frame_t *df, const struct polar
 void polars_lazy_frame_head(struct polars_lazy_frame_t *df, uintptr_t n);
 
 const struct polars_error_t *polars_lazy_frame_collect(struct polars_lazy_frame_t *df,
-                                                       enum PolarsEngine engine,
+                                                       enum polars_engine_t engine,
                                                        struct polars_dataframe_t **out);
 
 /**
@@ -1059,8 +1059,7 @@ uintptr_t polars_series_length(struct polars_series_t *series);
 
 uintptr_t polars_series_null_count(struct polars_series_t *series);
 
-const struct polars_error_t *polars_series_schema(struct polars_series_t *series,
-                                                  ArrowSchema *out);
+const struct polars_error_t *polars_series_schema(struct polars_series_t *series, ArrowSchema *out);
 
 /**
  * Exports the series' data as a single Arrow C Data Interface `ArrowArray`, collapsing the

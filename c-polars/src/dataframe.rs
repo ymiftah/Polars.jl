@@ -466,14 +466,14 @@ pub unsafe extern "C" fn polars_lazy_frame_filter(
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_collect(
     df: *mut polars_lazy_frame_t,
-    engine: PolarsEngine,
+    engine: polars_engine_t,
     out: *mut *mut polars_dataframe_t,
 ) -> *const polars_error_t {
     guard_error(|| {
         let df = (*df).inner.clone();
         let engine = match engine {
-            PolarsEngine::PolarsEngineInMemory => Engine::InMemory,
-            PolarsEngine::PolarsEngineStreaming => Engine::Streaming,
+            polars_engine_t::PolarsEngineInMemory => Engine::InMemory,
+            polars_engine_t::PolarsEngineStreaming => Engine::Streaming,
         };
         let result = match df.collect_with_engine(engine) {
             Ok(result) => result,

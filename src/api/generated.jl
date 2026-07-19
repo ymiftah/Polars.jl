@@ -38,7 +38,7 @@ struct ArrowArray
     private_data::Ptr{Cvoid}
 end
 
-@cenum PolarsEngine::UInt32 begin
+@cenum polars_engine_t::UInt32 begin
     PolarsEngineInMemory = 0
     PolarsEngineStreaming = 1
 end
@@ -344,7 +344,7 @@ function polars_lazy_frame_head(df, n)
 end
 
 function polars_lazy_frame_collect(df, engine, out)
-    return @ccall libpolars.polars_lazy_frame_collect(df::Ptr{polars_lazy_frame_t}, engine::PolarsEngine, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
+    return @ccall libpolars.polars_lazy_frame_collect(df::Ptr{polars_lazy_frame_t}, engine::polars_engine_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
 
 """
