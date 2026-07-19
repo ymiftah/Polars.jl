@@ -78,7 +78,8 @@ function pivot(
     index = index isa AbstractVector ? String.(index) : [String(index)]
     values = values isa AbstractVector ? String.(values) : [String(values)]
 
-    on_columns = collect(unique(select(lazy(df), map(col, on)...)))
+    lf = lazy(df)
+    on_columns = collect(unique(select(lf, map(col, on)...)))
 
     naming_enum = if column_naming == :auto
         API.PolarsPivotColumnNamingAuto
@@ -94,7 +95,7 @@ function pivot(
         values_ptrs, values_lens = _name_ptrs(values)
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_pivot(
-            lazy(df), on_ptrs, on_lens, length(on_ptrs), on_columns,
+            lf, on_ptrs, on_lens, length(on_ptrs), on_columns,
             index_ptrs, index_lens, length(index_ptrs),
             values_ptrs, values_lens, length(values_ptrs),
             agg, maintain_order, separator, ncodeunits(separator), naming_enum, out

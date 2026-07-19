@@ -1,6 +1,6 @@
 module Polars
 
-import PrettyTables, Tables
+import PrecompileTools, PrettyTables, Tables
 
 const MaybeMissing{T} = Union{T, Missing}
 const PhysicalDType = Union{
@@ -92,11 +92,17 @@ include("./expr/expr.jl")
 include("./expr/list.jl")
 include("./expr/string.jl")
 include("./expr/datetime.jl")
-include("./expr/struct.jl")
 
 include("./group_by.jl")
 include("./select.jl")
 include("./verbs.jl")
+
+# `expr/struct.jl` must follow `verbs.jl`: `Structs.rename_fields` does `using ..Polars:
+# _name_ptrs`, and `using`-ing a name before its defining `include` has run produces an
+# "Imported binding was undeclared at import time" warning (harmless at runtime -- Julia resolves
+# it once `Polars` finishes loading -- but avoidable by just respecting the real dependency order).
+include("./expr/struct.jl")
+
 include("./join.jl")
 include("./reshape.jl")
 include("./sort.jl")
@@ -120,5 +126,18 @@ export Series, DataFrame, PolarsError,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
     drop, rename, drop_nulls, with_row_index, explode, unpivot, nth,
     describe, pivot, upsample
+
+# Cuts TTFX: without this, the first `DataFrame`/`select`/`filter`/`collect` call in a fresh
+# session pays full compilation for the whole eager-via-lazy pipeline plus both bulk-read paths
+# (numeric and string/view) exercised below.
+PrecompileTools.@compile_workload begin
+    df = DataFrame((; a = [1, 2, 3], b = ["x", "y", "z"]))
+    lf = lazy(df)
+    lf = select(lf, col("a"), col("b"))
+    lf = filter(lf, col("a") > 1)
+    out = collect(lf)
+    collect(out["a"])
+    collect(out["b"])
+end
 
 end # module Polars

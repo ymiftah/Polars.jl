@@ -12,11 +12,21 @@ A wrapper around an immutable polars dataframe object.
 """
 function DataFrame(table)
     array, schema = Polars.arrowtable(table, "polars.dataframe")
-    return try
+    try
         out = Ref{Ptr{polars_dataframe_t}}()
         err = API.polars_dataframe_new_from_carrow(schema, array, out)
-        polars_error(err)
-        DataFrame(out[])
+        # On success, Rust has taken ownership of `array` via the release-callback protocol (it
+        # stays rooted in `LIVE_ARRAYS` until Rust itself calls `base_release_array` later, once
+        # the imported buffers are dropped) -- do not release it here. On failure, Rust never
+        # took ownership, so `array` (and its Julia-owned buffers) would otherwise stay rooted in
+        # `LIVE_ARRAYS` forever; unroot it explicitly so it can be GC'd like any other object.
+        try
+            polars_error(err)
+        catch
+            release_array!(array)
+            rethrow()
+        end
+        return DataFrame(out[])
     finally
         release_schema!(schema)
     end
@@ -92,6 +102,31 @@ function Base.show(io::IO, ::MIME"text/plain", df::DataFrame)
         table_format = format,
     )
 end
+
+"""
+    ==(a::DataFrame, b::DataFrame)::Bool
+
+Structural equality: same column names in the same order, with pairwise-`isequal` column data.
+Uses `isequal` (not the column data's own `==`) so two `missing`s compare equal and the result is
+always a concrete `Bool` -- matches `hash`'s semantics below, and avoids `==`'s usual
+`missing`-propagating three-valued logic, which would otherwise make a whole-dataframe comparison
+return `missing` instead of `true`/`false` whenever any column has nulls. Without this method,
+two structurally-identical `DataFrame`s compared unequal via the default `===` fallback.
+"""
+function Base.:(==)(a::DataFrame, b::DataFrame)
+    na, nb = names(a), names(b)
+    na == nb || return false
+    return all(isequal(collect(a[n]), collect(b[n])) for n in na)
+end
+
+function Base.hash(df::DataFrame, h::UInt)
+    h = hash(:Polars_DataFrame, h)
+    for n in names(df)
+        h = hash(collect(df[n]), h)
+    end
+    return h
+end
+
 ## Tables.jl interface
 
 import Tables: schema

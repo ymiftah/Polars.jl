@@ -183,7 +183,7 @@ function element()
 end
 
 """
-    alias(expr::Polars.Expr, name::String)::Polars.Expr
+    alias(expr::Polars.Expr, alias::String)::Polars.Expr
     alias(alias::String)::Base.Fix2{typeof(alias), String}
 
 Renames the result of this expression to a new name.
@@ -197,8 +197,8 @@ end
 alias(new_name) = Base.Fix2(alias, new_name)
 
 """
-    prefix(expr::Polars.Expr, prefix::String)::Polars.Expr
-    prefix(prefix::String)::Base.Fix2{typeof(prefix), String}
+    prefix(expr::Polars.Expr, pref::String)::Polars.Expr
+    prefix(pref::String)::Base.Fix2{typeof(prefix), String}
 
 Adds a prefix to the name of the resulting expression.
 """
@@ -211,8 +211,8 @@ end
 prefix(pref) = Base.Fix2(prefix, pref)
 
 """
-    suffix(expr::Polars.Expr, suffix::String)::Polars.Expr
-    suffix(suffix::String)::Base.Fix2{typeof(suffix), String}
+    suffix(expr::Polars.Expr, suf::String)::Polars.Expr
+    suffix(suf::String)::Base.Fix2{typeof(suffix), String}
 
 Adds a suffix to the name of the resulting expression.
 """
@@ -238,7 +238,10 @@ end
     cast(expr::Polars.Expr, dtype::Type)::Polars.Expr
     cast(dtype::Type)::Base.Fix2{typeof(cast), ::Type}
 
-Casts the series represented by the expression with provided the datatype.
+Casts the series represented by the expression to the provided `dtype`. Supports `Missing`, the
+physical numeric types, `Bool`, `String`, `Vector{UInt8}` (Binary), `Date`, and `Dates.Time` --
+`DateTime`, `Dates.Period` (Duration), `Categorical`, `Decimal`, `List`, and `Struct` are not
+supported as cast targets and raise an error.
 """
 function cast(expr, dtype)
     value_type = if dtype == Missing

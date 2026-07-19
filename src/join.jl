@@ -108,10 +108,8 @@ function join_asof(
         error("unknown asof strategy $strategy, expected one of (:backward, :forward, :nearest)")
     end
     GC.@preserve by_left by_right begin
-        by_left_ptrs = Ptr{UInt8}[pointer(s) for s in by_left]
-        by_left_lens = Csize_t[ncodeunits(s) for s in by_left]
-        by_right_ptrs = Ptr{UInt8}[pointer(s) for s in by_right]
-        by_right_lens = Csize_t[ncodeunits(s) for s in by_right]
+        by_left_ptrs, by_left_lens = _name_ptrs(by_left)
+        by_right_ptrs, by_right_lens = _name_ptrs(by_right)
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_join_asof(
             a, b, on_a, on_b,

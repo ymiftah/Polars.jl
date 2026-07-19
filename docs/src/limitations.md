@@ -53,3 +53,24 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
 ## Performance notes
 
 - Eager `DataFrame` operations (via `collect ∘ op ∘ lazy`) are not as query-optimized as operations built directly on lazy frames — the optimizer only sees the outer `lazy()` call and the final `collect`, not the intermediate steps. For performance-critical workflows, construct the full query on `LazyFrame` before collecting.
+
+## Concurrency
+
+- **No handle is safe to share across Julia tasks/threads without external synchronization.**
+  `DataFrame`/`LazyFrame`/`Series`/`Expr`/`Value` are thin wrappers around a raw pointer with no
+  internal locking; concurrent mutation (or a mutation racing a read) from two tasks on the *same*
+  handle is a data race, same as any other unsynchronized shared mutable Julia object. Give each
+  task/thread its own handle (`clone()` a `LazyFrame` if you need to fan a query out), or
+  synchronize access yourself.
+
+- **The only internal locks are for Arrow C Data Interface bookkeeping, not query concurrency.**
+  `LIVE_SCHEMAS`/`LIVE_ARRAYS` (`src/arrow/schema.jl`, `src/arrow/array.jl`) are guarded by their
+  own `ReentrantLock`s because Rust's release callback can fire on whatever thread drops the
+  imported/exported array — this only protects that GC-keepalive bookkeeping, not your data.
+
+- **polars' own parallelism (rayon) is independent of Julia's thread pool.** `multithreaded` is
+  hard-enabled on the Rust side for the operations that support it (e.g. `unique`, `pivot`); it
+  runs on rayon's own thread pool, sized by `POLARS_MAX_THREADS` (or the number of CPUs if unset)
+  regardless of `JULIA_NUM_THREADS`. Running many polars queries concurrently from several Julia
+  tasks can oversubscribe the machine (Julia threads × rayon threads) — set `POLARS_MAX_THREADS`
+  explicitly if that's a concern.
