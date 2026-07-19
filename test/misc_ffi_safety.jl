@@ -186,12 +186,14 @@ end
     # public API (see the fixed-size-list testset above), so the only assertion available for that
     # fix is that ordinary construction still installs a working finalizer, which the rest of this
     # suite already exercises continuously.
-    df = DataFrame((;
-        dt = [DateTime(2024, 1, 1) + Dates.Day(i) for i in 1:50],
-        dt2 = [DateTime(2024, 1, 1) for _ in 1:50],
-        d = [Date(2024, 1, 1) + Dates.Day(i) for i in 1:50],
-        t = [Dates.Time(0, 0, 0) + Dates.Second(i) for i in 1:50],
-    ))
+    df = DataFrame(
+        (;
+            dt = [DateTime(2024, 1, 1) + Dates.Day(i) for i in 1:50],
+            dt2 = [DateTime(2024, 1, 1) for _ in 1:50],
+            d = [Date(2024, 1, 1) + Dates.Day(i) for i in 1:50],
+            t = [Dates.Time(0, 0, 0) + Dates.Second(i) for i in 1:50],
+        )
+    )
     # Duration columns have no write-side arrow support (see test/datatypes/series.jl) -- derive
     # one from datetime subtraction instead, same as that file does.
     dur = select(df, (col("dt") - col("dt2")) |> alias("dur"))[:dur]

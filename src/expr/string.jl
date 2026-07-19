@@ -21,8 +21,31 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
     gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split)
     gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all)
     gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill)
-    gen_impl_expr_binary_str!(polars_expr_str_head, StringNameSpace::head)
-    gen_impl_expr_binary_str!(polars_expr_str_tail, StringNameSpace::tail)
+end
+
+# `head`/`tail` are pulled out of the `@generate_expr_fns` block (rather than generated via
+# `gen_impl_expr_binary_str!`, like the other binary ops above) because they collide with
+# `Polars`'s own top-level `head`/`tail` (for `DataFrame`/`LazyFrame`) -- not Base names, so the
+# macro's own Base-collision check can't catch them, and they must never be exported: designed for
+# qualified use (`Strings.head`), matching `contains`/`replace` below.
+"""
+    head(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
+
+Refer to [the polars documentation](https://docs.rs/polars/latest/polars/prelude/enum.StringNameSpace.html#method.head).
+"""
+function head(a::Expr, b::Expr)
+    out = API.polars_expr_str_head(a, b)
+    return Expr(out)
+end
+
+"""
+    tail(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
+
+Refer to [the polars documentation](https://docs.rs/polars/latest/polars/prelude/enum.StringNameSpace.html#method.tail).
+"""
+function tail(a::Expr, b::Expr)
+    out = API.polars_expr_str_tail(a, b)
+    return Expr(out)
 end
 
 """
@@ -241,5 +264,8 @@ function to_datetime(
     return expr -> to_datetime(expr; format, time_unit, strict, exact)
 end
 
-export contains, slice, replace, replace_all, extract, count_matches, to_date, to_datetime
+# `contains`/`replace` are intentionally not exported -- they collide with
+# `Base.contains`/`Base.replace` and are designed for qualified use (`Strings.contains`, etc.);
+# `using Polars.Strings` would otherwise clash with those.
+export slice, replace_all, extract, count_matches, to_date, to_datetime
 end # module Strings

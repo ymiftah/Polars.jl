@@ -104,8 +104,6 @@ function pivot(
     return collect(LazyFrame(out[]))
 end
 
-export pivot
-
 """
     upsample(df::DataFrame, time_column::String; by::Vector{String}=String[], every::String,
              stable::Bool=true)::DataFrame
@@ -131,5 +129,3 @@ function upsample(
     end
     return DataFrame(out[])
 end
-
-export upsample

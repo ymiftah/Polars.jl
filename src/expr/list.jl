@@ -14,8 +14,21 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
     gen_impl_expr_list!(polars_expr_list_unique_stable, ListNameSpace::unique_stable)
     gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first)
     gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last)
+end
 
-    gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head)
+# `head` is pulled out of the `@generate_expr_fns` block (rather than generated via
+# `gen_impl_expr_binary_list!`, like the other binary ops above) because it collides with
+# `Polars`'s own top-level `head` (for `DataFrame`/`LazyFrame`) -- not a Base name, so the macro's
+# own Base-collision check can't catch it, and it must never be exported: it's designed for
+# qualified use (`Lists.head`), matching `get`/`contains` below.
+"""
+    head(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
+
+Refer to [the polars documentation](https://docs.rs/polars/latest/polars/prelude/enum.ListNameSpace.html#method.head).
+"""
+function head(a::Expr, b::Expr)
+    out = API.polars_expr_list_head(a, b)
+    return Expr(out)
 end
 
 """
@@ -62,5 +75,7 @@ Curried form of [`contains`](@ref) for use with `|>`.
 """
 contains(other; nulls_equal::Bool = true) = expr -> contains(expr, convert(Expr, other); nulls_equal)
 
-export get, contains, head
+# `get`/`contains`/`head` are intentionally not exported -- they collide with
+# `Base.get`/`Base.contains`/`Polars.head` respectively, and are designed for qualified use
+# (`Lists.get`, etc.); `using Polars.Lists` would otherwise clash with those.
 end # module Lists

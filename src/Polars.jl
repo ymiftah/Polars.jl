@@ -105,6 +105,11 @@ include("./io/parquet.jl")
 include("./io/csv.jl")
 include("./io/ipc.jl")
 
+# `Expr` methods (both the `@generate_expr_fns`-generated ones and the hand-written ones needing
+# extra args the macro's plain shape can't express, e.g. `mean`/`median`/`std`/`var`/`quantile`)
+# export themselves inline in src/expr/expr.jl, next to their definitions, rather than here --
+# see that file for the full list. The `Lists`/`Strings`/`Dt`/`Structs` namespace submodules
+# likewise export their own members from their own files, for qualified use (`Lists.get`, etc.).
 export Series, DataFrame, PolarsError,
     read_series, names,
     select, with_columns, head, tail, collect_schema,
@@ -113,6 +118,7 @@ export Series, DataFrame, PolarsError,
     read_ipc, write_ipc, scan_ipc, sink_csv, sink_ipc,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
-    drop, rename, drop_nulls, with_row_index, explode, unpivot, nth
+    drop, rename, drop_nulls, with_row_index, explode, unpivot, nth,
+    describe, pivot, upsample
 
 end # module Polars

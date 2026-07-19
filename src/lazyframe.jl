@@ -52,6 +52,14 @@ function Base.collect(df::LazyFrame; engine = :default)
     polars_error(err)
     return DataFrame(out[])
 end
+"""
+    clone(lf::LazyFrame)::LazyFrame
+
+Returns a new `LazyFrame` wrapping a clone of `lf`'s underlying query plan. Mutating in-place
+operations (`select`, `filter`, etc.) always clone their input first (see CLAUDE.md's ownership
+conventions), so this is only needed when you want an explicit, independent handle to the same
+plan -- e.g. to branch it into two different downstream queries without one affecting the other.
+"""
 function clone(df::LazyFrame)
     out = polars_lazy_frame_clone(df)
     return LazyFrame(out)

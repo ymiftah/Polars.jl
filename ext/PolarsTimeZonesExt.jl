@@ -3,7 +3,7 @@ module PolarsTimeZonesExt
 using Polars, TimeZones, Dates
 
 # Activates timezone-aware Datetime column support -- see `Polars._tz_aware_datetime_type`'s
-# docstring (src/arrow.jl) for why this adds the first-ever method for
+# docstring (src/arrow/schema.jl) for why this adds the first-ever method for
 # `_resolve_tz_aware_datetime_type` rather than redefining `_tz_aware_datetime_type` directly
 # (the latter would be a same-signature method *overwrite*, which Julia forbids during
 # precompilation).

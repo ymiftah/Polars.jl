@@ -304,10 +304,18 @@ macro generate_expr_fns(ex)
     for call in ex.args
         call isa Base.Expr || continue
         cname = call.args[2]
-        fname = last(last(call.args).args)
-        if __module__ == Polars && isdefined(Base, fname)
-            fname = Base.Expr(:(.), :Base, QuoteNode(fname))
-        end
+        orig_fname = last(last(call.args).args)
+        # A name colliding with an existing Base binding is never exported here -- for the
+        # top-level `Polars` module that's because the function below is instead defined as a new
+        # `Base.fname` method (which already works unqualified via Base's own export, see
+        # CLAUDE.md's sharp-edges note); for a namespace submodule (`Lists`/`Strings`/`Dt`), the
+        # function stays a wholly unrelated local binding (never Base-qualified -- extending e.g.
+        # `Base.get`/`Base.max` with unrelated list/string semantics would be actively wrong), just
+        # not exported, since it's designed for qualified use (`Lists.get`) and `using
+        # Polars.Lists` would otherwise clash with Base's own same-named export.
+        base_collision = isdefined(Base, orig_fname)
+        base_qualified = __module__ == Polars && base_collision
+        fname = base_qualified ? Base.Expr(:(.), :Base, QuoteNode(orig_fname)) : orig_fname
         sig = Base.Expr(:call, fname)
         gen_name = string(first(call.args))
         @assert occursin("gen", gen_name)
@@ -325,24 +333,25 @@ macro generate_expr_fns(ex)
             end
         end
         push!(out.args, Base.Expr(:function, sig, body))
-        # Export Expr symbols
-        if fname isa Symbol # && __module__ != Polars
-            namespace = string(first(last(call.args).args))
-            namespace_type = namespace == "Expr" ? "enum" : "struct"
-            rust_doc_url = "https://docs.rs/polars/latest/polars/prelude/$(namespace_type).$(namespace).html#method.$fname"
-            string_sig = replace(string(sig), "Expr" => "Polars.Expr")
-            docstring = """
-                $(string_sig)::Polars.Expr
+        # Attach a docstring regardless of Base collision -- documented under the plain,
+        # unqualified name (`orig_fname`), not `Base.fname`: that's how `fname` resolves inside
+        # this module anyway (every module sees Base unqualified), and it's what `?fname` in the
+        # REPL expects.
+        namespace = string(first(last(call.args).args))
+        namespace_type = namespace == "Expr" ? "enum" : "struct"
+        rust_doc_url = "https://docs.rs/polars/latest/polars/prelude/$(namespace_type).$(namespace).html#method.$orig_fname"
+        string_sig = replace(string(sig), "Expr" => "Polars.Expr")
+        docstring = """
+            $(string_sig)::Polars.Expr
 
-            Refer to [the polars documentation]($rust_doc_url).
-            """
-            push!(
-                out.args, quote
-                    Docs.@doc $docstring $(QuoteNode(fname))
-                end
-            )
-            push!(out.args, :(export $fname))
-        end
+        Refer to [the polars documentation]($rust_doc_url).
+        """
+        push!(
+            out.args, quote
+                Docs.@doc $docstring $sig
+            end
+        )
+        base_collision || push!(out.args, :(export $orig_fname))
     end
     return esc(out)
 end
