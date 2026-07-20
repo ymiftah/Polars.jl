@@ -87,6 +87,54 @@ end
     @test_throws ErrorException cast(Complex{Float64})(col("x"))
 end
 
+@testset "cast to parameterized dtypes (DateTime/Duration/Decimal/Categorical)" begin
+    df = DataFrame((; x = [1000, 2000, 3000]))
+
+    # DateTime: naive (default) and timezone-aware, each time_unit
+    to_dt = select(df, col("x") |> cast(DateTime; time_unit = :ms))
+    @test eltype(to_dt[:x]) == DateTime
+    @test collect(to_dt[:x]) == [
+        DateTime(1970, 1, 1, 0, 0, 1), DateTime(1970, 1, 1, 0, 0, 2), DateTime(1970, 1, 1, 0, 0, 3),
+    ]
+
+    to_dt_direct = select(df, cast_datetime(col("x"); time_unit = :ms))
+    @test collect(to_dt_direct[:x]) == collect(to_dt[:x])
+
+    to_dt_ns = select(df, col("x") |> cast(DateTime; time_unit = :ns))
+    @test eltype(to_dt_ns[:x]) == DateTime
+
+    @test_throws ErrorException cast(col("x"), DateTime; time_unit = :bogus)
+
+    # Duration: via cast(expr, Dates.Millisecond/Microsecond/Nanosecond) and via cast_duration
+    to_dur_ms = select(df, col("x") |> cast(Dates.Millisecond))
+    @test eltype(to_dur_ms[:x]) == Dates.Millisecond
+    @test collect(to_dur_ms[:x]) == Dates.Millisecond.([1000, 2000, 3000])
+
+    to_dur_us = select(df, col("x") |> cast(Dates.Microsecond))
+    @test collect(to_dur_us[:x]) == Dates.Microsecond.([1000, 2000, 3000])
+
+    to_dur_ns = select(df, col("x") |> cast(Dates.Nanosecond))
+    @test collect(to_dur_ns[:x]) == Dates.Nanosecond.([1000, 2000, 3000])
+
+    to_dur_direct = select(df, cast_duration(col("x"); time_unit = :ms))
+    @test collect(to_dur_direct[:x]) == collect(to_dur_ms[:x])
+
+    to_dur_curried = select(df, col("x") |> cast_duration(time_unit = :ms))
+    @test collect(to_dur_curried[:x]) == collect(to_dur_ms[:x])
+
+    # Decimal: no Julia read path yet, but the cast itself (and a round trip via write) must not
+    # crash -- see cast_decimal's docstring
+    to_dec = select(df, cast_decimal(col("x"), 10, 2))
+    @test size(to_dec) == (3, 1)
+    to_dec_curried = select(df, col("x") |> cast_decimal(10, 2))
+    @test size(to_dec_curried) == (3, 1)
+
+    # Categorical: casts, and reads back as String with no extra step
+    dfs = DataFrame((; s = ["a", "b", "a", "c"]))
+    to_cat = select(dfs, cast_categorical(col("s")))
+    @test collect(to_cat[:s]) == ["a", "b", "a", "c"]
+end
+
 @testset "Null-dtype DataFrame show/print" begin
     # The full PrettyTables render (MIME"text/plain" -- see P2.5) routes through the same scalar
     # Series getindex as collect() -- a regression guard beyond the collect()-only cases above.

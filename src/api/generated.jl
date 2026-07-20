@@ -3,10 +3,21 @@ using CEnum: CEnum, @cenum
 using libpolars_jll
 export libpolars_jll
 
-const libpolars_local_dir = joinpath(@__DIR__, "../../c-polars/target/debug/")
-@static if isdir(libpolars_local_dir) && isfile(
+# Prefer a local dev build over the registered JLL when one exists (this fork's C ABI surface has
+# grown well past what's published upstream). `release/` is checked first -- if the caller has
+# built one (`cargo build --release`), it's what should actually be exercised; `debug/` remains
+# the fallback for the normal dev-loop `cargo build`.
+const libpolars_local_release_dir = joinpath(@__DIR__, "../../c-polars/target/release/")
+const libpolars_local_debug_dir = joinpath(@__DIR__, "../../c-polars/target/debug/")
+@static if isdir(libpolars_local_release_dir) && isfile(
         begin
-            libpolars_local_file_path = joinpath(libpolars_local_dir, "libpolars" * (Sys.islinux() ? ".so" : ".dylib"))
+            libpolars_local_file_path = joinpath(libpolars_local_release_dir, "libpolars" * (Sys.islinux() ? ".so" : ".dylib"))
+        end
+    )
+    const libpolars = libpolars_local_file_path
+elseif isdir(libpolars_local_debug_dir) && isfile(
+        begin
+            libpolars_local_file_path = joinpath(libpolars_local_debug_dir, "libpolars" * (Sys.islinux() ? ".so" : ".dylib"))
         end
     )
     const libpolars = libpolars_local_file_path
@@ -195,6 +206,30 @@ end
     PolarsParquetParallelRowGroups = 3
 end
 
+@cenum polars_fill_null_strategy_t::UInt32 begin
+    PolarsFillNullStrategyBackward = 0
+    PolarsFillNullStrategyForward = 1
+    PolarsFillNullStrategyMean = 2
+    PolarsFillNullStrategyMin = 3
+    PolarsFillNullStrategyMax = 4
+    PolarsFillNullStrategyZero = 5
+    PolarsFillNullStrategyOne = 6
+end
+
+@cenum polars_concat_how_t::UInt32 begin
+    PolarsConcatHowVertical = 0
+    PolarsConcatHowVerticalRelaxed = 1
+    PolarsConcatHowDiagonal = 2
+    PolarsConcatHowDiagonalRelaxed = 3
+    PolarsConcatHowHorizontal = 4
+end
+
+@cenum polars_window_mapping_t::UInt32 begin
+    PolarsWindowMappingGroupsToRows = 0
+    PolarsWindowMappingExplode = 1
+    PolarsWindowMappingJoin = 2
+end
+
 mutable struct polars_dataframe_t end
 
 mutable struct polars_error_t end
@@ -323,8 +358,8 @@ function polars_lazy_frame_sort(df, exprs, nexprs, descending, nulls_last, maint
     return @ccall libpolars.polars_lazy_frame_sort(df::Ptr{polars_lazy_frame_t}, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t, descending::Ptr{Bool}, nulls_last::Bool, maintain_order::Bool)::Cvoid
 end
 
-function polars_lazy_frame_concat(lfs, n, out)
-    return @ccall libpolars.polars_lazy_frame_concat(lfs::Ptr{Ptr{polars_lazy_frame_t}}, n::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_concat(lfs, n, how, out)
+    return @ccall libpolars.polars_lazy_frame_concat(lfs::Ptr{Ptr{polars_lazy_frame_t}}, n::Csize_t, how::polars_concat_how_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_with_columns(df, exprs, nexprs)
@@ -537,6 +572,22 @@ function polars_expr_cast(expr, dtype, out)
     return @ccall libpolars.polars_expr_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+function polars_expr_cast_datetime(expr, unit, tz, tz_len, out)
+    return @ccall libpolars.polars_expr_cast_datetime(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, tz::Ptr{UInt8}, tz_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_cast_duration(expr, unit, out)
+    return @ccall libpolars.polars_expr_cast_duration(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_cast_decimal(expr, precision, scale)
+    return @ccall libpolars.polars_expr_cast_decimal(expr::Ptr{polars_expr_t}, precision::Csize_t, scale::Csize_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_cast_categorical(expr)
+    return @ccall libpolars.polars_expr_cast_categorical(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_sum(expr)
     return @ccall libpolars.polars_expr_sum(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -589,8 +640,12 @@ function polars_expr_when_then_otherwise(cond, then, otherwise)
     return @ccall libpolars.polars_expr_when_then_otherwise(cond::Ptr{polars_expr_t}, then::Ptr{polars_expr_t}, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_over(expr, partition_by, n_partition_by, out)
-    return @ccall libpolars.polars_expr_over(expr::Ptr{polars_expr_t}, partition_by::Ptr{Ptr{polars_expr_t}}, n_partition_by::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+function polars_expr_when_then(conds, vals, n, otherwise)
+    return @ccall libpolars.polars_expr_when_then(conds::Ptr{Ptr{polars_expr_t}}, vals::Ptr{Ptr{polars_expr_t}}, n::Csize_t, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_over(expr, partition_by, n_partition_by, order_by, descending, nulls_last, mapping, out)
+    return @ccall libpolars.polars_expr_over(expr::Ptr{polars_expr_t}, partition_by::Ptr{Ptr{polars_expr_t}}, n_partition_by::Csize_t, order_by::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool, mapping::polars_window_mapping_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_sort_by(expr, by, n_by, descending, nulls_last, maintain_order)
@@ -811,6 +866,10 @@ end
 
 function polars_expr_fill_nan(a, b)
     return @ccall libpolars.polars_expr_fill_nan(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_fill_null_with_strategy(expr, strategy, limit)
+    return @ccall libpolars.polars_expr_fill_null_with_strategy(expr::Ptr{polars_expr_t}, strategy::polars_fill_null_strategy_t, limit::Ptr{UInt32})::Ptr{polars_expr_t}
 end
 
 function polars_expr_is_in(a, b)

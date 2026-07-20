@@ -268,6 +268,64 @@ pub unsafe extern "C" fn polars_expr_cast(
     std::ptr::null()
 }
 
+/// Targeted cast to `Datetime(unit, tz)` -- `polars_value_type_t::to_dtype` deliberately rejects
+/// this (it needs parameters a plain type code can't carry). `tz_len == 0` casts to a naive
+/// (timezone-less) Datetime, matching `read_opt_str`'s null-means-None convention.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cast_datetime(
+    expr: *const polars_expr_t,
+    unit: polars_time_unit_t,
+    tz: *const u8,
+    tz_len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let unit = tri!(unit.to_time_unit());
+    let tz = tri!(read_opt_str(tz, tz_len));
+    let time_zone = tri!(TimeZone::opt_try_new(tz));
+    let dtype = DataType::Datetime(unit, time_zone);
+    *out = make_expr(cast((*expr).inner.clone(), dtype));
+    std::ptr::null()
+}
+
+/// Targeted cast to `Duration(unit)` -- see `polars_expr_cast_datetime`'s doc for why this needs
+/// its own entry point rather than going through the plain type-code `cast`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cast_duration(
+    expr: *const polars_expr_t,
+    unit: polars_time_unit_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let unit = tri!(unit.to_time_unit());
+    let dtype = DataType::Duration(unit);
+    *out = make_expr(cast((*expr).inner.clone(), dtype));
+    std::ptr::null()
+}
+
+/// Targeted cast to `Decimal(precision, scale)` (`dtype-decimal` is already enabled). polars'
+/// own invariant is `1 <= precision <= 38`; violating it surfaces as a normal cast error rather
+/// than a panic (`DataType::Decimal` itself does not validate -- `cast` does, at execution time).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cast_decimal(
+    expr: *const polars_expr_t,
+    precision: usize,
+    scale: usize,
+) -> *const polars_expr_t {
+    let dtype = DataType::Decimal(precision, scale);
+    make_expr(cast((*expr).inner.clone(), dtype))
+}
+
+/// Targeted cast to `Categorical`, using the global category registry (`Categories::global()`,
+/// the same one every other Categorical column in a session shares -- matching py-polars'
+/// default). Reading a Categorical column back already materializes it as `String` (see
+/// `polars_value_type_t::from_dtype`), so no new read path is needed for the round trip.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cast_categorical(
+    expr: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let dtype = DataType::from_categories(Categories::global());
+    make_expr(cast((*expr).inner.clone(), dtype))
+}
+
 macro_rules! gen_impl_expr {
     ($n: ident, $t: expr) => {
         #[no_mangle]
@@ -345,16 +403,65 @@ pub unsafe extern "C" fn polars_expr_when_then_otherwise(
     make_expr(when(cond).then(then).otherwise(otherwise))
 }
 
+/// Chained `when(c1).then(v1).when(c2).then(v2)....otherwise(otherwise)`, flattened into two
+/// parallel expr-slices (`conds`/`vals`) + a final `otherwise` -- no new builder-type FFI handle
+/// is needed since `When`/`Then`/`ChainedWhen`/`ChainedThen` all fold to a single right-nested
+/// `Expr::Ternary` chain, buildable directly with the existing `when`/`Then::otherwise` free
+/// functions already used by `polars_expr_when_then_otherwise` above. `n == 0` degenerates to
+/// `otherwise` unchanged.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_when_then(
+    conds: *const *const polars_expr_t,
+    vals: *const *const polars_expr_t,
+    n: usize,
+    otherwise: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let conds = read_exprs(conds, n);
+    let vals = read_exprs(vals, n);
+    let mut acc = (*otherwise).inner.clone();
+    for i in (0..n).rev() {
+        acc = when(conds[i].clone()).then(vals[i].clone()).otherwise(acc);
+    }
+    make_expr(acc)
+}
+
+/// `order_by` is a single optional expr (null = none); `over_with_options` itself supports a
+/// `Vec` of order-by columns (folding >1 into a struct key), but a single column covers the
+/// common case and avoids pulling in that extra marshalling for now. `partition_by` and
+/// `order_by` can't both be empty/null (upstream requires at least one).
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_over(
     expr: *const polars_expr_t,
     partition_by: *const *const polars_expr_t,
     n_partition_by: usize,
+    order_by: *const polars_expr_t,
+    descending: bool,
+    nulls_last: bool,
+    mapping: polars_window_mapping_t,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
     let partition_by = read_exprs(partition_by, n_partition_by);
+    // Always `Some(..)`, even when empty -- matches the plain `Expr::over`'s own behavior
+    // (`self.over_with_options(Some(partition_by), None, ..)`, upstream `dsl/mod.rs`), which
+    // this function used to delegate to before gaining order_by/mapping support. An empty
+    // partition list is a real, meaningful window spec (the whole frame as one group); making
+    // it `None` here would incorrectly trip `over_with_options`'s "at least one of partition_by/
+    // order_by" check for the zero-partition-columns case that used to succeed.
+    let partition_by = Some(partition_by);
+    let order_by = if order_by.is_null() {
+        None
+    } else {
+        Some((
+            vec![(*order_by).inner.clone()],
+            SortOptions {
+                descending,
+                nulls_last,
+                ..Default::default()
+            },
+        ))
+    };
     let expr = (*expr).inner.clone();
-    let result = tri!(expr.over(partition_by));
+    let result = tri!(expr.over_with_options(partition_by, order_by, mapping.to_window_mapping()));
     *out = make_expr(result);
     std::ptr::null()
 }
@@ -575,6 +682,20 @@ gen_impl_expr_binary!(polars_expr_div, core::ops::Div::div);
 
 gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null);
 gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan);
+
+/// `limit` (Backward/Forward only, ignored otherwise -- see
+/// `polars_fill_null_strategy_t::to_fill_null_strategy`) is the optional-scalar null-means-None
+/// convention used elsewhere (e.g. `sample_n`'s `seed`).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_fill_null_with_strategy(
+    expr: *const polars_expr_t,
+    strategy: polars_fill_null_strategy_t,
+    limit: *const u32,
+) -> *const polars_expr_t {
+    let limit = if limit.is_null() { None } else { Some(*limit) };
+    let expr = (*expr).inner.clone();
+    make_expr(expr.fill_null_with_strategy(strategy.to_fill_null_strategy(limit)))
+}
 // The trailing `false` is `nulls_equal`: a null in `a` is not considered "in" a set containing
 // null (matching Polars' default `is_in`). Exposing this flag is a possible future extension.
 gen_impl_expr_binary!(polars_expr_is_in, |a, b| Expr::is_in(a, b, false));

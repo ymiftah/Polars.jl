@@ -235,15 +235,34 @@ function lit(v)
 end
 
 """
-    cast(expr::Polars.Expr, dtype::Type)::Polars.Expr
-    cast(dtype::Type)::Base.Fix2{typeof(cast), ::Type}
+    cast(expr::Polars.Expr, dtype::Type; time_unit::Symbol=:us,
+         time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
+    cast(dtype::Type; kwargs...)::Base.Callable
 
 Casts the series represented by the expression to the provided `dtype`. Supports `Missing`, the
-physical numeric types, `Bool`, `String`, `Vector{UInt8}` (Binary), `Date`, and `Dates.Time` --
-`DateTime`, `Dates.Period` (Duration), `Categorical`, `Decimal`, `List`, and `Struct` are not
-supported as cast targets and raise an error.
+physical numeric types, `Bool`, `String`, `Vector{UInt8}` (Binary), `Date`, `Dates.Time`,
+`DateTime` (naive or timezone-aware -- see `time_unit`/`time_zone` below), and
+`Dates.Nanosecond`/`Dates.Microsecond`/`Dates.Millisecond` (Duration, resolution implied by the
+chosen `Period` subtype) -- `Categorical`, `Decimal`, `List`, and `Struct` need parameters this
+single-type-argument form can't carry; see [`cast_categorical`](@ref)/[`cast_decimal`](@ref) for
+those. Any other target raises an error. `time_unit`/`time_zone` only apply to a `DateTime`
+target (ignored otherwise): `time_unit` is one of `:ns`, `:us` (default), `:ms`; `time_zone` is
+`nothing` (default, naive) or an IANA time zone name.
 """
-function cast(expr, dtype)
+function cast(
+        expr, dtype;
+        time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
+    )
+    if dtype == DateTime
+        return cast_datetime(expr; time_unit, time_zone)
+    elseif dtype == Dates.Nanosecond
+        return cast_duration(expr; time_unit = :ns)
+    elseif dtype == Dates.Microsecond
+        return cast_duration(expr; time_unit = :us)
+    elseif dtype == Dates.Millisecond
+        return cast_duration(expr; time_unit = :ms)
+    end
+
     value_type = if dtype == Missing
         PolarsValueTypeNull
     elseif dtype == Bool
@@ -285,7 +304,89 @@ function cast(expr, dtype)
     polars_error(err)
     return Expr(out[])
 end
-cast(dtype) = Base.Fix2(cast, dtype)
+cast(dtype; kwargs...) = expr -> cast(expr, dtype; kwargs...)
+
+"""
+    cast_datetime(expr::Polars.Expr; time_unit::Symbol=:us,
+                  time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
+
+Casts `expr` to `Datetime(time_unit, time_zone)`. Also reachable as `cast(expr, DateTime;
+time_unit, time_zone)`; this is the underlying implementation (`polars_value_type_t`, used by the
+plain `cast`, can't carry a time unit or time zone, so `Datetime` needs its own entry point).
+`time_unit` is one of `:ns`, `:us` (default), `:ms`; `time_zone` is `nothing` (default, naive) or
+an IANA time zone name.
+"""
+function cast_datetime(
+        expr::Expr; time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
+    )
+    unit_enum = if time_unit == :ns
+        API.PolarsTimeUnitNanosecond
+    elseif time_unit == :us
+        API.PolarsTimeUnitMicrosecond
+    elseif time_unit == :ms
+        API.PolarsTimeUnitMillisecond
+    else
+        error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms)")
+    end
+    tz = time_zone === nothing ? "" : String(time_zone)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_cast_datetime(expr, unit_enum, tz, ncodeunits(tz), out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+"""
+    cast_duration(expr::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr
+
+Casts `expr` to `Duration(time_unit)`. Also reachable via `cast(expr,
+Dates.Nanosecond|Microsecond|Millisecond)`, which just calls this with the unit implied by the
+chosen `Period` subtype -- this named form is for when you'd rather pass `time_unit` as a keyword.
+`time_unit` is one of `:ns`, `:us` (default), `:ms`.
+"""
+function cast_duration(expr::Expr; time_unit::Symbol = :us)
+    unit_enum = if time_unit == :ns
+        API.PolarsTimeUnitNanosecond
+    elseif time_unit == :us
+        API.PolarsTimeUnitMicrosecond
+    elseif time_unit == :ms
+        API.PolarsTimeUnitMillisecond
+    else
+        error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms)")
+    end
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_cast_duration(expr, unit_enum, out)
+    polars_error(err)
+    return Expr(out[])
+end
+cast_duration(; time_unit::Symbol = :us) = expr -> cast_duration(expr; time_unit)
+
+"""
+    cast_decimal(expr::Polars.Expr, precision::Integer, scale::Integer)::Polars.Expr
+    cast_decimal(precision::Integer, scale::Integer)::Base.Callable
+
+Casts `expr` to `Decimal(precision, scale)` (`1 <= precision <= 38`; `scale` is the number of
+digits after the decimal point). Decimal columns have no dedicated Julia read path yet --
+materializing one via `collect`/`getindex` is not supported -- so this is mainly useful for
+writing out decimal-typed columns (e.g. to parquet) rather than reading them back in Julia.
+"""
+function cast_decimal(expr::Expr, precision::Integer, scale::Integer)
+    out = API.polars_expr_cast_decimal(expr, Csize_t(precision), Csize_t(scale))
+    return Expr(out)
+end
+cast_decimal(precision::Integer, scale::Integer) = expr -> cast_decimal(expr, precision, scale)
+
+"""
+    cast_categorical(expr::Polars.Expr)::Polars.Expr
+
+Casts `expr` to `Categorical`, using the global category registry shared by every Categorical
+column in the session (matching py-polars' default `Categorical` behavior -- there is no
+per-column category set in this wrapper). Reading a Categorical column back already materializes
+it as `String` with no extra step (see the `Strings` namespace for string operations on it).
+"""
+function cast_categorical(expr::Expr)
+    out = API.polars_expr_cast_categorical(expr)
+    return Expr(out)
+end
 
 """
     when(cond::Polars.Expr, then, otherwise)::Polars.Expr
@@ -298,6 +399,31 @@ function when(cond::Expr, then, otherwise)
     then = convert(Expr, then)
     otherwise = convert(Expr, otherwise)
     out = API.polars_expr_when_then_otherwise(cond, then, otherwise)
+    return Expr(out)
+end
+
+"""
+    when(pairs::Pair...; otherwise)::Polars.Expr
+
+Chained conditional expression -- the native equivalent of py-polars'
+`when(c1).then(v1).when(c2).then(v2)....otherwise(...)` builder. Evaluates each `cond => value`
+pair in order and takes the first `value` whose `cond` is `true`; falls back to `otherwise` if
+none match. `cond`s must be `Polars.Expr`s; `value`s and `otherwise` may be `Polars.Expr`s or
+literal scalars (promoted via [`lit`](@ref)).
+
+```julia
+when(col("x") == 1 => "one", col("x") == 2 => "two"; otherwise = "other")
+```
+"""
+function when(pairs::Pair...; otherwise)
+    conds = Expr[convert(Expr, first(p)) for p in pairs]
+    vals = Expr[convert(Expr, last(p)) for p in pairs]
+    otherwise = convert(Expr, otherwise)
+    GC.@preserve conds vals begin
+        cond_ptrs = Ptr{polars_expr_t}[c.ptr for c in conds]
+        val_ptrs = Ptr{polars_expr_t}[v.ptr for v in vals]
+        out = API.polars_expr_when_then(cond_ptrs, val_ptrs, length(cond_ptrs), otherwise)
+    end
     return Expr(out)
 end
 
@@ -468,6 +594,43 @@ is_in(other::AbstractVector) = Base.Fix2(is_in, implode(convert(Expr, other)))
 is_in(other) = Base.Fix2(is_in, convert(Expr, other))
 fill_null(value) = Base.Fix2(fill_null, convert(Expr, value))
 fill_nan(value) = Base.Fix2(fill_nan, convert(Expr, value))
+
+"""
+    fill_null(expr::Polars.Expr; strategy::Symbol, limit::Union{Nothing,Integer}=nothing)::Polars.Expr
+    fill_null(; strategy::Symbol, limit::Union{Nothing,Integer}=nothing)
+
+Replaces every `null` value in `expr` using a fill *strategy* instead of a fixed value (see the
+2-arg `fill_null(expr, value)` above for that form). `strategy` is one of `:forward`/`:backward`
+(propagate the nearest non-null value in that direction -- `limit` caps how many consecutive
+nulls a single value may fill, `nothing` for unlimited), `:mean`/`:min`/`:max` (the column's own
+aggregate), or `:zero`/`:one` (a fixed numeric fill, dtype-appropriate). `limit` only applies to
+`:forward`/`:backward` and is ignored otherwise. Has a curried form (2nd method) for `|>`
+pipelines.
+"""
+function fill_null(expr::Expr; strategy::Symbol, limit::Union{Nothing, Integer} = nothing)
+    strategy_enum = if strategy == :backward
+        API.PolarsFillNullStrategyBackward
+    elseif strategy == :forward
+        API.PolarsFillNullStrategyForward
+    elseif strategy == :mean
+        API.PolarsFillNullStrategyMean
+    elseif strategy == :min
+        API.PolarsFillNullStrategyMin
+    elseif strategy == :max
+        API.PolarsFillNullStrategyMax
+    elseif strategy == :zero
+        API.PolarsFillNullStrategyZero
+    elseif strategy == :one
+        API.PolarsFillNullStrategyOne
+    else
+        error("unknown fill_null strategy=$strategy, expected one of (:forward, :backward, :mean, :min, :max, :zero, :one)")
+    end
+    limit_ref = limit === nothing ? Ptr{UInt32}(C_NULL) : Ref(UInt32(limit))
+    out = GC.@preserve limit_ref API.polars_expr_fill_null_with_strategy(expr, strategy_enum, limit_ref)
+    return Expr(out)
+end
+fill_null(; strategy::Symbol, limit::Union{Nothing, Integer} = nothing) =
+    expr -> fill_null(expr; strategy, limit)
 shift(n) = Base.Fix2(shift, convert(Expr, n))
 pct_change(n) = Base.Fix2(pct_change, convert(Expr, n))
 
@@ -652,33 +815,65 @@ end
 export mean, median, std, var, quantile
 
 """
-    over(expr::Polars.Expr, partition_by...)::Polars.Expr
+    over(expr::Polars.Expr, partition_by...; mapping_strategy::Symbol=:group_to_rows,
+         order_by=nothing, descending::Bool=false, nulls_last::Bool=false)::Polars.Expr
 
 Applies `expr` within groups defined by `partition_by` (columns or expressions), broadcasting
 the per-group result back over every row of that group — e.g. `sum(col("x")) |> over("g")`
 returns, per row, the sum of `x` within that row's `g` group.
+
+- `mapping_strategy`: how the per-group result maps back onto rows -- `:group_to_rows` (default,
+  one output value per input row, in the original row order), `:explode` (concatenate each
+  group's result in group order -- only sensible when the frame is already sorted by
+  `partition_by`), or `:join` (collect each group's result into a list, joined back onto every
+  row of that group).
+- `order_by`: an optional column/expression (string/symbol/`Expr`) to sort by *within* each
+  group before evaluating `expr`, without affecting the frame's own row order. At least one of
+  `partition_by`/`order_by` must be given. `descending`/`nulls_last` control that ordering.
 """
-function over(expr::Expr, partition_by...)
+function over(
+        expr::Expr, partition_by...;
+        mapping_strategy::Symbol = :group_to_rows,
+        order_by = nothing,
+        descending::Bool = false,
+        nulls_last::Bool = false
+    )
     partition_by = map(_as_expr, partition_by)
     partition_by = convert(Vector{Expr}, collect(partition_by))
-    GC.@preserve partition_by begin
+    mapping_enum = if mapping_strategy == :group_to_rows
+        API.PolarsWindowMappingGroupsToRows
+    elseif mapping_strategy == :explode
+        API.PolarsWindowMappingExplode
+    elseif mapping_strategy == :join
+        API.PolarsWindowMappingJoin
+    else
+        error("unknown over mapping_strategy=$mapping_strategy, expected one of (:group_to_rows, :explode, :join)")
+    end
+    order_by_expr = order_by === nothing ? nothing : _as_expr(order_by)
+    GC.@preserve partition_by order_by_expr begin
         partition_ptrs = Ptr{polars_expr_t}[p.ptr for p in partition_by]
+        order_by_ptr = order_by_expr === nothing ? Ptr{polars_expr_t}(C_NULL) : order_by_expr.ptr
         out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_over(expr, partition_ptrs, length(partition_ptrs), out)
+        err = API.polars_expr_over(
+            expr, partition_ptrs, length(partition_ptrs), order_by_ptr,
+            descending, nulls_last, mapping_enum, out
+        )
         polars_error(err)
     end
     return Expr(out[])
 end
 
 """
-    over(partition_by::Union{String,Symbol}...)::Base.Callable
+    over(partition_by::Union{String,Symbol}...; kwargs...)::Base.Callable
 
 Curried form of [`over`](@ref) for use with `|>`, mirroring Python polars' `.over("g")` — e.g.
 `sum(col("x")) |> over("g")`. Only accepts column-name strings/symbols, not `Expr` partition keys
 (an `Expr` argument is ambiguous with `over`'s own `expr` argument and always resolves to that
 instead); for expression-valued partition keys, call `over(expr, partition_by...)` directly.
+`kwargs` (`mapping_strategy`/`order_by`/`descending`/`nulls_last`) forward to `over` unchanged.
 """
-over(partition_by::Union{String, Symbol}...) = expr -> over(expr, partition_by...)
+over(partition_by::Union{String, Symbol}...; kwargs...) =
+    expr -> over(expr, partition_by...; kwargs...)
 
 export over
 
@@ -1138,4 +1333,5 @@ rank(; method::Symbol = :dense, descending::Bool = false) = expr -> rank(expr; m
 export rank
 
 export col, alias, prefix, suffix, lit, cast, when, element,
+    cast_datetime, cast_duration, cast_decimal, cast_categorical,
     Lists, Strings, Dt, Structs

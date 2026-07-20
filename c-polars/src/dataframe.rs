@@ -367,15 +367,49 @@ pub unsafe extern "C" fn polars_lazy_frame_sort(
     );
 }
 
+/// `how` selects the concat mode. Vertical/relaxed/diagonal/relaxed-diagonal all go through the
+/// already-used `concat` (upstream's `concat_lf_diagonal` convenience wrapper is just `concat`
+/// with `diagonal: true` set -- reusing `concat` directly needs no extra Cargo feature, unlike
+/// that wrapper, which is gated behind `diagonal_concat`). `Horizontal` goes through the
+/// ungated `concat_lf_horizontal` instead -- a structurally different join, not a `UnionArgs`
+/// variant, so it can't share the `concat` call.
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_concat(
     lfs: *const *mut polars_lazy_frame_t,
     n: usize,
+    how: polars_concat_how_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     let frames: Vec<LazyFrame> = (0..n).map(|i| (**lfs.add(i)).inner.clone()).collect();
 
-    let df = tri!(concat(&frames, UnionArgs::default()));
+    let df = match how {
+        polars_concat_how_t::PolarsConcatHowHorizontal => {
+            tri!(concat_lf_horizontal(&frames, HConcatOptions::default()))
+        }
+        polars_concat_how_t::PolarsConcatHowVertical => tri!(concat(&frames, UnionArgs::default())),
+        polars_concat_how_t::PolarsConcatHowVerticalRelaxed => tri!(concat(
+            &frames,
+            UnionArgs {
+                to_supertypes: true,
+                ..Default::default()
+            }
+        )),
+        polars_concat_how_t::PolarsConcatHowDiagonal => tri!(concat(
+            &frames,
+            UnionArgs {
+                diagonal: true,
+                ..Default::default()
+            }
+        )),
+        polars_concat_how_t::PolarsConcatHowDiagonalRelaxed => tri!(concat(
+            &frames,
+            UnionArgs {
+                diagonal: true,
+                to_supertypes: true,
+                ..Default::default()
+            }
+        )),
+    };
     *out = make_lazy_frame(df);
 
     std::ptr::null()

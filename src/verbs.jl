@@ -115,17 +115,39 @@ function with_row_index(lf::LazyFrame, name::String = "index"; offset::Integer =
     return LazyFrame(out[])
 end
 """
-    concat(frames::Vector{LazyFrame})::LazyFrame
-    concat(frames::Vector{DataFrame})::DataFrame
+    concat(frames::Vector{LazyFrame}; how::Symbol=:vertical)::LazyFrame
+    concat(frames::Vector{DataFrame}; how::Symbol=:vertical)::DataFrame
 
-Concatenates the provided frames vertically (stacking rows), matching columns by position.
+Concatenates the provided frames. `how` selects the mode:
+- `:vertical` (default): stack rows, matching columns by position -- every frame must have
+  identical column names/order.
+- `:vertical_relaxed`: like `:vertical`, but matching columns are cast to their common supertype
+  instead of requiring identical dtypes.
+- `:diagonal`: stack rows, matching columns by *name* -- frames may have different columns
+  (missing ones are filled with `missing`).
+- `:diagonal_relaxed`: `:diagonal` with the same supertype relaxation as `:vertical_relaxed`.
+- `:horizontal`: stack columns side by side (all frames must have the same row count).
 """
-concat(frames::Vector{DataFrame}) = collect(concat(map(lazy, frames)))
-function concat(frames::Vector{LazyFrame})
+concat(frames::Vector{DataFrame}; how::Symbol = :vertical) =
+    collect(concat(map(lazy, frames); how))
+function concat(frames::Vector{LazyFrame}; how::Symbol = :vertical)
+    how_enum = if how == :vertical
+        API.PolarsConcatHowVertical
+    elseif how == :vertical_relaxed
+        API.PolarsConcatHowVerticalRelaxed
+    elseif how == :diagonal
+        API.PolarsConcatHowDiagonal
+    elseif how == :diagonal_relaxed
+        API.PolarsConcatHowDiagonalRelaxed
+    elseif how == :horizontal
+        API.PolarsConcatHowHorizontal
+    else
+        error("unknown concat how=$how, expected one of (:vertical, :vertical_relaxed, :diagonal, :diagonal_relaxed, :horizontal)")
+    end
     GC.@preserve frames begin
         frame_ptrs = Ptr{polars_lazy_frame_t}[frame.ptr for frame in frames]
         out = Ref{Ptr{polars_lazy_frame_t}}()
-        err = polars_lazy_frame_concat(frame_ptrs, length(frame_ptrs), out)
+        err = polars_lazy_frame_concat(frame_ptrs, length(frame_ptrs), how_enum, out)
         polars_error(err)
     end
     return LazyFrame(out[])

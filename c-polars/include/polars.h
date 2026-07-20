@@ -163,6 +163,30 @@ typedef enum polars_parquet_parallel_strategy_t {
   PolarsParquetParallelRowGroups,
 } polars_parquet_parallel_strategy_t;
 
+typedef enum polars_fill_null_strategy_t {
+  PolarsFillNullStrategyBackward,
+  PolarsFillNullStrategyForward,
+  PolarsFillNullStrategyMean,
+  PolarsFillNullStrategyMin,
+  PolarsFillNullStrategyMax,
+  PolarsFillNullStrategyZero,
+  PolarsFillNullStrategyOne,
+} polars_fill_null_strategy_t;
+
+typedef enum polars_concat_how_t {
+  PolarsConcatHowVertical,
+  PolarsConcatHowVerticalRelaxed,
+  PolarsConcatHowDiagonal,
+  PolarsConcatHowDiagonalRelaxed,
+  PolarsConcatHowHorizontal,
+} polars_concat_how_t;
+
+typedef enum polars_window_mapping_t {
+  PolarsWindowMappingGroupsToRows,
+  PolarsWindowMappingExplode,
+  PolarsWindowMappingJoin,
+} polars_window_mapping_t;
+
 typedef struct polars_dataframe_t polars_dataframe_t;
 
 typedef struct polars_error_t polars_error_t;
@@ -400,6 +424,7 @@ void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,
 
 const struct polars_error_t *polars_lazy_frame_concat(struct polars_lazy_frame_t *const *lfs,
                                                       uintptr_t n,
+                                                      enum polars_concat_how_t how,
                                                       struct polars_lazy_frame_t **out);
 
 void polars_lazy_frame_with_columns(struct polars_lazy_frame_t *df,
@@ -655,6 +680,22 @@ const struct polars_error_t *polars_expr_cast(const struct polars_expr_t *expr,
                                               enum polars_value_type_t dtype,
                                               const struct polars_expr_t **out);
 
+const struct polars_error_t *polars_expr_cast_datetime(const struct polars_expr_t *expr,
+                                                        enum polars_time_unit_t unit,
+                                                        const uint8_t *tz,
+                                                        uintptr_t tz_len,
+                                                        const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_cast_duration(const struct polars_expr_t *expr,
+                                                        enum polars_time_unit_t unit,
+                                                        const struct polars_expr_t **out);
+
+const struct polars_expr_t *polars_expr_cast_decimal(const struct polars_expr_t *expr,
+                                                      uintptr_t precision,
+                                                      uintptr_t scale);
+
+const struct polars_expr_t *polars_expr_cast_categorical(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_sum(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_product(const struct polars_expr_t *expr);
@@ -683,9 +724,18 @@ const struct polars_expr_t *polars_expr_when_then_otherwise(const struct polars_
                                                             const struct polars_expr_t *then,
                                                             const struct polars_expr_t *otherwise);
 
+const struct polars_expr_t *polars_expr_when_then(const struct polars_expr_t *const *conds,
+                                                  const struct polars_expr_t *const *vals,
+                                                  uintptr_t n,
+                                                  const struct polars_expr_t *otherwise);
+
 const struct polars_error_t *polars_expr_over(const struct polars_expr_t *expr,
                                               const struct polars_expr_t *const *partition_by,
                                               uintptr_t n_partition_by,
+                                              const struct polars_expr_t *order_by,
+                                              bool descending,
+                                              bool nulls_last,
+                                              enum polars_window_mapping_t mapping,
                                               const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_sort_by(const struct polars_expr_t *expr,
@@ -837,6 +887,10 @@ const struct polars_expr_t *polars_expr_fill_null(const struct polars_expr_t *a,
 
 const struct polars_expr_t *polars_expr_fill_nan(const struct polars_expr_t *a,
                                                  const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_fill_null_with_strategy(const struct polars_expr_t *expr,
+                                                                 enum polars_fill_null_strategy_t strategy,
+                                                                 const uint32_t *limit);
 
 const struct polars_expr_t *polars_expr_is_in(const struct polars_expr_t *a,
                                               const struct polars_expr_t *b);

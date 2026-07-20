@@ -229,3 +229,59 @@ impl polars_pivot_column_naming_t {
         }
     }
 }
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_fill_null_strategy_t {
+    PolarsFillNullStrategyBackward,
+    PolarsFillNullStrategyForward,
+    PolarsFillNullStrategyMean,
+    PolarsFillNullStrategyMin,
+    PolarsFillNullStrategyMax,
+    PolarsFillNullStrategyZero,
+    PolarsFillNullStrategyOne,
+}
+
+impl polars_fill_null_strategy_t {
+    /// `limit` only applies to `Backward`/`Forward` -- ignored for the other variants, matching
+    /// `FillNullStrategy`'s own shape (only those two carry a `FillNullLimit = Option<IdxSize>`).
+    pub(crate) fn to_fill_null_strategy(&self, limit: Option<IdxSize>) -> FillNullStrategy {
+        match self {
+            Self::PolarsFillNullStrategyBackward => FillNullStrategy::Backward(limit),
+            Self::PolarsFillNullStrategyForward => FillNullStrategy::Forward(limit),
+            Self::PolarsFillNullStrategyMean => FillNullStrategy::Mean,
+            Self::PolarsFillNullStrategyMin => FillNullStrategy::Min,
+            Self::PolarsFillNullStrategyMax => FillNullStrategy::Max,
+            Self::PolarsFillNullStrategyZero => FillNullStrategy::Zero,
+            Self::PolarsFillNullStrategyOne => FillNullStrategy::One,
+        }
+    }
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_concat_how_t {
+    PolarsConcatHowVertical,
+    PolarsConcatHowVerticalRelaxed,
+    PolarsConcatHowDiagonal,
+    PolarsConcatHowDiagonalRelaxed,
+    PolarsConcatHowHorizontal,
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_window_mapping_t {
+    PolarsWindowMappingGroupsToRows,
+    PolarsWindowMappingExplode,
+    PolarsWindowMappingJoin,
+}
+
+impl polars_window_mapping_t {
+    pub(crate) fn to_window_mapping(&self) -> WindowMapping {
+        match self {
+            Self::PolarsWindowMappingGroupsToRows => WindowMapping::GroupsToRows,
+            Self::PolarsWindowMappingExplode => WindowMapping::Explode,
+            Self::PolarsWindowMappingJoin => WindowMapping::Join,
+        }
+    }
+}
