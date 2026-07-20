@@ -681,18 +681,18 @@ const struct polars_error_t *polars_expr_cast(const struct polars_expr_t *expr,
                                               const struct polars_expr_t **out);
 
 const struct polars_error_t *polars_expr_cast_datetime(const struct polars_expr_t *expr,
-                                                        enum polars_time_unit_t unit,
-                                                        const uint8_t *tz,
-                                                        uintptr_t tz_len,
-                                                        const struct polars_expr_t **out);
+                                                       enum polars_time_unit_t unit,
+                                                       const uint8_t *tz,
+                                                       uintptr_t tz_len,
+                                                       const struct polars_expr_t **out);
 
 const struct polars_error_t *polars_expr_cast_duration(const struct polars_expr_t *expr,
-                                                        enum polars_time_unit_t unit,
-                                                        const struct polars_expr_t **out);
+                                                       enum polars_time_unit_t unit,
+                                                       const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_cast_decimal(const struct polars_expr_t *expr,
-                                                      uintptr_t precision,
-                                                      uintptr_t scale);
+                                                     uintptr_t precision,
+                                                     uintptr_t scale);
 
 const struct polars_expr_t *polars_expr_cast_categorical(const struct polars_expr_t *expr);
 
@@ -888,9 +888,10 @@ const struct polars_expr_t *polars_expr_fill_null(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_fill_nan(const struct polars_expr_t *a,
                                                  const struct polars_expr_t *b);
 
-const struct polars_expr_t *polars_expr_fill_null_with_strategy(const struct polars_expr_t *expr,
-                                                                 enum polars_fill_null_strategy_t strategy,
-                                                                 const uint32_t *limit);
+const struct polars_expr_t *polars_expr_fill_null_with_strategy(
+    const struct polars_expr_t *expr,
+    enum polars_fill_null_strategy_t strategy,
+    const uint32_t *limit);
 
 const struct polars_expr_t *polars_expr_is_in(const struct polars_expr_t *a,
                                               const struct polars_expr_t *b);

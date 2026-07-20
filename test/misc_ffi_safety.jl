@@ -230,20 +230,18 @@ end
     end
 end
 
+# `@cfunction` needs a name resolvable at top level, so this release callback -- a no-op, only
+# present to satisfy `ArrowArray`'s release-pointer field contract and never actually invoked
+# below -- must live outside the `@testset`'s local scope rather than as a closure.
+_noop_release_offset_carray(::Ptr{Polars.API.ArrowArray}) = nothing
+
 @testset "_read_offset: classic Utf8/LargeUtf8 bulk reader (Julia-side P1.2)" begin
     # polars itself only ever exports the view formats ("vu"/"vz"), which `_read_view` handles
     # and the "string/binary" testset in datatypes/series.jl exercises live -- `_read_offset`
     # (classic Utf8/LargeUtf8/Binary/LargeBinary, Int32/Int64 offset buffers) is unreachable
     # through the normal polars-backed API, so it's driven directly here against a hand-built
     # `ArrowArray` to confirm the offset arithmetic itself is correct.
-    noop_release(::Ptr{Polars.API.ArrowArray}) = nothing
-    # `@cfunction` normally needs a name resolvable at top level; `$noop_release` (interpolating
-    # the function *value*) uses the runtime closure-cfunction form instead, since this local
-    # function is only defined inside the enclosing `@testset`'s local scope. That form returns a
-    # GC-tracked `Base.CFunction` box (not a raw `Ptr{Cvoid}`), so it must be explicitly converted
-    # and kept alive as long as the C struct holding its address might be invoked.
-    noop_box = @cfunction($noop_release, Cvoid, (Ptr{Polars.API.ArrowArray},))
-    noop_ptr = Base.unsafe_convert(Ptr{Cvoid}, noop_box)
+    noop_ptr = @cfunction(_noop_release_offset_carray, Cvoid, (Ptr{Polars.API.ArrowArray},))
 
     function make_offset_carray(::Type{OffT}, strs::Vector{Union{String, Missing}}) where {OffT}
         n = length(strs)
@@ -265,7 +263,7 @@ end
     strs = Union{String, Missing}["hi", missing, "café", "", "x"^30]
     for OffT in (Int32, Int64)
         ca, keepalive = make_offset_carray(OffT, strs)
-        GC.@preserve keepalive noop_box begin
+        GC.@preserve keepalive begin
             h = Polars.ExportedArray(ca)
             ca2, bufs = Polars._buffers(h)
             result = Polars._read_offset(String, OffT, ca2, bufs)
