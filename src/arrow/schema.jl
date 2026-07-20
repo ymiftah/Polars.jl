@@ -116,14 +116,14 @@ function parse_format(schema)
         return MaybeMissing{NamedTuple{names, types}}
     end
 
-    # List but which are stored as Series
-    # NOTE: we may want to change this if the arrow implementation
-    # ....  is not specific to Polars.jl anymore.
+    # List columns materialize as plain nested `Vector`s (not `Series`) -- see `_read_list` in
+    # arrow/read.jl for the bulk reader and its docstring for why this is the right contract
+    # (consistent with Struct materializing as a plain `NamedTuple` just above, not a `Series`).
     if fmt in ("+l", "+L")
         @assert schema.n_children == 1
         children = unsafe_load(schema.children) |> unsafe_load
         T = parse_format(children)
-        return MaybeMissing{Series{T}}
+        return MaybeMissing{Vector{T}}
     end
 
     if startswith(fmt, "+w") # Fixed size list (polars' Array dtype)

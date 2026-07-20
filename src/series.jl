@@ -121,7 +121,7 @@ function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{Ma
 end
 
 
-function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Series}, MaybeMissing{String}, MaybeMissing{NamedTuple}, MaybeMissing{Vector{UInt8}}}}
+function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Vector}, MaybeMissing{String}, MaybeMissing{NamedTuple}}}
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)

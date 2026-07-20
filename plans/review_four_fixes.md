@@ -2,9 +2,11 @@
 
 ## Status
 
-**P0, P1.1, P2, P3 done and verified. P1.2 (bulk list reader) deferred — see below, it turned out
-incompatible with the codebase's existing type contract as scoped. P4 (DRY polish) not started,
-explicitly optional.**
+**P0, P1.1, P2, P3 done and verified. P1.2 (bulk list reader) and P4 (DRY polish) were initially
+deferred here, then scoped and landed in follow-on sessions — see `plans/bulk_list_reader.md`
+(P1.2, landed as a breaking `Vector{Vector{T}}` change) and `plans/ffi_dry_tri_macro.md` (P4).
+The API-gap batch (deferred item 2 below) also landed its Tier A slice — see
+`plans/api_gap_batch_three.md`.**
 
 Verification (2026-07-19): `cargo build -j 4` clean, `cargo test` 15/15 (including the 4 new
 tests), `cargo clippy --all-targets -- -D warnings` clean, `cargo fmt --check` clean,

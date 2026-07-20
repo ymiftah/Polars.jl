@@ -76,7 +76,13 @@ function load_value(value::Value{Vector{UInt8}})
     return take!(io[])
 end
 
-function load_value(value::Value{S}) where {S <: Series}
+"""List elements materialize as a plain `Vector` (see `parse_format`'s `+l`/`+L` arm in
+arrow/schema.jl and `_read_list` in arrow/read.jl for why -- consistent with Struct elements
+materializing as a plain `NamedTuple`, not a `Series`, just below). `polars_value_list_get`
+still returns a genuine one-off `polars_series_t` per element (this is the per-row fallback
+path -- the bulk `collect` path never reaches here), immediately `collect`ed into the `Vector`
+this returns."""
+function load_value(value::Value{V}) where {V <: Vector}
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     out = Ref{Ptr{polars_series_t}}()
@@ -84,7 +90,7 @@ function load_value(value::Value{S}) where {S <: Series}
     err = polars_value_list_get(value, out)
     polars_error(err)
 
-    return Series(out[])
+    return collect(Series(out[]))
 end
 
 function load_value(value::Value{NT}) where {NT <: NamedTuple}

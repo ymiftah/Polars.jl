@@ -175,16 +175,39 @@ end
         GC.gc()
     end
 
-    @testset "fallback to per-element for unsupported types" begin
-        # Lists aren't (yet) a `read_series` bulk-read target -- each element is itself a nested
-        # `Series`, so the per-element `getindex`/`load_value` path is still used here.
+    @testset "List: bulk read (leaf child) vs per-element agreement" begin
+        # A List<Int64> column IS a read_series bulk-read target (leaf child format) -- elements
+        # materialize as plain Vectors now, not nested Series (see arrow/read.jl's _read_list).
         df = DataFrame((; x = [[1, 2, 3], [4, 5]]))
         s = df[:x]
-        @test Polars.read_series(s) === nothing
+        @test Polars.read_series(s) !== nothing
         bulk = collect(s)
-        @test length(bulk) == 2
-        @test collect(bulk[1]) == [1, 2, 3]
-        @test collect(bulk[2]) == [4, 5]
+        # eltype conservatively includes Missing at the element level even though this column's
+        # elements happen to have none -- parse_format can't know actual child nullability from
+        # the schema alone (see _read_list's docstring); matches Series{T}'s declared eltype.
+        @test bulk isa Vector{Vector{Union{Int64, Missing}}}
+        @test bulk == [[1, 2, 3], [4, 5]]
+        @test bulk == [s[i] for i in eachindex(s)] # bulk vs per-element agreement (value-equal
+        # despite differing concrete eltypes -- getindex's single-row path isn't widened)
+        @test s[1] isa Vector{Int64}
+    end
+
+    @testset "List: per-element fallback for nested/struct/categorical children" begin
+        # Deliberately out of the bulk-read scope (see _read_list's docstring) -- these still
+        # fall back to the per-element path, and must still produce correct results there.
+        df_nested = DataFrame((; x = [[[1, 2], [3]], [[4, 5, 6]]]))
+        s_nested = df_nested[:x]
+        @test Polars.read_series(s_nested) === nothing
+        bulk_nested = collect(s_nested)
+        @test bulk_nested == [[[1, 2], [3]], [[4, 5, 6]]]
+
+        df_struct_list = DataFrame((; x = [[(a = 1, b = "x"), (a = 2, b = "y")], [(a = 3, b = "z")]]))
+        s_struct_list = df_struct_list[:x]
+        @test Polars.read_series(s_struct_list) === nothing
+        bulk_struct_list = collect(s_struct_list)
+        @test length(bulk_struct_list) == 2
+        @test bulk_struct_list[1][1].a == 1
+        @test bulk_struct_list[2][1].b == "z"
     end
 end
 
@@ -208,7 +231,7 @@ end
     df_list = DataFrame((; x = [1, 2, 3]))
     s_list = select(df_list, implode(col("x")) |> alias("l"))[:l]
     @test_throws PolarsError s_list[5]
-    @test s_list[1] isa Series
+    @test s_list[1] isa Vector
 
     df_struct = DataFrame((; a = [1], b = ["x"]))
     s_struct = select(df_struct, as_struct(col("a"), col("b")) |> alias("s"))[:s]

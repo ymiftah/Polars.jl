@@ -102,7 +102,7 @@ end
     r2 = select(df, alias(Strings.split(col("s"), lit(" ")), "r"))
     @test collect(r1[:r][1]) == collect(r2[:r][1]) == ["hello", "world"]
 
-    @test select(df, alias(col("s") |> Strings.extract_all("\\w+"), "r"))[:r][1] isa Polars.Series
+    @test select(df, alias(col("s") |> Strings.extract_all("\\w+"), "r"))[:r][1] isa Vector
 
     df_pad = DataFrame((; n = ["1", "22", "333"]))
     @test select(df_pad, alias(col("n") |> Strings.zfill(5), "r"))[:r] ==

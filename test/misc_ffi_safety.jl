@@ -267,7 +267,8 @@ end
         ca, keepalive = make_offset_carray(OffT, strs)
         GC.@preserve keepalive noop_box begin
             h = Polars.ExportedArray(ca)
-            result = Polars._read_offset(String, OffT, h)
+            ca2, bufs = Polars._buffers(h)
+            result = Polars._read_offset(String, OffT, ca2, bufs)
             @test isequal(result, strs)
         end
     end
