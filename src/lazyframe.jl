@@ -8,6 +8,26 @@ end
 Base.unsafe_convert(::Type{Ptr{polars_lazy_frame_t}}, df::LazyFrame) = df.ptr
 
 """
+    Base.show(io::IO, lf::LazyFrame)
+
+Prints the column names (resolved via [`collect_schema`](@ref), which -- unlike
+[`collect`](@ref) -- doesn't execute the query) rather than the default `mutable struct` dump,
+which would otherwise leak the raw `Ptr` value with no useful information alongside it. Falls
+back to a bare `"LazyFrame"` if the plan can't be resolved (e.g. it references a column that
+doesn't exist) -- a `show` method raising its own error on top of the frame's real problem would
+only obscure it.
+"""
+function Base.show(io::IO, lf::LazyFrame)
+    print(io, "LazyFrame(")
+    try
+        print(io, join(collect_schema(lf).names, ", "))
+    catch
+        print(io, "?")
+    end
+    return print(io, ")")
+end
+
+"""
     lazy(df::DataFrame)::LazyFrame
 
 Returns a lazy frame over the provided dataframe.
@@ -32,6 +52,14 @@ function Base.collect(df::LazyFrame; engine = :default)
     polars_error(err)
     return DataFrame(out[])
 end
+"""
+    clone(lf::LazyFrame)::LazyFrame
+
+Returns a new `LazyFrame` wrapping a clone of `lf`'s underlying query plan. Mutating in-place
+operations (`select`, `filter`, etc.) always clone their input first (see CLAUDE.md's ownership
+conventions), so this is only needed when you want an explicit, independent handle to the same
+plan -- e.g. to branch it into two different downstream queries without one affecting the other.
+"""
 function clone(df::LazyFrame)
     out = polars_lazy_frame_clone(df)
     return LazyFrame(out)

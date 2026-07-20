@@ -4,7 +4,9 @@ using Aqua
     Aqua.test_all(
         Polars;
         # Ambiguities are real (e.g. `filter(df::DataFrame, expr)` vs several Base.filter
-        # methods, and Union{Missing,T} dispatch overlaps in series.jl/arrow.jl) but none are
+        # methods, Union{Missing,T} dispatch overlaps in series.jl/arrow.jl, and `Expr`'s
+        # unconstrained mixed-argument operators -- see expr/expr.jl -- vs Base's own
+        # equally-unconstrained `==(::WeakRef, ::Any)`/`==(::Any, ::WeakRef)`) but none are
         # reachable through normal use of this package; `broken=true` keeps them visible
         # instead of silently disabling detection.
         ambiguities = (broken = true,),

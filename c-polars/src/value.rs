@@ -6,6 +6,7 @@ use polars::prelude::*;
 use crate::{ffi_util::*, make_error, polars_error_t, series::make_series, types::*};
 
 #[repr(C)]
+#[derive(Debug)]
 pub enum polars_value_type_t {
     PolarsValueTypeNull,
     PolarsValueTypeBoolean,
@@ -26,10 +27,28 @@ pub enum polars_value_type_t {
     PolarsValueTypeDatetime,
     PolarsValueTypeDate,
     PolarsValueTypeDuration,
+    PolarsValueTypeTime,
     PolarsValueTypeUnknown,
 }
 
 impl polars_value_type_t {
+    /// Classifies an `AnyValue` *without* going through `AnyValue::dtype()`, which is
+    /// unimplemented (panics) for Categorical/Enum -- and a panic across `extern "C"` aborts the
+    /// process. This is the single classifier behind both `polars_value_type` and (via
+    /// `from_dtype`) `polars_series_type`, so one value cannot classify two different ways
+    /// depending on which entry point the caller came through.
+    pub(crate) fn from_any_value(av: &AnyValue) -> Self {
+        match av {
+            // Resolved as strings, matching `get_str()` / `polars_value_string_get` and the
+            // Categorical/Enum arm of `from_dtype` below.
+            AnyValue::Categorical(_, _)
+            | AnyValue::CategoricalOwned(_, _)
+            | AnyValue::Enum(_, _)
+            | AnyValue::EnumOwned(_, _) => polars_value_type_t::PolarsValueTypeString,
+            av => Self::from_dtype(&av.dtype()),
+        }
+    }
+
     pub(crate) fn from_dtype(d: &DataType) -> Self {
         use polars_value_type_t::*;
         match d {
@@ -52,14 +71,22 @@ impl polars_value_type_t {
             DataType::Date => PolarsValueTypeDate,
             DataType::Datetime(_, _) => PolarsValueTypeDatetime,
             DataType::Duration(_) => PolarsValueTypeDuration,
-            DataType::Unknown(_) => PolarsValueTypeUnknown,
+            DataType::Time => PolarsValueTypeTime,
+            // Categorical/Enum resolve to their string representation -- see `from_any_value`.
+            DataType::Categorical(_, _) | DataType::Enum(_, _) => PolarsValueTypeString,
+            // Decimal, Array, and anything added upstream: no code in this enum. `Unknown` is the
+            // honest answer for the *outbound* direction (there is no error channel -- this is
+            // returned by value); the inbound direction rejects it, see `to_dtype`.
             _ => PolarsValueTypeUnknown,
         }
     }
 
-    pub(crate) fn to_dtype(&self) -> DataType {
+    /// Maps an inbound type code to a `DataType`. Fallible: this backs `polars_expr_cast`, and
+    /// the un-encodable arms previously became `Unknown(UnknownKind::Any)` silently, which turned
+    /// e.g. `cast(col, Datetime)` into a cast-to-unknown rather than an error.
+    pub(crate) fn to_dtype(&self) -> PolarsResult<DataType> {
         use polars_value_type_t::*;
-        match self {
+        Ok(match self {
             PolarsValueTypeNull => DataType::Null,
             PolarsValueTypeBoolean => DataType::Boolean,
             PolarsValueTypeUInt8 => DataType::UInt8,
@@ -74,8 +101,17 @@ impl polars_value_type_t {
             PolarsValueTypeFloat64 => DataType::Float64,
             PolarsValueTypeString => DataType::String,
             PolarsValueTypeBinary => DataType::Binary,
-            _ => DataType::Unknown(UnknownKind::Any), // Cannot map structs and lists
-        }
+            PolarsValueTypeDate => DataType::Date,
+            PolarsValueTypeTime => DataType::Time,
+            // Datetime/Duration need a time unit (and Datetime a time zone), List/Struct need
+            // their inner types, and Unknown carries no type at all -- none of which this enum
+            // can encode. Widening the cast ABI to carry them is a logged follow-up.
+            other => {
+                return Err(PolarsError::InvalidOperation(
+                    format!("cannot cast to {other:?}: this type is not encodable as a plain type code (it needs parameters, e.g. a time unit or inner type)").into(),
+                ))
+            }
+        })
     }
 }
 
@@ -88,13 +124,20 @@ pub enum polars_time_unit_t {
 }
 
 impl polars_time_unit_t {
-    pub fn to_time_unit(&self) -> TimeUnit {
-        match self {
+    /// `PolarsTimeUnitInvalid` is a *return* sentinel (`polars_value_time_unit` yields it for
+    /// non-temporal values); it is not a valid *input*, so reject it rather than silently coercing
+    /// it to microseconds.
+    pub fn to_time_unit(&self) -> PolarsResult<TimeUnit> {
+        Ok(match self {
             polars_time_unit_t::PolarsTimeUnitNanosecond => TimeUnit::Nanoseconds,
             polars_time_unit_t::PolarsTimeUnitMicrosecond => TimeUnit::Microseconds,
             polars_time_unit_t::PolarsTimeUnitMillisecond => TimeUnit::Milliseconds,
-            polars_time_unit_t::PolarsTimeUnitInvalid => TimeUnit::Microseconds,
-        }
+            polars_time_unit_t::PolarsTimeUnitInvalid => {
+                return Err(PolarsError::InvalidOperation(
+                    "invalid time unit".to_string().into(),
+                ))
+            }
+        })
     }
 }
 
@@ -108,7 +151,7 @@ pub enum polars_closed_window_t {
 }
 
 impl polars_closed_window_t {
-    pub fn to_closed_window(self) -> ClosedWindow {
+    pub fn to_closed_window(&self) -> ClosedWindow {
         match self {
             polars_closed_window_t::PolarsClosedWindowLeft => ClosedWindow::Left,
             polars_closed_window_t::PolarsClosedWindowRight => ClosedWindow::Right,
@@ -127,7 +170,7 @@ pub enum polars_label_t {
 }
 
 impl polars_label_t {
-    pub fn to_label(self) -> Label {
+    pub fn to_label(&self) -> Label {
         match self {
             polars_label_t::PolarsLabelLeft => Label::Left,
             polars_label_t::PolarsLabelRight => Label::Right,
@@ -151,7 +194,7 @@ pub enum polars_start_by_t {
 }
 
 impl polars_start_by_t {
-    pub fn to_start_by(self) -> StartBy {
+    pub fn to_start_by(&self) -> StartBy {
         match self {
             polars_start_by_t::PolarsStartByWindowBound => StartBy::WindowBound,
             polars_start_by_t::PolarsStartByDataPoint => StartBy::DataPoint,
@@ -200,16 +243,8 @@ pub unsafe extern "C" fn polars_value_time_zone(
 }
 
 #[no_mangle]
-pub extern "C" fn polars_value_type(value: *mut polars_value_t) -> polars_value_type_t {
-    // AnyValue::dtype() is unimplemented for Categorical/Enum (see polars-core), so these must
-    // be special-cased ahead of it; we treat them as strings, matching polars_value_string_get.
-    match unsafe { &(*value).inner } {
-        AnyValue::Categorical(_, _)
-        | AnyValue::CategoricalOwned(_, _)
-        | AnyValue::Enum(_, _)
-        | AnyValue::EnumOwned(_, _) => polars_value_type_t::PolarsValueTypeString,
-        inner => polars_value_type_t::from_dtype(&inner.dtype()),
-    }
+pub unsafe extern "C" fn polars_value_type(value: *mut polars_value_t) -> polars_value_type_t {
+    polars_value_type_t::from_any_value(&(*value).inner)
 }
 
 #[no_mangle]
@@ -262,18 +297,19 @@ pub unsafe extern "C" fn polars_value_list_get(
 #[no_mangle]
 pub unsafe extern "C" fn polars_value_string_get(
     value: *mut polars_value_t,
-    user: *mut c_void,
+    user: *const c_void,
     callback: IOCallback,
 ) -> *const polars_error_t {
     let mut w = UserIOCallback(callback, user);
     // get_str() also resolves Categorical/Enum values to their string representation.
-    let Err(err) = (match (*value).inner.get_str() {
-        Some(s) => w.write(s.as_bytes()),
-        None => return make_error("value is not of type string"),
-    }) else {
-        return std::ptr::null();
+    let Some(s) = (*value).inner.get_str() else {
+        return make_error("value is not of type string");
     };
-    make_error(err)
+    // write_all, not write: a single write() may report a short count and silently drop the tail.
+    match w.write_all(s.as_bytes()) {
+        Ok(()) => std::ptr::null(),
+        Err(err) => make_error(err),
+    }
 }
 
 /// Get the underlying int64 for this duration value.
@@ -318,38 +354,61 @@ pub unsafe extern "C" fn polars_value_date_get(
     std::ptr::null()
 }
 
+/// Get the underlying int64 for this time value. `DataType::Time` is always nanoseconds since
+/// midnight (unlike Datetime/Duration, it carries no `TimeUnit`), so there is no companion
+/// `polars_value_time_unit`-style call for it.
+#[no_mangle]
+pub unsafe extern "C" fn polars_value_time_get(
+    value: *mut polars_value_t,
+    out: *mut i64,
+) -> *const polars_error_t {
+    match (*value).inner {
+        AnyValue::Time(i) => *out = i,
+        _ => return make_error("value is not of type time"),
+    }
+
+    std::ptr::null()
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_value_binary_get(
     value: *mut polars_value_t,
-    user: *mut c_void,
+    user: *const c_void,
     callback: IOCallback,
 ) -> *const polars_error_t {
     let mut w = UserIOCallback(callback, user);
-    let Err(err) = (match (*value).inner {
-        AnyValue::Binary(s) => w.write(s),
-        _ => return make_error("value is not of type binary"),
-    }) else {
-        return std::ptr::null();
+    let AnyValue::Binary(s) = (*value).inner else {
+        return make_error("value is not of type binary");
     };
-    make_error(err)
+    // write_all, not write: a single write() may report a short count and silently drop the tail.
+    match w.write_all(s) {
+        Ok(()) => std::ptr::null(),
+        Err(err) => make_error(err),
+    }
 }
 
-/// Used to get value of of a Struct value fields.
+/// Returns the value of struct field `fieldidx`.
 ///
-/// NOTE: The value producing the new value must outlive the value from the field.
-///
-/// Safety: Values lifetimes must be valid.
+/// # Safety
+/// The returned value borrows into the parent struct's backing memory (as every `polars_value_t`
+/// does -- it wraps an `AnyValue<'a>`). Lifetime parameters on a `#[no_mangle] extern "C"` fn
+/// enforce nothing across the C boundary, so this is a *caller invariant*, not a compiler-checked
+/// one: **the caller must keep `value` (and its parent Series) alive until it is done with `*out`,
+/// and must destroy `*out` before `value`.** The Julia side roots the parent accordingly.
 #[no_mangle]
-pub unsafe extern "C" fn polars_value_struct_get<'a: 'b, 'b>(
+pub unsafe extern "C" fn polars_value_struct_get<'a>(
     value: *mut polars_value_t<'a>,
     fieldidx: usize,
-    out: *mut *mut polars_value_t<'b>,
+    out: *mut *mut polars_value_t<'a>,
 ) -> *const polars_error_t {
     let inner: &'a AnyValue<'a> = &(*value).inner;
     if !matches!(inner, AnyValue::Struct(_, _, _)) {
         return make_error("invalid type for value");
     }
 
+    // `_iter_struct_av` is an underscore-prefixed polars-core internal (semver-exempt -- may break
+    // on a polars bump; re-check on upgrade). `.nth(fieldidx)` also walks the fields, so repeated
+    // per-field access over one struct is O(n^2); acceptable for the small structs we materialize.
     let Some(field_value) = inner._iter_struct_av().nth(fieldidx) else {
         return make_error(format!("invalid field index {fieldidx}"));
     };
@@ -365,8 +424,17 @@ pub unsafe extern "C" fn polars_value_struct_get<'a: 'b, 'b>(
 /// and unkown.
 #[no_mangle]
 pub unsafe extern "C" fn polars_value_list_type(value: *mut polars_value_t) -> polars_value_type_t {
-    match (*value).inner.dtype() {
-        DataType::List(eltype) => polars_value_type_t::from_dtype(&eltype),
-        _ => polars_value_type_t::PolarsValueTypeUnknown,
+    // `AnyValue::dtype()` is unimplemented for Categorical/Enum (it panics -- see the same note on
+    // `polars_value_type`), and a panic across `extern "C"` aborts the process. A categorical value
+    // is not a list, so short-circuit to Unknown here rather than reaching `.dtype()`.
+    match &(*value).inner {
+        AnyValue::Categorical(_, _)
+        | AnyValue::CategoricalOwned(_, _)
+        | AnyValue::Enum(_, _)
+        | AnyValue::EnumOwned(_, _) => polars_value_type_t::PolarsValueTypeUnknown,
+        inner => match inner.dtype() {
+            DataType::List(eltype) => polars_value_type_t::from_dtype(&eltype),
+            _ => polars_value_type_t::PolarsValueTypeUnknown,
+        },
     }
 }

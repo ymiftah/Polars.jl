@@ -65,9 +65,9 @@ function parse_format(schema)
     fmt == "U" && return MaybeMissing{String}
     fmt == "u" && return MaybeMissing{String}
     fmt == "vu" && return MaybeMissing{String}
-    fmt == "z" && return Vector{UInt8}
-    fmt == "Z" && return Vector{UInt8}
-    fmt == "vz" && return Vector{UInt8}
+    fmt == "z" && return MaybeMissing{Vector{UInt8}}
+    fmt == "Z" && return MaybeMissing{Vector{UInt8}}
+    fmt == "vz" && return MaybeMissing{Vector{UInt8}}
 
     # All three resolutions collapse to the same real `Dates.DateTime` -- there's no
     # resolution-tagged DateTime type in the stdlib, and the actual resolution is re-derived at
@@ -86,6 +86,11 @@ function parse_format(schema)
     end
 
     fmt == "tdD" && return MaybeMissing{Date}
+
+    # Arrow spells time-of-day as time32 ("tts"/"ttm") or time64 ("ttu"/"ttn"). All four collapse
+    # to `Dates.Time`, which is itself nanosecond-resolution; polars only ever produces "ttn"
+    # (its `Time` is always nanoseconds since midnight), but accept the narrower encodings too.
+    fmt in ("tts", "ttm", "ttu", "ttn") && return MaybeMissing{Dates.Time}
 
     # Unlike Datetime, the stdlib's Period subtypes are themselves genuinely resolution-specific
     # real types, so these use them directly instead of a custom wrapper.
@@ -111,35 +116,47 @@ function parse_format(schema)
         return MaybeMissing{NamedTuple{names, types}}
     end
 
-    # List but which are stored as Series
-    # NOTE: we may want to change this if the arrow implementation
-    # ....  is not specific to Polars.jl anymore.
+    # List columns materialize as plain nested `Vector`s (not `Series`) -- see `_read_list` in
+    # arrow/read.jl for the bulk reader and its docstring for why this is the right contract
+    # (consistent with Struct materializing as a plain `NamedTuple` just above, not a `Series`).
     if fmt in ("+l", "+L")
         @assert schema.n_children == 1
         children = unsafe_load(schema.children) |> unsafe_load
         T = parse_format(children)
-        return MaybeMissing{Series{T}}
+        return MaybeMissing{Vector{T}}
     end
 
-    if startswith(fmt, "+w") # Fixed size list
-        @assert schema.n_children
-        children = unsafe_load(schema.children) |> unsafe_load
-        T = parse_format(children)
-        N = parse(Int, fmt[4:end])
-        return MaybeMissing{NTuple{N, T}}
+    if startswith(fmt, "+w") # Fixed size list (polars' Array dtype)
+        # `Series`/`getindex`/`load_value` have no materialization path for a fixed-size-list
+        # element type (unlike the `+l`/`+L` List case just above) -- raise here with a clear
+        # explanation rather than returning an `NTuple` type that then fails opaquely (a bare
+        # `MethodError` from `getindex`) the moment anyone actually reads the column.
+        error(
+            "Array dtype (fixed-size list, arrow format \"$fmt\") is not supported -- " *
+                "Polars.jl cannot materialize it into a Julia value yet. Cast to a List " *
+                "column (e.g. `Lists.explode`/an ordinary variable-length list) instead."
+        )
     end
 
-    error("unknow schema format $fmt")
+    error("unknown schema format $fmt")
 end
 
 """
     Internal API
 
+Returns `(name, T, fmt)`: `T` is the same fully-resolved Julia element type `parse_format` always
+computed; `fmt` is the raw top-level Arrow format string (`""` for a dictionary-encoded column --
+`read.jl`'s `_dispatch_read` treats this as its "unsupported, fall back" sentinel) -- cheap to
+carry alongside `T` since `schema.format` is already being read here, and lets `Series` cache it
+at construction time so `read_series` doesn't need to re-fetch and re-parse the schema on every
+`collect`.
+
 !!! warning
     The schema should not be used afterwards.
 """
 function load_series_schema(schema::CArrowSchema)
-    res = unsafe_string(schema.name) => parse_format(schema)
+    fmt = schema.dictionary != C_NULL ? "" : unsafe_string(schema.format)
+    res = (unsafe_string(schema.name), parse_format(schema), fmt)
 
     schema_ref = Ref(schema)
     @ccall $(schema.release)(schema_ref::Ptr{CArrowSchema})::Cvoid
@@ -188,11 +205,25 @@ mutable struct ArrowSchema
     carrow_schema::CArrowSchema
 end
 
+"""
+    release_schema!(schema::ArrowSchema)
+
+Unroots `schema` (and, recursively, every descendant in `schema.children`) from `LIVE_SCHEMAS`.
+Must recurse: each nesting level registers itself independently in `set_private_data!`, so a
+depth-≥2 schema (e.g. a struct field that is itself a list, or a list of structs) would otherwise
+leave its grandchildren permanently rooted -- only the immediate children were ever unrooted
+before this fix. Guarded by `LIVE_SCHEMAS_LOCK` since `release_schema!` can run from
+`base_release_schema`, invoked by Rust's own release callback on whatever thread drops the
+schema, racing a concurrent Julia-side release.
+"""
 function release_schema!(schema)
-    for child in schema.children
-        delete!(LIVE_SCHEMAS, child)
+    lock(LIVE_SCHEMAS_LOCK) do
+        for child in schema.children
+            release_schema!(child)
+        end
+        delete!(LIVE_SCHEMAS, schema)
     end
-    return delete!(LIVE_SCHEMAS, schema)
+    return nothing
 end
 
 function base_release_schema(schema_ptr::Ptr{CArrowSchema})
@@ -215,8 +246,10 @@ function set_private_data!(schema::ArrowSchema)
         base_release_ptr,
         pointer_from_objref(schema),
     )
-    @assert !haskey(LIVE_SCHEMAS, schema)
-    LIVE_SCHEMAS[schema] = nothing
+    lock(LIVE_SCHEMAS_LOCK) do
+        @assert !haskey(LIVE_SCHEMAS, schema)
+        LIVE_SCHEMAS[schema] = nothing
+    end
     return nothing
 end
 
@@ -258,3 +291,6 @@ end
 
 "Holds references to the live schemas whose ownership has been given through ffi."
 const LIVE_SCHEMAS = IdDict{ArrowSchema, Nothing}()
+"""Guards `LIVE_SCHEMAS`: the release callback (`base_release_schema`) can be invoked by Rust on
+whatever thread drops the schema, racing a concurrent Julia-side insert/release."""
+const LIVE_SCHEMAS_LOCK = ReentrantLock()

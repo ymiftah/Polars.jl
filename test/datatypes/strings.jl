@@ -26,10 +26,11 @@
     upper = select(df, col("names") |> Strings.uppercase)[:names]
     @test upper == ["JOHN", "ALICE", "BOB"]
 
-    # Strings.titlecase is unavailable: to_titlecase in upstream polars-plan requires
-    # polars' own "nightly" Cargo feature, which this repo deliberately doesn't enable
-    # (stable toolchain only, see CLAUDE.md) -- so no ccall binding exists for it either.
-    @test_broken select(df, col("names") |> Strings.titlecase) isa Any
+    # Strings.titlecase is unavailable: to_titlecase in upstream polars-plan requires polars' own
+    # "nightly" Cargo feature, which this repo deliberately doesn't enable (stable toolchain only,
+    # see CLAUDE.md) -- so no ccall binding exists for it either. It must fail with an explanation
+    # of that rather than a bare UndefVarError for the missing symbol.
+    @test_throws "requires" select(df, col("names") |> Strings.titlecase)
 end
 
 @testset "Strings namespace expansion" begin
@@ -130,7 +131,7 @@ end
     @test r_valid[:match] == [true, false, false]
 
     # Invalid regex with strict=true should raise an error
-    @test_throws ErrorException select(df, alias(Strings.contains(col("s"), lit("[invalid")), "match"))
+    @test_throws PolarsError select(df, alias(Strings.contains(col("s"), lit("[invalid")), "match"))
 
     # Invalid regex with strict=false should return missing instead of erroring
     r_strict_false = select(df, alias(Strings.contains(col("s"), lit("[invalid"); strict = false), "match"))

@@ -110,6 +110,34 @@ end
         @test isequal(collect(s), [s[i] for i in eachindex(s)])
     end
 
+    @testset "string/binary (P1.2 bulk read via Arrow view arrays)" begin
+        # Bulk path must agree with the (still-correct, just slow) per-element getindex path
+        # across short (<=12 bytes, inline in the Arrow "view" struct), long (out-of-line, in a
+        # variadic data buffer), empty, and non-ASCII values.
+        for (values, T) in (
+                (["hi", "café", "a"^30, "", "π_test", "日本語"], String),
+                ([UInt8[1, 2, 3], UInt8[], rand(UInt8, 30), rand(UInt8, 5)], Vector{UInt8}),
+            )
+            s = Series(:x, values)
+            @test s.fmt in ("vu", "vz")
+            bulk = collect(s)
+            @test bulk == [s[i] for i in eachindex(s)]
+            @test bulk isa Vector{T}
+        end
+
+        s = Series(:x, Union{String, Missing}["hi", missing, "a"^30, "", missing])
+        @test isequal(collect(s), [s[i] for i in eachindex(s)])
+
+        s = Series(:x, Union{Vector{UInt8}, Missing}[UInt8[1, 2], missing, rand(UInt8, 30)])
+        @test isequal(collect(s), [s[i] for i in eachindex(s)])
+
+        # sliced (non-zero ArrowArray offset) -- must still index the right logical rows
+        df = DataFrame((; s = ["a", "bb", "café", missing, "e"^20, "f", "g"^15]))
+        sl = df[:s][3:6]
+        @test isequal(collect(sl), [sl[i] for i in eachindex(sl)])
+        @test isequal(collect(sl), ["café", missing, "e"^20, "f"])
+    end
+
     @testset "empty series" begin
         @test collect(Series(:x, Int64[])) == Int64[]
         @test collect(Series(:x, Date[])) == Date[]
@@ -140,25 +168,46 @@ end
 
     @testset "double-release is idempotent (no double-free)" begin
         s = Series(:x, Union{Int64, Missing}[1, missing, 3])
-        h = Polars.ExportedArray(Polars.polars_series_export_carray(s))
+        h = Polars._export_carray(s)
         Polars.release!(h)  # eager release, as the copy path does
         Polars.release!(h)  # must be a no-op, not a double-free
         finalize(h)          # forcing the finalizer too must also be a no-op
         GC.gc()
     end
 
-    @testset "fallback to per-element for unsupported types" begin
-        s = Series(:x, ["hello", "world"])
-        @test Polars.read_series(s) === nothing
-        @test collect(s) == [s[i] for i in eachindex(s)]
-
+    @testset "List: bulk read (leaf child) vs per-element agreement" begin
+        # A List<Int64> column IS a read_series bulk-read target (leaf child format) -- elements
+        # materialize as plain Vectors now, not nested Series (see arrow/read.jl's _read_list).
         df = DataFrame((; x = [[1, 2, 3], [4, 5]]))
         s = df[:x]
-        @test Polars.read_series(s) === nothing
+        @test Polars.read_series(s) !== nothing
         bulk = collect(s)
-        @test length(bulk) == 2
-        @test collect(bulk[1]) == [1, 2, 3]
-        @test collect(bulk[2]) == [4, 5]
+        # eltype conservatively includes Missing at the element level even though this column's
+        # elements happen to have none -- parse_format can't know actual child nullability from
+        # the schema alone (see _read_list's docstring); matches Series{T}'s declared eltype.
+        @test bulk isa Vector{Vector{Union{Int64, Missing}}}
+        @test bulk == [[1, 2, 3], [4, 5]]
+        @test bulk == [s[i] for i in eachindex(s)] # bulk vs per-element agreement (value-equal
+        # despite differing concrete eltypes -- getindex's single-row path isn't widened)
+        @test s[1] isa Vector{Int64}
+    end
+
+    @testset "List: per-element fallback for nested/struct/categorical children" begin
+        # Deliberately out of the bulk-read scope (see _read_list's docstring) -- these still
+        # fall back to the per-element path, and must still produce correct results there.
+        df_nested = DataFrame((; x = [[[1, 2], [3]], [[4, 5, 6]]]))
+        s_nested = df_nested[:x]
+        @test Polars.read_series(s_nested) === nothing
+        bulk_nested = collect(s_nested)
+        @test bulk_nested == [[[1, 2], [3]], [[4, 5, 6]]]
+
+        df_struct_list = DataFrame((; x = [[(a = 1, b = "x"), (a = 2, b = "y")], [(a = 3, b = "z")]]))
+        s_struct_list = df_struct_list[:x]
+        @test Polars.read_series(s_struct_list) === nothing
+        bulk_struct_list = collect(s_struct_list)
+        @test length(bulk_struct_list) == 2
+        @test bulk_struct_list[1][1].a == 1
+        @test bulk_struct_list[2][1].b == "z"
     end
 end
 
@@ -168,25 +217,25 @@ end
     # family) -- an out-of-bounds index here used to `.unwrap()` a Rust panic straight across the
     # FFI boundary, crashing the whole Julia process instead of raising a catchable error.
     s_str = Series(:names, ["a", "b"])
-    @test_throws ErrorException s_str[5]
+    @test_throws PolarsError s_str[5]
     @test s_str[1] == "a" # in-bounds access still correct after the fix
 
     s_date = Series(:dates, [Date(2024, 1, 1)])
-    @test_throws ErrorException s_date[5]
+    @test_throws PolarsError s_date[5]
     @test s_date[1] == Date(2024, 1, 1)
 
     s_dt = Series(:dts, [DateTime(2024, 1, 1)])
-    @test_throws ErrorException s_dt[5]
+    @test_throws PolarsError s_dt[5]
     @test s_dt[1] == DateTime(2024, 1, 1)
 
     df_list = DataFrame((; x = [1, 2, 3]))
     s_list = select(df_list, implode(col("x")) |> alias("l"))[:l]
-    @test_throws ErrorException s_list[5]
-    @test s_list[1] isa Series
+    @test_throws PolarsError s_list[5]
+    @test s_list[1] isa Vector
 
     df_struct = DataFrame((; a = [1], b = ["x"]))
     s_struct = select(df_struct, as_struct(col("a"), col("b")) |> alias("s"))[:s]
-    @test_throws ErrorException s_struct[5]
+    @test_throws PolarsError s_struct[5]
     @test s_struct[1].a == 1
 end
 
@@ -195,11 +244,11 @@ end
     # polars_series_get (Date/String/List/Struct, covered above) -- confirm they're
     # independently fallible on out-of-bounds too, not just in-bounds-correct.
     s_num = Series(:nums, [1, 2, 3])
-    @test_throws ErrorException s_num[5]
+    @test_throws PolarsError s_num[5]
     @test s_num[1] == 1
 
     s_bool = Series(:flags, [true, false])
-    @test_throws ErrorException s_bool[5]
+    @test_throws PolarsError s_bool[5]
     @test s_bool[1] == true
 end
 
@@ -245,7 +294,7 @@ end
 
     # scalar indexing is unaffected by the new UnitRange method
     @test s[1] == 1
-    @test_throws ErrorException s[100]
+    @test_throws PolarsError s[100]
 end
 
 @testset "Boolean Series all/any with nulls" begin

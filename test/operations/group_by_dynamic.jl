@@ -96,3 +96,27 @@ end
         @test size(r)[2] == 2
     end
 end
+
+@testset "group_by_dynamic/rolling duration strings survive GC pressure" begin
+    # `every`/`period`/`offset` are passed to the FFI as raw (pointer, len) pairs; the ccall
+    # site used to omit them from `GC.@preserve`, so nothing rooted them past their last "normal"
+    # Julia-side use. Build them via `join`/`string` (not literals -- to defeat any accidental
+    # string interning) and force collection *between* construction and the ccall to make an
+    # unrooted string get freed if it can be.
+    lf = lazy(hourly_store_df())
+
+    every = join(["1", "d"])
+    period = join(["3", "h"])
+    offset = join(["0", "ns"])
+    GC.gc(true)
+
+    r1 = group_by_dynamic(lf, "time"; every) |>
+        x -> agg(x, Polars.sum(col("value"))) |>
+        collect
+    @test size(r1) == (1, 2)
+
+    r2 = rolling(lf, "time"; period, offset) |>
+        x -> agg(x, Polars.count(col("value"))) |>
+        collect
+    @test size(r2)[1] > 0
+end

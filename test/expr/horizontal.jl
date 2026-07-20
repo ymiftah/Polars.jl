@@ -36,5 +36,5 @@ end
     @test fa[:a] == [1, 2]
     @test fb[:b] == ["x", "y"]
 
-    @test_throws ErrorException as_struct()
+    @test_throws PolarsError as_struct()
 end

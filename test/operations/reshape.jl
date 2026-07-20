@@ -70,7 +70,7 @@ end
     # in for the values at each (index, on) cell being reduced.
     df = DataFrame((; id = [1, 1, 1, 2], var = ["a", "a", "b", "a"], val = [10, 20, 30, 40]))
 
-    @test_throws ErrorException select(df, alias(Base.sum(element()), "total"))
+    @test_throws PolarsError select(df, alias(Base.sum(element()), "total"))
 
     # sum aggregation of duplicates
     r_sum = sort(pivot(df, "var", "id", "val"; agg = Base.sum(element())), col("id"))

@@ -21,5 +21,32 @@ polars-core = "0.54.4"
 polars-plan = "0.54.4"
 polars-compute = "0.54.4"
 polars-utils = "0.54.4"
-polars-ops = { version = "0.54.4", features = ["round_series"] }
-polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress"] }
+# `dtype-time` is NOT implied by polars' defaults: `dtype-slim` (in `default`) is only
+# date+datetime+duration, and `temporal` pulls polars-time without it. polars-core/-io/-lazy/-expr
+# happen to get it transitively, but polars-ops does *not* -- leaving its `take_chunked_unchecked`
+# Time arm compiled out and falling through to `_ => unreachable!()`, i.e. a process abort on any
+# gather (join/gather) over a Time column. Enable it explicitly on both.
+polars-ops = { version = "0.54.4", features = ["round_series", "dtype-time"] }
+polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time"] }
+
+# Without this, `cargo build`'s default dev profile (opt-level 0 for every crate, including every
+# vendored polars kernel) is what every dev/test/CI run actually executes -- for a performance
+# library this silently invalidates any live timing impression. Optimize dependencies (all of
+# polars) while leaving this crate's own thin FFI shim unoptimized/incremental for fast rebuilds
+# after a header/binding-only change.
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+# Used for `cargo build --release`, e.g. for distribution artifacts. Not the default dev-loop
+# build (see gen/prologue.jl, which prefers target/release when present but falls back to
+# target/debug). codegen-units = 1 + thin LTO trades build time/memory for cross-crate inlining
+# into polars kernels; if linking OOMs under the repo's -j 4 cap, drop codegen-units to 4.
+# `strip = "symbols"` (not just "debuginfo"): verified on the dev build that debug info alone
+# accounts for only part of the strippable size (`strip --strip-debug`: 228 MB -> 215 MB) while
+# the symbol table accounts for much more (`strip --strip-all`: 215 MB -> 127 MB) -- "symbols"
+# drops both in one pass, same as `strip = true`.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

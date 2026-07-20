@@ -2,7 +2,12 @@ use polars::prelude::*;
 use polars_core::frame::PivotColumnNaming;
 use polars_utils::compression::ZstdLevel;
 
-// TODO: investigate what the lifetime implies.
+/// Borrows from its parent (a `Series`, or another `polars_value_t` for struct-field access via
+/// `polars_value_struct_get`) rather than owning its data. The lifetime parameter enforces
+/// nothing across the C boundary -- it is a caller invariant, not a compiler-checked one: the
+/// caller must keep the parent alive for as long as this value is alive, and must destroy this
+/// value before the parent. The Julia side roots the parent via `Value.parent` (`src/value.jl`).
+/// See `polars_value_struct_get`'s `# Safety` doc for the struct-field case specifically.
 pub struct polars_value_t<'a> {
     pub(crate) inner: AnyValue<'a>,
 }
@@ -29,6 +34,14 @@ pub struct polars_expr_t {
 
 pub(crate) fn make_dataframe(df: DataFrame) -> *mut polars_dataframe_t {
     Box::into_raw(Box::new(polars_dataframe_t { inner: df }))
+}
+
+pub(crate) fn make_lazy_frame(lf: LazyFrame) -> *mut polars_lazy_frame_t {
+    Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }))
+}
+
+pub(crate) fn make_lazy_group_by(gb: LazyGroupBy) -> *mut polars_lazy_group_by_t {
+    Box::into_raw(Box::new(polars_lazy_group_by_t { inner: gb }))
 }
 
 #[repr(C)]
@@ -132,7 +145,7 @@ impl polars_parquet_parallel_strategy_t {
 
 #[repr(C)]
 #[allow(dead_code)]
-pub enum PolarsEngine {
+pub enum polars_engine_t {
     PolarsEngineInMemory,
     PolarsEngineStreaming,
 }
@@ -213,6 +226,62 @@ impl polars_pivot_column_naming_t {
         match self {
             Self::PolarsPivotColumnNamingCombine => PivotColumnNaming::Combine,
             Self::PolarsPivotColumnNamingAuto => PivotColumnNaming::Auto,
+        }
+    }
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_fill_null_strategy_t {
+    PolarsFillNullStrategyBackward,
+    PolarsFillNullStrategyForward,
+    PolarsFillNullStrategyMean,
+    PolarsFillNullStrategyMin,
+    PolarsFillNullStrategyMax,
+    PolarsFillNullStrategyZero,
+    PolarsFillNullStrategyOne,
+}
+
+impl polars_fill_null_strategy_t {
+    /// `limit` only applies to `Backward`/`Forward` -- ignored for the other variants, matching
+    /// `FillNullStrategy`'s own shape (only those two carry a `FillNullLimit = Option<IdxSize>`).
+    pub(crate) fn to_fill_null_strategy(&self, limit: Option<IdxSize>) -> FillNullStrategy {
+        match self {
+            Self::PolarsFillNullStrategyBackward => FillNullStrategy::Backward(limit),
+            Self::PolarsFillNullStrategyForward => FillNullStrategy::Forward(limit),
+            Self::PolarsFillNullStrategyMean => FillNullStrategy::Mean,
+            Self::PolarsFillNullStrategyMin => FillNullStrategy::Min,
+            Self::PolarsFillNullStrategyMax => FillNullStrategy::Max,
+            Self::PolarsFillNullStrategyZero => FillNullStrategy::Zero,
+            Self::PolarsFillNullStrategyOne => FillNullStrategy::One,
+        }
+    }
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_concat_how_t {
+    PolarsConcatHowVertical,
+    PolarsConcatHowVerticalRelaxed,
+    PolarsConcatHowDiagonal,
+    PolarsConcatHowDiagonalRelaxed,
+    PolarsConcatHowHorizontal,
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_window_mapping_t {
+    PolarsWindowMappingGroupsToRows,
+    PolarsWindowMappingExplode,
+    PolarsWindowMappingJoin,
+}
+
+impl polars_window_mapping_t {
+    pub(crate) fn to_window_mapping(&self) -> WindowMapping {
+        match self {
+            Self::PolarsWindowMappingGroupsToRows => WindowMapping::GroupsToRows,
+            Self::PolarsWindowMappingExplode => WindowMapping::Explode,
+            Self::PolarsWindowMappingJoin => WindowMapping::Join,
         }
     }
 }

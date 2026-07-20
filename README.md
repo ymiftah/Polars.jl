@@ -8,7 +8,7 @@ Polars.jl is a thin wrapper for Julia around the dataframe manipulation library 
 > Paul Berg, who designed the original C ABI bridge and wrapper architecture this package still
 > follows — this fork continues that work rather than inventing a new approach. Much of the code
 > and docs in this fork were written with heavy AI assistance and are **still under review**; treat
-> it as less vetted than thWe upstream project until that review is further along.
+> it as less vetted than the upstream project until that review is further along.
 
 ## See Also
 
@@ -19,6 +19,9 @@ if your problem involves a lot of Julia "interopability" where Polars would not 
 
 
 ## Example
+
+This walkthrough is illustrative -- the referenced parquet files aren't shipped with this
+repository; substitute your own data to follow along.
 
 ```julia
 julia> using Polars

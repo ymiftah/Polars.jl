@@ -36,7 +36,7 @@ end
     @test Tables.columnnames(r2) == (:b,)
 
     # drop non-existent column should error
-    @test_throws ErrorException drop(df, ["nonexistent"])
+    @test_throws PolarsError drop(df, ["nonexistent"])
 
     # drop all columns results in a fully empty DataFrame (0 rows, 0 cols) -- with no columns
     # to carry a row count, there's nothing to preserve it against (matches select() with zero
@@ -61,7 +61,7 @@ end
     @test r_lenient[:A] == [1, 2]
 
     # rename creating a name collision should error
-    @test_throws ErrorException Base.rename(df, ["a", "b"], ["X", "X"])
+    @test_throws PolarsError Base.rename(df, ["a", "b"], ["X", "X"])
 end
 
 @testset "drop_nulls (frame-level)" begin

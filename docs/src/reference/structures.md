@@ -76,10 +76,12 @@ aggregated result as a `LazyFrame`. See [Manipulation](@ref).
 ## `Expr`
 
 An unevaluated column expression — the building block of every query (`col("x") * 2`,
-`sum(col("revenue"))`, `when(...).then(...).otherwise(...)`, ...). `Expr <: Number`, purely so that
-Julia's promotion machinery lets you write `col("x") + 1` and have the literal `1` promoted to an
-expression automatically; `Expr`s are otherwise unrelated to numbers and are never actually
-evaluated until they appear inside `select`, `with_columns`, `filter`, or `agg`. See
+`sum(col("revenue"))`, `when(...).then(...).otherwise(...)`, ...). `Expr` has no supertype (in
+particular it is **not** `<: Number`): every arithmetic/comparison/logical operator is instead
+defined explicitly for each mixed-argument order (`Expr op Expr`, `Expr op literal`, and
+`literal op Expr`), so `col("x") + 1` still works — the literal `1` is converted to an expression
+by that specific method, not by Julia's generic `Number` promotion machinery. `Expr`s are never
+actually evaluated until they appear inside `select`, `with_columns`, `filter`, or `agg`. See
 [Expressions](@ref) for the full set of expression-building functions.
 
 ```@example structures

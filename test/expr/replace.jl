@@ -17,7 +17,7 @@ end
     df = DataFrame((; x = ["a", "b", "c", "d"]))
 
     # without a default, an incomplete mapping errors (matches upstream polars semantics)
-    @test_throws ErrorException select(df, replace_strict(col("x"), lit("a"), lit("A")))
+    @test_throws PolarsError select(df, replace_strict(col("x"), lit("a"), lit("A")))
 
     # unmapped values fall back to `default`
     r = select(df, alias(replace_strict(col("x"), lit("a"), lit("A"); default = lit("?")), "r"))

@@ -18,8 +18,17 @@ using Polars, Dates
 Example:
 
 ```@example dt
-df = DataFrame((; ts = DateTime(2024, 3, 15, 14, 30, 0) .+ Dates.Hour.(0:2)))
+df = DataFrame((; ts = DateTime(2024, 3, 15, 14, 30, 45) .+ Dates.Hour.(0:2)))
 select(df, col("ts"), Dt.year(col("ts")) |> alias("year"), Dt.month(col("ts")) |> alias("month"), Dt.weekday(col("ts")) |> alias("weekday"))
+```
+
+```@example dt
+select(
+    df,
+    Dt.day(col("ts")) |> alias("day"), Dt.hour(col("ts")) |> alias("hour"),
+    Dt.minute(col("ts")) |> alias("minute"), Dt.second(col("ts")) |> alias("second"),
+    Dt.ordinal_day(col("ts")) |> alias("ordinal_day"),
+)
 ```
 
 ## Rounding & formatting
@@ -42,6 +51,13 @@ pipelines — see [Curried forms for pipe-based composition](@ref):
 
 ```@example dt
 select(df, col("ts") |> Dt.truncate("1h") |> alias("trunc"), col("ts") |> Dt.strftime("%Y-%m-%d") |> alias("formatted"))
+```
+
+`round` differs from `truncate` by rounding to the *nearest* interval instead of always rounding
+down; `offset_by` shifts by a signed duration:
+
+```@example dt
+select(df, col("ts") |> Dt.round("1h") |> alias("rounded"), col("ts") |> Dt.offset_by("+1d") |> alias("plus_1d"))
 ```
 
 ## Time zones

@@ -2,28 +2,74 @@ module Strings
 using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
 
 @generate_expr_fns begin
-    gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase)
-    gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase)
-    gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::titlecase)
-    gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes)
-    gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars)
+    gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase, "Converts each string of `expr` to uppercase.")
+    gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase, "Converts each string of `expr` to lowercase.")
+    gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes, "Length of each string of `expr`, in bytes. Differs from [`len_chars`](@ref) for non-ASCII text (a multi-byte UTF-8 character counts as more than one byte but one char).")
+    gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars, "Length of each string of `expr`, in Unicode characters. Differs from [`len_bytes`](@ref) for non-ASCII text.")
     # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
-    gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with)
-    gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with)
+    gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with, "Row-wise boolean flag: `true` where `a` starts with the literal (non-regex) substring `b`. Has a curried form `starts_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with, "Row-wise boolean flag: `true` where `a` ends with the literal (non-regex) substring `b`. Has a curried form `ends_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
     gen_impl_expr_binary_str!(
         polars_expr_str_contains_literal,
-        StringNameSpace::contains_literal
+        StringNameSpace::contains_literal,
+        "Row-wise boolean flag: `true` where `a` contains the literal (non-regex) substring `b`. For a regex match, use [`contains`](@ref). Has a curried form `contains_literal(pat)` -- see [Curried forms for pipe-based composition](@ref)."
     )
 
-    gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars)
-    gen_impl_expr_binary_str!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix)
-    gen_impl_expr_binary_str!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix)
-    gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split)
-    gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all)
-    gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill)
-    gen_impl_expr_binary_str!(polars_expr_str_head, StringNameSpace::head)
-    gen_impl_expr_binary_str!(polars_expr_str_tail, StringNameSpace::tail)
+    gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars, "Removes any leading/trailing characters of `a` that appear in `b` (a string of characters to strip, not a substring to match). Has a curried form `strip_chars(chars)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix, "Removes the literal prefix `b` from `a` if present (no-op otherwise). Has a curried form `strip_prefix(prefix)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix, "Removes the literal suffix `b` from `a` if present (no-op otherwise). Has a curried form `strip_suffix(suffix)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split, "Splits each string of `a` on the literal (non-regex) substring `b`, returning a `List` of substrings (see [Lists](@ref)). Has a curried form `split(by)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all, "Extracts every non-overlapping match of the regex `b` from `a`, returning a `List` of matches per row (see [Lists](@ref)). Has a curried form `extract_all(pat)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill, "Left-pads each string of `a` with `'0'` up to a total width of `b` characters (a leading `+`/`-` sign, if present, stays before the padding). Has a curried form `zfill(width)` -- see [Curried forms for pipe-based composition](@ref).")
+end
+
+# `head`/`tail` are pulled out of the `@generate_expr_fns` block (rather than generated via
+# `gen_impl_expr_binary_str!`, like the other binary ops above) because they collide with
+# `Polars`'s own top-level `head`/`tail` (for `DataFrame`/`LazyFrame`) -- not Base names, so the
+# macro's own Base-collision check can't catch them, and they must never be exported: designed for
+# qualified use (`Strings.head`), matching `contains`/`replace` below.
+"""
+    head(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
+
+First `n` characters of each string in `expr` (negative `n` keeps all but the last `|n|`
+characters; fewer than `n` characters if the string is shorter).
+"""
+function head(a::Expr, b::Expr)
+    out = API.polars_expr_str_head(a, b)
+    return Expr(out)
+end
+
+"""
+    tail(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
+
+Last `n` characters of each string in `expr` (negative `n` skips the first `|n|` characters
+instead; fewer than `n` characters if the string is shorter).
+"""
+function tail(a::Expr, b::Expr)
+    out = API.polars_expr_str_tail(a, b)
+    return Expr(out)
+end
+
+"""
+    titlecase(expr::Polars.Expr)
+
+!!! warning "Unavailable in a default build"
+    Upstream `StringNameSpace::to_titlecase` sits behind polars' own `nightly` Cargo feature
+    (it still depends on unstable stdlib internals as of polars 0.54.4), and this repo pins a
+    stable toolchain deliberately -- so `c-polars` does not compile the symbol and no binding for
+    it is generated. To enable it, build `c-polars` with a nightly toolchain and
+    `cargo build --features nightly`, then regenerate the bindings.
+
+This method exists only to fail with that explanation: without it, calling `Strings.titlecase`
+raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
+"""
+function titlecase(::Expr)
+    return error(
+        "Strings.titlecase is unavailable in this build: polars' `to_titlecase` requires " *
+            "polars' `nightly` Cargo feature and a nightly rustc, while c-polars pins a stable " *
+            "toolchain (see CLAUDE.md). Rebuild with `cargo build --features nightly` to enable it."
+    )
 end
 
 # Curried (Fix2-style) forms for the binary namespace ops above, e.g.
@@ -165,7 +211,7 @@ a value that fails to parse raises an error; if `false`, it becomes `null`. If `
 function to_date(expr::Expr; format::Union{Nothing, String} = nothing, strict::Bool = true, exact::Bool = true)
     format_str = something(format, "")
     out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_str_to_date(expr, format_str, length(format_str), strict, exact, out)
+    err = API.polars_expr_str_to_date(expr, format_str, ncodeunits(format_str), strict, exact, out)
     polars_error(err)
     return Expr(out[])
 end
@@ -202,7 +248,7 @@ function to_datetime(
     format_str = something(format, "")
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_str_to_datetime(
-        expr, format_str, length(format_str), time_unit_enum, strict, exact, out
+        expr, format_str, ncodeunits(format_str), time_unit_enum, strict, exact, out
     )
     polars_error(err)
     return Expr(out[])
@@ -221,5 +267,8 @@ function to_datetime(
     return expr -> to_datetime(expr; format, time_unit, strict, exact)
 end
 
-export contains, slice, replace, replace_all, extract, count_matches, to_date, to_datetime
+# `contains`/`replace` are intentionally not exported -- they collide with
+# `Base.contains`/`Base.replace` and are designed for qualified use (`Strings.contains`, etc.);
+# `using Polars.Strings` would otherwise clash with those.
+export slice, replace_all, extract, count_matches, to_date, to_datetime
 end # module Strings

@@ -4,9 +4,12 @@
     r = read_parquet(path)
 
     @test size(r) == (3, 1)
-    @test collect(r[:x][1]) == [1, 2]
-    @test collect(r[:x][2]) == [3]
-    @test collect(r[:x][3]) == [4, 5, 6]
+    # List elements are plain Vectors now (not nested Series), so getindex already returns the
+    # materialized row -- no collect() needed.
+    @test r[:x][1] == [1, 2]
+    @test r[:x][2] == [3]
+    @test r[:x][3] == [4, 5, 6]
+    @test collect(r[:x]) == [[1, 2], [3], [4, 5, 6]] # bulk path agrees
 
     # verify via flatten (Milestone A), independent of direct row indexing
     @test collect(select(r, flatten(col("x")))[:x]) == [1, 2, 3, 4, 5, 6]
@@ -14,15 +17,17 @@
     # String element type
     df2 = DataFrame((; s = [["a", "b"], ["c"]]))
     r2 = read_parquet(write_temp_parquet(df2))
-    @test collect(r2[:s][1]) == ["a", "b"]
-    @test collect(r2[:s][2]) == ["c"]
+    @test r2[:s][1] == ["a", "b"]
+    @test r2[:s][2] == ["c"]
+    @test collect(r2[:s]) == [["a", "b"], ["c"]]
 
     # nullable list (missing sublist)
     df3 = DataFrame((; x = Union{Missing, Vector{Int}}[[1, 2], missing, [3]]))
     r3 = read_parquet(write_temp_parquet(df3))
-    @test collect(r3[:x][1]) == [1, 2]
+    @test r3[:x][1] == [1, 2]
     @test ismissing(r3[:x][2])
-    @test collect(r3[:x][3]) == [3]
+    @test r3[:x][3] == [3]
+    @test isequal(collect(r3[:x]), [[1, 2], missing, [3]])
 end
 
 @testset "Struct column construction from Vector{<:NamedTuple}" begin

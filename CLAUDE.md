@@ -73,9 +73,9 @@ handled for free.
 - Functions that *construct a new* object (`scan_parquet`, `group_by`, `clone`) do
   `Box::into_raw(Box::new(...))` and return a fresh pointer; the input, if any, is only
   read/cloned, never consumed.
-- Functions that *mutate in place* (`filter`, `select`, `with_columns`, `sort`) reclaim ownership
-  via `Box::from_raw`, mutate `.inner`, then `std::mem::forget` to hand the same pointer back
-  without dropping it.
+- Functions that *mutate in place* (`filter`, `select`, `with_columns`, `sort`) borrow `&mut
+  (*handle).inner` directly and mutate through it, returning void; the Julia wrapper clones first
+  (`select(df) = _select!(clone(df), ...)`), so no caller ever observes the mutation.
 - Every `*_destroy` function does `Box::from_raw(...)` and lets it drop.
 
 **Error handling.** Fallible functions return `*const polars_error_t` (null = success); the actual
@@ -97,6 +97,14 @@ polars-core/-expr functions (`Series::product`, nan-propagating min/max, others)
 Julia process, not a catchable Julia error. Before wrapping or exercising a function for the first
 time, scan for these across the vendored crates and cross-check against `c-polars/Cargo.toml`'s
 feature list: `grep -rn "activate .* feature" ~/.cargo/registry/src/*/polars-*-<version>/src/`.
+**That grep is necessary but not sufficient** — the same hazard also hides behind `unreachable!()`
+in a `#[cfg]`-gated `match` arm, with no "activate" string to find. `dtype-time` was the live
+example: not implied by any default (`dtype-slim` is date+datetime+duration only), it reached
+polars-core/-io/-lazy/-expr transitively but *not* polars-ops, whose `take_chunked_unchecked` Time
+arm then compiled out and fell through to `_ => unreachable!()` — aborting the process on any
+join/gather over a Time column. Per-crate feature reality is `cargo tree -e features -i <crate>`,
+not the `features = [...]` list; a feature on the `polars` facade is not the same as that feature
+on each sub-crate.
 **This isn't limited to that literal panic macro either** — `sink_csv(...; compression=:gzip)` once
 crashed the whole process because the `polars` crate doesn't enable `polars-io`'s `decompress`
 feature by default (even though `polars-io` itself defaults it on for standalone use — the `polars`
@@ -111,7 +119,14 @@ considering it done, especially anything touching a compression/codec option.
   length, built on the Julia side under `GC.@preserve` from a `Vector{Expr}`. Convert incoming
   `String`s to `col(...)` before building the pointer array so callers can pass either.
 - Strings (paths, duration literals, column names) are passed as `(ptr: Ptr{UInt8}, len: Csize_t)`
-  pairs — a plain Julia `String` auto-converts, so just pass `(s, length(s))` / `(s, ncodeunits(s))`.
+  pairs — a plain Julia `String` auto-converts, so just pass `(s, ncodeunits(s))`. **Always
+  `ncodeunits`, never `length`**: `length` is a *character* count, so any non-ASCII argument gets
+  a truncated byte length and is cut mid-codepoint. The Rust side validates UTF-8, so this
+  surfaces as a baffling `incomplete utf-8 byte sequence from index N` rather than as a wrong
+  length. This was wrong at *every* string site in the package until the `review-one` branch fixed
+  24 of them (`col("café")` did not work), and ASCII-only tests will never catch a regression —
+  the arrow *data* path uses `sizeof`/`codeunits` and was always correct, which is exactly why it
+  hid for so long.
   *Optional* strings follow the same shape with a null-ptr-or-zero-len-means-`None` convention
   (`read_opt_str` on the Rust side) — e.g. `row_index_name`, `include_file_paths`.
 - Optional scalars generally cross as nullable pointers (`*const T`, null = `None`) — e.g.
@@ -176,7 +191,11 @@ instance. Pattern (see `ext/PolarsTimeZonesExt.jl`, `Project.toml`'s `[weakdeps]
    the ownership/error/enum conventions above and the style of the nearest existing function for
    the same category (constructor vs. mutator vs. destructor).
 4. **Hand-add the header prototype** to `c-polars/include/polars.h`, matching the cbindgen output
-   style of neighboring declarations (add any new `typedef enum ... { ... }` here too).
+   style of neighboring declarations (add any new `typedef enum ... { ... }` here too). Verify with
+   `python3 c-polars/check_header_drift.py`, which fails on any exported Rust symbol missing from
+   the header (or vice versa) and on any `#[no_mangle]` fn that isn't `extern "C"`. It also runs in
+   CI. Since `generated.jl` is derived from the header, a symbol you forget here is simply
+   invisible to Julia rather than a build error.
 5. **Regenerate `src/api/generated.jl`** by running `julia --project=gen gen/generate.jl` from the
    repo root — this picks up the new function/enum from the header automatically. Do not hand-edit
    `generated.jl` directly; if the output looks wrong, fix `c-polars/include/polars.h` or
@@ -204,6 +223,36 @@ instance. Pattern (see `ext/PolarsTimeZonesExt.jl`, `Project.toml`'s `[weakdeps]
    this repo follow that convention and it's the fastest way to answer "is X finished?" later.
 
 ## Build environment
+
+**Cap the job count: `cargo build -j 4`.** A default 16-way parallel polars build exhausts this
+machine's RAM (~9 GB available) and the OOM killer takes the session down with it — this has
+already killed a session mid-refactor. Dependencies are cached, so only a feature change forces
+the full ~3 min rebuild.
+
+**Dependencies build optimized even in the default dev profile** (`c-polars/Cargo.toml`'s
+`[profile.dev.package."*"] opt-level = 3`) — a plain `cargo build` used to run every polars
+kernel unoptimized (opt-level 0), which silently invalidated any live timing/benchmark taken
+against a dev build. `c-polars`'s own thin FFI shim stays unoptimized/incremental, so a
+header/binding-only change still rebuilds fast; only a dependency-affecting change (a fresh
+clone, a `Cargo.toml`/`Cargo.lock` change, or the very first build after this profile was added)
+forces a full from-scratch optimized rebuild of every vendored crate.
+
+**That full rebuild is real memory pressure, not just "slower" — cap it at `-j 1` the first
+time.** Optimized (opt-level 3) compilation of `polars-ops`/`polars-core`/etc. uses far more RAM
+per rustc worker than the old opt-level-0 baseline the `-j 4` cap above was calibrated for —
+confirmed by a real incident: a full dependency rebuild at `-j 4` right after adding this profile
+setting exhausted RAM+swap and the OOM killer picked off the VS Code host process itself (killing
+this session with it, since Claude Code runs as a VS Code extension here), even though baseline
+memory pressure before the build was already fairly high. `-j 1` (one rustc worker at a time,
+peaking around the size of the single largest crate rather than four of them at once) completed
+the same rebuild without incident, just slower. Once the full dependency set is built once,
+subsequent `-j 4` builds are back to the normal fast/cheap `c-polars`-only incremental case.
+
+**`cargo build --release`** (`[profile.release]`: thin LTO + `codegen-units = 1`) is available for
+a genuinely optimized distribution artifact; `gen/prologue.jl` prefers `target/release/` over
+`target/debug/` when both exist. This is not the default dev-loop build — building it pays the
+same full-rebuild memory cost as above (release and dev profiles don't share cached artifacts),
+so don't reach for it during ordinary iteration.
 
 **Build `c-polars` with the stable Rust toolchain**, not nightly — `c-polars/rust-toolchain` is
 pinned to `stable` deliberately. A polars dependency (`polars-ops`) auto-detects a nightly rustc via
@@ -246,3 +295,10 @@ Create one with `Pkg.develop(path=".")` plus `Pkg.add(["Aqua", "Test", "Tables",
   present in the reference schema, not files with an *extra* column beyond it** — that's a
   separate `ExtraColumnsPolicy` this wrapper doesn't expose. The reference schema is whichever
   file/fragment gets scanned first; ordering matters when testing this.
+- **No handle (`DataFrame`/`LazyFrame`/`Series`/`Expr`/`Value`) is safe to share across Julia
+  tasks/threads without external synchronization** — they're thin unsynchronized pointer wrappers.
+  The only internal locks (`LIVE_SCHEMAS_LOCK`/`LIVE_ARRAYS_LOCK`) guard Arrow C Data Interface
+  release-callback bookkeeping, not query concurrency; polars' own rayon-backed parallelism
+  (`multithreaded: true` on select Rust operations) runs on its own pool sized by
+  `POLARS_MAX_THREADS`, independent of `JULIA_NUM_THREADS`. See "Concurrency" in
+  `docs/src/limitations.md` for the user-facing version of this.

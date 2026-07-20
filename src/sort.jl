@@ -61,7 +61,7 @@ function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
 
     maintain_order = stable
 
-    exprs = map(ex -> ex isa String ? col(ex) : ex, exprs)
+    exprs = map(_as_expr, exprs)
     exprs = convert(Vector{Expr}, exprs)
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]

@@ -1,5 +1,13 @@
 # Timezone support via a Julia package extension
 
+## Status
+
+Done. `Dt.replace_time_zone`/`Dt.convert_time_zone` ship unconditionally (core, no TimeZones.jl
+dependency); tz-aware column reads route through `PolarsTimeZonesExt` (`ext/PolarsTimeZonesExt.jl`)
+once `using TimeZones` activates it, materializing `TimeZones.ZonedDateTime`, and error with a
+clear "load TimeZones.jl" message otherwise (`Polars._tz_aware_datetime_type`,
+`src/arrow/schema.jl`). Covered by `test/datatypes/timezones.jl`.
+
 ## Context
 
 Two independent gaps, decided to be tackled together:
