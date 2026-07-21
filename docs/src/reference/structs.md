@@ -41,3 +41,9 @@ Notes:
 
 - Struct extraction returns a `Series` of the field type.
 - `Structs.rename_fields` reorders fields in the new order given.
+
+## Unpacking a whole Struct column: `unnest`
+
+`as_struct` (above) is the write-side operation: expressions in, one Struct column out. The
+read-side counterpart is `unnest` (see [Manipulation](@ref)), which goes the other way — a
+Struct column in, one plain column per field out.

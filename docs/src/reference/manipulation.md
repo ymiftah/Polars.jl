@@ -220,3 +220,28 @@ pivot(orders, "product", "store", "qty"; agg = Base.sum(element()))
 Without an explicit `agg`, duplicate `(on, index)` pairs collapse to the *first* matching value
 rather than erroring — pass `agg` explicitly (e.g. `Base.sum(element())`) whenever more than one
 row can share the same `on`/`index` combination.
+
+## Unnest: `unnest`
+
+`unnest(df, columns::Vector{String}; separator=nothing)` is the row-preserving counterpart to
+`explode`: it replaces each struct-typed column in `columns` with one new column per struct field
+(in field order), in place of the original column. It's the read-side inverse of `as_struct` (see
+[Structs](@ref)), which builds a struct column out of expressions.
+
+```@example manipulation
+people = DataFrame((; id = [1, 2], info = [(name = "Alice", age = 30), (name = "Bob", age = 25)]))
+unnest(people, ["info"])
+```
+
+Without `separator`, the new columns are named after the bare struct fields, as above. With
+`separator`, each is named `"<column><separator><field>"` instead — useful for unnesting multiple
+struct columns whose field names would otherwise collide:
+
+```@example manipulation
+unnest(people, ["info"]; separator = "_")
+```
+
+Unnesting a column name absent from the frame, or one that isn't struct-typed, errors rather than
+silently doing nothing; likewise, two unnested fields ending up with the same name (or colliding
+with an existing column) errors instead of silently overwriting. `unnest` also has a `LazyFrame`
+method (`unnest(lf, columns; separator=nothing)`), unlike `pivot` above.

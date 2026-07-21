@@ -558,6 +558,14 @@ const struct polars_error_t *polars_lazy_frame_unpivot(struct polars_lazy_frame_
                                                        uintptr_t value_name_len,
                                                        struct polars_lazy_frame_t **out);
 
+const struct polars_error_t *polars_lazy_frame_unnest(struct polars_lazy_frame_t *lf,
+                                                       const uint8_t *const *names,
+                                                       const uintptr_t *lens,
+                                                       uintptr_t n,
+                                                       const uint8_t *separator,
+                                                       uintptr_t separator_len,
+                                                       struct polars_lazy_frame_t **out);
+
 const struct polars_error_t *polars_lazy_frame_pivot(
     struct polars_lazy_frame_t *lf,
     const uint8_t *const *on_names,

@@ -439,6 +439,10 @@ function polars_lazy_frame_unpivot(lf, index_names, index_lens, n_index, on_name
     return @ccall libpolars.polars_lazy_frame_unpivot(lf::Ptr{polars_lazy_frame_t}, index_names::Ptr{Ptr{UInt8}}, index_lens::Ptr{Csize_t}, n_index::Csize_t, on_names::Ptr{Ptr{UInt8}}, on_lens::Ptr{Csize_t}, n_on::Csize_t, variable_name::Ptr{UInt8}, variable_name_len::Csize_t, value_name::Ptr{UInt8}, value_name_len::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
+function polars_lazy_frame_unnest(lf, names, lens, n, separator, separator_len, out)
+    return @ccall libpolars.polars_lazy_frame_unnest(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, separator::Ptr{UInt8}, separator_len::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
 function polars_lazy_frame_pivot(lf, on_names, on_lens, n_on, on_columns, index_names, index_lens, n_index, values_names, values_lens, n_values, agg, maintain_order, separator, separator_len, column_naming, out)
     return @ccall libpolars.polars_lazy_frame_pivot(lf::Ptr{polars_lazy_frame_t}, on_names::Ptr{Ptr{UInt8}}, on_lens::Ptr{Csize_t}, n_on::Csize_t, on_columns::Ptr{polars_dataframe_t}, index_names::Ptr{Ptr{UInt8}}, index_lens::Ptr{Csize_t}, n_index::Csize_t, values_names::Ptr{Ptr{UInt8}}, values_lens::Ptr{Csize_t}, n_values::Csize_t, agg::Ptr{polars_expr_t}, maintain_order::Bool, separator::Ptr{UInt8}, separator_len::Csize_t, column_naming::polars_pivot_column_naming_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end

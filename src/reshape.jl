@@ -55,6 +55,40 @@ function unpivot(
 end
 
 """
+    unnest(lf::LazyFrame, columns::Vector{String}; separator::Union{Nothing,AbstractString}=nothing)::LazyFrame
+    unnest(df::DataFrame, columns::Vector{String}; separator::Union{Nothing,AbstractString}=nothing)::DataFrame
+
+Unnests struct-typed `columns`: each is replaced (in place) by one new column per struct field, in
+field order. Unnesting a column name that doesn't exist in the frame, or that isn't struct-typed,
+errors rather than silently no-op-ing. If `separator` is given, each new field is named
+`"<column><separator><field>"`; without it (the default), the bare field name is used as-is, so
+two unnested fields sharing a name -- or a field name colliding with an existing column -- errors
+rather than silently overwriting.
+"""
+function unnest(
+        df::DataFrame, columns::Vector{String};
+        separator::Union{Nothing, AbstractString} = nothing
+    )
+    return unnest(lazy(df), columns; separator) |> collect
+end
+function unnest(
+        lf::LazyFrame, columns::Vector{String};
+        separator::Union{Nothing, AbstractString} = nothing
+    )
+    separator_arg = separator === nothing ? Ptr{UInt8}(C_NULL) : separator
+    separator_len = separator === nothing ? 0 : ncodeunits(separator)
+    GC.@preserve columns begin
+        ptrs, lens = _name_ptrs(columns)
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_unnest(
+            lf, ptrs, lens, length(ptrs), separator_arg, separator_len, out
+        )
+        polars_error(err)
+    end
+    return LazyFrame(out[])
+end
+
+"""
     pivot(df::DataFrame, on, index, values; agg=Base.first(element()), maintain_order::Bool=true,
           separator::String="_", column_naming::Symbol=:auto)::DataFrame
 

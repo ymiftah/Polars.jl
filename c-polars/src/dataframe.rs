@@ -831,6 +831,26 @@ pub unsafe extern "C" fn polars_lazy_frame_unpivot(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_unnest(
+    lf: *mut polars_lazy_frame_t,
+    names: *const *const u8,
+    lens: *const usize,
+    n: usize,
+    separator: *const u8,
+    separator_len: usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    let names = tri!(read_names(names, lens, n));
+    let separator = tri!(read_opt_str(separator, separator_len));
+    // `LazyFrame::unnest` is infallible (`-> Self`) -- the strict-by-name selector below still
+    // surfaces a nonexistent-column or non-struct-dtype error, just deferred until `collect`
+    // resolves the schema (see the `guard_error`-wrapped collect path).
+    let result = (*lf).inner.clone().unnest(selector_by_name(names, true), separator);
+    *out = make_lazy_frame(result);
+    std::ptr::null()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_pivot(
     lf: *mut polars_lazy_frame_t,
     on_names: *const *const u8,

@@ -124,7 +124,7 @@ export Series, DataFrame, PolarsError,
     read_ipc, write_ipc, scan_ipc, sink_csv, sink_ipc,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
-    drop, rename, drop_nulls, with_row_index, explode, unpivot, nth,
+    drop, rename, drop_nulls, with_row_index, explode, unpivot, unnest, nth,
     describe, pivot, upsample
 
 # Cuts TTFX: without this, the first `DataFrame`/`select`/`filter`/`collect` call in a fresh
