@@ -237,6 +237,11 @@ Without `separator`, the new columns are named after the bare struct fields, as 
 `separator`, each is named `"<column><separator><field>"` instead — useful for unnesting multiple
 struct columns whose field names would otherwise collide:
 
+| separator | Column naming |
+|---|---|
+| absent (default) | Bare struct field names |
+| provided | `<column><separator><field>` |
+
 ```@example manipulation
 unnest(people, ["info"]; separator = "_")
 ```
