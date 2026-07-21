@@ -1114,6 +1114,73 @@ const struct polars_error_t *polars_expr_struct_rename_fields(const struct polar
                                                               uintptr_t num_names,
                                                               const struct polars_expr_t **out);
 
+const struct polars_expr_t *polars_expr_selector_all(void);
+
+const struct polars_expr_t *polars_expr_selector_empty(void);
+
+const struct polars_error_t *polars_expr_selector_by_name(const uint8_t *const *names,
+                                                           const uintptr_t *lens,
+                                                           uintptr_t n,
+                                                           bool strict,
+                                                           const struct polars_expr_t **out);
+
+const struct polars_expr_t *polars_expr_selector_by_index(const int64_t *indices,
+                                                           uintptr_t n,
+                                                           bool strict);
+
+typedef enum polars_selector_match_kind_t {
+  PolarsSelectorMatchKindRegex,
+  PolarsSelectorMatchKindStartsWith,
+  PolarsSelectorMatchKindEndsWith,
+  PolarsSelectorMatchKindContains,
+} polars_selector_match_kind_t;
+
+const struct polars_error_t *polars_expr_selector_matches(enum polars_selector_match_kind_t kind,
+                                                           const uint8_t *pattern,
+                                                           uintptr_t len,
+                                                           const struct polars_expr_t **out);
+
+typedef enum polars_dtype_selector_kind_t {
+  PolarsDtypeSelectorKindNumeric,
+  PolarsDtypeSelectorKindInteger,
+  PolarsDtypeSelectorKindUnsignedInteger,
+  PolarsDtypeSelectorKindSignedInteger,
+  PolarsDtypeSelectorKindFloat,
+  PolarsDtypeSelectorKindEnum,
+  PolarsDtypeSelectorKindCategorical,
+  PolarsDtypeSelectorKindNested,
+  PolarsDtypeSelectorKindStruct,
+  PolarsDtypeSelectorKindDecimal,
+  PolarsDtypeSelectorKindTemporal,
+  PolarsDtypeSelectorKindObject,
+  PolarsDtypeSelectorKindDatetime,
+  PolarsDtypeSelectorKindDuration,
+  PolarsDtypeSelectorKindList,
+  PolarsDtypeSelectorKindArray,
+} polars_dtype_selector_kind_t;
+
+const struct polars_expr_t *polars_expr_selector_dtype_simple(enum polars_dtype_selector_kind_t kind);
+
+const struct polars_error_t *polars_expr_selector_dtype_any_of(const enum polars_value_type_t *value_types,
+                                                                uintptr_t n,
+                                                                const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_selector_union(const struct polars_expr_t *a,
+                                                         const struct polars_expr_t *b,
+                                                         const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_selector_difference(const struct polars_expr_t *a,
+                                                              const struct polars_expr_t *b,
+                                                              const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_selector_exclusive_or(const struct polars_expr_t *a,
+                                                                const struct polars_expr_t *b,
+                                                                const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_selector_intersect(const struct polars_expr_t *a,
+                                                             const struct polars_expr_t *b,
+                                                             const struct polars_expr_t **out);
+
 void polars_series_destroy(struct polars_series_t *series);
 
 enum polars_value_type_t polars_series_type(struct polars_series_t *series);

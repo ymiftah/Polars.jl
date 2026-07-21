@@ -37,6 +37,7 @@ makedocs(;
             "reference/laziness.md",
             "reference/manipulation.md",
             "reference/expressions.md",
+            "reference/selectors.md",
             "reference/lists.md",
             "reference/strings.md",
             "reference/dt.md",

@@ -14,6 +14,8 @@ using Polars
 | `nth(n)` | reference the nth column (1-indexed; negative from end) |
 | `element()` | placeholder for "the values in this group"; used to build `pivot`'s `agg` argument (see [Manipulation](@ref)) |
 
+To reference columns *by dtype, position, or name pattern* instead of one at a time, see [Selectors](@ref).
+
 ## Literals & casting
 
 | Function | Purpose |

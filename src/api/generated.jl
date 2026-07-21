@@ -1144,6 +1144,76 @@ function polars_expr_struct_rename_fields(a, names, lens, num_names, out)
     return @ccall libpolars.polars_expr_struct_rename_fields(a::Ptr{polars_expr_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, num_names::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+function polars_expr_selector_all()
+    return @ccall libpolars.polars_expr_selector_all()::Ptr{polars_expr_t}
+end
+
+function polars_expr_selector_empty()
+    return @ccall libpolars.polars_expr_selector_empty()::Ptr{polars_expr_t}
+end
+
+function polars_expr_selector_by_name(names, lens, n, strict, out)
+    return @ccall libpolars.polars_expr_selector_by_name(names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, strict::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_selector_by_index(indices, n, strict)
+    return @ccall libpolars.polars_expr_selector_by_index(indices::Ptr{Int64}, n::Csize_t, strict::Bool)::Ptr{polars_expr_t}
+end
+
+@cenum polars_selector_match_kind_t::UInt32 begin
+    PolarsSelectorMatchKindRegex = 0
+    PolarsSelectorMatchKindStartsWith = 1
+    PolarsSelectorMatchKindEndsWith = 2
+    PolarsSelectorMatchKindContains = 3
+end
+
+function polars_expr_selector_matches(kind, pattern, len, out)
+    return @ccall libpolars.polars_expr_selector_matches(kind::polars_selector_match_kind_t, pattern::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+@cenum polars_dtype_selector_kind_t::UInt32 begin
+    PolarsDtypeSelectorKindNumeric = 0
+    PolarsDtypeSelectorKindInteger = 1
+    PolarsDtypeSelectorKindUnsignedInteger = 2
+    PolarsDtypeSelectorKindSignedInteger = 3
+    PolarsDtypeSelectorKindFloat = 4
+    PolarsDtypeSelectorKindEnum = 5
+    PolarsDtypeSelectorKindCategorical = 6
+    PolarsDtypeSelectorKindNested = 7
+    PolarsDtypeSelectorKindStruct = 8
+    PolarsDtypeSelectorKindDecimal = 9
+    PolarsDtypeSelectorKindTemporal = 10
+    PolarsDtypeSelectorKindObject = 11
+    PolarsDtypeSelectorKindDatetime = 12
+    PolarsDtypeSelectorKindDuration = 13
+    PolarsDtypeSelectorKindList = 14
+    PolarsDtypeSelectorKindArray = 15
+end
+
+function polars_expr_selector_dtype_simple(kind)
+    return @ccall libpolars.polars_expr_selector_dtype_simple(kind::polars_dtype_selector_kind_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_selector_dtype_any_of(value_types, n, out)
+    return @ccall libpolars.polars_expr_selector_dtype_any_of(value_types::Ptr{polars_value_type_t}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_selector_union(a, b, out)
+    return @ccall libpolars.polars_expr_selector_union(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_selector_difference(a, b, out)
+    return @ccall libpolars.polars_expr_selector_difference(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_selector_exclusive_or(a, b, out)
+    return @ccall libpolars.polars_expr_selector_exclusive_or(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_selector_intersect(a, b, out)
+    return @ccall libpolars.polars_expr_selector_intersect(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
 function polars_series_destroy(series)
     return @ccall libpolars.polars_series_destroy(series::Ptr{polars_series_t})::Cvoid
 end

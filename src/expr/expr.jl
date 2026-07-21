@@ -1334,4 +1334,4 @@ export rank
 
 export col, alias, prefix, suffix, lit, cast, when, element,
     cast_datetime, cast_duration, cast_decimal, cast_categorical,
-    Lists, Strings, Dt, Structs
+    Lists, Strings, Dt, Structs, Selectors

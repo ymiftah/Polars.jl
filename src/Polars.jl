@@ -103,6 +103,15 @@ include("./verbs.jl")
 # it once `Polars` finishes loading -- but avoidable by just respecting the real dependency order).
 include("./expr/struct.jl")
 
+# `expr/selectors.jl` must likewise follow `verbs.jl` (its `module Selectors` also does `using
+# ..Polars: _name_ptrs`, for `by_name` -- same reasoning as `struct.jl` just above). Its top-level
+# section (before its own `module Selectors`) separately requires `expr/expr.jl` to already be
+# loaded: it adds a new `_as_expr` method for the `Selector` type it defines, extending the
+# function `expr/expr.jl` first declares -- see that file's own header comment for why the method
+# lives in a different file from `_as_expr`'s others. Both orderings hold simultaneously since
+# `expr/expr.jl` loads well before `verbs.jl` already.
+include("./expr/selectors.jl")
+
 include("./join.jl")
 include("./reshape.jl")
 include("./sort.jl")

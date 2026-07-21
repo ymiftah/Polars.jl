@@ -59,6 +59,15 @@ pub(crate) unsafe fn read_bool_mask(ptr: *const bool, n: usize) -> Vec<bool> {
         .collect()
 }
 
+/// Reads an `n`-element `i64` array supplied by the caller (e.g. `Selector::ByIndex`'s column
+/// indices). `n == 0` short-circuits (see `read_names` for why).
+pub(crate) unsafe fn read_i64_array(ptr: *const i64, n: usize) -> Vec<i64> {
+    if n == 0 {
+        return Vec::new();
+    }
+    std::slice::from_raw_parts(ptr, n).to_vec()
+}
+
 /// Reads a required `(ptr, len)` UTF-8 string. `len == 0` yields `""` without dereferencing `ptr`
 /// (see `read_names` for why). Unlike `unwrap_or_default()`, invalid UTF-8 surfaces as an error
 /// rather than being silently coerced to `""`.
