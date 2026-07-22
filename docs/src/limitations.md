@@ -48,6 +48,8 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
 
 - Some polars capabilities are behind Cargo features that aren't enabled by default (see `c-polars/Cargo.toml`). If you hit a "activate 'X' feature" panic message, the feature needs to be added there and `c-polars/` rebuilt.
 
+- **`Selectors.array()` matches zero columns, always.** `dtype-array` is not in `c-polars/Cargo.toml`'s feature list, so upstream's own `DataTypeSelector::Array` matcher compiles to its safe `#[cfg(not(feature = "dtype-array"))]` fallback (always `false`) rather than a real dtype check — unlike the "activate 'X' feature" panics mentioned above, this doesn't crash or error, it silently selects nothing. Not planned to be fixed by enabling the feature in this phase (that would also force a full dependency rebuild), and this package has no write-side support for constructing an Array-dtype column at all yet either — `Selectors.list()`/`struct_()`/`nested()`/etc. are unaffected and work correctly.
+
 - The test suite has gaps — some operations have shipped with zero automated test coverage. Verify new operations end-to-end in a live session before assuming they work.
 
 ## Performance notes

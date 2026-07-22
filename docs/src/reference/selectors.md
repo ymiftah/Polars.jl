@@ -23,8 +23,13 @@ select(df, Selectors.numeric())
 | `date()`, `time()`, `datetime()`, `duration()` | temporal dtypes (`datetime`/`duration` match any time unit/time zone) |
 | `temporal()` | any of the above temporal dtypes |
 | `categorical()`, `decimal()` | Categorical/Decimal columns |
-| `struct_()`, `list()`, `array()`, `nested()` | nested dtypes (any inner type/width) |
+| `struct_()`, `list()`, `array()` (see note below), `nested()` | nested dtypes (any inner type/width) |
 | `by_dtype(dtypes...)` | explicit Julia dtype(s), e.g. `by_dtype(Int64, String)` |
+
+!!! warning "`array()` currently matches zero columns in this build"
+    `dtype-array` is not enabled in `c-polars/Cargo.toml`'s feature list, so upstream's own
+    `Array`-dtype matcher compiles to a safe always-`false` fallback instead of a real check — it
+    never crashes, it just never selects anything. See [Limitations](@ref).
 
 `all`/`float`/`string`/`time`/`contains` are deliberately not exported from `Selectors` itself (they'd clobber `Base.all`/`Base.float`/`Base.string`/`Base.time`/`Base.contains`) — always call them qualified, e.g. `Selectors.string()`. Everything else *is* exported from `Selectors`, so `using Polars.Selectors` also brings those in unqualified if you prefer that style; this page always uses the qualified form, which works either way.
 

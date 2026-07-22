@@ -212,10 +212,24 @@ end
     r2 = sort(df, S.numeric())
     @test collect(r2[:a]) == [1, 2, 3]
 
-    # inside filter (via a genuinely boolean-selected column)
+    # `Selector` composes with `select` too (a boolean-dtype selector picks out which *column* is
+    # returned, not which *rows* -- that's `filter`'s job, exercised separately right below)
     dfb = DataFrame((; a = [1, 2, 3], flag = [true, false, true]))
     only_flag = select(dfb, S.boolean())
     @test names(only_flag) == ["flag"]
+
+    # inside filter: `_as_expr` composes a `Selector` there too, so a boolean-dtype selector can be
+    # passed directly as the row predicate (regression test for the `filter` docs' claim that it
+    # supports `Selector` like `select`/`with_columns`/`sort` do)
+    r3 = filter(dfb, S.boolean())
+    @test collect(r3[:a]) == [1, 3]
+    @test collect(r3[:flag]) == [true, true]
+
+    # regression: filter still works normally with a plain Expr/String/Symbol predicate (all three
+    # go through the same `_as_expr` coercion the `Selector` case above just started using)
+    @test collect(filter(dfb, col(:a) .> 1)[:a]) == [2, 3]
+    @test collect(filter(dfb, "flag")[:a]) == [1, 3]
+    @test collect(filter(dfb, :flag)[:a]) == [1, 3]
 
     # Mixing a plain Expr with a Selector via |/&/-/xor is a decided, deliberate `MethodError` in
     # both operand orders -- not a silent (and possibly wrong) promotion of `col("x")` to a
@@ -231,10 +245,17 @@ end
     @test_throws MethodError xor(col("x"), S.numeric())
 end
 
-@testset "Selectors: Enum/Object/empty are not part of the public surface" begin
+@testset "Selectors: Enum/Object have no public constructor; empty() is not part of the public surface" begin
     # First-cut scope: the Rust primitive supports a strict superset of `DataTypeSelector` kinds
     # (including Enum/Object), and `polars_expr_selector_empty` exists as the combinators'
     # identity element -- neither is meant to be reachable as a public `Selectors.*` constructor.
+
+    # Enum/Object: no binding of either name exists in the `Selectors` module at all (unlike
+    # `empty` below, neither is a `Base` name, so a plain `isdefined` check is real proof here --
+    # not just "not exported", genuinely absent).
+    @test !isdefined(Selectors, :enum_)
+    @test !isdefined(Selectors, :object)
+
     @test hasmethod(Selectors.by_dtype, Tuple{}) # sanity: by_dtype() itself IS a valid call
     @test_throws MethodError Selectors.empty() # resolves to Base.empty, not a Selectors constructor
 end

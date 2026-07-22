@@ -235,35 +235,16 @@ function lit(v)
 end
 
 """
-    cast(expr::Polars.Expr, dtype::Type; time_unit::Symbol=:us,
-         time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
-    cast(dtype::Type; kwargs...)::Base.Callable
-
-Casts the series represented by the expression to the provided `dtype`. Supports `Missing`, the
-physical numeric types, `Bool`, `String`, `Vector{UInt8}` (Binary), `Date`, `Dates.Time`,
-`DateTime` (naive or timezone-aware -- see `time_unit`/`time_zone` below), and
-`Dates.Nanosecond`/`Dates.Microsecond`/`Dates.Millisecond` (Duration, resolution implied by the
-chosen `Period` subtype) -- `Categorical`, `Decimal`, `List`, and `Struct` need parameters this
-single-type-argument form can't carry; see [`cast_categorical`](@ref)/[`cast_decimal`](@ref) for
-those. Any other target raises an error. `time_unit`/`time_zone` only apply to a `DateTime`
-target (ignored otherwise): `time_unit` is one of `:ns`, `:us` (default), `:ms`; `time_zone` is
-`nothing` (default, naive) or an IANA time zone name.
+Maps a Julia type to its `polars_value_type_t` C enum code for a *plain, parameter-free* dtype
+match -- returns `nothing` if `dtype` isn't one of these. This deliberately excludes `DateTime` and
+the duration `Period` subtypes even though polars has dtypes for them: those need a time unit (and
+`DateTime` a time zone) that a bare `polars_value_type_t` code can't carry, so `cast` and
+[`Selectors.by_dtype`](@ref) each handle them separately (before/after calling this, respectively)
+rather than through this shared table. Single source of truth for the plain-dtype mapping, used by
+both.
 """
-function cast(
-        expr, dtype;
-        time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
-    )
-    if dtype == DateTime
-        return cast_datetime(expr; time_unit, time_zone)
-    elseif dtype == Dates.Nanosecond
-        return cast_duration(expr; time_unit = :ns)
-    elseif dtype == Dates.Microsecond
-        return cast_duration(expr; time_unit = :us)
-    elseif dtype == Dates.Millisecond
-        return cast_duration(expr; time_unit = :ms)
-    end
-
-    value_type = if dtype == Missing
+function _plain_value_type_code(dtype)
+    return if dtype == Missing
         PolarsValueTypeNull
     elseif dtype == Bool
         PolarsValueTypeBoolean
@@ -296,8 +277,41 @@ function cast(
     elseif dtype == Dates.Time
         PolarsValueTypeTime
     else
-        error("could not cast to type $dtype")
+        nothing
     end
+end
+
+"""
+    cast(expr::Polars.Expr, dtype::Type; time_unit::Symbol=:us,
+         time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
+    cast(dtype::Type; kwargs...)::Base.Callable
+
+Casts the series represented by the expression to the provided `dtype`. Supports `Missing`, the
+physical numeric types, `Bool`, `String`, `Vector{UInt8}` (Binary), `Date`, `Dates.Time`,
+`DateTime` (naive or timezone-aware -- see `time_unit`/`time_zone` below), and
+`Dates.Nanosecond`/`Dates.Microsecond`/`Dates.Millisecond` (Duration, resolution implied by the
+chosen `Period` subtype) -- `Categorical`, `Decimal`, `List`, and `Struct` need parameters this
+single-type-argument form can't carry; see [`cast_categorical`](@ref)/[`cast_decimal`](@ref) for
+those. Any other target raises an error. `time_unit`/`time_zone` only apply to a `DateTime`
+target (ignored otherwise): `time_unit` is one of `:ns`, `:us` (default), `:ms`; `time_zone` is
+`nothing` (default, naive) or an IANA time zone name.
+"""
+function cast(
+        expr, dtype;
+        time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
+    )
+    if dtype == DateTime
+        return cast_datetime(expr; time_unit, time_zone)
+    elseif dtype == Dates.Nanosecond
+        return cast_duration(expr; time_unit = :ns)
+    elseif dtype == Dates.Microsecond
+        return cast_duration(expr; time_unit = :us)
+    elseif dtype == Dates.Millisecond
+        return cast_duration(expr; time_unit = :ms)
+    end
+
+    value_type = _plain_value_type_code(dtype)
+    value_type === nothing && error("could not cast to type $dtype")
 
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_cast(expr, value_type, out)

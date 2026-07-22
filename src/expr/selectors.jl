@@ -129,8 +129,9 @@ accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`
 """
 module Selectors
 
-    using ..Polars: API, polars_expr_t, Expr, Selector, polars_error, _name_ptrs
-    using Dates: Date, DateTime, Time, Nanosecond, Microsecond, Millisecond
+    using ..Polars: API, polars_expr_t, Expr, Selector, polars_error, _name_ptrs,
+        _plain_value_type_code
+    using Dates: DateTime, Nanosecond, Microsecond, Millisecond
 
     _wrap(ptr) = Selector(Expr(ptr))
 
@@ -248,6 +249,15 @@ module Selectors
 
     Selects Array-dtype columns, matching any inner dtype and any width. Recursive inner-selector
     composition is not exposed in this first cut -- see [`Selectors`](@ref)'s scope note.
+
+    !!! warning "Currently matches zero columns in this build"
+        `dtype-array` is not in `c-polars/Cargo.toml`'s feature list, so upstream's own
+        `DataTypeSelector::Array` matcher compiles to its safe `#[cfg(not(feature = "dtype-array"))]`
+        fallback (always `false`) rather than a real check -- this compiles and runs without
+        crashing, it just never matches anything. Not fixed here: enabling `dtype-array` is out of
+        scope for this phase (would also force a full dependency rebuild) and this package has no
+        write-side support for constructing an Array-dtype column at all yet either. See
+        [Limitations](@ref) for the tracked entry.
     """
     array() = _dtype_simple(API.PolarsDtypeSelectorKindArray)
 
@@ -302,47 +312,18 @@ module Selectors
 
     """
     Maps a Julia type to the `polars_value_type_t` C enum code [`by_dtype`](@ref) sends across the
-    FFI boundary. Mirrors the table `Polars.cast`'s own `value_type` mapping uses for plain,
-    parameter-free dtypes, extended with `DateTime`/duration `Period` subtypes so that e.g.
-    `by_dtype(DateTime)` reaches the Rust side's own `to_dtype` -- which deliberately rejects them,
-    since Datetime/Duration need a time unit (and Datetime a time zone) that a bare type code can't
-    carry (use [`datetime`](@ref)/[`duration`](@ref) instead) -- and surfaces a real `PolarsError`
-    rather than failing earlier in Julia with an unrelated kind of error.
+    FFI boundary. Delegates the plain, parameter-free dtypes to `Polars._plain_value_type_code` --
+    the same table `cast` uses, kept in one place rather than duplicated here -- and handles the
+    two parametrized-in-Rust exceptions itself: `DateTime`/duration `Period` subtypes reach the
+    Rust side's own `to_dtype`, which deliberately rejects them, since Datetime/Duration need a
+    time unit (and Datetime a time zone) that a bare type code can't carry (use
+    [`datetime`](@ref)/[`duration`](@ref) instead) -- surfacing a real `PolarsError` rather than
+    failing earlier in Julia with an unrelated kind of error.
     """
     function _by_dtype_value_type(dtype)
-        return if dtype == Missing
-            API.PolarsValueTypeNull
-        elseif dtype == Bool
-            API.PolarsValueTypeBoolean
-        elseif dtype == UInt8
-            API.PolarsValueTypeUInt8
-        elseif dtype == UInt16
-            API.PolarsValueTypeUInt16
-        elseif dtype == UInt32
-            API.PolarsValueTypeUInt32
-        elseif dtype == UInt64
-            API.PolarsValueTypeUInt64
-        elseif dtype == Int8
-            API.PolarsValueTypeInt8
-        elseif dtype == Int16
-            API.PolarsValueTypeInt16
-        elseif dtype == Int32
-            API.PolarsValueTypeInt32
-        elseif dtype == Int64
-            API.PolarsValueTypeInt64
-        elseif dtype == Float32
-            API.PolarsValueTypeFloat32
-        elseif dtype == Float64
-            API.PolarsValueTypeFloat64
-        elseif dtype == String
-            API.PolarsValueTypeString
-        elseif dtype == Vector{UInt8}
-            API.PolarsValueTypeBinary
-        elseif dtype == Date
-            API.PolarsValueTypeDate
-        elseif dtype == Time
-            API.PolarsValueTypeTime
-        elseif dtype == DateTime
+        plain = _plain_value_type_code(dtype)
+        plain !== nothing && return plain
+        return if dtype == DateTime
             API.PolarsValueTypeDatetime
         elseif dtype in (Nanosecond, Microsecond, Millisecond)
             API.PolarsValueTypeDuration

@@ -97,6 +97,7 @@ function _tail!(df::LazyFrame, n)
     return df
 end
 function _filter!(df::LazyFrame, expr)
+    expr = _as_expr(expr)
     polars_lazy_frame_filter(df, expr)
     return df
 end
@@ -105,7 +106,19 @@ end
     filter(lf::LazyFrame, expr)
     filter(df::DataFrame, expr)
 
-Filters the rows of the provided frames based on the provided expression.
+Filters the rows of the provided frames based on the provided expression. `expr` goes through
+[`_as_expr`](@ref) exactly like `select`/`with_columns`/`sort` do, so a `String`/`Symbol` column
+name, an `Expr`, or a `Selector` (a boolean-dtype column reference in each case) are all accepted.
 """
 Base.filter(df::LazyFrame, expr) = _filter!(clone(df), expr)
 Base.filter(df::DataFrame, expr) = _filter!(lazy(df), expr) |> collect
+
+# `Base.filter(f, s::Union{SubString{String},String})` (character-filtering a string) is also a
+# valid dispatch target for a bare `String` second argument, since the generic `expr` parameter
+# above matches anything -- genuinely ambiguous for the exact combination `(LazyFrame/DataFrame,
+# String)` (neither method's signature is a subtype of the other's). Disambiguate with an
+# exact-signature overload matching Julia's own suggested fix for this shape of ambiguity, rather
+# than widening/narrowing the generic method above (which would still leave the ambiguity for the
+# `SubString{String}` half of Base's `Union`).
+Base.filter(df::LazyFrame, expr::Union{SubString{String}, String}) = _filter!(clone(df), expr)
+Base.filter(df::DataFrame, expr::Union{SubString{String}, String}) = _filter!(lazy(df), expr) |> collect
