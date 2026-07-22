@@ -29,6 +29,25 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   regardless), so `collect`, `copy`, and broadcasts all work directly. No workaround needed
   anymore.
 
+- **A `lit(dt::DateTime)` literal is built at nanosecond resolution and inherits that
+  representation's ~1678–2262 range limit.** `lit(DateTime(2300, 1, 1))` raises `InexactError`
+  (from `Dates.jl`'s own checked `Millisecond` → `Nanosecond` conversion, thrown before the value
+  ever reaches polars) rather than silently producing a wrong value. This is the same limit that
+  already applies to any nanosecond-precision `DateTime` column built from a plain Julia
+  `Vector{DateTime}` (`arrowvector` in `src/arrow/array.jl` uses the identical conversion) — not a
+  new gap introduced by the `lit`/`convert(Expr, ::DateTime)` overload, just newly reachable
+  through it. `lit(d::Date)` has no equivalent practical limit (`Int32` days-since-epoch covers a
+  range of several million years); `lit(t::Dates.Time)` is nanoseconds-since-midnight, which is
+  bounded by a single day and never overflows `Int64`.
+
+- **A `:ns`-resolution `DateTime` literal compares transparently against a column at a different
+  native resolution (e.g. `:us`), but `join`ing on mismatched resolutions errors.** A `filter`/`==`
+  comparison between a `lit(dt::DateTime)` (always `:ns`) and a `:us` column works with no
+  extra step — polars aligns the units itself. `innerjoin`/etc. on a Datetime key does not do this
+  alignment: joining two frames whose Datetime key columns are at different `time_unit`s raises a
+  `PolarsError` ("datatypes of join keys don't match") rather than silently producing wrong
+  matches — cast one side to the other's resolution first (`cast_datetime(expr; time_unit)`).
+
 ## Expression/function limitations
 
 - **`Strings.titlecase` is broken.** The upstream polars function requires an internal "nightly" Cargo feature that this package deliberately doesn't enable (see Build environment in the project notes). The binding exists but will error at runtime.
@@ -43,6 +62,14 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   for the same reason as `lt` above — bare `tail(df, 2)` / `rename(df, ...)` raise
   `UndefVarError`. `unique`, `drop`, `drop_nulls`, `with_row_index`, `explode`, `unpivot`, and
   `pivot` do **not** have this problem and can be called bare. See [Manipulation](@ref).
+
+- **`Polars.Meta.is_literal` reports `false` for a `Date`/`Time`/`DateTime` literal**
+  (`lit(Date(2024, 1, 1))`, etc.), diverging from py-polars. These are built as
+  `Cast(Literal(integer))` under the hood (there's no dedicated FFI primitive for a typed
+  date/time literal — see [Literals & casting](@ref)), not a genuine `Literal` node, so
+  `is_literal` correctly reports what the expression tree actually contains. This is cosmetic
+  only: polars' constant-folding optimizer collapses `Cast(Literal(...))` before execution
+  regardless, so it has no effect on query results or performance.
 
 ## Feature coverage
 

@@ -3,7 +3,7 @@
 An `Expr` is an unevaluated column computation — the building block of every polars query. Expressions are only run when they appear in `select`, `with_columns`, `filter`, or `agg`; until then, they're just plans describing what to compute.
 
 ```@setup expressions
-using Polars
+using Polars, Dates
 ```
 
 ## Column references
@@ -33,6 +33,22 @@ To reference columns *by dtype, position, or name pattern* instead of one at a t
 dfk = DataFrame((; x = [1, 2, 3]))
 select(dfk, keep_name(alias(col("x"), "renamed")))
 ```
+
+`lit(x)` also accepts a `Dates.Date`/`Dates.Time`/`Dates.DateTime` directly -- before this, the
+only way to get a `Date`/`Time`/`DateTime` value into an expression was round-tripping it through
+a whole one-row `DataFrame` column and `col(...)`; now it's a plain literal like any other scalar:
+
+```@example expressions
+dfdate = DataFrame((; d = [Date(2024, 3, 15), Date(2024, 3, 16), Date(2024, 3, 17)]))
+filter(dfdate, col("d") == lit(Date(2024, 3, 15)))
+```
+
+!!! note "Two caveats"
+    - `Polars.Meta.is_literal(lit(Date(...)))` is `false` -- see [Introspection: Meta](@ref) and
+      [Limitations](@ref).
+    - A `DateTime` literal is built at nanosecond resolution, so it inherits the same
+      ~1678–2262 range limit as any other nanosecond-precision `DateTime` column in this package
+      -- see [Limitations](@ref).
 
 ## Conditional logic
 

@@ -84,6 +84,33 @@ function Base.convert(::Type{Expr}, v::AbstractVector)
     return Expr(out)
 end
 
+# Date/Time/DateTime literals: there is no dedicated `polars_expr_literal_date`/etc. FFI
+# primitive, so these compose the existing integer-literal + cast primitives instead, reusing the
+# exact epoch-math formulas `arrowvector` (src/arrow/array.jl) already uses to encode these types
+# for the Arrow C Data Interface -- same reference points, same signed-ness, same units.
+#
+# One consequence of building these as `cast(lit(integer), dtype)` rather than a genuine literal
+# node: `Polars.Meta.is_literal` reports `false` for them (a `Cast(Literal(...))` tree, not a
+# `Literal` node) -- cosmetic only, since polars' constant-folding optimizer collapses
+# `Cast(Literal(...))` before execution regardless. See docs/src/limitations.md.
+function Base.convert(::Type{Expr}, d::Date)
+    # days since 1970-01-01, matching arrowvector(::Vector{Date})'s Int32 conversion exactly.
+    days = Int32(Dates.value(d - Date(1970, 01, 01)))
+    return cast(convert(Expr, days), Date)
+end
+function Base.convert(::Type{Expr}, t::Dates.Time)
+    # nanoseconds since midnight, matching arrowvector(::Vector{Dates.Time})'s Int64 conversion.
+    ns = Int64(Dates.value(t))
+    return cast(convert(Expr, ns), Dates.Time)
+end
+function Base.convert(::Type{Expr}, dt::DateTime)
+    # nanoseconds since 1970-01-01, matching arrowvector(::Vector{DateTime})'s Int64 conversion --
+    # built at :ns, so this inherits that path's ~1678-2262 range limit (Int64 nanoseconds
+    # overflows outside that range). See docs/src/limitations.md.
+    ns = Dates.Nanosecond(dt - DateTime(1970, 01, 01)).value
+    return cast_datetime(convert(Expr, ns); time_unit = :ns, time_zone = nothing)
+end
+
 """Derived comparison DSL primitives -- polars' C ABI only wraps `eq`/`lt`/`gt` directly (see
 `@generate_expr_fns` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
 propagation correctly (`not` of a null is null, matching what `<=`/`>=`/`!=` must do when an
