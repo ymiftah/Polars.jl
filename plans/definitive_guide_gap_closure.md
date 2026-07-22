@@ -12,7 +12,31 @@ In progress. Researched against vendored `polars` 0.54.4 sources
   `src/expr/selectors.jl` (`Selector` type + `Selectors` namespace module, 27 constructor
   functions), `docs/src/reference/selectors.md`. Full suite 1663 passed / 2 broken (pre-existing
   Aqua ambiguity/unbound-args markers) / 0 failed, including 88 new selector tests.
-- Phases 3-8: not started.
+- **Phase 3 + Phase 5 (`Expr.meta` namespace + `Dt` duration accessors)**: Done — landed together
+  in one commit/rebuild cycle, per this plan's own Cargo-feature-batching table below. Added
+  `"meta"` and `"dtype-duration"` to `c-polars/Cargo.toml`'s `polars` feature list; 8 new
+  `Expr.meta` FFI functions (`is_column`/`is_literal`/`has_multiple_outputs`/`undo_aliases`/
+  `output_name`/`tree_format`/`root_names_len`+`root_names_get`) in `c-polars/src/expr.rs`, new
+  `src/expr/meta.jl` (`module Meta`); `date`/`time` added to the existing `gen_impl_expr_dt!`
+  block plus a new `gen_impl_expr_dt_fractional!` macro backing the 7 `total_*` functions, in
+  `c-polars/src/expr.rs`, hand-written Julia wrappers in `src/expr/datetime.jl`. **Cargo-feature
+  sweep result** (done before writing any Rust, per CLAUDE.md's `dtype-time` precedent):
+  `dtype-duration` was *already* transitively active on `polars-core`/`polars-ops`/`polars-plan`
+  before this change (it's part of `dtype-slim`, itself part of the `polars` crate's own
+  `default` features) — confirmed via `cargo tree -e features -i polars-ops`/`-i polars-plan` and
+  actual build fingerprints (not `cargo metadata`, which gave a misleading answer for `"meta"`
+  here — see CLAUDE.md's note that `cargo tree -e features` is the reliable source, not a
+  `features = [...]` list *or* `cargo metadata`). The `take_chunked_unchecked` `Duration` arm
+  (the exact mechanism that broke for `dtype-time`) was therefore never actually at risk; the
+  Cargo.toml addition is belt-and-suspenders explicitness, confirmed safe (again) by a live
+  gather/join/sort-over-Duration exercise mirroring `times.jl`'s own Time testset (see
+  `test/datatypes/durations.jl`). One real deviation from this plan's spec: `Meta` is **not**
+  exported from `Polars` (`export Meta` would make `using Polars` immediately ambiguous-error,
+  since `Base.Meta` is itself an *exported* Base submodule) — always reached fully qualified as
+  `Polars.Meta.output_name(...)` etc. `cargo build -j 1` clean; header drift clean; full suite
+  1733 passed / 2 broken (pre-existing) / 0 failed, including 78 new tests (`test/expr/meta.jl`,
+  `test/datatypes/durations.jl`, plus 2 extended in `test/datatypes/times.jl`).
+- Phases 4, 6-8: not started.
 
 ## Context
 

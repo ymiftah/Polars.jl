@@ -1073,6 +1073,10 @@ const struct polars_expr_t *polars_expr_dt_weekday(const struct polars_expr_t *a
 
 const struct polars_expr_t *polars_expr_dt_ordinal_day(const struct polars_expr_t *a);
 
+const struct polars_expr_t *polars_expr_dt_date(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_time(const struct polars_expr_t *a);
+
 const struct polars_expr_t *polars_expr_dt_truncate(const struct polars_expr_t *a,
                                                     const struct polars_expr_t *b);
 
@@ -1100,6 +1104,27 @@ const struct polars_error_t *polars_expr_dt_strftime(const struct polars_expr_t 
                                                      uintptr_t len,
                                                      const struct polars_expr_t **out);
 
+const struct polars_expr_t *polars_expr_dt_total_days(const struct polars_expr_t *a,
+                                                       bool fractional);
+
+const struct polars_expr_t *polars_expr_dt_total_hours(const struct polars_expr_t *a,
+                                                        bool fractional);
+
+const struct polars_expr_t *polars_expr_dt_total_minutes(const struct polars_expr_t *a,
+                                                          bool fractional);
+
+const struct polars_expr_t *polars_expr_dt_total_seconds(const struct polars_expr_t *a,
+                                                          bool fractional);
+
+const struct polars_expr_t *polars_expr_dt_total_milliseconds(const struct polars_expr_t *a,
+                                                               bool fractional);
+
+const struct polars_expr_t *polars_expr_dt_total_microseconds(const struct polars_expr_t *a,
+                                                               bool fractional);
+
+const struct polars_expr_t *polars_expr_dt_total_nanoseconds(const struct polars_expr_t *a,
+                                                              bool fractional);
+
 const struct polars_error_t *polars_expr_struct_field_by_name(const struct polars_expr_t *a,
                                                               const uint8_t *name,
                                                               uintptr_t len,
@@ -1113,6 +1138,30 @@ const struct polars_error_t *polars_expr_struct_rename_fields(const struct polar
                                                               const uintptr_t *lens,
                                                               uintptr_t num_names,
                                                               const struct polars_expr_t **out);
+
+bool polars_expr_meta_is_column(const struct polars_expr_t *expr);
+
+bool polars_expr_meta_is_literal(const struct polars_expr_t *expr, bool allow_aliasing);
+
+bool polars_expr_meta_has_multiple_outputs(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_meta_undo_aliases(const struct polars_expr_t *expr);
+
+const struct polars_error_t *polars_expr_meta_output_name(const struct polars_expr_t *expr,
+                                                           const void *user,
+                                                           IOCallback callback);
+
+const struct polars_error_t *polars_expr_meta_tree_format(const struct polars_expr_t *expr,
+                                                           bool display_as_dot,
+                                                           const void *user,
+                                                           IOCallback callback);
+
+uintptr_t polars_expr_meta_root_names_len(const struct polars_expr_t *expr);
+
+const struct polars_error_t *polars_expr_meta_root_names_get(const struct polars_expr_t *expr,
+                                                              uintptr_t index,
+                                                              const void *user,
+                                                              IOCallback callback);
 
 const struct polars_expr_t *polars_expr_selector_all(void);
 

@@ -56,6 +56,17 @@ end
     @test collect(select(tdf, cast(col("t"), Int64) |> alias("n"))[:n]) == [3_723_000_000_000]
 end
 
+@testset "Dt.date / Dt.time: component extraction from Datetime" begin
+    dts = [DateTime(2024, 3, 15, 10, 30, 45), DateTime(2023, 1, 1, 0, 0, 0)]
+    df = DataFrame((; dt = dts))
+
+    d = collect(select(df, Dt.date(col("dt")) |> alias("d"))[:d])
+    @test d == Date.(dts)
+
+    t = collect(select(df, Dt.time(col("dt")) |> alias("t"))[:t])
+    @test t == Dates.Time.(dts)
+end
+
 @testset "Time file roundtrip" begin
     times = [Time(0, 0, 0), Time(1, 2, 3), Time(23, 59, 59, 999, 999, 999)]
     df = DataFrame((; t = times))

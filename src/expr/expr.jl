@@ -1349,3 +1349,9 @@ export rank
 export col, alias, prefix, suffix, lit, cast, when, element,
     cast_datetime, cast_duration, cast_decimal, cast_categorical,
     Lists, Strings, Dt, Structs, Selectors
+# `Meta` (`src/expr/meta.jl`) is deliberately NOT exported here, unlike its siblings above --
+# `Base.Meta` is itself an *exported* Base submodule (`Base.isexported(Base, :Meta) == true`,
+# unlike the plain-function collisions `@generate_expr_fns` guards against elsewhere), so
+# `export Meta` here would make plain `using Polars` immediately ambiguous-error on the bare name
+# `Meta` in the importing module, not just risk shadowing it. Always reachable fully qualified as
+# `Polars.Meta.output_name(...)` etc., same as any non-exported submodule.

@@ -1,3 +1,5 @@
+use std::ffi::c_void;
+use std::io::Write;
 use std::sync::Arc;
 
 use polars::{lazy::dsl::string::StringNameSpace, lazy::dsl::ListNameSpace, prelude::*};
@@ -15,7 +17,7 @@ use polars_plan::prelude::Literal;
 use crate::{
     ffi_util::{
         read_bool_mask, read_exprs, read_i64_array, read_names, read_opt_str, read_str,
-        selector_by_name,
+        selector_by_name, IOCallback, UserIOCallback,
     },
     make_error, polars_error_t,
     types::*,
@@ -1131,6 +1133,10 @@ gen_impl_expr_dt!(polars_expr_dt_minute, DateLikeNameSpace::minute);
 gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second);
 gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday);
 gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day);
+// Both ungated in polars-plan (no `#[cfg]`) -- unlike the `total_*` family below, no
+// `dtype-duration` feature is needed for these two.
+gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date);
+gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time);
 
 macro_rules! gen_impl_expr_binary_dt {
     ($n: ident, $t: expr) => {
@@ -1224,6 +1230,51 @@ pub unsafe extern "C" fn polars_expr_dt_strftime(
     std::ptr::null()
 }
 
+/// `total_*` Duration-decomposition family (`total_days`/`total_hours`/`total_minutes`/
+/// `total_seconds`/`total_milliseconds`/`total_microseconds`/`total_nanoseconds`) -- each takes
+/// a `fractional` flag (whole-unit truncation vs. exact fractional value) and is otherwise
+/// identical in shape, so unlike `gen_impl_expr_dt!` above (no extra args) these get their own
+/// small macro rather than 7x hand-written boilerplate. Gated on `dtype-duration` in polars-plan
+/// (see c-polars/Cargo.toml and the gap-closure plan's Phase 5 sweep notes) -- confirmed already
+/// active via `dtype-slim` (part of the `polars` crate's own default features) before this task's
+/// Cargo.toml change, so this is belt-and-suspenders explicitness, not a functional fix (contrast
+/// `dtype-time`, which really was inactive on polars-ops until explicitly added).
+macro_rules! gen_impl_expr_dt_fractional {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            fractional: bool,
+        ) -> *const polars_expr_t {
+            let expr = $t((*a).inner.clone().dt(), fractional);
+            make_expr(expr)
+        }
+    };
+}
+
+gen_impl_expr_dt_fractional!(polars_expr_dt_total_days, DateLikeNameSpace::total_days);
+gen_impl_expr_dt_fractional!(polars_expr_dt_total_hours, DateLikeNameSpace::total_hours);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_minutes,
+    DateLikeNameSpace::total_minutes
+);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_seconds,
+    DateLikeNameSpace::total_seconds
+);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_milliseconds,
+    DateLikeNameSpace::total_milliseconds
+);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_microseconds,
+    DateLikeNameSpace::total_microseconds
+);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_nanoseconds,
+    DateLikeNameSpace::total_nanoseconds
+);
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_struct_field_by_name(
     a: *const polars_expr_t,
@@ -1258,6 +1309,110 @@ pub unsafe extern "C" fn polars_expr_struct_rename_fields(
     let names = tri!(read_names(names, lens, num_names));
     *out = make_expr((*a).inner.clone().struct_().rename_fields(names));
     std::ptr::null()
+}
+
+// ------------------------------------------------------------------------------------------
+// Meta (`Expr.meta()` introspection namespace) -- see
+// `plans/definitive_guide_gap_closure.md`'s Phase 3 for the full design writeup. `.meta()`
+// consumes its receiver by value (`MetaNameSpace(pub(crate) Expr)`), so every function here
+// clones `(*expr).inner` first, same as the `.struct_()`/`.dt()` namespace functions above.
+// ------------------------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_is_column(expr: *const polars_expr_t) -> bool {
+    (*expr).inner.clone().meta().is_column()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_is_literal(
+    expr: *const polars_expr_t,
+    allow_aliasing: bool,
+) -> bool {
+    (*expr).inner.clone().meta().is_literal(allow_aliasing)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_has_multiple_outputs(expr: *const polars_expr_t) -> bool {
+    (*expr).inner.clone().meta().has_multiple_outputs()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_undo_aliases(
+    expr: *const polars_expr_t,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().meta().undo_aliases())
+}
+
+/// `output_name()` is fallible (`PolarsResult<PlSmallStr>`) -- e.g. a wildcard or a
+/// selector-expanded expression has no single well-defined output name. Written back through the
+/// shared `IOCallback` machinery, same convention as `polars_value_string_get`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_output_name(
+    expr: *const polars_expr_t,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    let name = tri!((*expr).inner.clone().meta().output_name());
+    let mut w = UserIOCallback(callback, user);
+    // write_all, not write: a single write() may report a short count and silently drop the tail.
+    match w.write_all(name.as_bytes()) {
+        Ok(()) => std::ptr::null(),
+        Err(err) => make_error(err),
+    }
+}
+
+/// Backs both `tree_format` (`display_as_dot = false`) and `show_graph` (`true`) via the single
+/// upstream `into_tree_formatter` code path. No schema is threaded through (`None`) -- unresolved
+/// column types show as untyped; a schema-aware overload is a plausible future enhancement, not
+/// blocking here.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_tree_format(
+    expr: *const polars_expr_t,
+    display_as_dot: bool,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    let formatter = tri!((*expr)
+        .inner
+        .clone()
+        .meta()
+        .into_tree_formatter(display_as_dot, None));
+    let text = formatter.to_string();
+    let mut w = UserIOCallback(callback, user);
+    match w.write_all(text.as_bytes()) {
+        Ok(()) => std::ptr::null(),
+        Err(err) => make_error(err),
+    }
+}
+
+/// `root_names()` count + per-index `IOCallback` loop below. `root_names()` itself recomputes a
+/// fresh `Vec<PlSmallStr>` on every call (cheap, and the count is always small), so this pair
+/// recomputes it N+1 times across a full `_len` + N x `_get` loop -- an accepted, documented
+/// non-blocking perf micro-note from the gap-closure plan, not an oversight.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_root_names_len(expr: *const polars_expr_t) -> usize {
+    (*expr).inner.clone().meta().root_names().len()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_root_names_get(
+    expr: *const polars_expr_t,
+    index: usize,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    let names = (*expr).inner.clone().meta().root_names();
+    let Some(name) = names.get(index) else {
+        return make_error(format!(
+            "root_names index {index} out of bounds (len {})",
+            names.len()
+        ));
+    };
+    let mut w = UserIOCallback(callback, user);
+    match w.write_all(name.as_bytes()) {
+        Ok(()) => std::ptr::null(),
+        Err(err) => make_error(err),
+    }
 }
 
 // ------------------------------------------------------------------------------------------

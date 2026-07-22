@@ -27,7 +27,18 @@ polars-utils = "0.54.4"
 # Time arm compiled out and falling through to `_ => unreachable!()`, i.e. a process abort on any
 # gather (join/gather) over a Time column. Enable it explicitly on both.
 polars-ops = { version = "0.54.4", features = ["round_series", "dtype-time"] }
-polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time"] }
+# `meta`: needed for `Expr.meta()` (Phase 3 of the gap-closure plan) -- `polars-plan`'s own
+# `meta = []` has zero sub-deps, but it is not implied by any default and so is genuinely off
+# without this. `dtype-duration`: needed for the `total_*` Duration-decomposition family
+# (`#[cfg(feature = "dtype-duration")]` in polars-plan's `dsl/dt.rs`, Phase 5) -- added here for
+# explicitness even though it was *already* transitively active (unlike `dtype-time` above, which
+# genuinely needed the fix): `dtype-duration` is part of `dtype-slim`, which is in this `polars`
+# crate's own `default` feature set, and its own feature definition already cascades to
+# `polars-ops/dtype-duration` (the exact `take_chunked_unchecked` gather arm that broke for
+# `dtype-time`) and `polars-plan/dtype-duration`. Confirmed via `cargo tree -e features -i
+# polars-ops`/`-i polars-plan` and actual build fingerprints, not just the declared feature list
+# (see CLAUDE.md's note that `cargo tree -e features` is the source of truth, not `features = [...]`).
+polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration"] }
 
 # Without this, `cargo build`'s default dev profile (opt-level 0 for every crate, including every
 # vendored polars kernel) is what every dev/test/CI run actually executes -- for a performance

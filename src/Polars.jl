@@ -112,6 +112,11 @@ include("./expr/struct.jl")
 # `expr/expr.jl` loads well before `verbs.jl` already.
 include("./expr/selectors.jl")
 
+# `expr/meta.jl` (`module Meta`) has no `_name_ptrs`-style ordering dependency of its own (unlike
+# `struct.jl`/`selectors.jl` just above), but lives in this same family -- grouped here rather
+# than immediately after `expr/expr.jl` purely for stylistic proximity to its siblings.
+include("./expr/meta.jl")
+
 include("./join.jl")
 include("./reshape.jl")
 include("./sort.jl")

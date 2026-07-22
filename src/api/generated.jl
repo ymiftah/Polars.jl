@@ -1108,6 +1108,14 @@ function polars_expr_dt_ordinal_day(a)
     return @ccall libpolars.polars_expr_dt_ordinal_day(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_dt_date(a)
+    return @ccall libpolars.polars_expr_dt_date(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_time(a)
+    return @ccall libpolars.polars_expr_dt_time(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_dt_truncate(a, b)
     return @ccall libpolars.polars_expr_dt_truncate(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1132,6 +1140,34 @@ function polars_expr_dt_strftime(expr, format, len, out)
     return @ccall libpolars.polars_expr_dt_strftime(expr::Ptr{polars_expr_t}, format::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+function polars_expr_dt_total_days(a, fractional)
+    return @ccall libpolars.polars_expr_dt_total_days(a::Ptr{polars_expr_t}, fractional::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_total_hours(a, fractional)
+    return @ccall libpolars.polars_expr_dt_total_hours(a::Ptr{polars_expr_t}, fractional::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_total_minutes(a, fractional)
+    return @ccall libpolars.polars_expr_dt_total_minutes(a::Ptr{polars_expr_t}, fractional::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_total_seconds(a, fractional)
+    return @ccall libpolars.polars_expr_dt_total_seconds(a::Ptr{polars_expr_t}, fractional::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_total_milliseconds(a, fractional)
+    return @ccall libpolars.polars_expr_dt_total_milliseconds(a::Ptr{polars_expr_t}, fractional::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_total_microseconds(a, fractional)
+    return @ccall libpolars.polars_expr_dt_total_microseconds(a::Ptr{polars_expr_t}, fractional::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_total_nanoseconds(a, fractional)
+    return @ccall libpolars.polars_expr_dt_total_nanoseconds(a::Ptr{polars_expr_t}, fractional::Bool)::Ptr{polars_expr_t}
+end
+
 function polars_expr_struct_field_by_name(a, name, len, out)
     return @ccall libpolars.polars_expr_struct_field_by_name(a::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
@@ -1142,6 +1178,38 @@ end
 
 function polars_expr_struct_rename_fields(a, names, lens, num_names, out)
     return @ccall libpolars.polars_expr_struct_rename_fields(a::Ptr{polars_expr_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, num_names::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_meta_is_column(expr)
+    return @ccall libpolars.polars_expr_meta_is_column(expr::Ptr{polars_expr_t})::Bool
+end
+
+function polars_expr_meta_is_literal(expr, allow_aliasing)
+    return @ccall libpolars.polars_expr_meta_is_literal(expr::Ptr{polars_expr_t}, allow_aliasing::Bool)::Bool
+end
+
+function polars_expr_meta_has_multiple_outputs(expr)
+    return @ccall libpolars.polars_expr_meta_has_multiple_outputs(expr::Ptr{polars_expr_t})::Bool
+end
+
+function polars_expr_meta_undo_aliases(expr)
+    return @ccall libpolars.polars_expr_meta_undo_aliases(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_meta_output_name(expr, user, callback)
+    return @ccall libpolars.polars_expr_meta_output_name(expr::Ptr{polars_expr_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+end
+
+function polars_expr_meta_tree_format(expr, display_as_dot, user, callback)
+    return @ccall libpolars.polars_expr_meta_tree_format(expr::Ptr{polars_expr_t}, display_as_dot::Bool, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+end
+
+function polars_expr_meta_root_names_len(expr)
+    return @ccall libpolars.polars_expr_meta_root_names_len(expr::Ptr{polars_expr_t})::Csize_t
+end
+
+function polars_expr_meta_root_names_get(expr, index, user, callback)
+    return @ccall libpolars.polars_expr_meta_root_names_get(expr::Ptr{polars_expr_t}, index::Csize_t, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
 end
 
 function polars_expr_selector_all()

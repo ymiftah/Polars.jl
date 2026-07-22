@@ -14,6 +14,8 @@ using Polars, Dates
 | `Dt.hour`, `Dt.minute`, `Dt.second` | time parts |
 | `Dt.weekday` | day of week (1=Monday, 7=Sunday) |
 | `Dt.ordinal_day` | day of year (1-366) |
+| `Dt.date` | the `Date` component of a Datetime (drops the time-of-day) |
+| `Dt.time` | the `Dates.Time` component of a Datetime (drops the date) -- not exported (would clobber `Base.time`), use qualified `Dt.time(...)` |
 
 Example:
 
@@ -29,6 +31,12 @@ select(
     Dt.minute(col("ts")) |> alias("minute"), Dt.second(col("ts")) |> alias("second"),
     Dt.ordinal_day(col("ts")) |> alias("ordinal_day"),
 )
+```
+
+`Dt.date`/`Dt.time` split a Datetime into its `Date` and `Dates.Time` halves:
+
+```@example dt
+select(df, Dt.date(col("ts")) |> alias("date"), Dt.time(col("ts")) |> alias("time"))
 ```
 
 ## Rounding & formatting
@@ -58,6 +66,39 @@ down; `offset_by` shifts by a signed duration:
 
 ```@example dt
 select(df, col("ts") |> Dt.round("1h") |> alias("rounded"), col("ts") |> Dt.offset_by("+1d") |> alias("plus_1d"))
+```
+
+## Duration components
+
+| Function | Purpose |
+|---|---|
+| `Dt.total_days(expr; fractional=false)` | total whole days in a Duration value |
+| `Dt.total_hours(expr; fractional=false)` | total whole hours |
+| `Dt.total_minutes(expr; fractional=false)` | total whole minutes |
+| `Dt.total_seconds(expr; fractional=false)` | total whole seconds |
+| `Dt.total_milliseconds(expr; fractional=false)` | total whole milliseconds |
+| `Dt.total_microseconds(expr; fractional=false)` | total whole microseconds |
+| `Dt.total_nanoseconds(expr; fractional=false)` | total whole nanoseconds |
+
+Each `total_*` function decomposes a `Duration`-typed value (see [Selectors](@ref)'s
+`duration()`, or cast an integer column via `cast(expr, Dates.Nanosecond/Microsecond/Millisecond)`
+— see [Expressions](@ref)) into a count of the named unit. By default the count is truncated
+*toward zero* (an `Int64`); pass `fractional=true` for the exact value as a `Float64` instead.
+All seven have curried forms for `|>` pipelines — see
+[Curried forms for pipe-based composition](@ref).
+
+```@example dt
+dfdur = select(
+    DataFrame((; ns = Int64[90_061_500_000_000, -3_600_000_000_000])),
+    cast(col("ns"), Dates.Nanosecond) |> alias("d"),
+)
+select(
+    dfdur,
+    col("d"),
+    Dt.total_hours(col("d")) |> alias("hours"),
+    Dt.total_seconds(col("d")) |> alias("seconds"),
+    col("d") |> Dt.total_seconds(fractional = true) |> alias("seconds_frac"),
+)
 ```
 
 ## Time zones

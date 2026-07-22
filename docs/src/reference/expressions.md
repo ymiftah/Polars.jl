@@ -408,6 +408,66 @@ df8 = DataFrame((; x = [1, 2, 3, 4]))
 filter(df8, is_in(col("x"), implode(lit([2, 4]))))
 ```
 
+## Introspection: Meta
+
+The `Polars.Meta` namespace (py-polars' `Expr.meta`) inspects an expression *tree itself* --
+what column(s) it reads from, what name it would produce, whether it's a plain column or a
+literal -- without needing a DataFrame/LazyFrame to run it against.
+
+!!! note "`Meta` is not exported from `Polars`"
+    Unlike `Lists`/`Strings`/`Dt`/`Structs`/`Selectors`, `Meta` is always reached fully qualified,
+    `Polars.Meta.output_name(...)` etc. -- `Base.Meta` is itself an *exported* Base submodule, so
+    `export Meta` from `Polars` would make plain `using Polars` immediately ambiguous-error on the
+    bare name `Meta` in the importing module.
+
+| Function | Purpose |
+|---|---|
+| `Polars.Meta.output_name(expr)` | the single output column name `expr` would produce |
+| `Polars.Meta.is_column(expr)` | `true` for a plain (non-regex) column reference, e.g. `col("x")` |
+| `Polars.Meta.is_literal(expr; allow_aliasing=false)` | `true` for a literal value, e.g. `lit(1)` |
+| `Polars.Meta.has_multiple_outputs(expr)` | `true` if `expr` can expand to more than one column, e.g. a [`Selectors`](@ref) expression |
+| `Polars.Meta.undo_aliases(expr)` | strips any `alias`/`keep_name` renaming applied anywhere in `expr` |
+| `Polars.Meta.root_names(expr)` | the names of the root (leaf) columns `expr` reads from |
+| `Polars.Meta.tree_format(expr)` | renders `expr` as a human-readable tree |
+| `Polars.Meta.show_graph(expr)` | renders `expr` as a Graphviz (`.dot`) graph description |
+
+```@example expressions
+Polars.Meta.output_name(col("x") + col("y")), Polars.Meta.root_names(col("x") + col("y"))
+```
+
+`output_name`/`root_names` follow the whole expression tree, not just its top node -- an alias
+buried inside one operand of a binary operation doesn't change the overall output name:
+
+```@example expressions
+chained = (col("x") + col("y")) |> alias("total")
+Polars.Meta.output_name(chained), Polars.Meta.output_name(Polars.Meta.undo_aliases(chained))
+```
+
+`output_name`/`root_names` need at least one well-defined root column: a wildcard or a
+[`Selectors`](@ref) expression that could match more than one column raises a `PolarsError` from
+`output_name` (there is no single name to report), while `root_names` on a column-free
+expression (a bare literal) returns an empty `Vector{String}` rather than erroring:
+
+```@example expressions
+try
+    Polars.Meta.output_name(col("*"))
+catch e
+    println(sprint(showerror, e))
+end
+```
+
+```@example expressions
+Polars.Meta.root_names(lit(1))
+```
+
+`tree_format`/`show_graph` render the same underlying tree as plain text or as a Graphviz graph
+description, respectively -- no DataFrame/LazyFrame schema is consulted, so unresolved column
+types show as untyped:
+
+```@example expressions
+print(Polars.Meta.tree_format(col("x") + col("y")))
+```
+
 ## Operator overloading gotchas
 
 Most functions work through operator overloading (`+`, `-`, `*`, `/`, `^`, `.>`, `.==`, etc.), but one collides with an unexported `Base` name and requires qualification:
