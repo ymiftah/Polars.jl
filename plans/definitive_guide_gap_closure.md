@@ -1,7 +1,8 @@
 # Close Polars.jl's Definitive-Guide API gaps
 
 ## Status
-In progress. Researched against vendored `polars` 0.54.4 sources
+Done — all 8 phases landed on `features-round-2`, each independently reviewed (spec compliance +
+code quality) and approved. Researched against vendored `polars` 0.54.4 sources
 (`~/.cargo/registry/src/index.crates.io-*/polars-{core,plan,lazy}-0.54.4`) and this repo's current
 `main`. All Rust-side templates cited below were spot-checked directly against
 `c-polars/src/{dataframe,expr,ffi_util}.rs` and `c-polars/Cargo.toml`.
@@ -81,7 +82,36 @@ In progress. Researched against vendored `polars` 0.54.4 sources
   `broken=true`-marked Aqua testset); `julia --project=docs docs/make.jl` clean. Full suite 1775
   passed / 2 broken (pre-existing) / 0 failed, including 42 new tests (13 `hstack` + 9 `vstack` in
   `test/operations/frame_verbs.jl`, 20 `transpose` in `test/operations/reshape.jl`).
-- Phases 6-8: not started.
+- **Phase 6 (`.name.to_lowercase`/`.name.to_uppercase`)**: Done — 2 new Rust FFI functions in
+  `c-polars/src/expr.rs` next to `polars_expr_prefix`/`suffix`/`keep_name` (no Cargo change, no
+  Base-name collision), Julia `to_lowercase`/`to_uppercase` in `src/expr/expr.jl` added to the
+  existing trailing batched export line. Live-verified (not assumed from the Rust doc comments'
+  wording) that chained renames — `prefix`/`suffix`/`to_lowercase`/`to_uppercase`/`alias` — fold
+  sequentially onto the *previous* node's running name, not the original root; only `keep_name`
+  reverts to the true original root regardless of chain position. `.name.map` correctly left
+  out of scope (needs the not-yet-built Rust→Julia callback infrastructure — see
+  `plans/callback_infra.md`). Full suite 1785 passed / 2 broken (pre-existing) / 0 failed.
+- **Phase 7 (literal `Date`/`Datetime`/`Time` expression constructors)**: Done — pure Julia
+  composition, zero new Rust/C-ABI/Cargo changes, three `Base.convert(::Type{Expr}, ...)` methods
+  in `src/expr/expr.jl` reusing `src/arrow/array.jl`'s `arrowvector` epoch math verbatim (byte-for-
+  byte verified against it in review). Live-verified both documented caveats: `lit(DateTime(2300,
+  1,1))` really does overflow (`InexactError` from `Dates.jl`'s own checked conversion, the same
+  pre-existing failure mode `arrowvector` already has — not a new bug), and
+  `Polars.Meta.is_literal(lit(Date(...)))` really does report `false` (a `Cast(Literal)` node, not
+  a genuine `Literal` — cosmetic only). Both documented in `docs/src/limitations.md`. Full suite
+  1795 passed / 2 broken (pre-existing) / 0 failed.
+- **Phase 8 (long-tail triage)**: Done, as a triage deliverable — no code was implemented per this
+  phase's own scope (see below). Produced `plans/api_gap_batch_four.md` (a new, independently-
+  verified, fully actionable implementation plan for the ~13 remaining items:
+  `rle`/`rle_id`/`gather`/`gather_every`/`is_between`/`partition_by`/`item`/`get_column`/
+  `to_numpy`/`arccos`/`degrees`/`radians`/`log10`/`log1p`/`hist`) and `plans/callback_infra.md` (a
+  problem-statement stub for the callback-blocked items, `map_elements`/`map_batches`/`map_groups`
+  plus Phase 6's `.name.map`). Fresh research corrected several of this plan's own preliminary
+  guesses: `rle`/`rle_id` are zero-arg (not extra-args), `log10` needs no new Rust `Expr` method at
+  all, `get_column` is already fully implemented (`polars_dataframe_get`), and `gather`/
+  `partition_by`'s underlying Cargo features are already active — only `is_between` and `hist` are
+  genuinely gated-and-currently-inactive, needing a real `Cargo.toml` change. See
+  `plans/api_gap_batch_four.md` for the actual next-step plan.
 
 ## Context
 
