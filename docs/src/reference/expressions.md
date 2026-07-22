@@ -25,6 +25,8 @@ To reference columns *by dtype, position, or name pattern* instead of one at a t
 | `alias(expr, name)` | rename the result |
 | `prefix(expr, str)` | prepend to the name |
 | `suffix(expr, str)` | append to the name |
+| `to_lowercase(expr)` | lowercase the name |
+| `to_uppercase(expr)` | uppercase the name |
 | `keep_name(expr)` | keep the input's original name through an operation that would otherwise rename it |
 
 ```@example expressions

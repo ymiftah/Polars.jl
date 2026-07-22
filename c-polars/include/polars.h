@@ -738,6 +738,10 @@ const struct polars_error_t *polars_expr_suffix(const struct polars_expr_t *expr
 
 const struct polars_expr_t *polars_expr_keep_name(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_to_lowercase(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_to_uppercase(const struct polars_expr_t *expr);
+
 const struct polars_error_t *polars_expr_cast(const struct polars_expr_t *expr,
                                               enum polars_value_type_t dtype,
                                               const struct polars_expr_t **out);

@@ -225,6 +225,24 @@ end
 suffix(suf) = Base.Fix2(suffix, suf)
 
 """
+    to_lowercase(expr::Polars.Expr)::Polars.Expr
+
+Lowercases the name of the resulting expression.
+"""
+function to_lowercase(expr)
+    return Expr(polars_expr_to_lowercase(expr))
+end
+
+"""
+    to_uppercase(expr::Polars.Expr)::Polars.Expr
+
+Uppercases the name of the resulting expression.
+"""
+function to_uppercase(expr)
+    return Expr(polars_expr_to_uppercase(expr))
+end
+
+"""
     lit(x)::Polars.Expr
 
 Transforms a literal value as an expression which will broadcast when used with other
@@ -1346,7 +1364,7 @@ rank(; method::Symbol = :dense, descending::Bool = false) = expr -> rank(expr; m
 
 export rank
 
-export col, alias, prefix, suffix, lit, cast, when, element,
+export col, alias, prefix, suffix, to_lowercase, to_uppercase, lit, cast, when, element,
     cast_datetime, cast_duration, cast_decimal, cast_categorical,
     Lists, Strings, Dt, Structs, Selectors
 # `Meta` (`src/expr/meta.jl`) is deliberately NOT exported here, unlike its siblings above --

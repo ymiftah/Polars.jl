@@ -263,6 +263,22 @@ pub unsafe extern "C" fn polars_expr_keep_name(expr: *const polars_expr_t) -> *c
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_expr_to_lowercase(
+    expr: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let aliased = (*expr).inner.clone().name().to_lowercase();
+    make_expr(aliased)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_to_uppercase(
+    expr: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let aliased = (*expr).inner.clone().name().to_uppercase();
+    make_expr(aliased)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn polars_expr_cast(
     expr: *const polars_expr_t,
     dtype: polars_value_type_t,

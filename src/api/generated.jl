@@ -603,6 +603,14 @@ function polars_expr_keep_name(expr)
     return @ccall libpolars.polars_expr_keep_name(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_to_lowercase(expr)
+    return @ccall libpolars.polars_expr_to_lowercase(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_to_uppercase(expr)
+    return @ccall libpolars.polars_expr_to_uppercase(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_cast(expr, dtype, out)
     return @ccall libpolars.polars_expr_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
