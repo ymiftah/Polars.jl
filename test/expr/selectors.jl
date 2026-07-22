@@ -163,11 +163,11 @@ end
     @test names(select(dfl, S.nested())) == ["l"]
 
     # Array: `dtype-array` is not enabled in this build's Cargo features (unlike the other
-    # DataTypeSelector kinds), so `DataTypeSelector::Array`'s own upstream matcher compiles to an
-    # unconditional `false` rather than a panic -- `array()` is safe to call, it just never
-    # matches anything in this build. Confirmed here as a regression guard: this must stay a
-    # clean 0-column result forever, not start crashing if that upstream code ever changes.
-    @test size(select(df, S.array())) == (0, 0)
+    # DataTypeSelector kinds), so `DataTypeSelector::Array`'s own upstream matcher would compile to
+    # an unconditional `false` -- it would silently match *zero* columns rather than crash. To avoid
+    # that footgun, `array()` errors loudly instead of handing back a selector that can never match
+    # anything (see its docstring / Limitations). Regression guard: this must stay a clean error.
+    @test_throws ErrorException S.array()
 end
 
 @testset "Selectors.by_dtype: explicit dtypes and the parametrized-dtype error path" begin

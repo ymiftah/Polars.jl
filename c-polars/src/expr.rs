@@ -19,7 +19,7 @@ use crate::{
         read_bool_mask, read_exprs, read_i64_array, read_names, read_opt_str, read_str,
         selector_by_name, IOCallback, UserIOCallback,
     },
-    make_error, polars_error_t,
+    guard_error, make_error, polars_error_t,
     types::*,
     value::{polars_time_unit_t, polars_value_type_t},
 };
@@ -1368,13 +1368,19 @@ pub unsafe extern "C" fn polars_expr_meta_output_name(
     user: *const c_void,
     callback: IOCallback,
 ) -> *const polars_error_t {
-    let name = tri!((*expr).inner.clone().meta().output_name());
-    let mut w = UserIOCallback(callback, user);
-    // write_all, not write: a single write() may report a short count and silently drop the tail.
-    match w.write_all(name.as_bytes()) {
-        Ok(()) => std::ptr::null(),
-        Err(err) => make_error(err),
-    }
+    // guard_error-wrapped: unlike the infallible structural checks above (is_column/is_literal/...),
+    // output_name() resolves the expression's output field, which is closer to "execution" than pure
+    // node construction -- so a hypothetical internal upstream panic becomes a catchable error here
+    // rather than aborting the process across the FFI boundary.
+    guard_error(|| {
+        let name = tri!((*expr).inner.clone().meta().output_name());
+        let mut w = UserIOCallback(callback, user);
+        // write_all, not write: a single write() may report a short count and silently drop the tail.
+        match w.write_all(name.as_bytes()) {
+            Ok(()) => std::ptr::null(),
+            Err(err) => make_error(err),
+        }
+    })
 }
 
 /// Backs both `tree_format` (`display_as_dot = false`) and `show_graph` (`true`) via the single
@@ -1388,17 +1394,21 @@ pub unsafe extern "C" fn polars_expr_meta_tree_format(
     user: *const c_void,
     callback: IOCallback,
 ) -> *const polars_error_t {
-    let formatter = tri!((*expr)
-        .inner
-        .clone()
-        .meta()
-        .into_tree_formatter(display_as_dot, None));
-    let text = formatter.to_string();
-    let mut w = UserIOCallback(callback, user);
-    match w.write_all(text.as_bytes()) {
-        Ok(()) => std::ptr::null(),
-        Err(err) => make_error(err),
-    }
+    // guard_error-wrapped for the same reason as output_name above: into_tree_formatter resolves
+    // the expression tree for display, so guard against an internal upstream panic.
+    guard_error(|| {
+        let formatter = tri!((*expr)
+            .inner
+            .clone()
+            .meta()
+            .into_tree_formatter(display_as_dot, None));
+        let text = formatter.to_string();
+        let mut w = UserIOCallback(callback, user);
+        match w.write_all(text.as_bytes()) {
+            Ok(()) => std::ptr::null(),
+            Err(err) => make_error(err),
+        }
+    })
 }
 
 /// `root_names()` count + per-index `IOCallback` loop below. `root_names()` itself recomputes a
@@ -1417,18 +1427,22 @@ pub unsafe extern "C" fn polars_expr_meta_root_names_get(
     user: *const c_void,
     callback: IOCallback,
 ) -> *const polars_error_t {
-    let names = (*expr).inner.clone().meta().root_names();
-    let Some(name) = names.get(index) else {
-        return make_error(format!(
-            "root_names index {index} out of bounds (len {})",
-            names.len()
-        ));
-    };
-    let mut w = UserIOCallback(callback, user);
-    match w.write_all(name.as_bytes()) {
-        Ok(()) => std::ptr::null(),
-        Err(err) => make_error(err),
-    }
+    // guard_error-wrapped for the same reason as output_name above: root_names() walks the resolved
+    // expression tree, so guard against an internal upstream panic.
+    guard_error(|| {
+        let names = (*expr).inner.clone().meta().root_names();
+        let Some(name) = names.get(index) else {
+            return make_error(format!(
+                "root_names index {index} out of bounds (len {})",
+                names.len()
+            ));
+        };
+        let mut w = UserIOCallback(callback, user);
+        match w.write_all(name.as_bytes()) {
+            Ok(()) => std::ptr::null(),
+            Err(err) => make_error(err),
+        }
+    })
 }
 
 // ------------------------------------------------------------------------------------------
