@@ -8,7 +8,7 @@ DataFrame/LazyFrame it might later be applied to, so no schema is consulted (e.g
 [`tree_format`](@ref)/[`show_graph`](@ref) render unresolved column types as untyped).
 """
 module Meta
-using ..Polars: API, polars_expr_t, Expr, polars_error, _io_callback, _as_expr
+using ..Polars: API, Expr, polars_error, _io_callback, _as_expr
 
 """
     output_name(expr)::String
