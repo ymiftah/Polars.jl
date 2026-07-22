@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use polars::prelude::*;
 
-use crate::types::polars_expr_t;
+use crate::types::{polars_expr_t, polars_series_t};
 
 /// The callback provided for display functions, returns -1 on error.
 pub(crate) type IOCallback =
@@ -21,6 +21,23 @@ pub(crate) unsafe fn read_exprs(exprs: *const *const polars_expr_t, n: usize) ->
     std::slice::from_raw_parts(exprs, n)
         .iter()
         .map(|expr| (**expr).inner.clone())
+        .collect()
+}
+
+/// Reads a `(ptr-array, n)` of borrowed `polars_series_t` handles into an owned `Vec<Column>`
+/// (each `Series` is cloned -- an `Arc`-refcount bump, not a data copy -- then converted via
+/// `.into_column()`; the handles remain owned by the caller). Modeled on `read_exprs` above, but
+/// yields `Vec<Column>` rather than `Vec<Series>` since `DataFrame::hstack` takes `&[Column]`, not
+/// `&[Series]` (confirmed, `polars-core-0.54.4/src/frame/mod.rs:514`).
+///
+/// `n == 0` short-circuits without touching `series` (see `read_exprs` for why).
+pub(crate) unsafe fn read_series(series: *const *mut polars_series_t, n: usize) -> Vec<Column> {
+    if n == 0 {
+        return Vec::new();
+    }
+    std::slice::from_raw_parts(series, n)
+        .iter()
+        .map(|s| (**s).inner.clone().into_column())
         .collect()
 }
 

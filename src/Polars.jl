@@ -139,7 +139,7 @@ export Series, DataFrame, PolarsError,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
     drop, rename, drop_nulls, with_row_index, explode, unpivot, unnest, nth,
-    describe, pivot, upsample
+    describe, pivot, upsample, hstack, vstack, transpose
 
 # Cuts TTFX: without this, the first `DataFrame`/`select`/`filter`/`collect` call in a fresh
 # session pays full compilation for the whole eager-via-lazy pipeline plus both bulk-read paths

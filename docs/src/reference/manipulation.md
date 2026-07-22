@@ -142,6 +142,31 @@ columns with compatible types:
 concat([orders, orders])
 ```
 
+## Attaching columns/rows directly: `hstack` and `vstack`
+
+Unlike every function above, `hstack`/`vstack` are **eager-only** (no `LazyFrame` method) and take
+their second argument in a different shape than `concat` — this is their whole reason to exist
+alongside it:
+
+- `hstack(df, columns::Vector{<:Series})` attaches bare [`Series`](@ref Series) (not another
+  `DataFrame`) as new columns, side by side. This is the actual value-add over `concat`'s
+  `:horizontal` mode, which needs a second full `DataFrame` — reach for `hstack` when you only
+  have loose `Series` in hand. Every `Series` must match `df`'s existing height (so an empty `df`
+  needs length-0 `Series` too); a length mismatch, or a name collision (with an existing `df`
+  column, or between two of the given `columns`), errors rather than truncating or overwriting.
+- `vstack(df, other::DataFrame)` stacks `other`'s rows beneath `df`'s — like `concat` with
+  `how=:vertical`, but as a direct two-argument call instead of building a `Vector` of frames.
+  Unlike `concat`'s `:vertical_relaxed` mode, `vstack` does no supertype casting: `df` and `other`
+  must already share identical column names and dtypes.
+
+```@example manipulation
+hstack(orders, [Series("note", ["rush", "-", "-"])])
+```
+
+```@example manipulation
+vstack(orders, orders)
+```
+
 ## Removing duplicates: `unique`
 
 `unique(df, subset=String[]; keep=:any)` removes duplicate rows, considering only `subset` columns
@@ -250,3 +275,30 @@ Unnesting a column name absent from the frame, or one that isn't struct-typed, e
 silently doing nothing; likewise, two unnested fields ending up with the same name (or colliding
 with an existing column) errors instead of silently overwriting. `unnest` also has a `LazyFrame`
 method (`unnest(lf, columns; separator=nothing)`), unlike `pivot` above.
+
+## Transposing: `transpose`
+
+`transpose(df; keep_names_as=nothing, new_col_names=nothing)` turns each of `df`'s rows into a new
+column (casting across `df`'s original column dtypes to a common supertype first), same idea as a
+matrix transpose. **Eager-only** (no `LazyFrame` method) — like `pivot`, it needs the whole frame
+materialized upfront. Extends `Base.transpose` (exported from Base, same as `unique` above) — call
+it bare, no qualification needed.
+
+```@example manipulation
+numbers = DataFrame((; a = [1, 2, 3], b = [10, 20, 30]))
+transpose(numbers)
+```
+
+New columns are named `"column_0"`, `"column_1"`, ... by default. `keep_names_as` prepends an
+extra output column (under the given name) holding `df`'s original column names; `new_col_names`
+supplies the new column names explicitly instead of the `"column_N"` default — it must have
+exactly one entry per `df` row (i.e. one per output column), or this errors rather than reading
+out of bounds:
+
+```@example manipulation
+transpose(numbers; keep_names_as = "orig", new_col_names = ["r1", "r2", "r3"])
+```
+
+Unlike py-polars, using an existing column's *values* as the new names is not supported here —
+only "auto-generated" and "explicit `Vector{String}`" naming. `df` must have at least one row and
+one column; an empty `df` errors rather than silently producing an empty result.

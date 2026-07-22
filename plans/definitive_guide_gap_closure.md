@@ -36,7 +36,50 @@ In progress. Researched against vendored `polars` 0.54.4 sources
   `Polars.Meta.output_name(...)` etc. `cargo build -j 1` clean; header drift clean; full suite
   1733 passed / 2 broken (pre-existing) / 0 failed, including 78 new tests (`test/expr/meta.jl`,
   `test/datatypes/durations.jl`, plus 2 extended in `test/datatypes/times.jl`).
-- Phases 4, 6-8: not started.
+- **Phase 4 (`hstack`/`vstack`/`transpose`, DataFrame-only)**: Done — no Cargo feature or
+  dependency-feature change needed, confirmed before writing any Rust (all three are plain
+  `polars-core` inherent methods, ungated). One small non-feature Cargo.toml addition: a direct
+  `either = "1.16"` dependency, needed only because `DataFrame::transpose`'s `new_col_names:
+  Option<Either<String, Vec<String>>>` parameter needs the `Either` enum, which isn't re-exported
+  through `polars`/`polars_core`'s prelude despite `either` already being resolved in
+  `Cargo.lock` at this exact version (as a transitive dependency elsewhere in the tree) — adding
+  it directly pulled in nothing new to build (`cargo build -j 4` finished in ~3.5s). 3 new Rust
+  FFI functions in `c-polars/src/dataframe.rs` (`polars_dataframe_hstack`/`_vstack`/`_transpose`,
+  all `guard_error`-wrapped eager ops, matching `polars_dataframe_upsample`'s shape) + a new
+  `read_series` helper in `c-polars/src/ffi_util.rs` (mirrors `read_exprs`, yields `Vec<Column>`
+  since `DataFrame::hstack` takes `&[Column]` not `&[Series]`). `transpose` clones
+  (`.inner.clone()`) before calling upstream's `&mut self`-requiring `transpose`, honoring this
+  repo's "no caller observes the mutation" convention. Julia: `hstack`/`vstack` in `src/verbs.jl`
+  (next to `concat`), `transpose` in `src/reshape.jl` (next to `pivot`/`upsample`/`unnest`,
+  extending `Base.transpose` — exported from Base already, same as `unique`, so no `Base.rename`-
+  style `import Base: transpose` needed, though `transpose` was still added to `Polars.jl`'s
+  `export` list per the plan spec — confirmed harmless/redundant, not an error, to export a name
+  already brought in via an implicit `using Base`). `hstack`'s `columns` parameter is typed
+  `Vector{<:Series}` rather than `Vector{Series}` — `Series{T}` is parametric and invariant, so a
+  literal `[s]`/`Vector{Series{Int64}}` argument would not otherwise match a bare `Vector{Series}`
+  annotation.
+  **Both flagged panic-risk candidates were live-verified and neither panics**: `hstack` with a
+  length-mismatched Series raises a clean `PolarsError` (`DataFrame::new`'s own
+  `validate_columns_slice`, e.g. `"height of column 'c' (2) does not match height of column 'a'
+  (3)"`), and `transpose` with a wrong-length `new_col_names` likewise raises a clean
+  `ShapeMismatch` `PolarsError` (`transpose_impl`'s own `polars_ensure!`, `"Length of new column
+  names must be the same as the row count"`) in both the too-short and too-long directions — the
+  process survives every case. Also live-verified: `hstack` duplicate-name (df-vs-attached and
+  attached-vs-attached) both error cleanly rather than silently overwriting; `hstack` onto a
+  0-row/nonzero-width `df` accepts a matching 0-length Series but still errors on a nonempty one,
+  and `hstack` onto a truly 0×0 `df` errors even for a matching Series (height comes from `df`'s
+  own stored `height` field, not inferred from the incoming Series); `vstack` schema mismatches
+  (width, name, dtype) all error cleanly, no supertype casting; `transpose` over a Struct or List
+  column errors cleanly (falls through to the generic supertype-cast path since the `object`
+  Cargo feature isn't enabled, so the source's `Object`-dtype arm can never be reached); an empty
+  `df` (0 rows, with or without columns) errors on `transpose` rather than producing an empty
+  result. `cargo build -j 4` clean; header drift clean (`check_header_drift.py`); no new Aqua
+  ambiguities from the new `Base.transpose` method (checked via
+  `Test.detect_ambiguities(Polars; recursive=true)` directly, not just the existing
+  `broken=true`-marked Aqua testset); `julia --project=docs docs/make.jl` clean. Full suite 1775
+  passed / 2 broken (pre-existing) / 0 failed, including 42 new tests (13 `hstack` + 9 `vstack` in
+  `test/operations/frame_verbs.jl`, 20 `transpose` in `test/operations/reshape.jl`).
+- Phases 6-8: not started.
 
 ## Context
 

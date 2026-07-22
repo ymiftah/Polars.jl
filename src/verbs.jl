@@ -152,3 +152,41 @@ function concat(frames::Vector{LazyFrame}; how::Symbol = :vertical)
     end
     return LazyFrame(out[])
 end
+
+"""
+    hstack(df::DataFrame, columns::Vector{<:Series})::DataFrame
+
+Attaches loose `columns` (bare [`Series`](@ref), not another `DataFrame`) to `df` as new columns,
+side by side. This is the real value-add over [`concat`](@ref)'s `:horizontal` mode, which needs a
+second full `DataFrame` on the right-hand side — `hstack` accepts standalone `Series` directly.
+Eager-only (no `LazyFrame` method — bare `Series` have no lazy equivalent to attach to a plan).
+
+Every `Series` in `columns` must have the same length as `df`'s existing height (an empty `df`
+therefore requires length-0 `columns` too); a length mismatch, or a name collision with an
+existing `df` column or between two of the given `columns`, errors rather than silently
+truncating or overwriting.
+"""
+function hstack(df::DataFrame, columns::Vector{<:Series})
+    GC.@preserve columns begin
+        ptrs = Ptr{polars_series_t}[s.ptr for s in columns]
+        out = Ref{Ptr{polars_dataframe_t}}()
+        err = polars_dataframe_hstack(df, ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return DataFrame(out[])
+end
+
+"""
+    vstack(df::DataFrame, other::DataFrame)::DataFrame
+
+Stacks `other`'s rows beneath `df`'s. Unlike [`concat`](@ref)'s `:vertical_relaxed` mode, `vstack`
+does no supertype casting: `df` and `other` must already share identical column names/dtypes, or
+this errors rather than casting. Eager-only (no `LazyFrame` method) — the lazy equivalent is
+`concat` with `how=:vertical`.
+"""
+function vstack(df::DataFrame, other::DataFrame)
+    out = Ref{Ptr{polars_dataframe_t}}()
+    err = polars_dataframe_vstack(df, other, out)
+    polars_error(err)
+    return DataFrame(out[])
+end

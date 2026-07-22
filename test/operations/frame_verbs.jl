@@ -144,3 +144,82 @@ end
     @test Tables.columnnames(r_named) == (:idx, :x)
     @test r_named[:idx] == UInt32[10, 11, 12]
 end
+
+@testset "hstack" begin
+    df = DataFrame((; a = [1, 2, 3], b = [4, 5, 6]))
+
+    # single Series attached
+    c = Series("c", [7, 8, 9])
+    r = hstack(df, [c])
+    @test Tables.columnnames(r) == (:a, :b, :c)
+    @test collect(r[:c]) == [7, 8, 9]
+
+    # multiple Series attached at once, mixed dtypes
+    d = Series("d", [10, 11, 12])
+    e = Series("e", ["x", "y", "z"])
+    r2 = hstack(df, Polars.Series[c, d, e])
+    @test Tables.columnnames(r2) == (:a, :b, :c, :d, :e)
+    @test collect(r2[:e]) == ["x", "y", "z"]
+
+    # length mismatch -- clean PolarsError, not a crash (live-verified: this is a real
+    # DataFrame::new validation path, see plans/definitive_guide_gap_closure.md)
+    short = Series("short", [1, 2])
+    @test_throws PolarsError hstack(df, [short])
+    long = Series("long", [1, 2, 3, 4, 5])
+    @test_throws PolarsError hstack(df, [long])
+
+    # duplicate name between df and an attached Series -- errors, does not silently overwrite
+    dup_existing = Series("a", [100, 200, 300])
+    @test_throws PolarsError hstack(df, [dup_existing])
+
+    # duplicate name between two attached Series
+    x1 = Series("x", [1, 2, 3])
+    x2 = Series("x", [4, 5, 6])
+    @test_throws PolarsError hstack(df, Polars.Series[x1, x2])
+
+    # attaching to an empty (0-row, non-zero-width) DataFrame: a matching (0-length) Series
+    # attaches cleanly; a non-empty one is a length mismatch like any other height mismatch
+    empty_df = filter(df, col("a") .> 999)
+    @test size(empty_df) == (0, 2)
+    r_empty = hstack(empty_df, [Series("c", Int[])])
+    @test size(r_empty) == (0, 3)
+    @test_throws PolarsError hstack(empty_df, [Series("c", [1, 2, 3])])
+
+    # attaching to a truly empty (0 rows, 0 columns) DataFrame: still a height mismatch --
+    # `hstack`'s height comes from `df`'s own stored height (0 here), it is not inferred from
+    # the incoming Series (verified live)
+    truly_empty = DataFrame(NamedTuple())
+    @test size(truly_empty) == (0, 0)
+    @test_throws PolarsError hstack(truly_empty, [Series("z", [1, 2, 3])])
+end
+
+@testset "vstack" begin
+    df1 = DataFrame((; a = [1, 2], b = [10, 20]))
+    df2 = DataFrame((; a = [3, 4], b = [30, 40]))
+
+    # matching schema
+    r = vstack(df1, df2)
+    @test size(r) == (4, 2)
+    @test collect(r[:a]) == [1, 2, 3, 4]
+    @test collect(r[:b]) == [10, 20, 30, 40]
+
+    # 0-row other
+    empty_other = filter(df2, col("a") .> 999)
+    @test size(empty_other) == (0, 2)
+    r_empty = vstack(df1, empty_other)
+    @test size(r_empty) == (2, 2)
+    @test collect(r_empty[:a]) == [1, 2]
+
+    # schema mismatch: different column count -- clean PolarsError, not a crash (vstack does no
+    # supertype casting, unlike concat's :vertical_relaxed mode -- verified live)
+    df_narrow = DataFrame((; a = [1, 2]))
+    @test_throws PolarsError vstack(df1, df_narrow)
+
+    # schema mismatch: same column count, different column name
+    df_renamed = DataFrame((; a = [1, 2], c = [10, 20]))
+    @test_throws PolarsError vstack(df1, df_renamed)
+
+    # schema mismatch: same names, incompatible dtype
+    df_wrong_dtype = DataFrame((; a = ["x", "y"], b = [10, 20]))
+    @test_throws PolarsError vstack(df1, df_wrong_dtype)
+end

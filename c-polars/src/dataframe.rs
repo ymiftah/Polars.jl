@@ -2,6 +2,7 @@ use std::ffi::c_void;
 use std::io::Write;
 use std::sync::Arc;
 
+use either::Either;
 use polars::prelude::*;
 use polars_core::query_result::QueryResult;
 use polars_core::utils::arrow::{
@@ -295,6 +296,98 @@ pub unsafe extern "C" fn polars_dataframe_upsample(
             }
             Err(err) => make_error(err),
         }
+    })
+}
+
+/// Attaches loose `Series` as new columns (unlike `concat`'s `:horizontal` mode, which joins two
+/// full `DataFrame`s side by side -- this is the real value-add: no second `DataFrame` needed).
+/// `hstack(&self, ...)` only reads `df`, so no clone/mutation is needed here. A length mismatch
+/// between `series` and `df`'s existing height, or a name collision with an existing column (or
+/// between two of the given `series` themselves), surfaces as a clean `PolarsError` from
+/// `DataFrame::new`'s own validation (`validate_columns_slice`) -- not a panic (verified live, see
+/// `plans/definitive_guide_gap_closure.md`).
+#[no_mangle]
+pub unsafe extern "C" fn polars_dataframe_hstack(
+    df: *mut polars_dataframe_t,
+    series: *const *mut polars_series_t,
+    n: usize,
+    out: *mut *mut polars_dataframe_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let columns = read_series(series, n);
+        let result = tri!((*df).inner.hstack(&columns));
+        *out = make_dataframe(result);
+        std::ptr::null()
+    })
+}
+
+/// Stacks `other`'s rows beneath `df`'s. `vstack(&self, other: &DataFrame)` only reads both
+/// inputs, so no clone/mutation is needed here. Unlike `concat`'s `:vertical_relaxed` mode,
+/// `vstack` does no supertype casting -- a genuine column-count/dtype mismatch between `df` and
+/// `other` surfaces as a clean `PolarsError`, not a panic (verified live).
+#[no_mangle]
+pub unsafe extern "C" fn polars_dataframe_vstack(
+    df: *mut polars_dataframe_t,
+    other: *mut polars_dataframe_t,
+    out: *mut *mut polars_dataframe_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let result = tri!((*df).inner.vstack(&(*other).inner));
+        *out = make_dataframe(result);
+        std::ptr::null()
+    })
+}
+
+/// Transposes rows and columns. Upstream `transpose(&mut self, ...)` needs `&mut self` (it
+/// rechunks/materializes `self` in place before transposing) -- unlike `hstack`/`vstack` above,
+/// this repo's "no caller observes the mutation" convention means we operate on a clone
+/// (`.inner.clone()`, a cheap Arc-level clone) rather than `&mut (*df).inner` directly.
+///
+/// Only two of upstream's three `new_col_names` modes are supported here: omitted (`None`,
+/// auto-generated `"column_N"` names) and an explicit `Vec<String>` (`Either::Right`) -- a
+/// zero-length `new_col_names` array is treated as "omitted", the same "empty means None"
+/// convention `selector_by_name_opt` already uses elsewhere in this file. py-polars' third mode
+/// (`Either::Left`: an existing column's *values* become the new names) is a deliberate scope cut
+/// for this first pass, not an oversight.
+///
+/// A `new_col_names` of the wrong length (relative to the transposed frame's row count, i.e.
+/// `df`'s original *column* count) surfaces as a clean `ShapeMismatch` `PolarsError` from
+/// `transpose_impl`'s own `polars_ensure!` check, not an index-out-of-bounds panic (verified
+/// live, despite looking like a real risk on paper -- see `plans/definitive_guide_gap_closure.md`).
+/// The upstream `Object`-dtype `polars_bail!` arm is a non-issue here (the `object` Cargo feature
+/// isn't enabled anywhere in this crate, so no `Object`-dtype column can ever exist to hit it);
+/// Struct/List columns instead fall through to the generic supertype-cast path and surface a
+/// clean `PolarsError` there (verified live).
+#[no_mangle]
+pub unsafe extern "C" fn polars_dataframe_transpose(
+    df: *mut polars_dataframe_t,
+    keep_names_as: *const u8,
+    keep_names_as_len: usize,
+    new_col_names: *const *const u8,
+    new_col_names_lens: *const usize,
+    n_new_col_names: usize,
+    out: *mut *mut polars_dataframe_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let keep_names_as = tri!(read_opt_str(keep_names_as, keep_names_as_len));
+        let names = tri!(read_names(
+            new_col_names,
+            new_col_names_lens,
+            n_new_col_names
+        ));
+        let new_col_names = if names.is_empty() {
+            None
+        } else {
+            Some(Either::Right(
+                names.into_iter().map(|s| s.to_string()).collect(),
+            ))
+        };
+        let result = tri!((*df)
+            .inner
+            .clone()
+            .transpose(keep_names_as.as_deref(), new_col_names));
+        *out = make_dataframe(result);
+        std::ptr::null()
     })
 }
 

@@ -160,6 +160,69 @@ end
     @test_throws PolarsError collect(unnest(lf, ["nope"]))
 end
 
+@testset "transpose" begin
+    # numeric-only frame: the fast `numeric_transpose` path
+    numeric = DataFrame((; a = [1, 2, 3], b = [10, 20, 30]))
+    t = transpose(numeric)
+    @test size(t) == (2, 3)
+    @test Tables.columnnames(t) == (:column_0, :column_1, :column_2)
+    @test collect(t[:column_0]) == [1, 10]
+    @test collect(t[:column_1]) == [2, 20]
+    @test collect(t[:column_2]) == [3, 30]
+
+    # mixed-dtype frame: the generic supertype-cast path (numeric + string -> all String)
+    mixed = DataFrame((; a = [1, 2], b = ["x", "y"]))
+    tm = transpose(mixed)
+    @test size(tm) == (2, 2)
+    @test collect(tm[:column_0]) == ["1", "x"]
+    @test collect(tm[:column_1]) == ["2", "y"]
+
+    # keep_names_as: prepends a column holding the original column names
+    t_keep = transpose(numeric; keep_names_as = "orig")
+    @test Tables.columnnames(t_keep) == (:orig, :column_0, :column_1, :column_2)
+    @test collect(t_keep[:orig]) == ["a", "b"]
+
+    # new_col_names: explicit names, one per original row (numeric has 3 rows -> 3 output cols)
+    t_named = transpose(numeric; new_col_names = ["r1", "r2", "r3"])
+    @test Tables.columnnames(t_named) == (:r1, :r2, :r3)
+
+    # both keep_names_as and new_col_names together
+    t_both = transpose(numeric; keep_names_as = "orig", new_col_names = ["r1", "r2", "r3"])
+    @test Tables.columnnames(t_both) == (:orig, :r1, :r2, :r3)
+
+    # new_col_names of the WRONG length (relative to numeric's row count, 3) -- a clean
+    # PolarsError (ShapeMismatch from transpose_impl's own polars_ensure!), not an
+    # index-out-of-bounds panic (live-verified: this was flagged as a real panic-risk candidate,
+    # see plans/definitive_guide_gap_closure.md)
+    @test_throws PolarsError transpose(numeric; new_col_names = ["only_one", "two"])
+    @test_throws PolarsError transpose(numeric; new_col_names = ["a", "b", "c", "d", "e"])
+
+    # explicitly-empty new_col_names behaves like omitting it (auto-generated names)
+    t_empty_names = transpose(numeric; new_col_names = String[])
+    @test Tables.columnnames(t_empty_names) == (:column_0, :column_1, :column_2)
+
+    # Struct column -- surfaces a clean PolarsError (analogous to the source's Object-dtype
+    # polars_bail!, which this crate can never hit since the `object` Cargo feature isn't
+    # enabled), not a crash
+    df_struct = DataFrame((; id = [1, 2], info = [(name = "Alice", age = 30), (name = "Bob", age = 25)]))
+    @test_throws PolarsError transpose(df_struct)
+
+    # List column -- also a clean PolarsError (falls through to the generic supertype-cast path,
+    # which can't cast a List to the frame's inferred supertype), not a crash
+    listed_base = DataFrame((; g = ["a", "a", "b", "b"], x = [1, 2, 10, 20]))
+    listed = agg(group_by(lazy(listed_base), "g"), Polars.implode(col("x"))) |> collect
+    @test_throws PolarsError transpose(listed)
+
+    # empty frame (0 rows, non-zero columns): errors rather than producing an empty result
+    df = DataFrame((; a = [1, 2, 3], b = [10, 20, 30]))
+    empty_df = filter(df, col("a") .> 999)
+    @test size(empty_df) == (0, 2)
+    @test_throws PolarsError transpose(empty_df)
+
+    # truly empty (0 rows, 0 columns) frame also errors
+    @test_throws PolarsError transpose(DataFrame(NamedTuple()))
+end
+
 @testset "element" begin
     # element() is only valid as the argument to an aggregate function passed to pivot's
     # `agg=` kwarg (it errors as "not allowed in this context" in a plain select) -- it stands

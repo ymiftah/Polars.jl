@@ -299,6 +299,60 @@ const struct polars_error_t *polars_dataframe_upsample(struct polars_dataframe_t
                                                        bool stable,
                                                        struct polars_dataframe_t **out);
 
+/**
+ * Attaches loose `Series` as new columns (unlike `concat`'s `:horizontal` mode, which joins two
+ * full `DataFrame`s side by side -- this is the real value-add: no second `DataFrame` needed).
+ * `hstack(&self, ...)` only reads `df`, so no clone/mutation is needed here. A length mismatch
+ * between `series` and `df`'s existing height, or a name collision with an existing column (or
+ * between two of the given `series` themselves), surfaces as a clean `PolarsError` from
+ * `DataFrame::new`'s own validation (`validate_columns_slice`) -- not a panic (verified live, see
+ * `plans/definitive_guide_gap_closure.md`).
+ */
+const struct polars_error_t *polars_dataframe_hstack(struct polars_dataframe_t *df,
+                                                      struct polars_series_t *const *series,
+                                                      uintptr_t n,
+                                                      struct polars_dataframe_t **out);
+
+/**
+ * Stacks `other`'s rows beneath `df`'s. `vstack(&self, other: &DataFrame)` only reads both
+ * inputs, so no clone/mutation is needed here. Unlike `concat`'s `:vertical_relaxed` mode,
+ * `vstack` does no supertype casting -- a genuine column-count/dtype mismatch between `df` and
+ * `other` surfaces as a clean `PolarsError`, not a panic (verified live).
+ */
+const struct polars_error_t *polars_dataframe_vstack(struct polars_dataframe_t *df,
+                                                      struct polars_dataframe_t *other,
+                                                      struct polars_dataframe_t **out);
+
+/**
+ * Transposes rows and columns. Upstream `transpose(&mut self, ...)` needs `&mut self` (it
+ * rechunks/materializes `self` in place before transposing) -- unlike `hstack`/`vstack` above,
+ * this repo's "no caller observes the mutation" convention means we operate on a clone
+ * (`.inner.clone()`, a cheap Arc-level clone) rather than `&mut (*df).inner` directly.
+ *
+ * Only two of upstream's three `new_col_names` modes are supported here: omitted (`None`,
+ * auto-generated `"column_N"` names) and an explicit `Vec<String>` (`Either::Right`) -- a
+ * zero-length `new_col_names` array is treated as "omitted", the same "empty means None"
+ * convention `selector_by_name_opt` already uses elsewhere in this file. py-polars' third mode
+ * (`Either::Left`: an existing column's *values* become the new names) is a deliberate scope cut
+ * for this first pass, not an oversight.
+ *
+ * A `new_col_names` of the wrong length (relative to the transposed frame's row count, i.e.
+ * `df`'s original *column* count) surfaces as a clean `ShapeMismatch` `PolarsError` from
+ * `transpose_impl`'s own `polars_ensure!` check, not an index-out-of-bounds panic (verified
+ * live, despite looking like a real risk on paper -- see `plans/definitive_guide_gap_closure.md`).
+ * The upstream `Object`-dtype `polars_bail!` arm is a non-issue here (the `object` Cargo feature
+ * isn't enabled anywhere in this crate, so no `Object`-dtype column can ever exist to hit it);
+ * Struct/List columns instead fall through to the generic supertype-cast path and surface a
+ * clean `PolarsError` there (verified live).
+ */
+const struct polars_error_t *polars_dataframe_transpose(struct polars_dataframe_t *df,
+                                                         const uint8_t *keep_names_as,
+                                                         uintptr_t keep_names_as_len,
+                                                         const uint8_t *const *new_col_names,
+                                                         const uintptr_t *new_col_names_lens,
+                                                         uintptr_t n_new_col_names,
+                                                         struct polars_dataframe_t **out);
+
 void polars_lazy_frame_destroy(struct polars_lazy_frame_t *df);
 
 struct polars_lazy_frame_t *polars_lazy_frame_clone(struct polars_lazy_frame_t *df);
