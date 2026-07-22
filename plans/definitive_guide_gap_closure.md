@@ -38,12 +38,14 @@ In progress. Researched against vendored `polars` 0.54.4 sources
   `test/datatypes/durations.jl`, plus 2 extended in `test/datatypes/times.jl`).
 - **Phase 4 (`hstack`/`vstack`/`transpose`, DataFrame-only)**: Done — no Cargo feature or
   dependency-feature change needed, confirmed before writing any Rust (all three are plain
-  `polars-core` inherent methods, ungated). One small non-feature Cargo.toml addition: a direct
-  `either = "1.16"` dependency, needed only because `DataFrame::transpose`'s `new_col_names:
-  Option<Either<String, Vec<String>>>` parameter needs the `Either` enum, which isn't re-exported
-  through `polars`/`polars_core`'s prelude despite `either` already being resolved in
-  `Cargo.lock` at this exact version (as a transitive dependency elsewhere in the tree) — adding
-  it directly pulled in nothing new to build (`cargo build -j 4` finished in ~3.5s). 3 new Rust
+  `polars-core` inherent methods, ungated). No new direct dependency needed either:
+  `DataFrame::transpose`'s `new_col_names: Option<Either<String, Vec<String>>>` parameter needs
+  the `Either` enum, and while it isn't re-exported through `polars`/`polars_core`'s prelude, the
+  already-direct `polars-utils` dependency does `pub use either;` unconditionally (no feature
+  gate, `polars-utils-0.54.4/src/lib.rs:92`), so `polars_utils::either::Either` reaches it with
+  zero `Cargo.toml` changes. (An earlier version of this phase added a direct `either = "1.16"`
+  dependency instead, on the mistaken belief that no existing dependency re-exported it; that was
+  corrected post-review — see git history for the fixup commit.) 3 new Rust
   FFI functions in `c-polars/src/dataframe.rs` (`polars_dataframe_hstack`/`_vstack`/`_transpose`,
   all `guard_error`-wrapped eager ops, matching `polars_dataframe_upsample`'s shape) + a new
   `read_series` helper in `c-polars/src/ffi_util.rs` (mirrors `read_exprs`, yields `Vec<Column>`

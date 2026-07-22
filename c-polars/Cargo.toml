@@ -21,14 +21,6 @@ polars-core = "0.54.4"
 polars-plan = "0.54.4"
 polars-compute = "0.54.4"
 polars-utils = "0.54.4"
-# Not a Cargo *feature* change (this phase needs none, per plans/definitive_guide_gap_closure.md
-# Phase 4) -- a new direct dependency, needed only for the `Either` enum that upstream
-# `DataFrame::transpose`'s `new_col_names: Option<Either<String, Vec<String>>>` parameter takes.
-# `either` isn't re-exported through `polars::prelude`/`polars_core::prelude`, so it can't be
-# reached via an existing dependency despite already being present (as a transitive dependency of
-# other crates in the tree) in Cargo.lock at this exact version -- adding it directly here doesn't
-# pull in anything new to build.
-either = "1.16"
 # `dtype-time` is NOT implied by polars' defaults: `dtype-slim` (in `default`) is only
 # date+datetime+duration, and `temporal` pulls polars-time without it. polars-core/-io/-lazy/-expr
 # happen to get it transitively, but polars-ops does *not* -- leaving its `take_chunked_unchecked`

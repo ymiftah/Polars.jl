@@ -2,7 +2,6 @@ use std::ffi::c_void;
 use std::io::Write;
 use std::sync::Arc;
 
-use either::Either;
 use polars::prelude::*;
 use polars_core::query_result::QueryResult;
 use polars_core::utils::arrow::{
@@ -11,6 +10,7 @@ use polars_core::utils::arrow::{
     ffi::{self, ArrowArray, ArrowSchema},
 };
 use polars_plan::utils::expr_output_name;
+use polars_utils::either::Either;
 
 use crate::ffi_util::*;
 use crate::io::{build_ipc_writer_options, build_parquet_write_options};

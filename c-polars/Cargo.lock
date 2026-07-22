@@ -338,7 +338,6 @@ name = "c-polars"
 version = "0.1.0"
 dependencies = [
  "cbindgen",
- "either",
  "polars",
  "polars-compute",
  "polars-core",
