@@ -6,6 +6,11 @@ The `Selectors` namespace (py-polars' `polars.selectors`, conventionally importe
 using Polars
 ```
 
+```@docs
+Polars.Selector
+Selectors
+```
+
 ## Basic usage
 
 ```@example selectors
@@ -15,16 +20,29 @@ select(df, Selectors.numeric())
 
 ## Dtype-family selectors
 
-| Function | Selects |
-|---|---|
-| `all()` | every column |
-| `numeric()`, `integer()`, `unsigned_integer()`, `signed_integer()`, `float()` | numeric dtype families |
-| `string()`, `boolean()`, `binary()` | `String`/`Bool`/`Vector{UInt8}` columns |
-| `date()`, `time()`, `datetime()`, `duration()` | temporal dtypes (`datetime`/`duration` match any time unit/time zone) |
-| `temporal()` | any of the above temporal dtypes |
-| `categorical()`, `decimal()` | Categorical/Decimal columns |
-| `struct_()`, `list()`, `array()` (see note below), `nested()` | nested dtypes (any inner type/width) |
-| `by_dtype(dtypes...)` | explicit Julia dtype(s), e.g. `by_dtype(Int64, String)` |
+```@docs
+Selectors.all
+Selectors.numeric
+Selectors.integer
+Selectors.unsigned_integer
+Selectors.signed_integer
+Selectors.float
+Selectors.string
+Selectors.boolean
+Selectors.binary
+Selectors.date
+Selectors.time
+Selectors.datetime
+Selectors.duration
+Selectors.temporal
+Selectors.categorical
+Selectors.decimal
+Selectors.struct_
+Selectors.list
+Selectors.array
+Selectors.nested
+Selectors.by_dtype
+```
 
 !!! warning "`array()` currently matches zero columns in this build"
     `dtype-array` is not enabled in `c-polars/Cargo.toml`'s feature list, so upstream's own
@@ -45,12 +63,14 @@ select(df, Selectors.by_dtype(Int64, Float64))
 
 ## Name/position selectors
 
-| Function | Selects |
-|---|---|
-| `by_name(names...; strict=true)` | explicit column names |
-| `by_index(indices...; strict=true)` | explicit column positions (1-based — see below) |
-| `matches(pattern)` | column names matching a regex |
-| `starts_with(prefixes...)`, `ends_with(suffixes...)`, `contains(substrings...)` | column names by literal substring (not a user-facing regex — internally escaped) |
+```@docs
+Selectors.by_name
+Selectors.by_index
+Selectors.matches
+Selectors.starts_with
+Selectors.ends_with
+Selectors.contains
+```
 
 ```@example selectors
 select(df, Selectors.starts_with("f"))
@@ -59,11 +79,17 @@ select(df, Selectors.starts_with("f"))
 `strict` (default `true`) controls what happens when a name/index doesn't exist: `by_name`/`by_index` raise a `PolarsError`; passing `strict=false` silently skips it instead.
 
 !!! note "`by_index` is 1-based, unlike py-polars' 0-based `cs.by_index`"
-    Matches this package's own `nth` (see [Expressions](@ref)) — 1-based indexing is the convention everywhere else in this Julia package. Negative indices count back from the end (`by_index(-1)` is the last column, same as `nth(-1)`).
+    Matches this package's own `nth` (see [Functions](@ref)) — 1-based indexing is the convention everywhere else in this Julia package. Negative indices count back from the end (`by_index(-1)` is the last column, same as `nth(-1)`).
 
 ## Combining selectors
 
 Selectors combine with `|` (union), `&` (intersection), `-` (difference), and `xor` (exclusive or) — each returns another `Selector`:
+
+```@docs
+Base.:|(::Polars.Selector, ::Polars.Selector)
+Base.:&(::Polars.Selector, ::Polars.Selector)
+Base.:-(::Polars.Selector, ::Polars.Selector)
+```
 
 ```@example selectors
 select(df, Selectors.numeric() | Selectors.boolean())
@@ -74,7 +100,9 @@ select(df, Selectors.all() - Selectors.numeric())
 ```
 
 !!! note "Julia's `xor`, not `^`"
-    Python's `cs.numeric() ^ cs.string()` maps to Julia's `xor(a, b)`/`a ⊻ b`, **not** `^` — `^` always means exponentiation in Julia.
+    Python's `cs.numeric() ^ cs.string()` maps to Julia's `xor(a, b)`/`a ⊻ b` — see its docs on the
+    [Expressions](@ref) page, in [Boolean](@ref) — **not** `^`, which always means exponentiation
+    in Julia.
 
 !!! warning "Mixing a `Selector` with a plain `Expr` is a `MethodError`"
     `Selectors.numeric() | col("x")` has genuinely ambiguous intent — does `col("x")` mean "the column named x" or "select by name x"? No method exists for the mixed case, in either argument order, on purpose: combine two `Selector`s (e.g. `Selectors.numeric() | Selectors.by_name("x")`), not a `Selector` and a bare `Expr`.

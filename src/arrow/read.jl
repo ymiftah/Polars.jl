@@ -68,7 +68,7 @@ const _NUMERIC_FORMATS = Dict{String, DataType}(
 )
 
 """Exports `series`' data via `polars_series_export_carray` and wraps the result as an
-[`ExportedArray`](@ref), hoisting the out-param `Ref` + error-check dance shared by every
+`ExportedArray`, hoisting the out-param `Ref` + error-check dance shared by every
 `read_series` branch below."""
 function _export_carray(series::Series)
     out = Ref{CArrowArray}()

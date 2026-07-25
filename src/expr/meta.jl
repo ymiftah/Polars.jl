@@ -2,7 +2,7 @@
     Meta
 
 Introspection over `Polars.Expr` values, mirroring py-polars' `Expr.meta`. Every function here
-accepts anything [`_as_expr`](@ref) accepts (an `Expr`, a [`Selectors.Selector`](@ref Selectors),
+accepts anything `_as_expr` accepts (an `Expr`, a [`Polars.Selector`](@ref),
 or a column-name `String`/`Symbol`) and inspects the expression *tree itself* -- not any
 DataFrame/LazyFrame it might later be applied to, so no schema is consulted (e.g.
 [`tree_format`](@ref)/[`show_graph`](@ref) render unresolved column types as untyped).

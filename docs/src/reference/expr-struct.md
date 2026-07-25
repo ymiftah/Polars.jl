@@ -1,4 +1,4 @@
-# Structs
+# [Struct](@id expr-struct)
 
 The `Structs` namespace provides operations on struct-typed columns (records / named tuples). Struct columns arise from certain polars operations (e.g. `value_counts` — see [Expressions](@ref) — or joins that bring together multiple column sources), from external data, or can be constructed directly from a `Vector{<:NamedTuple}` column, as shown below.
 
@@ -27,11 +27,11 @@ select(combined, Structs.field_by_name(col("s"), "x"), Structs.field_by_name(col
 
 ## Field access
 
-| Function | Purpose |
-|---|---|
-| `Structs.field_by_name(expr, name)` | extract a named field |
-| `Structs.field_by_index(expr, index)` | extract by position (0-indexed) |
-| `Structs.rename_fields(expr, new_names)` | rename fields (provide `Vector{String}` of new names in order) |
+```@docs
+Polars.Structs.field_by_name
+Polars.Structs.field_by_index
+Polars.Structs.rename_fields
+```
 
 ```@example structs
 select(df, Structs.field_by_name(col("s"), "a"), Structs.field_by_name(col("s"), "b"))
@@ -42,8 +42,8 @@ Notes:
 - Struct extraction returns a `Series` of the field type.
 - `Structs.rename_fields` reorders fields in the new order given.
 
-## Unpacking a whole Struct column: `unnest`
+## Unpacking a whole Struct column
 
 `as_struct` (above) is the write-side operation: expressions in, one Struct column out. The
-read-side counterpart is `unnest` (see [Manipulation](@ref)), which goes the other way — a
+read-side counterpart is `unnest` (see [DataFrame](@ref)), which goes the other way — a
 Struct column in, one plain column per field out.

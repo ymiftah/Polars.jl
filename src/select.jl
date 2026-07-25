@@ -107,7 +107,7 @@ end
     filter(df::DataFrame, expr)
 
 Filters the rows of the provided frames based on the provided expression. `expr` goes through
-[`_as_expr`](@ref) exactly like `select`/`with_columns`/`sort` do, so a `String`/`Symbol` column
+`_as_expr` exactly like `select`/`with_columns`/`sort` do, so a `String`/`Symbol` column
 name, an `Expr`, or a `Selector` (a boolean-dtype column reference in each case) are all accepted.
 """
 Base.filter(df::LazyFrame, expr) = _filter!(clone(df), expr)

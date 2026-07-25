@@ -32,7 +32,7 @@ match) without colliding with what those operators already mean for two `Expr`s 
 boolean logic over column *values*). Never constructed directly -- build one via the
 [`Selectors`](@ref) namespace (`Selectors.numeric()`, `Selectors.by_name(...)`, etc.) and pass it
 anywhere an `Expr` is accepted (`select`, `with_columns`, `filter`, `sort`, ...); it composes via
-[`_as_expr`](@ref) exactly like a `String`/`Symbol`/`Expr` column reference does.
+`_as_expr` exactly like a `String`/`Symbol`/`Expr` column reference does.
 
 !!! note "Mixing a `Selector` with a plain `Expr` via `|`/`&`/`-`/`xor` is a `MethodError`, not a promotion"
     `numeric() | col("x")` has genuinely ambiguous intent (does `col("x")` mean "the column named
@@ -117,7 +117,7 @@ accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`
 | `starts_with(prefixes...)`, `ends_with(suffixes...)`, `contains(substrings...)` | column names by literal substring (regex-escaped internally, not user-facing regex) |
 
 !!! note "`by_index` is 1-based here, unlike py-polars' 0-based `cs.by_index`"
-    Matches this package's own [`nth`](@ref) (`src/expr/expr.jl`), which already made the same
+    Matches this package's own [`Polars.nth`](@ref) (`src/expr/expr.jl`), which already made the same
     call for the same reason: 1-based indexing is the convention everywhere else in this Julia
     package. Negative indices still count back from the end unchanged (`by_index(-1)` is the last
     column, same as `nth(-1)`).
@@ -342,7 +342,7 @@ module Selectors
         by_dtype(dtypes...)::Selector
 
     Selects columns whose dtype is one of `dtypes`, given as Julia types (e.g.
-    `by_dtype(Int64, Float64)`, matching the same type spellings [`cast`](@ref) accepts). `Datetime`,
+    `by_dtype(Int64, Float64)`, matching the same type spellings [`Polars.cast`](@ref) accepts). `Datetime`,
     duration `Period` subtypes, `Decimal`, `List`, and `Struct` need parameters a plain dtype code
     can't carry, so passing one of those (e.g. `by_dtype(DateTime)`) raises a `PolarsError` -- use
     [`datetime`](@ref)/[`duration`](@ref)/[`decimal`](@ref)/[`list`](@ref)/[`struct_`](@ref) instead.
@@ -387,7 +387,7 @@ module Selectors
     """
         by_index(indices::Integer...; strict::Bool=true)::Selector
 
-    Selects columns by position. **1-based**, matching this package's own [`nth`](@ref) (py-polars'
+    Selects columns by position. **1-based**, matching this package's own [`Polars.nth`](@ref) (py-polars'
     own `cs.by_index` is 0-based -- see [`Selectors`](@ref)'s note on this divergence). Negative
     indices count from the end (`by_index(-1)` is the last column, same as `nth(-1)`). If `strict`
     (default), an out-of-range index raises a `PolarsError`; if not, it is silently skipped.

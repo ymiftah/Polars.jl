@@ -1,3 +1,11 @@
+"""
+    LazyFrame
+
+A lazy frame: operations are only recorded into a query plan, not executed, until
+[`collect`](@ref) runs the whole thing (optionally fused and reordered by polars' query
+optimizer). Obtained from a [`DataFrame`](@ref) via [`lazy`](@ref), or directly via
+`scan_parquet`/`scan_csv`/`scan_ipc`.
+"""
 mutable struct LazyFrame
     ptr::Ptr{polars_lazy_frame_t}
 

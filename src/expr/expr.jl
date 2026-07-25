@@ -590,7 +590,7 @@ end
     gen_impl_expr!(polars_expr_exp, Expr::exp, "`e` raised to each value of `expr`.")
 
     gen_impl_expr!(polars_expr_n_unique, Expr::n_unique, "Counts the number of distinct values in `expr` (`null` counts as one distinct value), one result per group (or a single overall count outside a `group_by`).")
-    gen_impl_expr!(polars_expr_unique, Expr::unique, "Returns the distinct values of `expr` (order not guaranteed), shortening the column. Inside `agg`, per-group distinct values are automatically collected into a `List` (see [Lists](@ref)) so the aggregation still produces one row per group.")
+    gen_impl_expr!(polars_expr_unique, Expr::unique, "Returns the distinct values of `expr` (order not guaranteed), shortening the column. Inside `agg`, per-group distinct values are automatically collected into a `List` (see [List](@ref expr-list)) so the aggregation still produces one row per group.")
     gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated, "Row-wise boolean flag: `true` for every occurrence of a value that appears more than once in `expr`. See [`is_unique`](@ref) for the complementary flag.")
     gen_impl_expr!(polars_expr_is_unique, Expr::is_unique, "Row-wise boolean flag: `true` for every value that appears exactly once in `expr`. See [`is_duplicated`](@ref) for the complementary flag.")
     gen_impl_expr!(polars_expr_count, Expr::count, "Counts the number of non-null values in `expr`, one result per group (or a single overall count outside a `group_by`). See [`null_count`](@ref) for the complementary count.")
@@ -604,10 +604,10 @@ end
     gen_impl_expr!(polars_expr_is_null, Expr::is_null, "Row-wise boolean flag: `true` where the value is `null`.")
     gen_impl_expr!(polars_expr_is_not_null, Expr::is_not_null, "Row-wise boolean flag: `true` where the value is not `null`.")
     gen_impl_expr!(polars_expr_null_count, Expr::null_count, "Counts the number of `null` values in `expr`, one result per group (or a single overall count outside a `group_by`). See [`count`](@ref) for the complementary count.")
-    gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans, "Removes `NaN` values from `expr`, shortening the column. Compare the frame-level `drop_nulls` (see [Manipulation](@ref)), which drops whole rows instead of individual values.")
-    gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls, "Removes `null` values from `expr`, shortening the column -- the expression-level counterpart to the frame-level `drop_nulls` (see [Manipulation](@ref)), which drops whole rows instead of individual values.")
+    gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans, "Removes `NaN` values from `expr`, shortening the column. Compare the frame-level `drop_nulls` (see [DataFrame](@ref)), which drops whole rows instead of individual values.")
+    gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls, "Removes `null` values from `expr`, shortening the column -- the expression-level counterpart to the frame-level `drop_nulls` (see [DataFrame](@ref)), which drops whole rows instead of individual values.")
 
-    gen_impl_expr!(polars_expr_implode, Expr::implode, "Collects every value of `expr` in the current context (or per group, inside `agg`) into a single `List` value (see [Lists](@ref)).")
+    gen_impl_expr!(polars_expr_implode, Expr::implode, "Collects every value of `expr` in the current context (or per group, inside `agg`) into a single `List` value (see [List](@ref expr-list)).")
     gen_impl_expr!(polars_expr_flatten, Expr::flatten, "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref).")
     gen_impl_expr!(polars_expr_reverse, Expr::reverse, "Reverses the row order of `expr`'s values.")
 
@@ -741,7 +741,7 @@ export clip
     replace(expr::Polars.Expr, old, new)::Polars.Expr
 
 Replaces values equal to `old` with the corresponding `new` value (`old`/`new` are typically
-list-typed expressions built via [`Lists.implode`](@ref)/[`implode`](@ref) for multi-value
+list-typed expressions built via [`implode`](@ref) for multi-value
 mappings). Values not found in `old` are left unchanged. Extends `Base.replace` — `isdefined(Base,
 :replace)` is `true`, matching the `Base.diff`/`Base.round`/`Base.log` precedent.
 """
@@ -796,18 +796,24 @@ import Statistics: mean, median, std, var, quantile
 
 """
     mean(expr::Polars.Expr)::Polars.Expr
-    median(expr::Polars.Expr)::Polars.Expr
 
-Arithmetic mean / median of the values. Extends `Statistics.mean`/`Statistics.median` (rather
-than the `@generate_expr_fns` block above, which would otherwise define brand-new top-level
-`mean`/`median` bindings that *look* like the Statistics stdlib functions but aren't actually
-the same generic -- so `using Statistics, Polars` would force callers to disambiguate with
-`Polars.mean`/`Statistics.mean` even though nothing about the two ever needs to differ). Adding
-an `Expr` method to the real `Statistics.mean`/`Statistics.median` instead means the two packages
-share one generic function with no clash, and this package still re-exports the name so plain
-`mean(col("x"))` works with just `using Polars` -- `using Statistics` is not required.
+Arithmetic mean of the values. Extends `Statistics.mean` (rather than the `@generate_expr_fns`
+block above, which would otherwise define a brand-new top-level `mean` binding that *looks* like
+the Statistics stdlib function but isn't actually the same generic -- so `using Statistics, Polars`
+would force callers to disambiguate with `Polars.mean`/`Statistics.mean` even though nothing about
+the two ever needs to differ). Adding an `Expr` method to the real `Statistics.mean` instead means
+the two packages share one generic function with no clash, and this package still re-exports the
+name so plain `mean(col("x"))` works with just `using Polars` -- `using Statistics` is not
+required. See [`median`](@ref) for the same story applied to the median.
 """
 Statistics.mean(expr::Expr) = Expr(API.polars_expr_mean(expr))
+
+"""
+    median(expr::Polars.Expr)::Polars.Expr
+
+Median of the values. Extends `Statistics.median` for the same reason [`mean`](@ref) extends
+`Statistics.mean` -- see its docstring.
+"""
 Statistics.median(expr::Expr) = Expr(API.polars_expr_median(expr))
 
 """

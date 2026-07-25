@@ -18,7 +18,14 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   `Vector{Union{Missing,Vector{T}}}` case) for List columns and `Vector{<:NamedTuple}` for Struct
   columns, alongside the scalar/fixed-width types it already supported
   (`Vector{Int}`, `Vector{String}`, `Vector{Date}`, `Vector{DateTime}`, etc.). See the examples in
-  [Structs](@ref).
+  [Struct](@ref expr-struct).
+
+- **A `Decimal`-typed column can be queried/cast (`cast_decimal`, `Selectors.decimal()`) but not
+  materialized back into Julia.** Reading its values (`df[:col]`, or any path that goes through
+  `parse_format` in `src/arrow/schema.jl`) raises `"unknown schema format d:precision,scale"` —
+  there's no Julia-side decimal type this package maps it to yet, unlike every other dtype in
+  [Data types](@ref). Keep decimal columns on the lazy/query side (cast to `Float64`/`String`
+  before collecting if you need the values in Julia).
 
 ## Date/time limitations
 
@@ -58,10 +65,11 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   been renamed to `prod`, an exported Base name — plain `prod(col("x"))` now works with no
   qualification.
 
-- **`Base.tail(df, n)` and `Base.rename(df, existing, new)` also need explicit qualification**,
-  for the same reason as `lt` above — bare `tail(df, 2)` / `rename(df, ...)` raise
-  `UndefVarError`. `unique`, `drop`, `drop_nulls`, `with_row_index`, `explode`, `unpivot`, and
-  `pivot` do **not** have this problem and can be called bare. See [Manipulation](@ref).
+- ~~`Base.tail(df, n)` and `Base.rename(df, existing, new)` need explicit qualification.`~~
+  **Resolved.** Both now have an explicit `import Base: tail`/`import Base: rename` alongside their
+  definitions specifically so the bare, unqualified form works after `using Polars` — same as
+  `unique`, `drop`, `drop_nulls`, `with_row_index`, `explode`, `unpivot`, `transpose`, and `pivot`.
+  See [DataFrame](@ref).
 
 - **`Polars.Meta.is_literal` reports `false` for a `Date`/`Time`/`DateTime` literal**
   (`lit(Date(2024, 1, 1))`, etc.), diverging from py-polars. These are built as

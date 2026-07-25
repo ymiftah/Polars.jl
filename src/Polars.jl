@@ -24,7 +24,7 @@ end
 """
     _io_callback()
 
-Builds the `@cfunction` pointer for [`_write_callback`](@ref), shared by every FFI site that
+Builds the `@cfunction` pointer for `_write_callback`, shared by every FFI site that
 streams bytes back into a Julia `IO` (parquet/CSV/IPC writers, `Value` string/binary getters).
 Defined once here, rather than re-typed at each call site, so the argument types can't drift
 from the C `IOCallback` typedef again -- the length argument was `Cuint` (32-bit) at all 5 sites

@@ -1,4 +1,4 @@
-# Lists
+# [List](@id expr-list)
 
 The `Lists` namespace provides operations on list-typed columns (arise from `implode` within `group_by` + `agg`, or from anywhere a collection of per-row values is formed).
 
@@ -6,19 +6,23 @@ The `Lists` namespace provides operations on list-typed columns (arise from `imp
 using Polars, Chain
 ```
 
-## List operations
-
-| Function | Purpose |
-|---|---|
-| `Lists.lengths(expr)` | length of each list |
-| `Lists.max`, `Lists.min`, `Lists.sum`, `Lists.mean` | aggregate within each list |
-| `Lists.first`, `Lists.last` | first/last element |
-| `Lists.reverse` | reverse the list |
-| `Lists.unique`, `Lists.unique_stable` | distinct elements |
-| `Lists.arg_max`, `Lists.arg_min` | index of min/max |
-| `Lists.head(expr, n)` | first n elements |
-| `Lists.get(expr, index; null_on_oob=false)` | element at index (0-indexed; errors on oob unless null_on_oob=true) |
-| `Lists.contains(expr, value; nulls_equal=true)` | check if value is in the list |
+```@docs
+Polars.Lists.lengths
+Polars.Lists.max
+Polars.Lists.min
+Polars.Lists.sum
+Polars.Lists.mean
+Polars.Lists.first
+Polars.Lists.last
+Polars.Lists.reverse
+Polars.Lists.unique
+Polars.Lists.unique_stable
+Polars.Lists.arg_max
+Polars.Lists.arg_min
+Polars.Lists.head
+Polars.Lists.get
+Polars.Lists.contains
+```
 
 Each per-list aggregation reduces a `List` column to one scalar per row:
 
