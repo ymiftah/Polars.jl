@@ -62,3 +62,15 @@ types show as untyped:
 ```@example meta
 print(Polars.Meta.tree_format(col("x") + col("y")))
 ```
+
+`show_graph` returns Graphviz `.dot` source rather than a picture -- rendering it (e.g. by piping
+to `dot -Tsvg`, or via a Julia binding to Graphviz such as
+[GraphViz.jl](https://github.com/JuliaGraphs/GraphViz.jl)) turns it into an actual diagram:
+
+```@example meta
+using GraphViz
+q = when(col("qty") .> 1, col("price") * col("qty"), lit(0.0)) |> alias("revenue")
+g = GraphViz.Graph(Polars.Meta.show_graph(q))
+GraphViz.layout!(g; engine = "dot") # "dot" lays out top-down, matching a tree; the package default ("neato") is spring-directed
+g
+```
