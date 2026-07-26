@@ -1,9 +1,8 @@
 # DataFrame
 
 An eager, columnar table: every operation on a `DataFrame` runs immediately. Every verb below also
-has a `LazyFrame` method (see [LazyFrame](@ref)) — eager methods are implemented internally as
-`collect ∘ op ∘ lazy`, so the two forms always give identical results, and each verb is documented
-here exactly once for both.
+has a `LazyFrame` method (see [LazyFrame](@ref)) that always gives identical results, so each verb
+is documented here exactly once for both.
 
 ```@setup dataframe
 using Polars, Chain, Dates

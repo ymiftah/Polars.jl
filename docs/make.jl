@@ -50,6 +50,7 @@ makedocs(;
             "reference/exceptions.md",
         ],
         "Limitations" => "limitations.md",
+        "Developer" => "developer.md",
     ],
 )
 
