@@ -51,6 +51,8 @@ function drop(lf::LazyFrame, columns::Vector{String})
     return LazyFrame(out[])
 end
 
+import Base: rename
+
 """
     rename(lf::LazyFrame, existing::Vector{String}, new::Vector{String}; strict::Bool=true)::LazyFrame
     rename(df::DataFrame, existing::Vector{String}, new::Vector{String}; strict::Bool=true)::DataFrame
@@ -58,6 +60,12 @@ end
 Renames `existing` columns to the corresponding `new` names (same length, paired by position).
 If `strict` is `true` (default), every `existing` column must be present; otherwise, missing
 ones are silently ignored.
+
+Extends `Base.rename` (a `Base.Filesystem` path-renaming function). Like `tail` in `select.jl`,
+this is `isdefined(Base, :rename) == true` but **not exported**, so the explicit `import Base:
+rename` above is required for the `export rename` in `Polars.jl` to resolve to anything --
+without it, plain `rename(df, ...)` raises `UndefVarError` even though `Base.rename(df, ...)`
+works.
 """
 Base.rename(df::DataFrame, existing::Vector{String}, new::Vector{String}; strict::Bool = true) =
     Base.rename(lazy(df), existing, new; strict) |> collect
@@ -102,23 +110,83 @@ with_row_index(df::DataFrame, name::String = "index"; offset::Integer = 0) =
     with_row_index(lazy(df), name; offset) |> collect
 function with_row_index(lf::LazyFrame, name::String = "index"; offset::Integer = 0)
     out = Ref{Ptr{polars_lazy_frame_t}}()
-    err = polars_lazy_frame_with_row_index(lf, name, length(name), Int64(offset), true, out)
+    err = polars_lazy_frame_with_row_index(lf, name, ncodeunits(name), Int64(offset), true, out)
     polars_error(err)
     return LazyFrame(out[])
 end
 """
-    concat(frames::Vector{LazyFrame})::LazyFrame
-    concat(frames::Vector{DataFrame})::DataFrame
+    concat(frames::Vector{LazyFrame}; how::Symbol=:vertical)::LazyFrame
+    concat(frames::Vector{DataFrame}; how::Symbol=:vertical)::DataFrame
 
-Concatenates the provided frames vertically (stacking rows), matching columns by position.
+Concatenates the provided frames. `how` selects the mode:
+- `:vertical` (default): stack rows, matching columns by position -- every frame must have
+  identical column names/order.
+- `:vertical_relaxed`: like `:vertical`, but matching columns are cast to their common supertype
+  instead of requiring identical dtypes.
+- `:diagonal`: stack rows, matching columns by *name* -- frames may have different columns
+  (missing ones are filled with `missing`).
+- `:diagonal_relaxed`: `:diagonal` with the same supertype relaxation as `:vertical_relaxed`.
+- `:horizontal`: stack columns side by side (all frames must have the same row count).
 """
-concat(frames::Vector{DataFrame}) = collect(concat(map(lazy, frames)))
-function concat(frames::Vector{LazyFrame})
+concat(frames::Vector{DataFrame}; how::Symbol = :vertical) =
+    collect(concat(map(lazy, frames); how))
+function concat(frames::Vector{LazyFrame}; how::Symbol = :vertical)
+    how_enum = if how == :vertical
+        API.PolarsConcatHowVertical
+    elseif how == :vertical_relaxed
+        API.PolarsConcatHowVerticalRelaxed
+    elseif how == :diagonal
+        API.PolarsConcatHowDiagonal
+    elseif how == :diagonal_relaxed
+        API.PolarsConcatHowDiagonalRelaxed
+    elseif how == :horizontal
+        API.PolarsConcatHowHorizontal
+    else
+        error("unknown concat how=$how, expected one of (:vertical, :vertical_relaxed, :diagonal, :diagonal_relaxed, :horizontal)")
+    end
     GC.@preserve frames begin
         frame_ptrs = Ptr{polars_lazy_frame_t}[frame.ptr for frame in frames]
         out = Ref{Ptr{polars_lazy_frame_t}}()
-        err = polars_lazy_frame_concat(frame_ptrs, length(frame_ptrs), out)
+        err = polars_lazy_frame_concat(frame_ptrs, length(frame_ptrs), how_enum, out)
         polars_error(err)
     end
     return LazyFrame(out[])
+end
+
+"""
+    hstack(df::DataFrame, columns::Vector{<:Series})::DataFrame
+
+Attaches loose `columns` (bare [`Series`](@ref), not another `DataFrame`) to `df` as new columns,
+side by side. This is the real value-add over [`concat`](@ref)'s `:horizontal` mode, which needs a
+second full `DataFrame` on the right-hand side — `hstack` accepts standalone `Series` directly.
+Eager-only (no `LazyFrame` method — bare `Series` have no lazy equivalent to attach to a plan).
+
+Every `Series` in `columns` must have the same length as `df`'s existing height (an empty `df`
+therefore requires length-0 `columns` too); a length mismatch, or a name collision with an
+existing `df` column or between two of the given `columns`, errors rather than silently
+truncating or overwriting.
+"""
+function hstack(df::DataFrame, columns::Vector{<:Series})
+    GC.@preserve columns begin
+        ptrs = Ptr{polars_series_t}[s.ptr for s in columns]
+        out = Ref{Ptr{polars_dataframe_t}}()
+        err = polars_dataframe_hstack(df, ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return DataFrame(out[])
+end
+
+"""
+    vstack(df::DataFrame, other::DataFrame)::DataFrame
+
+Stacks `other`'s rows beneath `df`'s. Unlike [`concat`](@ref)'s `:vertical_relaxed` mode, `vstack`
+does no supertype casting: `df` and `other` must already share identical column names/dtypes, or
+this errors rather than casting. Eager-only (no `LazyFrame` method) — the lazy equivalent is
+`concat` with `how=:vertical`.
+"""
+function vstack(df::DataFrame, other::DataFrame)
+    out = Ref{Ptr{polars_dataframe_t}}()
+    err = polars_dataframe_vstack(df, other, out)
+    polars_error(err)
+    return DataFrame(out[])
 end

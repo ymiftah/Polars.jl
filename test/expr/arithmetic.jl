@@ -109,3 +109,61 @@ end
     r_or = select(df, or(col("x") < 2, col("y") > 2) |> alias("or"))
     @test collect(r_or[:or]) == [true, false, false]
 end
+
+@testset "derived comparison operators: <=, >=, != (Julia-side P2.1)" begin
+    # polars' C ABI only wraps `eq`/`lt`/`gt` directly; `<=`/`>=`/`!=` are composed from those via
+    # `not` (see `_le`/`_ge`/`_neq` in expr/expr.jl). Must agree with `eq`/`lt`/`gt` themselves,
+    # including on rows with a null operand (where `not` must propagate null, not just flip a
+    # `Bool`, for `<=`/`>=`/`!=` to have the right null semantics).
+    df = DataFrame((; x = [1, 2, 3, missing], y = [2, 2, 2, 2]))
+
+    r = select(
+        df,
+        (col("x") <= col("y")) |> alias("le"),
+        (col("x") >= col("y")) |> alias("ge"),
+        (col("x") != col("y")) |> alias("ne"),
+    )
+    @test isequal(collect(r[:le]), [true, true, false, missing])
+    @test isequal(collect(r[:ge]), [false, true, true, missing])
+    @test isequal(collect(r[:ne]), [true, false, true, missing])
+end
+
+@testset "Expr <: Number was dropped -- explicit mixed-argument operators (Julia-side P2.1)" begin
+    df = DataFrame((; x = [1, 2, 3]))
+
+    # both mixed-argument orders, for every operator category -- note operand order matters for
+    # the non-symmetric comparisons (`2 <= col("x")` is "is 2 <= x", the reverse of
+    # `col("x") <= 2`), unlike `!=` which is symmetric either way
+    r = select(
+        df,
+        (col("x") <= 2) |> alias("le1"), (2 <= col("x")) |> alias("le2"),
+        (col("x") >= 2) |> alias("ge1"), (2 >= col("x")) |> alias("ge2"),
+        (col("x") != 2) |> alias("ne1"), (2 != col("x")) |> alias("ne2"),
+    )
+    @test collect(r[:le1]) == [true, true, false]
+    @test collect(r[:le2]) == [false, true, true]
+    @test collect(r[:ge1]) == [false, true, true]
+    @test collect(r[:ge2]) == [true, true, false]
+    @test collect(r[:ne1]) == collect(r[:ne2]) == [true, false, true]
+
+    # a literal `missing` operand builds a real null-literal comparison, not Julia's own
+    # `missing`-propagation short-circuit (which would return the bare value `missing`, not an
+    # `Expr`) -- this is what resolves the `Expr`/`Missing` method ambiguity described in
+    # expr/expr.jl.
+    for expr in (
+            col("x") == missing, missing == col("x"),
+            col("x") < missing, missing < col("x"),
+            col("x") + missing, missing + col("x"),
+        )
+        @test expr isa Polars.Expr
+    end
+
+    # dot-broadcasting treats `Expr` as a scalar (matching what `Expr <: Number` used to give for
+    # free via `Broadcast.broadcastable(::Number) = x`) rather than trying to iterate it
+    @test collect(select(df, col("x") .> 1)[:x]) == [false, true, true]
+
+    # `isless`/`isequal`/sorting a `Vector{Expr}` are deliberately unsupported now (previously
+    # silently returned another `Expr` instead of a `Bool`, violating both functions' contracts)
+    @test_throws MethodError isless(col("x"), col("y"))
+    @test_throws MethodError sort([col("x"), col("y")])
+end

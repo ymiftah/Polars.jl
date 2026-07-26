@@ -15,6 +15,40 @@
     @test r2[:filled][4] == 4.0
 end
 
+@testset "fill_null with strategy" begin
+    df = DataFrame((; x = [1, missing, missing, 4, missing]))
+
+    fwd = select(df, alias(fill_null(col("x"); strategy = :forward), "f"))
+    @test isequal(collect(fwd[:f]), [1, 1, 1, 4, 4])
+
+    bwd = select(df, alias(fill_null(col("x"); strategy = :backward), "f"))
+    @test isequal(collect(bwd[:f]), [1, 4, 4, 4, missing])
+
+    bwd_limited = select(df, alias(fill_null(col("x"); strategy = :backward, limit = 1), "f"))
+    @test isequal(collect(bwd_limited[:f]), [1, missing, 4, 4, missing])
+
+    r_mean = select(df, alias(fill_null(col("x"); strategy = :mean), "f"))
+    @test collect(r_mean[:f]) == [1, 2, 2, 4, 2] # mean(1, 4) = 2.5, truncated back to the Int64 dtype
+
+    r_min = select(df, alias(fill_null(col("x"); strategy = :min), "f"))
+    @test isequal(collect(r_min[:f]), [1, 1, 1, 4, 1])
+
+    r_max = select(df, alias(fill_null(col("x"); strategy = :max), "f"))
+    @test isequal(collect(r_max[:f]), [1, 4, 4, 4, 4])
+
+    r_zero = select(df, alias(fill_null(col("x"); strategy = :zero), "f"))
+    @test collect(r_zero[:f]) == [1, 0, 0, 4, 0]
+
+    r_one = select(df, alias(fill_null(col("x"); strategy = :one), "f"))
+    @test collect(r_one[:f]) == [1, 1, 1, 4, 1]
+
+    # curried form for |> pipelines
+    r_curried = select(df, alias(col("x") |> fill_null(strategy = :zero), "f"))
+    @test collect(r_curried[:f]) == [1, 0, 0, 4, 0]
+
+    @test_throws ErrorException fill_null(col("x"); strategy = :bogus)
+end
+
 @testset "coalesce" begin
     df = DataFrame((; a = [missing, 2, missing], b = [1, missing, missing], c = [9, 9, 9]))
 

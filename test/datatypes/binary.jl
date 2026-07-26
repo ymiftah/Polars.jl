@@ -19,6 +19,15 @@ end
     @test values[1] == UInt8[1, 2, 3]
     @test ismissing(values[2])
     @test values[3] == UInt8[255, 254]
+
+    # `eltype(s)` must include `Missing` whenever the series actually has nulls -- it used to be
+    # bare `Vector{UInt8}` regardless of null count, violating the `AbstractVector` eltype
+    # contract (indexing a null slot returns `missing`, which then doesn't match `eltype`).
+    @test eltype(s) == Union{Missing, Vector{UInt8}}
+    @test ismissing(s[2])
+
+    no_nulls = Series(:binary_col2, Vector{UInt8}[UInt8[1, 2], UInt8[3]])
+    @test eltype(no_nulls) == Vector{UInt8}
 end
 
 @testset "Binary DataFrame round-trip through parquet" begin
@@ -56,5 +65,12 @@ end
     empty_bytes = Vector{UInt8}[]
     s = Series(:empty_binary, empty_bytes)
     @test size(s) == (0,)
-    @test eltype(collect(s)) == Union{Missing, Vector{UInt8}}
+    @test eltype(s) == Vector{UInt8}
+    # `collect(s)`'s eltype matches `eltype(s)` itself (no `Missing` -- an empty column has
+    # trivially zero nulls) now that P1.2's bulk binary reader returns a concretely-typed `T[]`
+    # for the n==0 case, same as the numeric bulk path always has. This used to assert
+    # `Union{Missing, Vector{UInt8}}` instead, which was never anything but an accident of the
+    # old per-element fallback's empty-comprehension type-inference quirk -- it didn't match
+    # `eltype(s)` and no other empty-series test in this suite expects a spurious `Missing`.
+    @test eltype(collect(s)) == Vector{UInt8}
 end

@@ -1,9 +1,9 @@
 # `pivot()`: wrapping polars' native Rust Pivot DSL node
 
 ## Status
-Tier 1, Tier 2, curried forms, and `describe()` are all done and committed on `scan-parquet`
-(latest: `39091ff`, 6 commits ahead of `origin/scan-parquet`, not yet pushed). This plan covers
-`pivot()` — the last remaining Tier 3 item from the original roadmap.
+Tier 1, Tier 2, curried forms, and `describe()` are all done, committed, and pushed (originally on
+`scan-parquet`, latest `39091ff`; `scan-parquet` has since merged into `main` via PR #1). This plan
+covers `pivot()` — the last remaining Tier 3 item from the original roadmap.
 
 ## Key finding: this is not a from-scratch composition, it's a real Rust DSL node
 The original assessment ("no single Rust function exists for pivot, py-polars composes it in

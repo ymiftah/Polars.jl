@@ -88,8 +88,14 @@ function validitybuffer(vm::ValidityMap)
 end
 
 function format(T)
+    # `T <: Vector` is the real dispatch path for every list column (`Vector{Int}`,
+    # `Vector{Vector{Int}}`, ...): a `format(::Type{Vector{<:Any}})` method below looks like it
+    # should take priority for concrete `Vector{X}` types, but `Vector{<:Any}` collapses to the
+    # bare UnionAll `Vector`, so `Type{Vector{<:Any}}` only matches the literal unparameterized
+    # `Vector` value -- never a concrete `Vector{X}` -- and was silently dead code. This fallback
+    # is what every real list column actually goes through.
     if T <: Vector
-        return "+l"
+        return "+L" # large-list (Int64 offsets) -- see the arrowvector methods below for why
     end
 
     @assert !ismutabletype(T)
@@ -100,6 +106,19 @@ function format(T)
     throw("cannot find a arrow format for type $T")
 end
 format(::Type{MaybeMissing{T}}) where {T} = format(T)
+# `MaybeMissing{Any}` (i.e. `Union{Any, Union{Any,Missing}}`) collapses to the literal type `Any`
+# -- so without this method, `format(Any)` dispatches to the `MaybeMissing{T}` method above with
+# `T = Any` solved from that same collapse, whose body calls `format(Any)` again: unconditional
+# infinite recursion (a `StackOverflowError`, not a catchable error) for any column whose Tables.jl
+# element type is bare `Any` -- e.g. a `Vector{<:NamedTuple}` built from row literals with
+# differently-typed fields across rows, which never unify to a concrete common type. This
+# concrete signature is strictly more specific than the `Type{MaybeMissing{T}} where T` method
+# above and wins dispatch outright, breaking the self-match before it recurses.
+format(::Type{Any}) = error(
+    "cannot find an Arrow format for column type Any -- every element of a NamedTuple/struct " *
+        "field (or other column) must share one concrete Julia type; a mix of concretely-typed " *
+        "values and bare `missing` needs the column declared as `Union{T,Missing}`, not `Any`"
+)
 format(::Type{Nothing}) = "n"
 format(::Type{Bool}) = "b"
 format(::Type{Int8}) = "c"
@@ -113,11 +132,11 @@ format(::Type{UInt64}) = "L"
 format(::Type{Float16}) = "e"
 format(::Type{Float32}) = "f"
 format(::Type{Float64}) = "g"
-format(::Type{Vector{UInt8}}) = "z"
-format(::Type{Vector{<:Any}}) = "+l"
-format(::Type{String}) = "u"
+format(::Type{Vector{UInt8}}) = "Z" # large-binary (Int64 offsets)
+format(::Type{String}) = "U" # large-utf8 (Int64 offsets)
 format(::Type{DateTime}) = "tsn:"
 format(::Type{Date}) = "tdD"
+format(::Type{Dates.Time}) = "ttn"
 
 mutable struct ArrowArray
     vm::ValidityMap
@@ -131,11 +150,24 @@ mutable struct ArrowArray
     carrow_array::CArrowArray
 end
 
+"""
+    release_array!(array::ArrowArray)
+
+Unroots `array` (and, recursively, every descendant in `array.children`) from `LIVE_ARRAYS`. Must
+recurse for the same reason as `release_schema!` in `arrow/schema.jl`: each nesting level
+registers itself independently in `set_private_data!`, so a depth-≥2 array (list-of-list,
+list-of-struct, struct-of-struct) would otherwise leave its grandchildren permanently rooted.
+Guarded by `LIVE_ARRAYS_LOCK` since the release callback (`base_release_array`) can be invoked by
+Rust on whatever thread drops the array, racing a concurrent Julia-side release.
+"""
 function release_array!(array)
-    for child in array.children
-        delete!(LIVE_ARRAYS, child)
+    lock(LIVE_ARRAYS_LOCK) do
+        for child in array.children
+            release_array!(child)
+        end
+        delete!(LIVE_ARRAYS, array)
     end
-    return delete!(LIVE_ARRAYS, array)
+    return nothing
 end
 
 function base_release_array(carray_ptr::Ptr{CArrowArray})
@@ -166,9 +198,10 @@ function set_private_data!(array::ArrowArray)
         base_release_ptr,
         pointer_from_objref(array),
     )
-    @assert !haskey(LIVE_ARRAYS, array)
-
-    LIVE_ARRAYS[array] = nothing
+    lock(LIVE_ARRAYS_LOCK) do
+        @assert !haskey(LIVE_ARRAYS, array)
+        LIVE_ARRAYS[array] = nothing
+    end
     return nothing
 end
 
@@ -217,6 +250,9 @@ end
 
 "Holds references to the live arrays whose ownership has been given through ffi."
 const LIVE_ARRAYS = IdDict{ArrowArray, Nothing}()
+"""Guards `LIVE_ARRAYS`: the release callback (`base_release_array`) can be invoked by Rust on
+whatever thread drops the array, racing a concurrent Julia-side insert/release."""
+const LIVE_ARRAYS_LOCK = ReentrantLock()
 
 arrowvector(v::Vector{T}) where {T <: PhysicalDType} =
     ArrowArray(ValidityMap(v), [v], [])
@@ -245,18 +281,31 @@ function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{Dates.Date}}}
     return ArrowArray(ValidityMap(v), Vector[values])
 end
 
+function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{Dates.Time}, Dates.Time}}
+    # time-of-day is stored as nanoseconds since midnight (arrow time64, format "ttn"), matching
+    # polars' `Time`; see the DateTime method above for why missing entries can be mapped to 0.
+    # NB: `Dates.value(t)` is the *total* nanoseconds; `Dates.Nanosecond(t)` would be the 0-999
+    # nanosecond component accessor instead.
+    values = map(t -> ismissing(t) ? zero(Int64) : Int64(Dates.value(t)), v)
+    return ArrowArray(ValidityMap(v), Vector[values])
+end
+
 function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{String}, String}}
-    byte_lengths = map(x -> ismissing(x) ? zero(UInt32) : UInt32(sizeof(x)), v)
+    # `format(String) == "U"` (large-utf8) needs Int64 offsets -- a plain `UInt32` offset here
+    # would silently wrap (`cumsum!` overflow, corrupting every offset past the wraparound point)
+    # once the column's total byte length crosses 4 GiB. Int64 offsets have no such practical
+    # limit.
+    byte_lengths = map(x -> ismissing(x) ? zero(Int64) : Int64(sizeof(x)), v)
 
     # The offsets buffer contains length + 1 signed integers (either 32-bit or 64-bit, depending on the logical type),
     # which encode the start position of each slot in the data buffer.
     # The length of the value in each slot is computed using the difference between
     # the offset at that slot’s index and the subsequent offset.
-    offsets = Vector{UInt32}(undef, length(v) + 1)
+    offsets = Vector{Int64}(undef, length(v) + 1)
 
     # Generally the first slot in the offsets array is 0, and the last slot is the length of the values array.
     # When serializing this layout, we recommend normalizing the offsets to start at 0.
-    offsets[begin] = zero(UInt32)
+    offsets[begin] = zero(Int64)
     @views cumsum!(offsets[(begin + 1):end], byte_lengths[begin:end])
 
     value_buffer = Vector{UInt8}(undef, sum(byte_lengths))
@@ -275,14 +324,16 @@ end
 # Binary (Vector{UInt8}) columns -- structurally identical to String above (offset+data buffers),
 # just with bytes already raw (no codeunits conversion) and length instead of sizeof. Without this
 # method, Vector{UInt8}-element columns fall through to the generic Vector{<:Vector{T}} methods
-# below (T=UInt8 unifies), which build a "+l" list-shaped array while the schema declares "z"
-# (binary) -- a structural mismatch the Rust-side FFI import rejects. This method's fixed bound is
-# more specific than the generic methods' free `T`, so it wins dispatch cleanly.
+# below (T=UInt8 unifies), which build a "+L" list-shaped array while the schema declares "Z"
+# (large-binary) -- a structural mismatch the Rust-side FFI import rejects. This method's fixed
+# bound is more specific than the generic methods' free `T`, so it wins dispatch cleanly.
 function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{Vector{UInt8}}, Vector{UInt8}}}
-    byte_lengths = map(x -> ismissing(x) ? zero(UInt32) : UInt32(length(x)), v)
+    # Int64 offsets to match `format(Vector{UInt8}) == "Z"` (large-binary) -- see the String
+    # method above for why a 32-bit offset would be unsafe.
+    byte_lengths = map(x -> ismissing(x) ? zero(Int64) : Int64(length(x)), v)
 
-    offsets = Vector{UInt32}(undef, length(v) + 1)
-    offsets[begin] = zero(UInt32)
+    offsets = Vector{Int64}(undef, length(v) + 1)
+    offsets[begin] = zero(Int64)
     @views cumsum!(offsets[(begin + 1):end], byte_lengths[begin:end])
 
     value_buffer = Vector{UInt8}(undef, sum(byte_lengths))
@@ -301,24 +352,43 @@ end
 """
     arrowvector(v::Vector{<:Vector})::ArrowArray
 
-Builds a `"+l"`-format (list) `ArrowArray`: an `Int32` offsets buffer (length `length(v)+1`,
-cumulative sublist lengths) plus one recursive child array holding all sublists concatenated
-end-to-end. `missing` sublists contribute a zero-length span (validity is tracked separately by
-the `ValidityMap`, matching the convention already used for `DateTime`/`Date` above).
+Builds a `"+L"`-format (large-list) `ArrowArray`: an `Int64` offsets buffer (length
+`length(v)+1`, cumulative sublist lengths) plus one recursive child array holding all sublists
+concatenated end-to-end. `missing` sublists contribute a zero-length span (validity is tracked
+separately by the `ValidityMap`, matching the convention already used for `DateTime`/`Date`
+above). Int64 (rather than the plain list format's Int32) offsets avoid a silent `cumsum!`
+overflow once the total flattened element count crosses 2^31 -- see the same reasoning on the
+String/binary `arrowvector` methods above.
 """
 function arrowvector(v::Vector{<:Vector{T}}) where {T}
-    offsets = Vector{Int32}(undef, length(v) + 1)
-    offsets[begin] = zero(Int32)
+    offsets = Vector{Int64}(undef, length(v) + 1)
+    offsets[begin] = zero(Int64)
     @views cumsum!(offsets[(begin + 1):end], length.(v))
-    flattened = reduce(vcat, v; init = T[])
+    # `reduce(vcat, v; init = T[])` degrades to an O(n^2) left-fold concatenation -- it misses
+    # Base's optimized single-allocation `vcat(v...)` since it goes through the `init` keyword.
+    # The cumulative offsets just computed already give the total flattened length, so preallocate
+    # once and copy each sublist into place instead.
+    flattened = Vector{T}(undef, Int(offsets[end]))
+    i = 1
+    for x in v
+        copyto!(flattened, i, x, 1, length(x))
+        i += length(x)
+    end
     return ArrowArray(ValidityMap(v), Vector[offsets], [arrowvector(flattened)])
 end
 function arrowvector(v::Vector{S}) where {T, S <: MaybeMissing{Vector{T}}}
     lengths = map(x -> ismissing(x) ? 0 : length(x), v)
-    offsets = Vector{Int32}(undef, length(v) + 1)
-    offsets[begin] = zero(Int32)
+    offsets = Vector{Int64}(undef, length(v) + 1)
+    offsets[begin] = zero(Int64)
     @views cumsum!(offsets[(begin + 1):end], lengths)
-    flattened = reduce(vcat, (ismissing(x) ? T[] : x for x in v); init = T[])
+    # See the non-missing method above for why this avoids `reduce(vcat, ...; init = T[])`.
+    flattened = Vector{T}(undef, Int(offsets[end]))
+    i = 1
+    for x in v
+        ismissing(x) && continue
+        copyto!(flattened, i, x, 1, length(x))
+        i += length(x)
+    end
     return ArrowArray(ValidityMap(v), Vector[offsets], [arrowvector(flattened)])
 end
 
@@ -338,12 +408,12 @@ end
     column_schema(name, type)::ArrowSchema
 
 Recursively builds the (possibly nested) `ArrowSchema` for a column of the given Julia element
-`type`, attaching a child schema for `List` (`"+l"`) and one per field for `Struct` (`"+s"`)
+`type`, attaching a child schema for `List` (`"+L"`) and one per field for `Struct` (`"+s"`)
 columns -- `format(type)` alone only reports the outer shape, not its children.
 """
 function column_schema(name, type)
     fmt = format(type)
-    if fmt == "+l"
+    if fmt == "+L"
         T = nonmissingtype(type)
         return ArrowSchema(; format = fmt, name = string(name), children = [column_schema("item", eltype(T))])
     elseif fmt == "+s"

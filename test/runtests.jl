@@ -1,4 +1,4 @@
-using Polars, Test, Dates, Tables
+using Polars, Test, Dates, Tables, Statistics
 
 include("fixtures.jl")
 
@@ -49,9 +49,13 @@ include("fixtures.jl")
     include("expr/is_unique_dup.jl")
     include("expr/sample.jl")
     include("expr/curried_forms.jl")
+    include("expr/selectors.jl")
+    include("expr/meta.jl")
 
     include("datatypes/strings.jl")
     include("datatypes/datetimes.jl")
+    include("datatypes/times.jl")
+    include("datatypes/durations.jl")
     include("datatypes/timezones.jl")
     include("datatypes/lists.jl")
     include("datatypes/structs.jl")
@@ -60,4 +64,5 @@ include("fixtures.jl")
     include("datatypes/list_struct_write.jl")
 
     include("misc.jl")
+    include("misc_ffi_safety.jl")
 end

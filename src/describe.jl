@@ -60,5 +60,3 @@ function describe(df::DataFrame; percentiles::AbstractVector{<:Real} = [0.25, 0.
     table = merge((; statistic = stat_names), map(collect, Tables.columntable(stats_df)))
     return DataFrame(table)
 end
-
-export describe

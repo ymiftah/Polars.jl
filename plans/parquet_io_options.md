@@ -1,5 +1,14 @@
 # Parquet IO options: scan_parquet / read_parquet / write_parquet / sink_parquet
 
+## Status
+
+Done. `scan_parquet`/`read_parquet` expose `n_rows`, `row_index_name`/`row_index_offset`,
+`parallel`, `low_memory`, `rechunk`, `cache`, `glob`, `use_statistics`, `allow_missing_columns`,
+`include_file_paths`, `hive_partitioning`; `write_parquet`/`sink_parquet` expose `compression`,
+`compression_level`, `statistics`, `row_group_size`, `data_page_size` (`sink_parquet` additionally
+`mkdir`/`maintain_order`). `read_parquet` is `collect ∘ scan_parquet`, as planned. Covered by
+`test/lazyframe/scan_parquet.jl`/`test_porting.md`'s Phase 4.
+
 ## Context
 Every parquet reader/writer in this package currently hardcodes `Default::default()` for its
 polars options struct on the Rust side and exposes only a bare `path` on the Julia side

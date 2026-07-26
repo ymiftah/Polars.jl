@@ -2,20 +2,33 @@ module Lists
 using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
 
 @generate_expr_fns begin
-    gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths)
-    gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max)
-    gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min)
-    gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max)
-    gen_impl_expr_list!(polars_expr_list_arg_min, ListNameSpace::arg_min)
-    gen_impl_expr_list!(polars_expr_list_sum, ListNameSpace::sum)
-    gen_impl_expr_list!(polars_expr_list_mean, ListNameSpace::mean)
-    gen_impl_expr_list!(polars_expr_list_reverse, ListNameSpace::reverse)
-    gen_impl_expr_list!(polars_expr_list_unique, ListNameSpace::unique)
-    gen_impl_expr_list!(polars_expr_list_unique_stable, ListNameSpace::unique_stable)
-    gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first)
-    gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last)
+    gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths, "Length of each list in `expr` (`null` list entries count, and a `null` list itself gives a `null` length -- an empty list gives `0`).")
+    gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max, "Maximum value within each list of `expr`.")
+    gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min, "Minimum value within each list of `expr`.")
+    gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max, "Index of the maximum value within each list of `expr`.")
+    gen_impl_expr_list!(polars_expr_list_arg_min, ListNameSpace::arg_min, "Index of the minimum value within each list of `expr`.")
+    gen_impl_expr_list!(polars_expr_list_sum, ListNameSpace::sum, "Sum of the values within each list of `expr`.")
+    gen_impl_expr_list!(polars_expr_list_mean, ListNameSpace::mean, "Mean of the values within each list of `expr`.")
+    gen_impl_expr_list!(polars_expr_list_reverse, ListNameSpace::reverse, "Reverses the element order within each list of `expr` (the list count/row order is unchanged -- compare the top-level [`reverse`](@ref), which reverses row order).")
+    gen_impl_expr_list!(polars_expr_list_unique, ListNameSpace::unique, "Distinct elements within each list of `expr` (order not guaranteed) -- see [`unique_stable`](@ref) to preserve first-occurrence order.")
+    gen_impl_expr_list!(polars_expr_list_unique_stable, ListNameSpace::unique_stable, "Like [`unique`](@ref), but preserves each element's first-occurrence order within the list (more expensive).")
+    gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first, "First element of each list in `expr`.")
+    gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last, "Last element of each list in `expr`.")
+end
 
-    gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head)
+# `head` is pulled out of the `@generate_expr_fns` block (rather than generated via
+# `gen_impl_expr_binary_list!`, like the other binary ops above) because it collides with
+# `Polars`'s own top-level `head` (for `DataFrame`/`LazyFrame`) -- not a Base name, so the macro's
+# own Base-collision check can't catch it, and it must never be exported: it's designed for
+# qualified use (`Lists.head`), matching `get`/`contains` below.
+"""
+    head(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
+
+First `n` elements of each list in `expr` (fewer if the list is shorter than `n`).
+"""
+function head(a::Expr, b::Expr)
+    out = API.polars_expr_list_head(a, b)
+    return Expr(out)
 end
 
 """
@@ -62,5 +75,7 @@ Curried form of [`contains`](@ref) for use with `|>`.
 """
 contains(other; nulls_equal::Bool = true) = expr -> contains(expr, convert(Expr, other); nulls_equal)
 
-export get, contains, head
+# `get`/`contains`/`head` are intentionally not exported -- they collide with
+# `Base.get`/`Base.contains`/`Polars.head` respectively, and are designed for qualified use
+# (`Lists.get`, etc.); `using Polars.Lists` would otherwise clash with those.
 end # module Lists
