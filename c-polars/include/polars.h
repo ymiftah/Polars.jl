@@ -309,9 +309,9 @@ const struct polars_error_t *polars_dataframe_upsample(struct polars_dataframe_t
  * `plans/definitive_guide_gap_closure.md`).
  */
 const struct polars_error_t *polars_dataframe_hstack(struct polars_dataframe_t *df,
-                                                      struct polars_series_t *const *series,
-                                                      uintptr_t n,
-                                                      struct polars_dataframe_t **out);
+                                                     struct polars_series_t *const *series,
+                                                     uintptr_t n,
+                                                     struct polars_dataframe_t **out);
 
 /**
  * Stacks `other`'s rows beneath `df`'s. `vstack(&self, other: &DataFrame)` only reads both
@@ -320,8 +320,8 @@ const struct polars_error_t *polars_dataframe_hstack(struct polars_dataframe_t *
  * `other` surfaces as a clean `PolarsError`, not a panic (verified live).
  */
 const struct polars_error_t *polars_dataframe_vstack(struct polars_dataframe_t *df,
-                                                      struct polars_dataframe_t *other,
-                                                      struct polars_dataframe_t **out);
+                                                     struct polars_dataframe_t *other,
+                                                     struct polars_dataframe_t **out);
 
 /**
  * Transposes rows and columns. Upstream `transpose(&mut self, ...)` needs `&mut self` (it
@@ -346,12 +346,12 @@ const struct polars_error_t *polars_dataframe_vstack(struct polars_dataframe_t *
  * clean `PolarsError` there (verified live).
  */
 const struct polars_error_t *polars_dataframe_transpose(struct polars_dataframe_t *df,
-                                                         const uint8_t *keep_names_as,
-                                                         uintptr_t keep_names_as_len,
-                                                         const uint8_t *const *new_col_names,
-                                                         const uintptr_t *new_col_names_lens,
-                                                         uintptr_t n_new_col_names,
-                                                         struct polars_dataframe_t **out);
+                                                        const uint8_t *keep_names_as,
+                                                        uintptr_t keep_names_as_len,
+                                                        const uint8_t *const *new_col_names,
+                                                        const uintptr_t *new_col_names_lens,
+                                                        uintptr_t n_new_col_names,
+                                                        struct polars_dataframe_t **out);
 
 void polars_lazy_frame_destroy(struct polars_lazy_frame_t *df);
 
@@ -613,12 +613,12 @@ const struct polars_error_t *polars_lazy_frame_unpivot(struct polars_lazy_frame_
                                                        struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_unnest(struct polars_lazy_frame_t *lf,
-                                                       const uint8_t *const *names,
-                                                       const uintptr_t *lens,
-                                                       uintptr_t n,
-                                                       const uint8_t *separator,
-                                                       uintptr_t separator_len,
-                                                       struct polars_lazy_frame_t **out);
+                                                      const uint8_t *const *names,
+                                                      const uintptr_t *lens,
+                                                      uintptr_t n,
+                                                      const uint8_t *separator,
+                                                      uintptr_t separator_len,
+                                                      struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_pivot(
     struct polars_lazy_frame_t *lf,
@@ -1163,25 +1163,25 @@ const struct polars_error_t *polars_expr_dt_strftime(const struct polars_expr_t 
                                                      const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_dt_total_days(const struct polars_expr_t *a,
-                                                       bool fractional);
+                                                      bool fractional);
 
 const struct polars_expr_t *polars_expr_dt_total_hours(const struct polars_expr_t *a,
-                                                        bool fractional);
+                                                       bool fractional);
 
 const struct polars_expr_t *polars_expr_dt_total_minutes(const struct polars_expr_t *a,
-                                                          bool fractional);
+                                                         bool fractional);
 
 const struct polars_expr_t *polars_expr_dt_total_seconds(const struct polars_expr_t *a,
-                                                          bool fractional);
+                                                         bool fractional);
 
 const struct polars_expr_t *polars_expr_dt_total_milliseconds(const struct polars_expr_t *a,
-                                                               bool fractional);
+                                                              bool fractional);
 
 const struct polars_expr_t *polars_expr_dt_total_microseconds(const struct polars_expr_t *a,
-                                                               bool fractional);
+                                                              bool fractional);
 
 const struct polars_expr_t *polars_expr_dt_total_nanoseconds(const struct polars_expr_t *a,
-                                                              bool fractional);
+                                                             bool fractional);
 
 const struct polars_error_t *polars_expr_struct_field_by_name(const struct polars_expr_t *a,
                                                               const uint8_t *name,
@@ -1206,34 +1206,34 @@ bool polars_expr_meta_has_multiple_outputs(const struct polars_expr_t *expr);
 const struct polars_expr_t *polars_expr_meta_undo_aliases(const struct polars_expr_t *expr);
 
 const struct polars_error_t *polars_expr_meta_output_name(const struct polars_expr_t *expr,
-                                                           const void *user,
-                                                           IOCallback callback);
+                                                          const void *user,
+                                                          IOCallback callback);
 
 const struct polars_error_t *polars_expr_meta_tree_format(const struct polars_expr_t *expr,
-                                                           bool display_as_dot,
-                                                           const void *user,
-                                                           IOCallback callback);
+                                                          bool display_as_dot,
+                                                          const void *user,
+                                                          IOCallback callback);
 
 uintptr_t polars_expr_meta_root_names_len(const struct polars_expr_t *expr);
 
 const struct polars_error_t *polars_expr_meta_root_names_get(const struct polars_expr_t *expr,
-                                                              uintptr_t index,
-                                                              const void *user,
-                                                              IOCallback callback);
+                                                             uintptr_t index,
+                                                             const void *user,
+                                                             IOCallback callback);
 
 const struct polars_expr_t *polars_expr_selector_all(void);
 
 const struct polars_expr_t *polars_expr_selector_empty(void);
 
 const struct polars_error_t *polars_expr_selector_by_name(const uint8_t *const *names,
-                                                           const uintptr_t *lens,
-                                                           uintptr_t n,
-                                                           bool strict,
-                                                           const struct polars_expr_t **out);
+                                                          const uintptr_t *lens,
+                                                          uintptr_t n,
+                                                          bool strict,
+                                                          const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_selector_by_index(const int64_t *indices,
-                                                           uintptr_t n,
-                                                           bool strict);
+                                                          uintptr_t n,
+                                                          bool strict);
 
 typedef enum polars_selector_match_kind_t {
   PolarsSelectorMatchKindRegex,
@@ -1243,9 +1243,9 @@ typedef enum polars_selector_match_kind_t {
 } polars_selector_match_kind_t;
 
 const struct polars_error_t *polars_expr_selector_matches(enum polars_selector_match_kind_t kind,
-                                                           const uint8_t *pattern,
-                                                           uintptr_t len,
-                                                           const struct polars_expr_t **out);
+                                                          const uint8_t *pattern,
+                                                          uintptr_t len,
+                                                          const struct polars_expr_t **out);
 
 typedef enum polars_dtype_selector_kind_t {
   PolarsDtypeSelectorKindNumeric,
@@ -1266,27 +1266,27 @@ typedef enum polars_dtype_selector_kind_t {
   PolarsDtypeSelectorKindArray,
 } polars_dtype_selector_kind_t;
 
-const struct polars_expr_t *polars_expr_selector_dtype_simple(enum polars_dtype_selector_kind_t kind);
+const struct polars_expr_t *polars_expr_selector_dtype_simple(
+    enum polars_dtype_selector_kind_t kind);
 
-const struct polars_error_t *polars_expr_selector_dtype_any_of(const enum polars_value_type_t *value_types,
-                                                                uintptr_t n,
-                                                                const struct polars_expr_t **out);
+const struct polars_error_t *polars_expr_selector_dtype_any_of(
+    const enum polars_value_type_t *value_types, uintptr_t n, const struct polars_expr_t **out);
 
 const struct polars_error_t *polars_expr_selector_union(const struct polars_expr_t *a,
-                                                         const struct polars_expr_t *b,
-                                                         const struct polars_expr_t **out);
+                                                        const struct polars_expr_t *b,
+                                                        const struct polars_expr_t **out);
 
 const struct polars_error_t *polars_expr_selector_difference(const struct polars_expr_t *a,
-                                                              const struct polars_expr_t *b,
-                                                              const struct polars_expr_t **out);
-
-const struct polars_error_t *polars_expr_selector_exclusive_or(const struct polars_expr_t *a,
-                                                                const struct polars_expr_t *b,
-                                                                const struct polars_expr_t **out);
-
-const struct polars_error_t *polars_expr_selector_intersect(const struct polars_expr_t *a,
                                                              const struct polars_expr_t *b,
                                                              const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_selector_exclusive_or(const struct polars_expr_t *a,
+                                                               const struct polars_expr_t *b,
+                                                               const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_selector_intersect(const struct polars_expr_t *a,
+                                                            const struct polars_expr_t *b,
+                                                            const struct polars_expr_t **out);
 
 void polars_series_destroy(struct polars_series_t *series);
 

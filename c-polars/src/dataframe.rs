@@ -938,7 +938,10 @@ pub unsafe extern "C" fn polars_lazy_frame_unnest(
     // `LazyFrame::unnest` is infallible (`-> Self`) -- the strict-by-name selector below still
     // surfaces a nonexistent-column or non-struct-dtype error, just deferred until `collect`
     // resolves the schema (see the `guard_error`-wrapped collect path).
-    let result = (*lf).inner.clone().unnest(selector_by_name(names, true), separator);
+    let result = (*lf)
+        .inner
+        .clone()
+        .unnest(selector_by_name(names, true), separator);
     *out = make_lazy_frame(result);
     std::ptr::null()
 }
