@@ -18,7 +18,14 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   `Vector{Union{Missing,Vector{T}}}` case) for List columns and `Vector{<:NamedTuple}` for Struct
   columns, alongside the scalar/fixed-width types it already supported
   (`Vector{Int}`, `Vector{String}`, `Vector{Date}`, `Vector{DateTime}`, etc.). See the examples in
-  [Structs](@ref).
+  [Struct](@ref expr-struct).
+
+- **A `Decimal`-typed column can be queried/cast (`cast_decimal`, `Selectors.decimal()`) but not
+  materialized back into Julia.** Reading its values (`df[:col]`, or any path that goes through
+  `parse_format` in `src/arrow/schema.jl`) raises `"unknown schema format d:precision,scale"` —
+  there's no Julia-side decimal type this package maps it to yet, unlike every other dtype in
+  [Data types](@ref). Keep decimal columns on the lazy/query side (cast to `Float64`/`String`
+  before collecting if you need the values in Julia).
 
 ## Date/time limitations
 
@@ -28,6 +35,25 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   to report — the actual resolution is re-derived at runtime from the underlying polars value
   regardless), so `collect`, `copy`, and broadcasts all work directly. No workaround needed
   anymore.
+
+- **A `lit(dt::DateTime)` literal is built at nanosecond resolution and inherits that
+  representation's ~1678–2262 range limit.** `lit(DateTime(2300, 1, 1))` raises `InexactError`
+  (from `Dates.jl`'s own checked `Millisecond` → `Nanosecond` conversion, thrown before the value
+  ever reaches polars) rather than silently producing a wrong value. This is the same limit that
+  already applies to any nanosecond-precision `DateTime` column built from a plain Julia
+  `Vector{DateTime}` (`arrowvector` in `src/arrow/array.jl` uses the identical conversion) — not a
+  new gap introduced by the `lit`/`convert(Expr, ::DateTime)` overload, just newly reachable
+  through it. `lit(d::Date)` has no equivalent practical limit (`Int32` days-since-epoch covers a
+  range of several million years); `lit(t::Dates.Time)` is nanoseconds-since-midnight, which is
+  bounded by a single day and never overflows `Int64`.
+
+- **A `:ns`-resolution `DateTime` literal compares transparently against a column at a different
+  native resolution (e.g. `:us`), but `join`ing on mismatched resolutions errors.** A `filter`/`==`
+  comparison between a `lit(dt::DateTime)` (always `:ns`) and a `:us` column works with no
+  extra step — polars aligns the units itself. `innerjoin`/etc. on a Datetime key does not do this
+  alignment: joining two frames whose Datetime key columns are at different `time_unit`s raises a
+  `PolarsError` ("datatypes of join keys don't match") rather than silently producing wrong
+  matches — cast one side to the other's resolution first (`cast_datetime(expr; time_unit)`).
 
 ## Expression/function limitations
 
@@ -39,14 +65,25 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   been renamed to `prod`, an exported Base name — plain `prod(col("x"))` now works with no
   qualification.
 
-- **`Base.tail(df, n)` and `Base.rename(df, existing, new)` also need explicit qualification**,
-  for the same reason as `lt` above — bare `tail(df, 2)` / `rename(df, ...)` raise
-  `UndefVarError`. `unique`, `drop`, `drop_nulls`, `with_row_index`, `explode`, `unpivot`, and
-  `pivot` do **not** have this problem and can be called bare. See [Manipulation](@ref).
+- ~~`Base.tail(df, n)` and `Base.rename(df, existing, new)` need explicit qualification.`~~
+  **Resolved.** Both now have an explicit `import Base: tail`/`import Base: rename` alongside their
+  definitions specifically so the bare, unqualified form works after `using Polars` — same as
+  `unique`, `drop`, `drop_nulls`, `with_row_index`, `explode`, `unpivot`, `transpose`, and `pivot`.
+  See [DataFrame](@ref).
+
+- **`Polars.Meta.is_literal` reports `false` for a `Date`/`Time`/`DateTime` literal**
+  (`lit(Date(2024, 1, 1))`, etc.), diverging from py-polars. These are built as
+  `Cast(Literal(integer))` under the hood (there's no dedicated FFI primitive for a typed
+  date/time literal — see [Literals & casting](@ref)), not a genuine `Literal` node, so
+  `is_literal` correctly reports what the expression tree actually contains. This is cosmetic
+  only: polars' constant-folding optimizer collapses `Cast(Literal(...))` before execution
+  regardless, so it has no effect on query results or performance.
 
 ## Feature coverage
 
 - Some polars capabilities are behind Cargo features that aren't enabled by default (see `c-polars/Cargo.toml`). If you hit a "activate 'X' feature" panic message, the feature needs to be added there and `c-polars/` rebuilt.
+
+- **`Selectors.array()` errors in this build.** `dtype-array` is not in `c-polars/Cargo.toml`'s feature list, so upstream's own `DataTypeSelector::Array` matcher would compile to its safe `#[cfg(not(feature = "dtype-array"))]` fallback (always `false`) rather than a real dtype check — it would silently select *zero* columns rather than crash. To avoid that footgun (a selector that can never match anything, with no signal), `Selectors.array()` raises an `ErrorException` with a clear message instead of returning such a selector. Not planned to be fixed by enabling the feature in this phase (that would also force a full dependency rebuild), and this package has no write-side support for constructing an Array-dtype column at all yet either — `Selectors.list()`/`struct_()`/`nested()`/etc. are unaffected and work correctly.
 
 - The test suite has gaps — some operations have shipped with zero automated test coverage. Verify new operations end-to-end in a live session before assuming they work.
 

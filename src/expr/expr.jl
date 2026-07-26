@@ -84,6 +84,33 @@ function Base.convert(::Type{Expr}, v::AbstractVector)
     return Expr(out)
 end
 
+# Date/Time/DateTime literals: there is no dedicated `polars_expr_literal_date`/etc. FFI
+# primitive, so these compose the existing integer-literal + cast primitives instead, reusing the
+# exact epoch-math formulas `arrowvector` (src/arrow/array.jl) already uses to encode these types
+# for the Arrow C Data Interface -- same reference points, same signed-ness, same units.
+#
+# One consequence of building these as `cast(lit(integer), dtype)` rather than a genuine literal
+# node: `Polars.Meta.is_literal` reports `false` for them (a `Cast(Literal(...))` tree, not a
+# `Literal` node) -- cosmetic only, since polars' constant-folding optimizer collapses
+# `Cast(Literal(...))` before execution regardless. See docs/src/limitations.md.
+function Base.convert(::Type{Expr}, d::Date)
+    # days since 1970-01-01, matching arrowvector(::Vector{Date})'s Int32 conversion exactly.
+    days = Int32(Dates.value(d - Date(1970, 01, 01)))
+    return cast(convert(Expr, days), Date)
+end
+function Base.convert(::Type{Expr}, t::Dates.Time)
+    # nanoseconds since midnight, matching arrowvector(::Vector{Dates.Time})'s Int64 conversion.
+    ns = Int64(Dates.value(t))
+    return cast(convert(Expr, ns), Dates.Time)
+end
+function Base.convert(::Type{Expr}, dt::DateTime)
+    # nanoseconds since 1970-01-01, matching arrowvector(::Vector{DateTime})'s Int64 conversion --
+    # built at :ns, so this inherits that path's ~1678-2262 range limit (Int64 nanoseconds
+    # overflows outside that range). See docs/src/limitations.md.
+    ns = Dates.Nanosecond(dt - DateTime(1970, 01, 01)).value
+    return cast_datetime(convert(Expr, ns); time_unit = :ns, time_zone = nothing)
+end
+
 """Derived comparison DSL primitives -- polars' C ABI only wraps `eq`/`lt`/`gt` directly (see
 `@generate_expr_fns` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
 propagation correctly (`not` of a null is null, matching what `<=`/`>=`/`!=` must do when an
@@ -225,6 +252,24 @@ end
 suffix(suf) = Base.Fix2(suffix, suf)
 
 """
+    to_lowercase(expr::Polars.Expr)::Polars.Expr
+
+Lowercases the name of the resulting expression.
+"""
+function to_lowercase(expr)
+    return Expr(polars_expr_to_lowercase(expr))
+end
+
+"""
+    to_uppercase(expr::Polars.Expr)::Polars.Expr
+
+Uppercases the name of the resulting expression.
+"""
+function to_uppercase(expr)
+    return Expr(polars_expr_to_uppercase(expr))
+end
+
+"""
     lit(x)::Polars.Expr
 
 Transforms a literal value as an expression which will broadcast when used with other
@@ -235,35 +280,16 @@ function lit(v)
 end
 
 """
-    cast(expr::Polars.Expr, dtype::Type; time_unit::Symbol=:us,
-         time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
-    cast(dtype::Type; kwargs...)::Base.Callable
-
-Casts the series represented by the expression to the provided `dtype`. Supports `Missing`, the
-physical numeric types, `Bool`, `String`, `Vector{UInt8}` (Binary), `Date`, `Dates.Time`,
-`DateTime` (naive or timezone-aware -- see `time_unit`/`time_zone` below), and
-`Dates.Nanosecond`/`Dates.Microsecond`/`Dates.Millisecond` (Duration, resolution implied by the
-chosen `Period` subtype) -- `Categorical`, `Decimal`, `List`, and `Struct` need parameters this
-single-type-argument form can't carry; see [`cast_categorical`](@ref)/[`cast_decimal`](@ref) for
-those. Any other target raises an error. `time_unit`/`time_zone` only apply to a `DateTime`
-target (ignored otherwise): `time_unit` is one of `:ns`, `:us` (default), `:ms`; `time_zone` is
-`nothing` (default, naive) or an IANA time zone name.
+Maps a Julia type to its `polars_value_type_t` C enum code for a *plain, parameter-free* dtype
+match -- returns `nothing` if `dtype` isn't one of these. This deliberately excludes `DateTime` and
+the duration `Period` subtypes even though polars has dtypes for them: those need a time unit (and
+`DateTime` a time zone) that a bare `polars_value_type_t` code can't carry, so `cast` and
+[`Selectors.by_dtype`](@ref) each handle them separately (before/after calling this, respectively)
+rather than through this shared table. Single source of truth for the plain-dtype mapping, used by
+both.
 """
-function cast(
-        expr, dtype;
-        time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
-    )
-    if dtype == DateTime
-        return cast_datetime(expr; time_unit, time_zone)
-    elseif dtype == Dates.Nanosecond
-        return cast_duration(expr; time_unit = :ns)
-    elseif dtype == Dates.Microsecond
-        return cast_duration(expr; time_unit = :us)
-    elseif dtype == Dates.Millisecond
-        return cast_duration(expr; time_unit = :ms)
-    end
-
-    value_type = if dtype == Missing
+function _plain_value_type_code(dtype)
+    return if dtype == Missing
         PolarsValueTypeNull
     elseif dtype == Bool
         PolarsValueTypeBoolean
@@ -296,8 +322,41 @@ function cast(
     elseif dtype == Dates.Time
         PolarsValueTypeTime
     else
-        error("could not cast to type $dtype")
+        nothing
     end
+end
+
+"""
+    cast(expr::Polars.Expr, dtype::Type; time_unit::Symbol=:us,
+         time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
+    cast(dtype::Type; kwargs...)::Base.Callable
+
+Casts the series represented by the expression to the provided `dtype`. Supports `Missing`, the
+physical numeric types, `Bool`, `String`, `Vector{UInt8}` (Binary), `Date`, `Dates.Time`,
+`DateTime` (naive or timezone-aware -- see `time_unit`/`time_zone` below), and
+`Dates.Nanosecond`/`Dates.Microsecond`/`Dates.Millisecond` (Duration, resolution implied by the
+chosen `Period` subtype) -- `Categorical`, `Decimal`, `List`, and `Struct` need parameters this
+single-type-argument form can't carry; see [`cast_categorical`](@ref)/[`cast_decimal`](@ref) for
+those. Any other target raises an error. `time_unit`/`time_zone` only apply to a `DateTime`
+target (ignored otherwise): `time_unit` is one of `:ns`, `:us` (default), `:ms`; `time_zone` is
+`nothing` (default, naive) or an IANA time zone name.
+"""
+function cast(
+        expr, dtype;
+        time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
+    )
+    if dtype == DateTime
+        return cast_datetime(expr; time_unit, time_zone)
+    elseif dtype == Dates.Nanosecond
+        return cast_duration(expr; time_unit = :ns)
+    elseif dtype == Dates.Microsecond
+        return cast_duration(expr; time_unit = :us)
+    elseif dtype == Dates.Millisecond
+        return cast_duration(expr; time_unit = :ms)
+    end
+
+    value_type = _plain_value_type_code(dtype)
+    value_type === nothing && error("could not cast to type $dtype")
 
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_cast(expr, value_type, out)
@@ -531,7 +590,7 @@ end
     gen_impl_expr!(polars_expr_exp, Expr::exp, "`e` raised to each value of `expr`.")
 
     gen_impl_expr!(polars_expr_n_unique, Expr::n_unique, "Counts the number of distinct values in `expr` (`null` counts as one distinct value), one result per group (or a single overall count outside a `group_by`).")
-    gen_impl_expr!(polars_expr_unique, Expr::unique, "Returns the distinct values of `expr` (order not guaranteed), shortening the column. Inside `agg`, per-group distinct values are automatically collected into a `List` (see [Lists](@ref)) so the aggregation still produces one row per group.")
+    gen_impl_expr!(polars_expr_unique, Expr::unique, "Returns the distinct values of `expr` (order not guaranteed), shortening the column. Inside `agg`, per-group distinct values are automatically collected into a `List` (see [List](@ref expr-list)) so the aggregation still produces one row per group.")
     gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated, "Row-wise boolean flag: `true` for every occurrence of a value that appears more than once in `expr`. See [`is_unique`](@ref) for the complementary flag.")
     gen_impl_expr!(polars_expr_is_unique, Expr::is_unique, "Row-wise boolean flag: `true` for every value that appears exactly once in `expr`. See [`is_duplicated`](@ref) for the complementary flag.")
     gen_impl_expr!(polars_expr_count, Expr::count, "Counts the number of non-null values in `expr`, one result per group (or a single overall count outside a `group_by`). See [`null_count`](@ref) for the complementary count.")
@@ -545,10 +604,10 @@ end
     gen_impl_expr!(polars_expr_is_null, Expr::is_null, "Row-wise boolean flag: `true` where the value is `null`.")
     gen_impl_expr!(polars_expr_is_not_null, Expr::is_not_null, "Row-wise boolean flag: `true` where the value is not `null`.")
     gen_impl_expr!(polars_expr_null_count, Expr::null_count, "Counts the number of `null` values in `expr`, one result per group (or a single overall count outside a `group_by`). See [`count`](@ref) for the complementary count.")
-    gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans, "Removes `NaN` values from `expr`, shortening the column. Compare the frame-level `drop_nulls` (see [Manipulation](@ref)), which drops whole rows instead of individual values.")
-    gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls, "Removes `null` values from `expr`, shortening the column -- the expression-level counterpart to the frame-level `drop_nulls` (see [Manipulation](@ref)), which drops whole rows instead of individual values.")
+    gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans, "Removes `NaN` values from `expr`, shortening the column. Compare the frame-level `drop_nulls` (see [DataFrame](@ref)), which drops whole rows instead of individual values.")
+    gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls, "Removes `null` values from `expr`, shortening the column -- the expression-level counterpart to the frame-level `drop_nulls` (see [DataFrame](@ref)), which drops whole rows instead of individual values.")
 
-    gen_impl_expr!(polars_expr_implode, Expr::implode, "Collects every value of `expr` in the current context (or per group, inside `agg`) into a single `List` value (see [Lists](@ref)).")
+    gen_impl_expr!(polars_expr_implode, Expr::implode, "Collects every value of `expr` in the current context (or per group, inside `agg`) into a single `List` value (see [List](@ref expr-list)).")
     gen_impl_expr!(polars_expr_flatten, Expr::flatten, "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref).")
     gen_impl_expr!(polars_expr_reverse, Expr::reverse, "Reverses the row order of `expr`'s values.")
 
@@ -682,7 +741,7 @@ export clip
     replace(expr::Polars.Expr, old, new)::Polars.Expr
 
 Replaces values equal to `old` with the corresponding `new` value (`old`/`new` are typically
-list-typed expressions built via [`Lists.implode`](@ref)/[`implode`](@ref) for multi-value
+list-typed expressions built via [`implode`](@ref) for multi-value
 mappings). Values not found in `old` are left unchanged. Extends `Base.replace` — `isdefined(Base,
 :replace)` is `true`, matching the `Base.diff`/`Base.round`/`Base.log` precedent.
 """
@@ -737,18 +796,24 @@ import Statistics: mean, median, std, var, quantile
 
 """
     mean(expr::Polars.Expr)::Polars.Expr
-    median(expr::Polars.Expr)::Polars.Expr
 
-Arithmetic mean / median of the values. Extends `Statistics.mean`/`Statistics.median` (rather
-than the `@generate_expr_fns` block above, which would otherwise define brand-new top-level
-`mean`/`median` bindings that *look* like the Statistics stdlib functions but aren't actually
-the same generic -- so `using Statistics, Polars` would force callers to disambiguate with
-`Polars.mean`/`Statistics.mean` even though nothing about the two ever needs to differ). Adding
-an `Expr` method to the real `Statistics.mean`/`Statistics.median` instead means the two packages
-share one generic function with no clash, and this package still re-exports the name so plain
-`mean(col("x"))` works with just `using Polars` -- `using Statistics` is not required.
+Arithmetic mean of the values. Extends `Statistics.mean` (rather than the `@generate_expr_fns`
+block above, which would otherwise define a brand-new top-level `mean` binding that *looks* like
+the Statistics stdlib function but isn't actually the same generic -- so `using Statistics, Polars`
+would force callers to disambiguate with `Polars.mean`/`Statistics.mean` even though nothing about
+the two ever needs to differ). Adding an `Expr` method to the real `Statistics.mean` instead means
+the two packages share one generic function with no clash, and this package still re-exports the
+name so plain `mean(col("x"))` works with just `using Polars` -- `using Statistics` is not
+required. See [`median`](@ref) for the same story applied to the median.
 """
 Statistics.mean(expr::Expr) = Expr(API.polars_expr_mean(expr))
+
+"""
+    median(expr::Polars.Expr)::Polars.Expr
+
+Median of the values. Extends `Statistics.median` for the same reason [`mean`](@ref) extends
+`Statistics.mean` -- see its docstring.
+"""
 Statistics.median(expr::Expr) = Expr(API.polars_expr_median(expr))
 
 """
@@ -1332,6 +1397,12 @@ rank(; method::Symbol = :dense, descending::Bool = false) = expr -> rank(expr; m
 
 export rank
 
-export col, alias, prefix, suffix, lit, cast, when, element,
+export col, alias, prefix, suffix, to_lowercase, to_uppercase, lit, cast, when, element,
     cast_datetime, cast_duration, cast_decimal, cast_categorical,
-    Lists, Strings, Dt, Structs
+    Lists, Strings, Dt, Structs, Selectors
+# `Meta` (`src/expr/meta.jl`) is deliberately NOT exported here, unlike its siblings above --
+# `Base.Meta` is itself an *exported* Base submodule (`Base.isexported(Base, :Meta) == true`,
+# unlike the plain-function collisions `@generate_expr_fns` guards against elsewhere), so
+# `export Meta` here would make plain `using Polars` immediately ambiguous-error on the bare name
+# `Meta` in the importing module, not just risk shadowing it. Always reachable fully qualified as
+# `Polars.Meta.output_name(...)` etc., same as any non-exported submodule.

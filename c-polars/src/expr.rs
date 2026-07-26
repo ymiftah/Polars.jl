@@ -1,3 +1,7 @@
+use std::ffi::c_void;
+use std::io::Write;
+use std::sync::Arc;
+
 use polars::{lazy::dsl::string::StringNameSpace, lazy::dsl::ListNameSpace, prelude::*};
 use polars_core::series::ops::NullBehavior;
 use polars_ops::series::round::RoundMode;
@@ -11,8 +15,11 @@ use polars_plan::dsl::DataTypeExpr;
 use polars_plan::prelude::Literal;
 
 use crate::{
-    ffi_util::{read_bool_mask, read_exprs, read_names, read_opt_str, read_str},
-    make_error, polars_error_t,
+    ffi_util::{
+        read_bool_mask, read_exprs, read_i64_array, read_names, read_opt_str, read_str,
+        selector_by_name, IOCallback, UserIOCallback,
+    },
+    guard_error, make_error, polars_error_t,
     types::*,
     value::{polars_time_unit_t, polars_value_type_t},
 };
@@ -252,6 +259,22 @@ pub unsafe extern "C" fn polars_expr_suffix(
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_keep_name(expr: *const polars_expr_t) -> *const polars_expr_t {
     let aliased = (*expr).inner.clone().name().keep();
+    make_expr(aliased)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_to_lowercase(
+    expr: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let aliased = (*expr).inner.clone().name().to_lowercase();
+    make_expr(aliased)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_to_uppercase(
+    expr: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let aliased = (*expr).inner.clone().name().to_uppercase();
     make_expr(aliased)
 }
 
@@ -1126,6 +1149,10 @@ gen_impl_expr_dt!(polars_expr_dt_minute, DateLikeNameSpace::minute);
 gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second);
 gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday);
 gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day);
+// Both ungated in polars-plan (no `#[cfg]`) -- unlike the `total_*` family below, no
+// `dtype-duration` feature is needed for these two.
+gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date);
+gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time);
 
 macro_rules! gen_impl_expr_binary_dt {
     ($n: ident, $t: expr) => {
@@ -1219,6 +1246,51 @@ pub unsafe extern "C" fn polars_expr_dt_strftime(
     std::ptr::null()
 }
 
+/// `total_*` Duration-decomposition family (`total_days`/`total_hours`/`total_minutes`/
+/// `total_seconds`/`total_milliseconds`/`total_microseconds`/`total_nanoseconds`) -- each takes
+/// a `fractional` flag (whole-unit truncation vs. exact fractional value) and is otherwise
+/// identical in shape, so unlike `gen_impl_expr_dt!` above (no extra args) these get their own
+/// small macro rather than 7x hand-written boilerplate. Gated on `dtype-duration` in polars-plan
+/// (see c-polars/Cargo.toml and the gap-closure plan's Phase 5 sweep notes) -- confirmed already
+/// active via `dtype-slim` (part of the `polars` crate's own default features) before this task's
+/// Cargo.toml change, so this is belt-and-suspenders explicitness, not a functional fix (contrast
+/// `dtype-time`, which really was inactive on polars-ops until explicitly added).
+macro_rules! gen_impl_expr_dt_fractional {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            fractional: bool,
+        ) -> *const polars_expr_t {
+            let expr = $t((*a).inner.clone().dt(), fractional);
+            make_expr(expr)
+        }
+    };
+}
+
+gen_impl_expr_dt_fractional!(polars_expr_dt_total_days, DateLikeNameSpace::total_days);
+gen_impl_expr_dt_fractional!(polars_expr_dt_total_hours, DateLikeNameSpace::total_hours);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_minutes,
+    DateLikeNameSpace::total_minutes
+);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_seconds,
+    DateLikeNameSpace::total_seconds
+);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_milliseconds,
+    DateLikeNameSpace::total_milliseconds
+);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_microseconds,
+    DateLikeNameSpace::total_microseconds
+);
+gen_impl_expr_dt_fractional!(
+    polars_expr_dt_total_nanoseconds,
+    DateLikeNameSpace::total_nanoseconds
+);
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_struct_field_by_name(
     a: *const polars_expr_t,
@@ -1254,3 +1326,373 @@ pub unsafe extern "C" fn polars_expr_struct_rename_fields(
     *out = make_expr((*a).inner.clone().struct_().rename_fields(names));
     std::ptr::null()
 }
+
+// ------------------------------------------------------------------------------------------
+// Meta (`Expr.meta()` introspection namespace) -- see
+// `plans/definitive_guide_gap_closure.md`'s Phase 3 for the full design writeup. `.meta()`
+// consumes its receiver by value (`MetaNameSpace(pub(crate) Expr)`), so every function here
+// clones `(*expr).inner` first, same as the `.struct_()`/`.dt()` namespace functions above.
+// ------------------------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_is_column(expr: *const polars_expr_t) -> bool {
+    (*expr).inner.clone().meta().is_column()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_is_literal(
+    expr: *const polars_expr_t,
+    allow_aliasing: bool,
+) -> bool {
+    (*expr).inner.clone().meta().is_literal(allow_aliasing)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_has_multiple_outputs(expr: *const polars_expr_t) -> bool {
+    (*expr).inner.clone().meta().has_multiple_outputs()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_undo_aliases(
+    expr: *const polars_expr_t,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().meta().undo_aliases())
+}
+
+/// `output_name()` is fallible (`PolarsResult<PlSmallStr>`) -- e.g. a wildcard or a
+/// selector-expanded expression has no single well-defined output name. Written back through the
+/// shared `IOCallback` machinery, same convention as `polars_value_string_get`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_output_name(
+    expr: *const polars_expr_t,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    // guard_error-wrapped: unlike the infallible structural checks above (is_column/is_literal/...),
+    // output_name() resolves the expression's output field, which is closer to "execution" than pure
+    // node construction -- so a hypothetical internal upstream panic becomes a catchable error here
+    // rather than aborting the process across the FFI boundary.
+    guard_error(|| {
+        let name = tri!((*expr).inner.clone().meta().output_name());
+        let mut w = UserIOCallback(callback, user);
+        // write_all, not write: a single write() may report a short count and silently drop the tail.
+        match w.write_all(name.as_bytes()) {
+            Ok(()) => std::ptr::null(),
+            Err(err) => make_error(err),
+        }
+    })
+}
+
+/// Backs both `tree_format` (`display_as_dot = false`) and `show_graph` (`true`) via the single
+/// upstream `into_tree_formatter` code path. No schema is threaded through (`None`) -- unresolved
+/// column types show as untyped; a schema-aware overload is a plausible future enhancement, not
+/// blocking here.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_tree_format(
+    expr: *const polars_expr_t,
+    display_as_dot: bool,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    // guard_error-wrapped for the same reason as output_name above: into_tree_formatter resolves
+    // the expression tree for display, so guard against an internal upstream panic.
+    guard_error(|| {
+        let formatter = tri!((*expr)
+            .inner
+            .clone()
+            .meta()
+            .into_tree_formatter(display_as_dot, None));
+        let text = formatter.to_string();
+        let mut w = UserIOCallback(callback, user);
+        match w.write_all(text.as_bytes()) {
+            Ok(()) => std::ptr::null(),
+            Err(err) => make_error(err),
+        }
+    })
+}
+
+/// `root_names()` count + per-index `IOCallback` loop below. `root_names()` itself recomputes a
+/// fresh `Vec<PlSmallStr>` on every call (cheap, and the count is always small), so this pair
+/// recomputes it N+1 times across a full `_len` + N x `_get` loop -- an accepted, documented
+/// non-blocking perf micro-note from the gap-closure plan, not an oversight.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_root_names_len(expr: *const polars_expr_t) -> usize {
+    (*expr).inner.clone().meta().root_names().len()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_meta_root_names_get(
+    expr: *const polars_expr_t,
+    index: usize,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    // guard_error-wrapped for the same reason as output_name above: root_names() walks the resolved
+    // expression tree, so guard against an internal upstream panic.
+    guard_error(|| {
+        let names = (*expr).inner.clone().meta().root_names();
+        let Some(name) = names.get(index) else {
+            return make_error(format!(
+                "root_names index {index} out of bounds (len {})",
+                names.len()
+            ));
+        };
+        let mut w = UserIOCallback(callback, user);
+        match w.write_all(name.as_bytes()) {
+            Ok(()) => std::ptr::null(),
+            Err(err) => make_error(err),
+        }
+    })
+}
+
+// ------------------------------------------------------------------------------------------
+// Selectors (py-polars' `polars.selectors` / `cs.*`) -- see
+// `plans/definitive_guide_gap_closure.md`'s Phase 2 for the full design writeup. A `Selector` is
+// just another `Expr` variant (`Expr::Selector(Selector)`), so these functions reuse the same
+// `polars_expr_t` handle/destructor/error conventions as every other `Expr`-producing function
+// above -- no new opaque pointer type is introduced. The Julia-side `Polars.Selectors.Selector`
+// wrapper stays entirely on the Julia side (`struct Selector; expr::Expr; end`), just carrying
+// the `Expr` handle these functions hand back.
+// ------------------------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_selector_all() -> *const polars_expr_t {
+    make_expr(Expr::Selector(Selector::Wildcard))
+}
+
+/// `Selector::Empty` -- the identity element for the combinators below (`empty() | s == s`,
+/// `empty() & s == empty()`). Not reachable from the public `Selectors` surface on the Julia side
+/// in this first cut (see the gap-closure plan's Phase 2 scope note); kept here as a primitive
+/// since it is the natural base case underlying `Selector`'s own algebra.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_selector_empty() -> *const polars_expr_t {
+    make_expr(Expr::Selector(Selector::Empty))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_selector_by_name(
+    names: *const *const u8,
+    lens: *const usize,
+    n: usize,
+    strict: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let names = tri!(read_names(names, lens, n));
+    *out = make_expr(Expr::Selector(selector_by_name(names, strict)));
+    std::ptr::null()
+}
+
+/// `Selector::ByIndex` -- 0-based upstream (negative indices already count back from the end via
+/// `negative_to_usize` inside `into_columns`, so no extra Rust-side handling is needed here). The
+/// Julia-facing `Selectors.by_index` is 1-based (matching this package's own `nth`) and converts
+/// down to this 0-based primitive before calling in -- see that function's docstring.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_selector_by_index(
+    indices: *const i64,
+    n: usize,
+    strict: bool,
+) -> *const polars_expr_t {
+    let indices = read_i64_array(indices, n);
+    make_expr(Expr::Selector(Selector::ByIndex {
+        indices: indices.into(),
+        strict,
+    }))
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_selector_match_kind_t {
+    PolarsSelectorMatchKindRegex,
+    PolarsSelectorMatchKindStartsWith,
+    PolarsSelectorMatchKindEndsWith,
+    PolarsSelectorMatchKindContains,
+}
+
+/// Escapes every regex metacharacter in `s`, mirroring `regex_syntax::is_meta_character`'s table
+/// (`\ . + * ? ( ) | [ ] { } ^ $ # & - ~`). `regex-syntax` is only a transitive dependency here
+/// (reached via `polars_utils::regex_cache`, which backs `Selector::Matches`' own regex
+/// compilation), not a direct one, so this small inline table avoids adding it just for
+/// `regex::escape` -- matching CLAUDE.md's "the C ABI layer does the minimum possible" principle.
+fn escape_regex_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if matches!(
+            c,
+            '\\' | '.'
+                | '+'
+                | '*'
+                | '?'
+                | '('
+                | ')'
+                | '|'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '^'
+                | '$'
+                | '#'
+                | '&'
+                | '-'
+                | '~'
+        ) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Backs `matches` (verbatim regex) and the regex-sugar `starts_with`/`ends_with`/`contains`
+/// (anchored/escaped literal substrings) -- all four build a `Selector::Matches(pattern)`, differing
+/// only in how `pattern` is derived from the caller's raw string. Anchoring and escaping happen
+/// here, not on the Julia side: Julia has no built-in regex-metacharacter escaper (`escape_string`
+/// escapes string *literals*, not regex syntax), so hand-rolling that table would otherwise have
+/// to happen twice.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_selector_matches(
+    kind: polars_selector_match_kind_t,
+    pattern: *const u8,
+    len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let pattern = tri!(read_str(pattern, len));
+    let regex_str = match kind {
+        polars_selector_match_kind_t::PolarsSelectorMatchKindRegex => pattern.to_string(),
+        polars_selector_match_kind_t::PolarsSelectorMatchKindStartsWith => {
+            format!("^{}", escape_regex_literal(pattern))
+        }
+        polars_selector_match_kind_t::PolarsSelectorMatchKindEndsWith => {
+            format!("{}$", escape_regex_literal(pattern))
+        }
+        polars_selector_match_kind_t::PolarsSelectorMatchKindContains => {
+            escape_regex_literal(pattern)
+        }
+    };
+    *out = make_expr(Expr::Selector(Selector::Matches(PlSmallStr::from_string(
+        regex_str,
+    ))));
+    std::ptr::null()
+}
+
+/// Zero-Julia-arg `DataTypeSelector` leaves. Includes four variants that are parametrized in Rust
+/// but exposed "any unit/any tz"-only from Julia (`Datetime`/`Duration`/`List`/`Array`) -- see the
+/// gap-closure plan's Phase 2 first-cut scope exclusions: no specific time-unit/zone matching, no
+/// recursive List/Array inner-selector composition in this cut.
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_dtype_selector_kind_t {
+    PolarsDtypeSelectorKindNumeric,
+    PolarsDtypeSelectorKindInteger,
+    PolarsDtypeSelectorKindUnsignedInteger,
+    PolarsDtypeSelectorKindSignedInteger,
+    PolarsDtypeSelectorKindFloat,
+    PolarsDtypeSelectorKindEnum,
+    PolarsDtypeSelectorKindCategorical,
+    PolarsDtypeSelectorKindNested,
+    PolarsDtypeSelectorKindStruct,
+    PolarsDtypeSelectorKindDecimal,
+    PolarsDtypeSelectorKindTemporal,
+    PolarsDtypeSelectorKindObject,
+    PolarsDtypeSelectorKindDatetime,
+    PolarsDtypeSelectorKindDuration,
+    PolarsDtypeSelectorKindList,
+    PolarsDtypeSelectorKindArray,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_selector_dtype_simple(
+    kind: polars_dtype_selector_kind_t,
+) -> *const polars_expr_t {
+    use polars_dtype_selector_kind_t::*;
+    let dts = match kind {
+        PolarsDtypeSelectorKindNumeric => DataTypeSelector::Numeric,
+        PolarsDtypeSelectorKindInteger => DataTypeSelector::Integer,
+        PolarsDtypeSelectorKindUnsignedInteger => DataTypeSelector::UnsignedInteger,
+        PolarsDtypeSelectorKindSignedInteger => DataTypeSelector::SignedInteger,
+        PolarsDtypeSelectorKindFloat => DataTypeSelector::Float,
+        PolarsDtypeSelectorKindEnum => DataTypeSelector::Enum,
+        PolarsDtypeSelectorKindCategorical => DataTypeSelector::Categorical,
+        PolarsDtypeSelectorKindNested => DataTypeSelector::Nested,
+        PolarsDtypeSelectorKindStruct => DataTypeSelector::Struct,
+        PolarsDtypeSelectorKindDecimal => DataTypeSelector::Decimal,
+        PolarsDtypeSelectorKindTemporal => DataTypeSelector::Temporal,
+        PolarsDtypeSelectorKindObject => DataTypeSelector::Object,
+        PolarsDtypeSelectorKindDatetime => {
+            DataTypeSelector::Datetime(TimeUnitSet::all(), TimeZoneSet::Any)
+        }
+        PolarsDtypeSelectorKindDuration => DataTypeSelector::Duration(TimeUnitSet::all()),
+        PolarsDtypeSelectorKindList => DataTypeSelector::List(None),
+        PolarsDtypeSelectorKindArray => DataTypeSelector::Array(None, None),
+    };
+    make_expr(Expr::Selector(Selector::ByDType(dts)))
+}
+
+/// `ByDType(AnyOf([...]))` -- backs `string`/`boolean`/`binary`/`date`/`time` (dtypes with no
+/// dedicated `DataTypeSelector` variant, so they must route through `AnyOf` rather than
+/// `dtype_simple` above) and the explicit `by_dtype([...])`. Fallible per-element: `to_dtype`
+/// rejects type codes that need parameters it can't carry (Datetime/Duration/Decimal/List/Struct)
+/// -- see `polars_value_type_t::to_dtype`'s own doc. That is intentional here too: those
+/// parametrized dtypes are reached via `dtype_simple` instead, so hitting this error path from
+/// e.g. `by_dtype([Datetime])` is a real, expected error, not a bug.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_selector_dtype_any_of(
+    value_types: *const polars_value_type_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let mut dtypes: Vec<DataType> = Vec::with_capacity(n);
+    if n > 0 {
+        for vt in std::slice::from_raw_parts(value_types, n) {
+            dtypes.push(tri!(vt.to_dtype()));
+        }
+    }
+    *out = make_expr(Expr::Selector(Selector::ByDType(DataTypeSelector::AnyOf(
+        dtypes.into(),
+    ))));
+    std::ptr::null()
+}
+
+/// Extracts the `Selector` inside an `Expr::Selector(...)`, or a clear error otherwise. Backs the
+/// combinators below, which the gap-closure plan deliberately restricts to Selector-Selector
+/// operands only: mixing in a bare `Expr` (e.g. `Selectors.numeric() | col("x")`) is rejected
+/// rather than silently promoted (a `col("x")` reasonably *could* mean `by_name("x")`, but that
+/// promotion is a deliberate follow-up, not an accident -- see the plan). Note this deliberately
+/// does *not* use upstream `Expr::try_into_selector`, which treats a bare `Expr::Column` as an
+/// implicit single-name selector -- exactly the silent promotion this is meant to reject. The
+/// Julia side already raises a `MethodError` before ever reaching here (no `Base.|(::Selector,
+/// ::Expr)` method exists), so this is a backstop for anyone calling the C ABI directly.
+unsafe fn expect_selector(expr: *const polars_expr_t) -> Result<Selector, String> {
+    match &(*expr).inner {
+        Expr::Selector(s) => Ok(s.clone()),
+        _ => Err(
+            "selector combinators require both operands to be Selectors (e.g. from \
+             Polars.Selectors), not a plain expression"
+                .to_string(),
+        ),
+    }
+}
+
+macro_rules! gen_selector_combinator {
+    ($n: ident, $variant: ident) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            b: *const polars_expr_t,
+            out: *mut *const polars_expr_t,
+        ) -> *const polars_error_t {
+            let sa = tri!(expect_selector(a));
+            let sb = tri!(expect_selector(b));
+            *out = make_expr(Expr::Selector(Selector::$variant(
+                Arc::new(sa),
+                Arc::new(sb),
+            )));
+            std::ptr::null()
+        }
+    };
+}
+
+gen_selector_combinator!(polars_expr_selector_union, Union);
+gen_selector_combinator!(polars_expr_selector_difference, Difference);
+gen_selector_combinator!(polars_expr_selector_exclusive_or, ExclusiveOr);
+gen_selector_combinator!(polars_expr_selector_intersect, Intersect);

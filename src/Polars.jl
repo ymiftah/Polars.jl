@@ -24,7 +24,7 @@ end
 """
     _io_callback()
 
-Builds the `@cfunction` pointer for [`_write_callback`](@ref), shared by every FFI site that
+Builds the `@cfunction` pointer for `_write_callback`, shared by every FFI site that
 streams bytes back into a Julia `IO` (parquet/CSV/IPC writers, `Value` string/binary getters).
 Defined once here, rather than re-typed at each call site, so the argument types can't drift
 from the C `IOCallback` typedef again -- the length argument was `Cuint` (32-bit) at all 5 sites
@@ -103,6 +103,20 @@ include("./verbs.jl")
 # it once `Polars` finishes loading -- but avoidable by just respecting the real dependency order).
 include("./expr/struct.jl")
 
+# `expr/selectors.jl` must likewise follow `verbs.jl` (its `module Selectors` also does `using
+# ..Polars: _name_ptrs`, for `by_name` -- same reasoning as `struct.jl` just above). Its top-level
+# section (before its own `module Selectors`) separately requires `expr/expr.jl` to already be
+# loaded: it adds a new `_as_expr` method for the `Selector` type it defines, extending the
+# function `expr/expr.jl` first declares -- see that file's own header comment for why the method
+# lives in a different file from `_as_expr`'s others. Both orderings hold simultaneously since
+# `expr/expr.jl` loads well before `verbs.jl` already.
+include("./expr/selectors.jl")
+
+# `expr/meta.jl` (`module Meta`) has no `_name_ptrs`-style ordering dependency of its own (unlike
+# `struct.jl`/`selectors.jl` just above), but lives in this same family -- grouped here rather
+# than immediately after `expr/expr.jl` purely for stylistic proximity to its siblings.
+include("./expr/meta.jl")
+
 include("./join.jl")
 include("./reshape.jl")
 include("./sort.jl")
@@ -124,8 +138,8 @@ export Series, DataFrame, PolarsError,
     read_ipc, write_ipc, scan_ipc, sink_csv, sink_ipc,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
-    drop, rename, drop_nulls, with_row_index, explode, unpivot, nth,
-    describe, pivot, upsample
+    drop, rename, drop_nulls, with_row_index, explode, unpivot, unnest, nth,
+    describe, pivot, upsample, hstack, vstack, transpose
 
 # Cuts TTFX: without this, the first `DataFrame`/`select`/`filter`/`collect` call in a fresh
 # session pays full compilation for the whole eager-via-lazy pipeline plus both bulk-read paths

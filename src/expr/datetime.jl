@@ -10,6 +10,8 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
     gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second, "Extracts the second component (0-59) of each Datetime value in `expr`.")
     gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday, "Day of the week for each Date/Datetime value in `expr`: `1` (Monday) through `7` (Sunday), ISO 8601 numbering.")
     gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day, "Day of the year (1-366) for each Date/Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date, "Extracts the `Date` component of each Datetime value in `expr` (drops the time-of-day).")
+    gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time, "Extracts the `Dates.Time` component of each Datetime value in `expr` (drops the date). Not exported (would clobber `Base.time`) -- use qualified, `Dt.time(...)`.")
 
     gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate, "Truncates each Date/Datetime value of `a` down to the start of the enclosing interval named by the duration string `b` (e.g. `\"1h\"` zeroes out minutes/seconds). Has a curried form `truncate(every)` -- see [Curried forms for pipe-based composition](@ref).")
     gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round, "Rounds each Date/Datetime value of `a` to the nearest interval named by the duration string `b`, rather than always truncating down like [`truncate`](@ref). Has a curried form `round(every)` -- see [Curried forms for pipe-based composition](@ref).")
@@ -42,6 +44,146 @@ Curried form of [`strftime`](@ref) for use with `|>`.
 strftime(format::AbstractString) = Base.Fix2(strftime, format)
 
 export strftime
+
+"""
+    total_days(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
+
+Total number of whole days represented by each Duration value in `expr` (truncated toward
+zero). Pass `fractional=true` for the exact value as a `Float64` instead.
+"""
+function total_days(expr::Expr; fractional::Bool = false)
+    out = API.polars_expr_dt_total_days(expr, fractional)
+    return Expr(out)
+end
+
+"""
+    total_days(; fractional::Bool=false)::Base.Callable
+
+Curried form of [`total_days`](@ref) for use with `|>`.
+"""
+total_days(; fractional::Bool = false) = expr -> total_days(expr; fractional)
+
+export total_days
+
+"""
+    total_hours(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
+
+Total number of whole hours represented by each Duration value in `expr` (truncated toward
+zero). Pass `fractional=true` for the exact value as a `Float64` instead.
+"""
+function total_hours(expr::Expr; fractional::Bool = false)
+    out = API.polars_expr_dt_total_hours(expr, fractional)
+    return Expr(out)
+end
+
+"""
+    total_hours(; fractional::Bool=false)::Base.Callable
+
+Curried form of [`total_hours`](@ref) for use with `|>`.
+"""
+total_hours(; fractional::Bool = false) = expr -> total_hours(expr; fractional)
+
+export total_hours
+
+"""
+    total_minutes(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
+
+Total number of whole minutes represented by each Duration value in `expr` (truncated toward
+zero). Pass `fractional=true` for the exact value as a `Float64` instead.
+"""
+function total_minutes(expr::Expr; fractional::Bool = false)
+    out = API.polars_expr_dt_total_minutes(expr, fractional)
+    return Expr(out)
+end
+
+"""
+    total_minutes(; fractional::Bool=false)::Base.Callable
+
+Curried form of [`total_minutes`](@ref) for use with `|>`.
+"""
+total_minutes(; fractional::Bool = false) = expr -> total_minutes(expr; fractional)
+
+export total_minutes
+
+"""
+    total_seconds(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
+
+Total number of whole seconds represented by each Duration value in `expr` (truncated toward
+zero). Pass `fractional=true` for the exact value as a `Float64` instead.
+"""
+function total_seconds(expr::Expr; fractional::Bool = false)
+    out = API.polars_expr_dt_total_seconds(expr, fractional)
+    return Expr(out)
+end
+
+"""
+    total_seconds(; fractional::Bool=false)::Base.Callable
+
+Curried form of [`total_seconds`](@ref) for use with `|>`.
+"""
+total_seconds(; fractional::Bool = false) = expr -> total_seconds(expr; fractional)
+
+export total_seconds
+
+"""
+    total_milliseconds(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
+
+Total number of whole milliseconds represented by each Duration value in `expr` (truncated
+toward zero). Pass `fractional=true` for the exact value as a `Float64` instead.
+"""
+function total_milliseconds(expr::Expr; fractional::Bool = false)
+    out = API.polars_expr_dt_total_milliseconds(expr, fractional)
+    return Expr(out)
+end
+
+"""
+    total_milliseconds(; fractional::Bool=false)::Base.Callable
+
+Curried form of [`total_milliseconds`](@ref) for use with `|>`.
+"""
+total_milliseconds(; fractional::Bool = false) = expr -> total_milliseconds(expr; fractional)
+
+export total_milliseconds
+
+"""
+    total_microseconds(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
+
+Total number of whole microseconds represented by each Duration value in `expr` (truncated
+toward zero). Pass `fractional=true` for the exact value as a `Float64` instead.
+"""
+function total_microseconds(expr::Expr; fractional::Bool = false)
+    out = API.polars_expr_dt_total_microseconds(expr, fractional)
+    return Expr(out)
+end
+
+"""
+    total_microseconds(; fractional::Bool=false)::Base.Callable
+
+Curried form of [`total_microseconds`](@ref) for use with `|>`.
+"""
+total_microseconds(; fractional::Bool = false) = expr -> total_microseconds(expr; fractional)
+
+export total_microseconds
+
+"""
+    total_nanoseconds(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
+
+Total number of whole nanoseconds represented by each Duration value in `expr` (truncated
+toward zero). Pass `fractional=true` for the exact value as a `Float64` instead.
+"""
+function total_nanoseconds(expr::Expr; fractional::Bool = false)
+    out = API.polars_expr_dt_total_nanoseconds(expr, fractional)
+    return Expr(out)
+end
+
+"""
+    total_nanoseconds(; fractional::Bool=false)::Base.Callable
+
+Curried form of [`total_nanoseconds`](@ref) for use with `|>`.
+"""
+total_nanoseconds(; fractional::Bool = false) = expr -> total_nanoseconds(expr; fractional)
+
+export total_nanoseconds
 
 """
     convert_time_zone(expr::Polars.Expr, tz::String)::Polars.Expr

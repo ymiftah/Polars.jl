@@ -56,6 +56,58 @@ end
 head(rolling_orders, 5)
 ```
 
+## Gap-filling with `upsample`
+
+`upsample` fills missing timestamps in a time series to create a regular grid. This is useful when
+data is sparse or irregularly sampled — a common scenario in sensor data, financial ticks, or event
+logs.
+
+The simplest case: upsampling to fill hourly gaps:
+
+```@example time-series
+sparse_data = DataFrame((;
+    timestamp = DateTime(2024, 1, 1, 0, 0, 0) .+ Hour.([0, 2, 3]),
+    value = [10, 20, 30]
+))
+upsampled = upsample(sparse_data, "timestamp"; every = "1h")
+```
+
+Notice that `value` becomes `missing` for the new rows. Pair `upsample` with `interpolate` (see
+[Expressions](@ref)) to fill those gaps with interpolated values:
+
+```@example time-series
+@chain sparse_data begin
+    upsample("timestamp"; every = "1h")
+    with_columns(col("value") |> interpolate())
+end
+```
+
+`upsample` works with multi-column data — upsampling one time series in a grouped DataFrame. Use
+the `by` parameter to independently upsample each group (e.g., one per store). Here, we aggregate
+orders by store and 2-hour windows, then upsample each store to hourly:
+
+```@example time-series
+windowed = @chain orders begin
+    lazy
+    group_by_dynamic("timestamp", ["store_id"]; every = "2h")
+    agg(count(col("order_id")) |> alias("n_orders"))
+    collect
+end
+upsampled_grouped = upsample(windowed, "timestamp"; by = ["store_id"], every = "1h")
+head(upsampled_grouped, 10)
+```
+
+The result has `missing` `n_orders` for every newly-inserted timestamp. Fill them with linear
+interpolation — each group independently:
+
+```@example time-series
+filled = upsample(windowed, "timestamp"; by = ["store_id"], every = "1h")
+@chain filled begin
+    with_columns(col("n_orders") |> interpolate())
+    head(10)
+end
+```
+
 ## Extracting calendar fields with `Dt`
 
 The `Dt` namespace pulls calendar components out of a datetime column, and can

@@ -55,6 +55,40 @@ function unpivot(
 end
 
 """
+    unnest(lf::LazyFrame, columns::Vector{String}; separator::Union{Nothing,AbstractString}=nothing)::LazyFrame
+    unnest(df::DataFrame, columns::Vector{String}; separator::Union{Nothing,AbstractString}=nothing)::DataFrame
+
+Unnests struct-typed `columns`: each is replaced (in place) by one new column per struct field, in
+field order. Unnesting a column name that doesn't exist in the frame, or that isn't struct-typed,
+errors rather than silently no-op-ing. If `separator` is given, each new field is named
+`"<column><separator><field>"`; without it (the default), the bare field name is used as-is, so
+two unnested fields sharing a name -- or a field name colliding with an existing column -- errors
+rather than silently overwriting.
+"""
+function unnest(
+        df::DataFrame, columns::Vector{String};
+        separator::Union{Nothing, AbstractString} = nothing
+    )
+    return unnest(lazy(df), columns; separator) |> collect
+end
+function unnest(
+        lf::LazyFrame, columns::Vector{String};
+        separator::Union{Nothing, AbstractString} = nothing
+    )
+    separator_arg = separator === nothing ? Ptr{UInt8}(C_NULL) : separator
+    separator_len = separator === nothing ? 0 : ncodeunits(separator)
+    GC.@preserve columns begin
+        ptrs, lens = _name_ptrs(columns)
+        out = Ref{Ptr{polars_lazy_frame_t}}()
+        err = polars_lazy_frame_unnest(
+            lf, ptrs, lens, length(ptrs), separator_arg, separator_len, out
+        )
+        polars_error(err)
+    end
+    return LazyFrame(out[])
+end
+
+"""
     pivot(df::DataFrame, on, index, values; agg=Base.first(element()), maintain_order::Bool=true,
           separator::String="_", column_naming::Symbol=:auto)::DataFrame
 
@@ -125,6 +159,49 @@ function upsample(
         err = polars_dataframe_upsample(
             df, by_ptrs, by_lens, length(by_ptrs), time_column, ncodeunits(time_column), every,
             ncodeunits(every), stable, out
+        )
+        polars_error(err)
+    end
+    return DataFrame(out[])
+end
+
+"""
+    transpose(df::DataFrame; keep_names_as::Union{Nothing,AbstractString}=nothing,
+              new_col_names::Union{Nothing,Vector{String}}=nothing)::DataFrame
+
+Transposes `df`: each of its rows becomes a new column (named `"column_0"`, `"column_1"`, ... by
+default), casting across `df`'s original column dtypes to a common supertype first. `df` must have
+at least one row and one column — an empty `df` errors rather than silently producing an empty
+result.
+
+- `keep_names_as`, if given, prepends an extra output column (with this name) holding `df`'s
+  original column names.
+- `new_col_names`, if given, names the new columns explicitly instead of the `"column_N"` default.
+  It must have exactly as many entries as `df` has rows (i.e. as many as the transposed frame will
+  have columns) — a wrong-length `new_col_names` errors rather than reading out of bounds or
+  silently truncating/padding.
+
+Only these two `new_col_names` modes are supported (omitted, or an explicit name per row) — unlike
+py-polars, using an existing column's *values* as the new names is not available here.
+
+Eager-only (no `LazyFrame` method) — transposing needs the whole frame materialized first, unlike
+this package's usual `collect ∘ op ∘ lazy` pattern.
+
+Extends `Base.transpose` (Julia's own array-transpose function, exported from Base, same as
+[`unique`](@ref)) — call it bare (`transpose(df)`), no qualification needed.
+"""
+function Base.transpose(
+        df::DataFrame; keep_names_as::Union{Nothing, AbstractString} = nothing,
+        new_col_names::Union{Nothing, Vector{String}} = nothing
+    )
+    keep_names_as_arg = keep_names_as === nothing ? Ptr{UInt8}(C_NULL) : keep_names_as
+    keep_names_as_len = keep_names_as === nothing ? 0 : ncodeunits(keep_names_as)
+    names = something(new_col_names, String[])
+    GC.@preserve names begin
+        ptrs, lens = _name_ptrs(names)
+        out = Ref{Ptr{polars_dataframe_t}}()
+        err = polars_dataframe_transpose(
+            df, keep_names_as_arg, keep_names_as_len, ptrs, lens, length(ptrs), out
         )
         polars_error(err)
     end

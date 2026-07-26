@@ -149,6 +149,15 @@ the Arrow schema and runs no query at all, so it's cheap regardless of `df`'s si
 """
 Base.names(df::DataFrame) = collect(String.(_column_names(df)))
 
+"""
+    Tables.schema(df::DataFrame)::Tables.Schema
+
+Implements the Tables.jl interface method: returns a `Tables.Schema` with column names and types,
+refined by each column's actual null count (unlike [`collect_schema`](@ref) on a `LazyFrame`, which
+hasn't executed the query and so must conservatively report every column as nullable). Cheaper than
+a full `select`-based scan since each column's null count is already known from its `Series`
+metadata, but not as cheap as [`Base.names`](@ref), which reads only the Arrow schema.
+"""
 function schema(df::DataFrame)
     schema_out = Ref{CArrowSchema}()
     err = API.polars_dataframe_schema(df, schema_out)
