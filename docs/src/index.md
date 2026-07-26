@@ -1,9 +1,7 @@
 # Polars.jl
 
-Polars.jl is a thin Julia wrapper around [polars](https://pola.rs), the Rust dataframe library —
-built as a hand-written C ABI bridge over the upstream `polars` crate, not a reimplementation.
-Query logic runs entirely inside polars; Polars.jl just marshals expressions and frames across the
-boundary.
+Polars.jl is a thin Julia wrapper around [polars](https://pola.rs), the Rust dataframe library.
+Query logic runs entirely inside polars, exposed through an idiomatic Julia API.
 
 !!! note "Fork notice"
     This is a fork of [pangoraw/Polars.jl](https://github.com/pangoraw/Polars.jl) by Paul Berg, who
@@ -65,9 +63,8 @@ julia> @chain df begin
 
 `DataFrame` is eager (every operation runs immediately); a lazy frame — obtained via
 `lazy` — only records operations, letting polars optimize and fuse the whole
-query before executing it via `collect`. Eager operations are implemented as `collect ∘ op ∘ lazy`
-under the hood, so both forms give identical results; the [LazyFrame](@ref) reference page covers
-this in depth.
+query before executing it via `collect`. Both forms give identical results for the same sequence
+of operations; the [LazyFrame](@ref) reference page covers this in depth.
 
 ## Installation
 

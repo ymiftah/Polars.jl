@@ -6,9 +6,7 @@ literal -- without needing a DataFrame/LazyFrame to run it against.
 
 !!! note "`Meta` is not exported from `Polars`"
     Unlike `Lists`/`Strings`/`Dt`/`Structs`/`Selectors`, `Meta` is always reached fully qualified,
-    `Polars.Meta.output_name(...)` etc. -- `Base.Meta` is itself an *exported* Base submodule, so
-    `export Meta` from `Polars` would make plain `using Polars` immediately ambiguous-error on the
-    bare name `Meta` in the importing module.
+    `Polars.Meta.output_name(...)` etc. See [Developer](@ref) for why.
 
 ```@setup meta
 using Polars

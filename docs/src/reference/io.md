@@ -49,9 +49,9 @@ Keyword options: `n_rows`, `row_index_name`/`row_index_offset`, `has_header`,
 `ignore_errors`, `low_memory`, `rechunk`, `cache`, `glob`, `include_file_paths`,
 `allow_missing_columns`. `read_csv` accepts the same keywords.
 
-Unlike `scan_parquet`/`scan_ipc`, CSV scanning has **no `hive_partitioning` option** — the
-underlying reader (`polars_lazy::frame::LazyCsvReader`) doesn't expose a way to override its
-hardcoded hive-detection setting.
+Unlike `scan_parquet`/`scan_ipc`, CSV scanning has **no `hive_partitioning` option** — Hive
+partitioning is always disabled for CSV scans, with no way to turn it on. See [Developer](@ref)
+for why.
 
 `write_csv` keyword options: `include_header`/`include_bom`, `separator`/`quote_char`,
 `null_value`, `line_terminator`, `quote_style` (`:necessary`/`:always`/`:non_numeric`/`:never`),
@@ -105,13 +105,12 @@ row order through the streaming pipeline, default `true`).
 read_series
 ```
 
-Bulk-materializes a `Series` (see [Series](@ref)) into a native Julia `Vector` via the Arrow C
-Data Interface in one pass, or returns `nothing` if the series' type isn't (yet) supported by this
-path (callers fall back to per-element `getindex` in that case — this is what `collect(series)`
-does internally). Passing `zerocopy=true` additionally allows, for fixed-width numeric columns with
-no nulls, returning a `Vector` that directly aliases the polars `Series`' own memory with no copy at
-all — the returned array must then be treated as **read-only**, since mutating it would corrupt the
-source `Series`. `zerocopy` is silently not honored whenever that precondition doesn't hold.
+Bulk-materializes a `Series` (see [Series](@ref)) into a native Julia `Vector` in one pass, or
+returns `nothing` if the series' type isn't (yet) supported by this path. Passing `zerocopy=true`
+additionally allows, for fixed-width numeric columns with no nulls, returning a `Vector` that
+directly aliases the polars `Series`' own memory with no copy at all — the returned array must then
+be treated as **read-only**, since mutating it would corrupt the source `Series`. For any other
+column type, `zerocopy` is not honored and a normal copy is returned instead.
 
 ## Notes
 

@@ -2,9 +2,7 @@
 
 Polars.jl has no dedicated dtype wrapper types (no `pl.Int64`/`pl.Utf8`-style objects) — a polars
 dtype is represented directly as the equivalent Julia type, and nullability is layered on top via
-`Union{T,Missing}`. This table is the full mapping, derived from `parse_format` in
-`src/arrow/schema.jl` (the Arrow C Data Interface format-string decoder every column's schema goes
-through on the way into Julia).
+`Union{T,Missing}`. This table is the full mapping.
 
 ```@setup datatypes
 using Polars, Dates
@@ -50,6 +48,6 @@ can't know actual null counts and conservatively reports every column as nullabl
 - **`Decimal` columns can be cast/queried (`cast_decimal`, `Selectors.decimal()`) but not read back
   into Julia** — materializing one raises an "unknown schema format" error. See
   [Limitations](@ref).
-- **`Array` (fixed-size list) has no materialization path either**, and `Selectors.array()` matches
-  zero columns in this build (`dtype-array` isn't an enabled Cargo feature). See
-  [Limitations](@ref) and [Selectors](@ref).
+- **`Array` (fixed-size list) has no materialization path either**, and `Selectors.array()` raises
+  an error in this build rather than selecting columns. See [Limitations](@ref) and
+  [Selectors](@ref).

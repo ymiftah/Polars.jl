@@ -17,6 +17,5 @@ catch e
 end
 ```
 
-The error message is whatever polars itself produced on the Rust side, stringified and boxed across
-the FFI boundary — see the "Error handling" section of the project notes for the out-parameter
-convention every fallible `ccall` follows internally.
+The error message is whatever polars itself produced, unmodified. See [Developer](@ref) for how
+errors propagate across the FFI boundary.

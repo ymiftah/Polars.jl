@@ -400,10 +400,9 @@ select(dfbin, add(col("a"), col("b")) |> alias("add"), sub(col("a"), col("b")) |
 select(df, Base.lt(col("x"), lit(3)))
 ```
 
-This used to also apply to the product aggregation, which collided with an unexported internal
-`Base.product` binding — it's since been renamed to `prod` (an *exported* Base name, like
-`sum`/`mean`), so plain `prod(expr)` now resolves with no qualification, same as the rest of the
-[Aggregation](@ref) table above.
+The product aggregation is bound to `prod` (an *exported* Base name, like `sum`/`mean`), so plain
+`prod(expr)` resolves with no qualification, same as the rest of the [Aggregation](@ref) table
+above.
 
 ## Curried forms for pipe-based composition
 
@@ -449,15 +448,8 @@ select(df9, col("x") |> fill_null(0) |> clip(0, 3))
 that instead. For expression-valued partition/sort keys, call the non-curried
 `over(expr, partition_by...)` / `sort_by(expr, by...)` directly.
 
-**Deliberately not curried:** `log`, `rem`, `replace`, `diff`, `round`. These are `Base`-qualified
-names, and a curry useful for plain numeric literals needs an untyped (or broadly-typed) argument —
-e.g. a hypothetical `log(2)` curry would have to accept a bare `Int`. Julia always prefers Base's
-own existing concrete-type methods (`log(::Float64)`, ...) over a package addition, so this
-wouldn't raise a dispatch *ambiguity* error, but it would still be real type piracy: claiming
-argument combinations Base currently leaves undefined (e.g. plain `log(1, 2)`), which silently
-changes global `Base` behavior outside this package's own types. A curry typed narrowly to `Expr`
-would avoid the piracy but would then only accept already-constructed `Expr`s, defeating the
-ergonomic point of currying — so these five are called in their full, non-curried form instead.
+**Deliberately not curried:** `log`, `rem`, `replace`, `diff`, `round` — call these in their full,
+non-curried form (`f(expr, args...)`). See [Developer](@ref) for why.
 
 ```@example expressions
 df13 = DataFrame((; g = ["a", "a", "b"], x = [3, 1, 2]))
