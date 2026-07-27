@@ -271,3 +271,78 @@ _noop_release_offset_carray(::Ptr{Polars.API.ArrowArray}) = nothing
         end
     end
 end
+
+@testset "producer release callback marks release=NULL, recurses through children (Arrow C Data Interface conformance)" begin
+    # Per the spec, a producer's release callback MUST walk all children invoking their own
+    # release callback, and MUST mark the released structure's `release` member NULL. Build a
+    # 2-level ArrowSchema/ArrowArray tree directly (bypassing `arrowtable`, which would also root
+    # them -- irrelevant to what's being tested here), invoke the top-level release callback as
+    # Rust would, and confirm both effects on both levels.
+    child_schema = Polars.ArrowSchema(; format = "i", name = "child")
+    parent_schema = Polars.ArrowSchema(; format = "+s", name = "parent", children = [child_schema])
+    parent_schema_ptr = Base.unsafe_convert(Ptr{Polars.API.ArrowSchema}, parent_schema)
+    child_schema_ptr = Base.unsafe_convert(Ptr{Polars.API.ArrowSchema}, child_schema)
+    @test unsafe_load(parent_schema_ptr).release != C_NULL
+    @test unsafe_load(child_schema_ptr).release != C_NULL
+    release = unsafe_load(parent_schema_ptr).release
+    ccall(release, Cvoid, (Ptr{Polars.API.ArrowSchema},), parent_schema_ptr)
+    @test unsafe_load(parent_schema_ptr).release == C_NULL
+    @test unsafe_load(child_schema_ptr).release == C_NULL
+    # a consumer trying to release an already-released structure gets a catchable error, not a
+    # segfault from invoking a dangling function pointer (Arrow C Data Interface conformance: SHOULD
+    # check for a released structure).
+    @test_throws ErrorException Polars._release_or_throw(unsafe_load(parent_schema_ptr).release, parent_schema_ptr)
+
+    child_array = Polars.ArrowArray(Polars.ValidityMap(3, 0, UInt8[]), [Int64[1, 2, 3]])
+    parent_array = Polars.ArrowArray(Polars.ValidityMap(3, 0, UInt8[]), [], [child_array])
+    parent_array_ptr = Base.unsafe_convert(Ptr{Polars.API.ArrowArray}, parent_array)
+    child_array_ptr = Base.unsafe_convert(Ptr{Polars.API.ArrowArray}, child_array)
+    @test unsafe_load(parent_array_ptr).release != C_NULL
+    @test unsafe_load(child_array_ptr).release != C_NULL
+    release = unsafe_load(parent_array_ptr).release
+    ccall(release, Cvoid, (Ptr{Polars.API.ArrowArray},), parent_array_ptr)
+    @test unsafe_load(parent_array_ptr).release == C_NULL
+    @test unsafe_load(child_array_ptr).release == C_NULL
+    @test_throws ErrorException Polars._release_or_throw(unsafe_load(parent_array_ptr).release, parent_array_ptr)
+end
+
+@testset "ArrowSchema metadata: spec-conformant binary encoding, not a C string (D5 conformance)" begin
+    # the Arrow C Data Interface's metadata field is a length-prefixed binary blob (int32 pair
+    # count, then per-pair int32 key length + key bytes + int32 value length + value bytes) --
+    # not a NUL-terminated C string. A plain string is rejected outright rather than silently
+    # emitting the wrong encoding.
+    @test_throws ErrorException Polars.ArrowSchema(; format = "i", name = "x", metadata = "oops")
+
+    schema = Polars.ArrowSchema(; format = "i", name = "x", metadata = ["a" => "1", "bb" => "22"])
+    io = IOBuffer(schema.metadata)
+    n = read(io, Int32)
+    @test n == 2
+    decoded = Pair{String, String}[]
+    for _ in 1:n
+        klen = read(io, Int32)
+        k = String(read(io, klen))
+        vlen = read(io, Int32)
+        v = String(read(io, vlen))
+        push!(decoded, k => v)
+    end
+    @test decoded == ["a" => "1", "bb" => "22"]
+
+    # end-to-end: a top-level "+s" schema carrying non-empty metadata is accepted by
+    # `polars_dataframe_new_from_carrow` without erroring, and the resulting DataFrame is correct.
+    col_schema = Polars.column_schema(:x, Int64)
+    top_schema = Polars.ArrowSchema(;
+        format = "+s", name = "polars.dataframe", metadata = ["k" => "v"], children = [col_schema],
+    )
+    array = Polars.ArrowArray(
+        Polars.ValidityMap(3, 0, UInt8[]), [], [Polars.arrowvector(Int64[1, 2, 3])],
+    )
+    Polars.root!(top_schema)
+    Polars.root!(array)
+    out = Ref{Ptr{Polars.API.polars_dataframe_t}}()
+    err = Polars.API.polars_dataframe_new_from_carrow(top_schema, array, out)
+    Polars.release_schema!(top_schema)
+    Polars.polars_error(err)
+    df = Polars.DataFrame(out[])
+    @test size(df) == (3, 1)
+    @test collect(df[:x]) == [1, 2, 3]
+end

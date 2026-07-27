@@ -153,35 +153,54 @@ end
 """
     release_array!(array::ArrowArray)
 
-Unroots `array` (and, recursively, every descendant in `array.children`) from `LIVE_ARRAYS`. Must
-recurse for the same reason as `release_schema!` in `arrow/schema.jl`: each nesting level
-registers itself independently in `set_private_data!`, so a depth-≥2 array (list-of-list,
-list-of-struct, struct-of-struct) would otherwise leave its grandchildren permanently rooted.
-Guarded by `LIVE_ARRAYS_LOCK` since the release callback (`base_release_array`) can be invoked by
-Rust on whatever thread drops the array, racing a concurrent Julia-side release.
+Unroots `array` from `LIVE_ARRAYS` (a no-op if `array` was never rooted -- i.e. it is a child,
+kept alive only transitively through its parent's `children` field; see `root!`). Guarded by
+`LIVE_ARRAYS_LOCK` since the release callback (`base_release_array`) can be invoked by Rust on
+whatever thread drops the array, racing a concurrent Julia-side release.
 """
 function release_array!(array)
     lock(LIVE_ARRAYS_LOCK) do
-        for child in array.children
-            release_array!(child)
-        end
         delete!(LIVE_ARRAYS, array)
     end
     return nothing
 end
 
+"""
+    base_release_array(carray_ptr::Ptr{CArrowArray})
+
+The producer-side release callback installed on every `ArrowArray` (see `set_private_data!`). Per
+the Arrow C Data Interface, a producer's release callback MUST walk all children structures and
+call their own release callbacks, MUST free any data area it owns directly, and MUST mark the
+structure released (`release = NULL`). Recursion through the whole tree falls out for free here:
+every `ArrowArray` this package builds shares this same callback, so invoking a child's callback
+walks *its* children in turn, all the way down to the leaves -- no explicit recursion needed on
+the Julia side (contrast with the old `release_array!`, which had to recurse because every level
+used to root itself independently in `LIVE_ARRAYS`).
+"""
 function base_release_array(carray_ptr::Ptr{CArrowArray})
     carray = unsafe_load(carray_ptr)
     array = unsafe_pointer_to_objref(Ptr{ArrowArray}(carray.private_data))
-    release_array!(array)
 
+    for child in array.children
+        child_ptr = Base.unsafe_convert(Ptr{CArrowArray}, child)
+        release = unsafe_load(child_ptr).release
+        release != C_NULL && @ccall $(release)(child_ptr::Ptr{CArrowArray})::Cvoid
+    end
+
+    _mark_released!(carray_ptr)
+    _mark_released!(Base.unsafe_convert(Ptr{CArrowArray}, array))
+
+    release_array!(array)
     return nothing
 end
 
 """
     set_private_data!(array::ArrowArray)
 
-Makes the arrow array Julia managed.
+Installs the release callback and `private_data` pointer on `array`'s C struct -- required at
+every nesting level, since `base_release_array` may end up invoking any array's callback while
+walking down from an ancestor (see its docstring). Does **not** root `array` in `LIVE_ARRAYS`;
+see `root!` for that.
 """
 function set_private_data!(array::ArrowArray)
     base_release_ptr = @cfunction base_release_array Cvoid (Ptr{CArrowArray},)
@@ -198,6 +217,20 @@ function set_private_data!(array::ArrowArray)
         base_release_ptr,
         pointer_from_objref(array),
     )
+    return nothing
+end
+
+"""
+    root!(array::ArrowArray)
+
+Registers `array` in `LIVE_ARRAYS`, keeping it (and everything reachable through its `children`
+field) alive from the Julia GC's perspective until Rust invokes its release callback. Only ever
+needed for the top-level array handed across the FFI boundary (see `arrowtable`) -- children are
+kept alive transitively through their parent's `children::Vector{ArrowArray}` field, so rooting
+every nesting level independently (the old behavior) was both unnecessary and the reason
+`release_array!` used to have to recurse.
+"""
+function root!(array::ArrowArray)
     lock(LIVE_ARRAYS_LOCK) do
         @assert !haskey(LIVE_ARRAYS, array)
         LIVE_ARRAYS[array] = nothing
@@ -425,11 +458,18 @@ function column_schema(name, type)
     end
 end
 
-# Encodes the provided table to an ArrowArray
-# this code should not fail as it can leak memory
-# by populating LIVE_SCHEMAS or LIVE_ARRAYS with
-# handles which are not given back to the caller
-# in case of failure.
+"""
+    arrowtable(table, table_name)::Tuple{ArrowArray, ArrowSchema}
+
+Encodes `table` (any Tables.jl-compatible source) into a top-level `ArrowArray`/`ArrowSchema` pair,
+ready to hand across the FFI boundary. Only these two top-level objects are ever rooted (via
+`root!`, called here only once every column/schema has been built without error) -- everything
+built along the way (`column_schema`'s recursive children, each column's `arrowvector(t)`) is an
+ordinary, never-rooted Julia value until it becomes reachable from one of these two, so a throw
+partway through (an out-of-range `DateTime`, an unsupported dtype, ...) simply leaves unreferenced
+garbage for the GC to collect -- nothing is ever registered in `LIVE_SCHEMAS`/`LIVE_ARRAYS` that
+isn't given back to the caller.
+"""
 function arrowtable(table, table_name)
     tschema = Tables.schema(table)
 
@@ -450,6 +490,9 @@ function arrowtable(table, table_name)
                 for t in Tables.columns(table)
         ]
     )
+
+    root!(schema)
+    root!(array)
 
     return array, schema
 end

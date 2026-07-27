@@ -60,6 +60,15 @@ responsible for treating the result as read-only, since mutating it would corrup
 `Series`. Outside that precondition, `zerocopy` is silently not honored and a normal copy is
 returned instead.
 
+The write direction has its own, unconditional aliasing: `DataFrame(table)` hands polars raw
+pointers into the caller's own column `Vector`s rather than copying them, for any column whose
+`arrowvector` method reuses the input buffer directly — in practice, any fixed-width numeric
+column (`Int64`, `Float64`, ..., including their `Union{T,Missing}` form). Mutating the source
+`Vector` after constructing the `DataFrame` mutates the `DataFrame` too. `Bool`, `String`, `Date`,
+`Time`, `DateTime`, `Duration`, and `List` columns are unaffected — their `arrowvector` methods
+build a fresh buffer (bit-packing, offset encoding, or an epoch-relative transform), so those
+always copy.
+
 ## I/O internals
 
 CSV scanning has no `hive_partitioning` option, unlike parquet/IPC — not a scope choice but a real

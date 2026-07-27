@@ -14,15 +14,19 @@ using .API:
 Wraps a Rust-owned `ArrowArray` obtained from `polars_series_export_carray`. The wrapped struct's
 `release` callback is invoked at most once via `release!` -- either eagerly, once the caller has
 copied the data out, or from this object's finalizer if the caller keeps borrowing the raw buffers
-(the true zero-copy path). `released` makes `release!` idempotent so eager release followed by a
-GC-triggered finalizer call never double-frees.
+(the true zero-copy path, `borrowed = true`). `released` makes `release!` idempotent so eager
+release followed by a GC-triggered finalizer call never double-frees. `borrowed` tells
+`_dispatch_read` not to eagerly release a handle whose buffers a returned `Vector` still aliases
+(see `_read_numeric`'s zero-copy branch) -- releasing eagerly there would free the buffers out from
+under the very array being returned.
 """
 mutable struct ExportedArray
     carray::CArrowArray
     released::Bool
+    borrowed::Bool
 
     function ExportedArray(carray::CArrowArray)
-        h = new(carray, false)
+        h = new(carray, false, false)
         finalizer(release!, h)
         return h
     end
@@ -32,9 +36,23 @@ function release!(h::ExportedArray)
     h.released && return nothing
     h.released = true
     ref = Ref(h.carray)
-    @ccall $(h.carray.release)(ref::Ptr{CArrowArray})::Cvoid
+    GC.@preserve ref _release_or_throw(h.carray.release, Base.unsafe_convert(Ptr{CArrowArray}, ref))
     return nothing
 end
+
+"""
+Roots a zero-copy-borrowed `ExportedArray` (see `_read_numeric`'s zero-copy branch) for as long as
+the `Vector` returned to the caller still aliases its buffers. A finalizer closure that merely
+*references* `h` without otherwise using it is not a reliable keepalive: an unused capture has no
+observable effect on the closure's behavior, so the compiler is free to (and in practice does)
+elide it, letting `h` -- and the buffers it owns -- be collected and released while the returned
+`Vector` is still alive and aliasing them. An explicit strong-reference table sidesteps this
+entirely; it's the same pattern already used for `LIVE_ARRAYS`/`LIVE_SCHEMAS` in
+`arrow/array.jl`/`arrow/schema.jl`.
+"""
+const LIVE_BORROWED_ARRAYS = IdDict{ExportedArray, Nothing}()
+"Guards `LIVE_BORROWED_ARRAYS` against concurrent root/unroot from separate Julia tasks."
+const LIVE_BORROWED_ARRAYS_LOCK = ReentrantLock()
 
 function _buffers(h::ExportedArray)
     return _buffers(h.carray)
@@ -99,8 +117,11 @@ end
 """Dispatches on a raw Arrow format string (`series.fmt`, cached at `Series` construction time --
 see `load_series_schema`) to the matching bulk reader, or `nothing` if unsupported. Exports the
 carray once (except for List, which does its own export -- see `_read_list`) and releases it
-exactly once after the leaf reader (`_read_view_dispatch`) returns, regardless of how many levels
-of nested reading happened internally."""
+exactly once after the leaf reader (`_read_view_dispatch`) returns -- *unless* that reader handed
+back a `Vector` that still aliases `h`'s buffers (`h.borrowed`, set by `_read_numeric`'s zero-copy
+branch), in which case releasing here would free the buffers out from under the very array being
+returned; release is deferred to `h`'s own finalizer instead, once the returned array is no longer
+reachable."""
 function _dispatch_read(fmt::String, series::Series, zerocopy::Bool)
     isempty(fmt) && return nothing # dictionary-encoded -- see `load_series_schema`'s sentinel
     fmt in ("+l", "+L") && return _read_list(series, fmt)
@@ -108,7 +129,7 @@ function _dispatch_read(fmt::String, series::Series, zerocopy::Bool)
     h = _export_carray(series)
     ca, bufs = _buffers(h)
     out = _read_view_dispatch(fmt, ca, bufs, zerocopy, h)
-    release!(h)
+    h.borrowed || release!(h)
     return out
 end
 
@@ -168,8 +189,20 @@ function _read_numeric(::Type{T}, ca::CArrowArray, bufs::Vector, zerocopy::Bool,
 
     if ca.null_count == 0
         if zerocopy
+            keepalive.borrowed = true # tells `_dispatch_read` not to eagerly release `keepalive`
+            lock(LIVE_BORROWED_ARRAYS_LOCK) do
+                LIVE_BORROWED_ARRAYS[keepalive] = nothing
+            end
             arr = unsafe_wrap(Array, data_ptr, n; own = false)
-            finalizer(_ -> (keepalive; nothing), arr) # keeps keepalive (and its buffers) alive
+            # Unroots (see `LIVE_BORROWED_ARRAYS`'s docstring for why a plain closure capture isn't
+            # a reliable keepalive on its own) and releases `keepalive` once `arr` itself is
+            # collected -- not before, since `arr` aliases `keepalive`'s buffers until then.
+            finalizer(arr) do _
+                lock(LIVE_BORROWED_ARRAYS_LOCK) do
+                    delete!(LIVE_BORROWED_ARRAYS, keepalive)
+                end
+                release!(keepalive)
+            end
             return arr
         end
         out = Vector{T}(undef, n)
@@ -409,7 +442,7 @@ function _read_list(series::Series, fmt::String)
     # (and thus `child_schema`, which borrows from it) is released right after.
     ElemT = unsupported ? Missing : parse_format(child_schema)
     schema_ref = Ref(schema)
-    @ccall $(schema.release)(schema_ref::Ptr{CArrowSchema})::Cvoid
+    GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
     unsupported && return nothing
 
     h = _export_carray(series)

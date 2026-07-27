@@ -159,7 +159,7 @@ function load_series_schema(schema::CArrowSchema)
     res = (unsafe_string(schema.name), parse_format(schema), fmt)
 
     schema_ref = Ref(schema)
-    @ccall $(schema.release)(schema_ref::Ptr{CArrowSchema})::Cvoid
+    GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
 
     return res
 end
@@ -185,7 +185,7 @@ function load_dataframe_schema(schema::CArrowSchema)
 
     # Explicitely release after reading the schema names and types
     schema_ref = Ref(schema)
-    @ccall $(schema.release)(schema_ref::Ptr{CArrowSchema})::Cvoid
+    GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
 
     return Tables.Schema(names, types)
 end
@@ -198,7 +198,10 @@ A Julia managed ArrowSchema valid according to the arrow C data interface.
 mutable struct ArrowSchema
     format::String
     name::String
-    metadata::Union{Nothing, String}
+    # Holds the already-*encoded* metadata bytes (see `_encode_metadata`), not the raw input --
+    # this is what the `Cstring`-typed C field's pointer aliases, so it must stay alive exactly
+    # like `format`/`name` do for their own C string pointers.
+    metadata::Union{Nothing, Vector{UInt8}}
     flags::Int64
     children::Vector{ArrowSchema}
     dictionary::Union{Nothing, ArrowSchema}
@@ -208,33 +211,108 @@ mutable struct ArrowSchema
 end
 
 """
+    _encode_metadata(pairs)::Vector{UInt8}
+
+Encodes an ordered collection of `key => value` string pairs (e.g. a `Vector{Pair}` or `Dict`)
+into the Arrow C Data Interface's binary `metadata` format: an `Int32` pair count, then per pair
+an `Int32` key byte-length + key bytes + `Int32` value byte-length + value bytes, all in native
+endianness -- *not* NUL-terminated, unlike a plain C string.
+"""
+function _encode_metadata(pairs)
+    io = IOBuffer()
+    write(io, Int32(length(pairs)))
+    for (k, v) in pairs
+        kb = codeunits(String(k))
+        vb = codeunits(String(v))
+        write(io, Int32(length(kb)))
+        write(io, kb)
+        write(io, Int32(length(vb)))
+        write(io, vb)
+    end
+    return take!(io)
+end
+
+"""
+    _mark_released!(ptr::Ptr{T}) where {T}
+
+Writes `C_NULL` into the `release` field of the `CArrowSchema`/`CArrowArray` pointed to by `ptr`,
+in place. The Arrow C Data Interface requires a producer's release callback to mark the structure
+released this way (so a later consumer can detect it rather than blindly re-invoking a dangling
+callback); shared between `base_release_schema` (here) and `base_release_array`
+(arrow/array.jl) since both C structs share the same trailing `(release, private_data)` layout.
+"""
+function _mark_released!(ptr::Ptr{T}) where {T}
+    offset = fieldoffset(T, findfirst(==(:release), fieldnames(T)))
+    unsafe_store!(Ptr{Ptr{Cvoid}}(Ptr{UInt8}(ptr) + offset), C_NULL)
+    return nothing
+end
+
+"""
+    _release_or_throw(release::Ptr{Cvoid}, structptr::Ptr)
+
+Calls the Arrow C Data Interface release callback `release` on `structptr`, or throws if
+`release` is already `C_NULL`. Per the spec, consumers SHOULD check for a released structure
+before touching it; without this, a structure released twice would invoke a dangling function
+pointer -- a segfault, not a catchable Julia error.
+"""
+function _release_or_throw(release::Ptr{Cvoid}, structptr::Ptr)
+    release == C_NULL && error("Arrow C Data Interface structure was already released")
+    @ccall $(release)(structptr::Ptr{Cvoid})::Cvoid
+    return nothing
+end
+
+"""
     release_schema!(schema::ArrowSchema)
 
-Unroots `schema` (and, recursively, every descendant in `schema.children`) from `LIVE_SCHEMAS`.
-Must recurse: each nesting level registers itself independently in `set_private_data!`, so a
-depth-≥2 schema (e.g. a struct field that is itself a list, or a list of structs) would otherwise
-leave its grandchildren permanently rooted -- only the immediate children were ever unrooted
-before this fix. Guarded by `LIVE_SCHEMAS_LOCK` since `release_schema!` can run from
-`base_release_schema`, invoked by Rust's own release callback on whatever thread drops the
-schema, racing a concurrent Julia-side release.
+Unroots `schema` from `LIVE_SCHEMAS` (a no-op if `schema` was never rooted -- i.e. it is a child,
+kept alive only transitively through its parent's `children` field; see `root!`). Guarded by
+`LIVE_SCHEMAS_LOCK` since `release_schema!` can run from `base_release_schema`, invoked by Rust's
+own release callback on whatever thread drops the schema, racing a concurrent Julia-side release.
 """
 function release_schema!(schema)
     lock(LIVE_SCHEMAS_LOCK) do
-        for child in schema.children
-            release_schema!(child)
-        end
         delete!(LIVE_SCHEMAS, schema)
     end
     return nothing
 end
 
+"""
+    base_release_schema(schema_ptr::Ptr{CArrowSchema})
+
+The producer-side release callback installed on every `ArrowSchema` (see `set_private_data!`). Per
+the Arrow C Data Interface, a producer's release callback MUST walk all children structures and
+call their own release callbacks, MUST free any data area it owns directly, and MUST mark the
+structure released (`release = NULL`). Recursion through the whole tree falls out for free here:
+every `ArrowSchema` this package builds shares this same callback, so invoking a child's callback
+walks *its* children in turn, all the way down to the leaves -- no explicit recursion needed on
+the Julia side (contrast with the old `release_schema!`, which had to recurse because every level
+used to root itself independently in `LIVE_SCHEMAS`).
+"""
 function base_release_schema(schema_ptr::Ptr{CArrowSchema})
     cschema = unsafe_load(schema_ptr)
     schema = unsafe_pointer_to_objref(Ptr{ArrowSchema}(cschema.private_data))
+
+    for child in schema.children
+        child_ptr = Base.unsafe_convert(Ptr{CArrowSchema}, child)
+        release = unsafe_load(child_ptr).release
+        release != C_NULL && @ccall $(release)(child_ptr::Ptr{CArrowSchema})::Cvoid
+    end
+
+    _mark_released!(schema_ptr)
+    _mark_released!(Base.unsafe_convert(Ptr{CArrowSchema}, schema))
+
     release_schema!(schema)
     return nothing
 end
 
+"""
+    set_private_data!(schema::ArrowSchema)
+
+Installs the release callback and `private_data` pointer on `schema`'s C struct -- required at
+every nesting level, since `base_release_schema` may end up invoking any schema's callback while
+walking down from an ancestor (see its docstring). Does **not** root `schema` in `LIVE_SCHEMAS`;
+see `root!` for that.
+"""
 function set_private_data!(schema::ArrowSchema)
     base_release_ptr = @cfunction base_release_schema Cvoid (Ptr{CArrowSchema},)
     schema.carrow_schema = CArrowSchema(
@@ -248,6 +326,20 @@ function set_private_data!(schema::ArrowSchema)
         base_release_ptr,
         pointer_from_objref(schema),
     )
+    return nothing
+end
+
+"""
+    root!(schema::ArrowSchema)
+
+Registers `schema` in `LIVE_SCHEMAS`, keeping it (and everything reachable through its `children`
+field) alive from the Julia GC's perspective until Rust invokes its release callback. Only ever
+needed for the top-level schema handed across the FFI boundary (see `arrowtable`) -- children are
+kept alive transitively through their parent's `children::Vector{ArrowSchema}` field, so rooting
+every nesting level independently (the old behavior) was both unnecessary and the reason
+`release_schema!` used to have to recurse.
+"""
+function root!(schema::ArrowSchema)
     lock(LIVE_SCHEMAS_LOCK) do
         @assert !haskey(LIVE_SCHEMAS, schema)
         LIVE_SCHEMAS[schema] = nothing
@@ -256,6 +348,14 @@ function set_private_data!(schema::ArrowSchema)
 end
 
 function ArrowSchema(; format, name, metadata = nothing, flags = 0, children = ArrowSchema[], dictionary = nothing)
+    metadata isa AbstractString && error(
+        "ArrowSchema metadata must be `nothing` or an ordered collection of `key => value` " *
+            "string pairs (e.g. a `Vector{Pair{String,String}}` or `Dict`), not a plain string -- " *
+            "the Arrow C Data Interface metadata field is a length-prefixed binary encoding, not " *
+            "a C string"
+    )
+    encoded_metadata = isnothing(metadata) ? nothing : _encode_metadata(metadata)
+
     children_pointers = [
         Base.unsafe_convert(Ptr{CArrowSchema}, child)
             for child in children
@@ -263,7 +363,7 @@ function ArrowSchema(; format, name, metadata = nothing, flags = 0, children = A
     schema = ArrowSchema(
         format,
         name,
-        metadata,
+        encoded_metadata,
         flags,
         children,
         dictionary,
@@ -271,7 +371,7 @@ function ArrowSchema(; format, name, metadata = nothing, flags = 0, children = A
         CArrowSchema(
             Base.unsafe_convert(Cstring, format),
             Base.unsafe_convert(Cstring, name),
-            isnothing(metadata) ? C_NULL : Base.unsafe_convert(Ptr{UInt8}, metadata),
+            isnothing(encoded_metadata) ? C_NULL : pointer(encoded_metadata),
             flags,
             length(children),
             pointer(children_pointers),
