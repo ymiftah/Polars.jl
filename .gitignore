@@ -2,3 +2,5 @@ Manifest.toml
 docs/node_modules/
 docs/build/
 .claude/
+
+debug/

@@ -168,7 +168,8 @@ end
     Internal API
 
 !!! warning
-    The schema should not be used afterwards.
+    The schema should not be used afterwards as it is freed within
+    the function
 """
 function load_dataframe_schema(schema::CArrowSchema)
     fmt = unsafe_string(schema.format)
@@ -182,6 +183,7 @@ function load_dataframe_schema(schema::CArrowSchema)
     @assert NT <: NamedTuple
     names, types = NT.parameters
 
+    # Explicitely release after reading the schema names and types
     schema_ref = Ref(schema)
     @ccall $(schema.release)(schema_ref::Ptr{CArrowSchema})::Cvoid
 
