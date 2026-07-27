@@ -49,9 +49,18 @@ jobs:
       - name: Rustfmt
         run: cargo fmt --check
         working-directory: ./c-polars
-      - name: Rust smoke tests (C ABI safety)
-        run: cargo test
+      - name: Install llvm-tools component
+        run: rustup component add llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Rust smoke tests (C ABI safety) with coverage
+        run: cargo llvm-cov --lcov --output-path lcov.info
         working-directory: ./c-polars
+      - uses: codecov/codecov-action@v4
+        with:
+          files: c-polars/lcov.info
+          flags: rust
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   test:
     runs-on: ${{ matrix.os }}
@@ -83,6 +92,7 @@ jobs:
         if: matrix.julia-version == '1' && matrix.os == 'ubuntu-latest'
         with:
           files: lcov.info
+          flags: julia
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
