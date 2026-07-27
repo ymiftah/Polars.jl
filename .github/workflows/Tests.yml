@@ -42,6 +42,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./c-polars"
+          shared-key: "c-polars"
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
         working-directory: ./c-polars
@@ -65,6 +66,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./c-polars"
+          shared-key: "c-polars"
       - name: Build libpolars
         run: cargo build --verbose
         working-directory: ./c-polars
@@ -101,6 +103,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./c-polars"
+          shared-key: "c-polars"
       - name: Build libpolars
         run: cargo build --verbose
         working-directory: ./c-polars
