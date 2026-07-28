@@ -1,14 +1,17 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use polars::io::cloud::CloudOptions;
 use polars::io::ipc::IpcScanOptions;
 use polars::prelude::*;
 use polars_plan::dsl::sink::{SinkDestination, SinkTarget, UnifiedSinkArgs};
 use polars_plan::dsl::{FileWriteFormat, MissingColumnsPolicy, UnifiedScanArgs};
 use polars_utils::compression::{BrotliLevel, GzipLevel, ZstdLevel};
+use polars_utils::pl_path::CloudScheme;
 use polars_utils::slice_enum::Slice;
 
 use crate::ffi_util::*;
+use crate::types::Opaque;
 use crate::types::*;
 use crate::{guard_error, make_error, polars_error_t};
 
@@ -16,6 +19,26 @@ use crate::{guard_error, make_error, polars_error_t};
 /// a user-facing option. `1024` is a compile-time-checked non-zero constant, so this can never
 /// actually panic -- a plain `const` avoids a `.unwrap()` that reads as fallible but isn't.
 const CSV_WRITER_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(1024).unwrap();
+
+/// Resolves a (possibly null) `polars_cloud_options_t` handle into a real `CloudOptions`, given
+/// the destination `path`. `CloudOptions` cannot be constructed without knowing the target cloud
+/// scheme, which is why the handle only stores unparsed key/value pairs (see its own doc comment
+/// in `types.rs`) -- resolution happens here, per call, once `path` is available. A null handle
+/// (the common case: no `storage_options` given) yields `None`, matching every scan/sink
+/// function's pre-existing behavior.
+pub(crate) unsafe fn resolve_cloud_options(
+    path: &str,
+    cloud_options: *const polars_cloud_options_t,
+) -> PolarsResult<Option<CloudOptions>> {
+    if cloud_options.is_null() {
+        Ok(None)
+    } else {
+        Ok(Some(CloudOptions::from_untyped_config(
+            CloudScheme::from_path(path),
+            (*cloud_options).pairs.iter().cloned(),
+        )?))
+    }
+}
 
 /// Builds `ParquetWriteOptions` from the primitive knobs shared by `write_parquet` and
 /// `sink_parquet`. `compression_level` (null = unset) is only meaningful for the leveled
@@ -132,6 +155,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
     include_file_paths: *const u8,
     include_file_paths_len: usize,
     hive_partitioning: *const bool,
+    cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     // `LazyFrame::scan_parquet` only builds a lazy DSL scan node (confirmed empirically in
@@ -146,6 +170,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
         let path = tri!(read_str(path, pathlen));
         let row_index_name = tri!(read_opt_str(row_index_name, row_index_name_len));
         let include_file_paths = tri!(read_opt_str(include_file_paths, include_file_paths_len));
+        let cloud_options = tri!(resolve_cloud_options(path, cloud_options));
 
         let args = ScanArgsParquet {
             n_rows: n_rows.as_ref().copied(),
@@ -154,7 +179,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
                 name,
                 offset: row_index_offset,
             }),
-            cloud_options: None,
+            cloud_options,
             hive_options: HiveOptions {
                 enabled: hive_partitioning.as_ref().copied(),
                 ..Default::default()
@@ -208,6 +233,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
     include_file_paths: *const u8,
     include_file_paths_len: usize,
     allow_missing_columns: bool,
+    cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     // See the matching comment on `polars_lazy_frame_scan_parquet` above: `reader.finish()` is
@@ -219,6 +245,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
         let comment_prefix = tri!(read_opt_str(comment_prefix, comment_prefix_len));
         let null_value = tri!(read_opt_str(null_value, null_value_len));
         let include_file_paths = tri!(read_opt_str(include_file_paths, include_file_paths_len));
+        let cloud_options = tri!(resolve_cloud_options(path, cloud_options));
 
         let reader = LazyCsvReader::new(PlRefPath::new(path))
             .with_n_rows(n_rows.as_ref().copied())
@@ -247,7 +274,8 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_csv(
                 MissingColumnsPolicy::Insert
             } else {
                 MissingColumnsPolicy::Raise
-            }));
+            }))
+            .with_cloud_options(cloud_options);
 
         let lf = tri!(reader.finish());
         *out = make_lazy_frame(lf);
@@ -270,6 +298,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
     include_file_paths_len: usize,
     hive_partitioning: *const bool,
     allow_missing_columns: bool,
+    cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     // See the matching comment on `polars_lazy_frame_scan_parquet` above: `scan_ipc` is also
@@ -278,6 +307,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
         let path = tri!(read_str(path, pathlen));
         let row_index_name = tri!(read_opt_str(row_index_name, row_index_name_len));
         let include_file_paths = tri!(read_opt_str(include_file_paths, include_file_paths_len));
+        let cloud_options = tri!(resolve_cloud_options(path, cloud_options));
 
         let unified_scan_args = UnifiedScanArgs {
             hive_options: HiveOptions {
@@ -300,6 +330,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
                 MissingColumnsPolicy::Raise
             },
             include_file_paths,
+            cloud_options,
             ..Default::default()
         };
 
@@ -329,6 +360,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
     data_page_size: *const usize,
     mkdir: bool,
     maintain_order: bool,
+    cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     guard_error(|| {
@@ -340,6 +372,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
             row_group_size,
             data_page_size,
         ));
+        let cloud_options = tri!(resolve_cloud_options(path, cloud_options));
         let lf = (*lf).inner.clone();
         let sink_type = SinkDestination::File {
             target: SinkTarget::Path(PlRefPath::new(path)),
@@ -348,6 +381,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
         let sink_args = UnifiedSinkArgs {
             mkdir,
             maintain_order,
+            cloud_options: cloud_options.map(Arc::new),
             ..Default::default()
         };
         let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
@@ -454,6 +488,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
     compression_level: *const u32,
     mkdir: bool,
     maintain_order: bool,
+    cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     guard_error(|| {
@@ -479,6 +514,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
             compression,
             compression_level,
         ));
+        let cloud_options = tri!(resolve_cloud_options(path, cloud_options));
         let lf = (*lf).inner.clone();
         let sink_type = SinkDestination::File {
             target: SinkTarget::Path(PlRefPath::new(path)),
@@ -487,6 +523,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
         let sink_args = UnifiedSinkArgs {
             mkdir,
             maintain_order,
+            cloud_options: cloud_options.map(Arc::new),
             ..Default::default()
         };
         let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
@@ -505,6 +542,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
     record_batch_size: *const usize,
     mkdir: bool,
     maintain_order: bool,
+    cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     guard_error(|| {
@@ -514,6 +552,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
             compression_level,
             record_batch_size
         ));
+        let cloud_options = tri!(resolve_cloud_options(path, cloud_options));
         let lf = (*lf).inner.clone();
         let sink_type = SinkDestination::File {
             target: SinkTarget::Path(PlRefPath::new(path)),
@@ -522,10 +561,38 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
         let sink_args = UnifiedSinkArgs {
             mkdir,
             maintain_order,
+            cloud_options: cloud_options.map(Arc::new),
             ..Default::default()
         };
         let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
         *out = make_lazy_frame(sunk);
         std::ptr::null()
     })
+}
+
+/// Builds a `polars_cloud_options_t` from parallel `(ptr-array, len-array, n)` key/value pairs --
+/// e.g. `("aws_access_key_id", "...")`. The pairs are stored unparsed (see the type's own doc
+/// comment in `types.rs`); actual `CloudOptions` construction is deferred to each scan/sink call
+/// site, once the destination path (and so the cloud scheme) is known.
+#[no_mangle]
+pub unsafe extern "C" fn polars_cloud_options_new(
+    keys: *const *const u8,
+    key_lens: *const usize,
+    values: *const *const u8,
+    value_lens: *const usize,
+    n: usize,
+    out: *mut *mut polars_cloud_options_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let keys = tri!(read_names(keys, key_lens, n));
+        let values = tri!(read_names(values, value_lens, n));
+        let pairs = keys.into_iter().zip(values).collect();
+        *out = polars_cloud_options_t { pairs }.into_handle();
+        std::ptr::null()
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_cloud_options_destroy(ptr: *mut polars_cloud_options_t) {
+    Opaque::destroy(ptr);
 }

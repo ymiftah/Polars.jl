@@ -66,7 +66,7 @@ function scan_parquet(
             path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
             UInt32(row_index_offset), parallel_enum, low_memory, rechunk, cache, glob,
             use_statistics, allow_missing_columns, include_file_paths_arg, include_file_paths_len,
-            hive_partitioning_ref, out
+            hive_partitioning_ref, Ptr{polars_cloud_options_t}(C_NULL), out
         )
     end
     polars_error(err)
@@ -179,7 +179,8 @@ function sink_parquet(
     err = GC.@preserve compression_level_ref row_group_size_ref data_page_size_ref begin
         polars_lazy_frame_sink_parquet(
             lf, path, ncodeunits(path), compression_enum, compression_level_ref, statistics,
-            row_group_size_ref, data_page_size_ref, mkdir, maintain_order, out
+            row_group_size_ref, data_page_size_ref, mkdir, maintain_order,
+            Ptr{polars_cloud_options_t}(C_NULL), out
         )
     end
     polars_error(err)

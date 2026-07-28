@@ -332,6 +332,7 @@ fn scanning_and_collecting_a_malformed_file_returns_an_error_not_a_crash() {
             std::ptr::null(),
             0,
             std::ptr::null(),
+            std::ptr::null(),
             &mut lf,
         );
         assert!(err.is_null(), "scan_parquet itself is purely lazy plan construction and must not error on file content");
@@ -345,6 +346,118 @@ fn scanning_and_collecting_a_malformed_file_returns_an_error_not_a_crash() {
         crate::polars_error_destroy(err);
 
         crate::dataframe::polars_lazy_frame_destroy(lf);
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[test]
+fn cloud_options_handle_is_a_no_op_for_local_paths() {
+    // `CloudScheme::from_path` returns `None` for a plain local path (no `://`), so a non-null
+    // `cloud_options` handle resolves via the `CloudType::File` default regardless of what pairs
+    // are inside it. This exercises `polars_cloud_options_new` -> `polars_lazy_frame_sink_parquet`
+    // -> `polars_cloud_options_destroy` end-to-end with a real (irrelevant) key/value pair, proving
+    // a non-null handle never breaks an ordinary local-file sink.
+    unsafe {
+        let key = b"endpoint_url";
+        let value = b"http://unused.invalid";
+        let keys = [key.as_ptr()];
+        let key_lens = [key.len()];
+        let values = [value.as_ptr()];
+        let value_lens = [value.len()];
+
+        let mut opts: *mut polars_cloud_options_t = std::ptr::null_mut();
+        let err = crate::io::polars_cloud_options_new(
+            keys.as_ptr(),
+            key_lens.as_ptr(),
+            values.as_ptr(),
+            value_lens.as_ptr(),
+            1,
+            &mut opts,
+        );
+        assert!(err.is_null());
+        assert!(!opts.is_null());
+
+        let df = sample_frame();
+        let lf = polars_dataframe_lazy(df);
+
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "polars_jl_cloud_options_test_{}_{}.parquet",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path_str = path.to_str().unwrap();
+
+        let mut sunk: *mut polars_lazy_frame_t = std::ptr::null_mut();
+        let err = crate::io::polars_lazy_frame_sink_parquet(
+            lf,
+            path_str.as_ptr(),
+            path_str.len(),
+            polars_parquet_compression_t::PolarsParquetCompressionSnappy,
+            std::ptr::null(),
+            true,
+            std::ptr::null(),
+            std::ptr::null(),
+            false,
+            true,
+            opts as *const polars_cloud_options_t,
+            &mut sunk,
+        );
+        assert!(
+            err.is_null(),
+            "sink_parquet must accept a non-null cloud_options handle for a plain local path"
+        );
+
+        let mut collected: *mut polars_dataframe_t = std::ptr::null_mut();
+        let err =
+            polars_lazy_frame_collect(sunk, polars_engine_t::PolarsEngineStreaming, &mut collected);
+        assert!(err.is_null(), "collecting the sink pipeline must succeed");
+
+        // Read the file back (through the ordinary null-cloud_options path, already covered by
+        // `end_to_end_select_collect_through_the_c_abi`-style tests) to confirm the sink actually
+        // wrote the expected data, not just that it didn't error.
+        let mut rescanned: *mut polars_lazy_frame_t = std::ptr::null_mut();
+        let err = crate::io::polars_lazy_frame_scan_parquet(
+            path_str.as_ptr(),
+            path_str.len(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            0,
+            polars_parquet_parallel_strategy_t::PolarsParquetParallelAuto,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+            &mut rescanned,
+        );
+        assert!(err.is_null());
+
+        let mut out: *mut polars_dataframe_t = std::ptr::null_mut();
+        let err =
+            polars_lazy_frame_collect(rescanned, polars_engine_t::PolarsEngineInMemory, &mut out);
+        assert!(err.is_null());
+
+        let (mut rows, mut cols) = (0usize, 0usize);
+        polars_dataframe_size(out, &mut rows, &mut cols);
+        assert_eq!((rows, cols), (3, 1));
+
+        crate::io::polars_cloud_options_destroy(opts);
+        crate::dataframe::polars_dataframe_destroy(df);
+        crate::dataframe::polars_lazy_frame_destroy(lf);
+        crate::dataframe::polars_lazy_frame_destroy(sunk);
+        crate::dataframe::polars_dataframe_destroy(collected);
+        crate::dataframe::polars_lazy_frame_destroy(rescanned);
+        crate::dataframe::polars_dataframe_destroy(out);
         let _ = std::fs::remove_file(&path);
     }
 }
