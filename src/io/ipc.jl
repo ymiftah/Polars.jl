@@ -95,6 +95,9 @@ Writes a dataframe to an Arrow IPC (Feather) file provided as an `IO`.
 - `compression`: one of `:uncompressed` (default), `:lz4`, `:zstd`. `compression_level` tunes zstd
   (ignored/rejected for the others).
 - `record_batch_size`: number of rows per record batch (default: polars' own default).
+
+For the `path::String` method, a path containing `"://"` (e.g. `"s3://bucket/out.arrow"`) is
+rejected with an error pointing at [`sink_ipc`](@ref) instead of silently writing a local file.
 """
 function write_ipc(
         io::IO, df::DataFrame;
@@ -116,7 +119,10 @@ function write_ipc(
     polars_error(err)
     return nothing
 end
-write_ipc(p::String, df::DataFrame; kwargs...) = open(io -> write_ipc(io, df; kwargs...), p, "w")
+function write_ipc(p::String, df::DataFrame; kwargs...)
+    occursin("://", p) && error("write_ipc writes local files; use sink_ipc for cloud URIs")
+    return open(io -> write_ipc(io, df; kwargs...), p, "w")
+end
 
 """
     sink_ipc(lf::LazyFrame, path::String; kwargs...)

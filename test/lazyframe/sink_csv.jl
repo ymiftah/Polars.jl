@@ -119,3 +119,24 @@ end
         @test_throws Exception sink_csv(df, missing_dir_path)
     end
 end
+
+@testset "write_csv rejects cloud URIs instead of silently writing a local file" begin
+    df = DataFrame((; x = [1, 2, 3]))
+    dir = mktempdir()
+
+    err = nothing
+    try
+        write_csv("s3://some-bucket/out.csv", df)
+    catch e
+        err = e
+    end
+    @test err !== nothing
+    @test occursin("sink_csv", sprint(showerror, err))
+    @test isempty(readdir(dir))
+    @test !isdir(joinpath(dir, "s3:"))
+
+    # regression guard: a plain local path still works exactly as before
+    local_path = joinpath(dir, "out.csv")
+    write_csv(local_path, df)
+    @test read_csv(local_path)[:x] == df[:x]
+end
