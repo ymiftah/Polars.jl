@@ -1296,6 +1296,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1414,15 +1424,18 @@ dependencies = [
  "futures-util",
  "http",
  "http-body-util",
+ "httparse",
  "humantime",
  "hyper",
  "itertools",
+ "md-5",
  "parking_lot",
  "percent-encoding",
  "quick-xml",
  "rand 0.10.2",
  "reqwest",
  "ring",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -1838,6 +1851,7 @@ dependencies = [
  "bitflags",
  "chrono",
  "either",
+ "futures",
  "memchr",
  "polars-arrow",
  "polars-buffer",
@@ -1853,6 +1867,7 @@ dependencies = [
  "polars-time",
  "polars-utils",
  "rayon",
+ "tokio",
  "version_check",
 ]
 
@@ -1874,6 +1889,7 @@ dependencies = [
  "polars-utils",
  "rayon",
  "recursive",
+ "tokio",
 ]
 
 [[package]]

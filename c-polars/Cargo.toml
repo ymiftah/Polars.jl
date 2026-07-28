@@ -35,7 +35,14 @@ polars-ops = { version = "0.54.4", features = ["round_series", "dtype-time"] }
 # `dtype-time`) and `polars-plan/dtype-duration`. Confirmed via `cargo tree -e features -i
 # polars-ops`/`-i polars-plan` and actual build fingerprints, not just the declared feature list
 # (see CLAUDE.md's note that `cargo tree -e features` is the source of truth, not `features = [...]`).
-polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration"] }
+# `aws`/`gcp`/`azure` (cloud IO plan, Phase 1): only these three provider features are added here.
+# `cloud`, `async`, `file_cache`, and `http` are already enabled *transitively* -- `polars-io/cloud`
+# is reached via `polars-plan/cloud`, `polars-stream/cloud`, and `polars-mem-engine/cloud`, all
+# pulled in by this crate's own `lazy`/`streaming` features, and `polars-io`'s own
+# `cloud = [..., "file_cache", "reqwest", "http", ...]` cascades the rest from there. Confirmed via
+# `cargo tree -e features -i polars-io`. Do not "helpfully" add `cloud`/`async`/`file_cache`/`http`
+# back in later -- they are already active, and re-adding them here would be dead weight, not a fix.
+polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration", "aws", "gcp", "azure"] }
 
 # Without this, `cargo build`'s default dev profile (opt-level 0 for every crate, including every
 # vendored polars kernel) is what every dev/test/CI run actually executes -- for a performance
