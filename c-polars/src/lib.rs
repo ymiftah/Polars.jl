@@ -72,6 +72,8 @@ mod value;
 #[cfg(test)]
 mod tests;
 
+use types::Opaque;
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_version(out: *mut *const u8) -> usize {
     let v = polars::VERSION;
@@ -85,10 +87,14 @@ pub struct polars_error_t {
     msg: String,
 }
 
+impl types::Opaque for polars_error_t {}
+
 fn make_error<E: ToString>(err: E) -> *const polars_error_t {
-    Box::into_raw(Box::new(polars_error_t {
+    polars_error_t {
         msg: err.to_string(),
-    }))
+    }
+    .into_handle()
+    .cast_const()
 }
 
 /// Runs `f`, converting a Rust panic into a `polars_error_t` instead of letting it unwind across
@@ -132,6 +138,5 @@ pub unsafe extern "C" fn polars_error_message(
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_error_destroy(err: *const polars_error_t) {
-    assert!(!err.is_null());
-    let _ = Box::from_raw(err.cast_mut());
+    Opaque::destroy(err.cast_mut());
 }

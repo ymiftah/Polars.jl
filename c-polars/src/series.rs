@@ -4,13 +4,12 @@ use polars_core::utils::arrow::ffi::{self, ArrowArray, ArrowSchema};
 use crate::{guard_error, make_error, polars_error_t, types::*, value::polars_value_type_t};
 
 pub(crate) fn make_series(series: Series) -> *mut polars_series_t {
-    Box::into_raw(Box::new(polars_series_t { inner: series }))
+    polars_series_t { inner: series }.into_handle()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_destroy(series: *mut polars_series_t) {
-    assert!(!series.is_null());
-    let _ = Box::from_raw(series);
+    Opaque::destroy(series);
 }
 
 #[no_mangle]
@@ -116,7 +115,7 @@ pub unsafe extern "C" fn polars_series_get<'a>(
 ) -> *const polars_error_t {
     assert!(!series.is_null());
     let value = tri!((*series).inner.get(index));
-    *out = Box::into_raw(Box::new(polars_value_t { inner: value }));
+    *out = make_value(value);
     std::ptr::null()
 }
 

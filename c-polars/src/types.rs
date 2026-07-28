@@ -32,16 +32,63 @@ pub struct polars_expr_t {
     pub(crate) inner: Expr,
 }
 
+/// Every opaque handle that crosses the C ABI (`polars_dataframe_t`, `polars_expr_t`,
+/// `polars_error_t`, ...). Implementing it is the *only* way a handle should be allocated or
+/// reclaimed, so the two contracts that govern every one of them live in exactly one place:
+///
+/// - **Allocator.** `into_handle` allocates with Rust's global allocator, so a handle must be
+///   freed by its matching `polars_*_destroy` and *never* by C `free()`. The two are not
+///   interchangeable and mixing them is undefined behavior.
+/// - **Null.** `destroy` treats null as a no-op, matching C's `free(NULL)`. It is deliberately
+///   *not* an `assert!`: a failed assertion panics, and a panic crossing `extern "C"` aborts the
+///   host process (none of the destructors runs inside `guard_error`), so asserting here turned a
+///   harmless `destroy(NULL)` into a hard crash of the embedding runtime.
+///
+/// Note this makes `destroy(NULL)` safe, *not* double-`destroy`: reclaiming the same non-null
+/// pointer twice is still a double free. Only the caller can rule that out (the Julia side does,
+/// via one finalizer per handle).
+pub(crate) trait Opaque: Sized {
+    /// Allocates `self` on the heap and transfers ownership to the caller across the C ABI.
+    fn into_handle(self) -> *mut Self {
+        Box::into_raw(Box::new(self))
+    }
+
+    /// Reclaims a handle produced by [`Opaque::into_handle`]. Null is a no-op.
+    ///
+    /// # Safety
+    /// If non-null, `ptr` must have come from `into_handle` on this same type and must not have
+    /// been destroyed already.
+    unsafe fn destroy(ptr: *mut Self) {
+        if !ptr.is_null() {
+            drop(Box::from_raw(ptr));
+        }
+    }
+}
+
+impl Opaque for polars_value_t<'_> {}
+impl Opaque for polars_dataframe_t {}
+impl Opaque for polars_lazy_frame_t {}
+impl Opaque for polars_lazy_group_by_t {}
+impl Opaque for polars_series_t {}
+impl Opaque for polars_expr_t {}
+
 pub(crate) fn make_dataframe(df: DataFrame) -> *mut polars_dataframe_t {
-    Box::into_raw(Box::new(polars_dataframe_t { inner: df }))
+    polars_dataframe_t { inner: df }.into_handle()
 }
 
 pub(crate) fn make_lazy_frame(lf: LazyFrame) -> *mut polars_lazy_frame_t {
-    Box::into_raw(Box::new(polars_lazy_frame_t { inner: lf }))
+    polars_lazy_frame_t { inner: lf }.into_handle()
 }
 
 pub(crate) fn make_lazy_group_by(gb: LazyGroupBy) -> *mut polars_lazy_group_by_t {
-    Box::into_raw(Box::new(polars_lazy_group_by_t { inner: gb }))
+    polars_lazy_group_by_t { inner: gb }.into_handle()
+}
+
+/// Counterpart to `make_dataframe`/`make_series`/... for the one handle that had no factory --
+/// `polars_value_t` was constructed inline at its two call sites (`polars_series_get`,
+/// `polars_value_struct_get`). See the type's own docs for the borrow contract it carries.
+pub(crate) fn make_value(value: AnyValue<'_>) -> *mut polars_value_t<'_> {
+    polars_value_t { inner: value }.into_handle()
 }
 
 #[repr(C)]

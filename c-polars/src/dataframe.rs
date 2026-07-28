@@ -125,8 +125,7 @@ pub unsafe extern "C" fn polars_dataframe_new_from_series(
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_dataframe_destroy(df: *mut polars_dataframe_t) {
-    assert!(!df.is_null());
-    let _ = Box::from_raw(df);
+    Opaque::destroy(df);
 }
 
 #[no_mangle]
@@ -393,8 +392,7 @@ pub unsafe extern "C" fn polars_dataframe_transpose(
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_destroy(df: *mut polars_lazy_frame_t) {
-    assert!(!df.is_null());
-    let _ = Box::from_raw(df);
+    Opaque::destroy(df);
 }
 
 #[no_mangle]
@@ -1005,8 +1003,7 @@ pub unsafe extern "C" fn polars_lazy_frame_tail(df: *mut polars_lazy_frame_t, n:
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_group_by_destroy(gb: *const polars_lazy_group_by_t) {
-    assert!(!gb.is_null());
-    let _ = Box::from_raw(gb.cast_mut());
+    Opaque::destroy(gb.cast_mut());
 }
 
 #[no_mangle]
