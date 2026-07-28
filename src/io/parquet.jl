@@ -1,4 +1,36 @@
 """
+Builds a temporary `polars_cloud_options_t` handle from `storage_options` (`nothing` becomes a
+null pointer), invokes `f` with the raw handle, and always destroys the handle afterward -- unlike
+every other opaque handle in this package (`DataFrame`/`LazyFrame`/`Series`/`Expr`/`Value`), this
+one is never exposed to the caller, so its whole lifetime is scoped to one ccall and no persistent
+Julia wrapper struct with a finalizer is needed.
+"""
+function _with_cloud_options(f, storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}})
+    if storage_options === nothing
+        return f(Ptr{polars_cloud_options_t}(C_NULL))
+    end
+    ks = String[]
+    vs = String[]
+    for (k, v) in storage_options
+        push!(ks, String(k))
+        push!(vs, String(v))
+    end
+    handle = GC.@preserve ks vs begin
+        key_ptrs, key_lens = _name_ptrs(ks)
+        value_ptrs, value_lens = _name_ptrs(vs)
+        out = Ref{Ptr{polars_cloud_options_t}}()
+        err = polars_cloud_options_new(key_ptrs, key_lens, value_ptrs, value_lens, length(ks), out)
+        polars_error(err)
+        out[]
+    end
+    try
+        return f(handle)
+    finally
+        polars_cloud_options_destroy(handle)
+    end
+end
+
+"""
     scan_parquet(path::String;
                  n_rows::Union{Nothing,Integer}=nothing,
                  row_index_name::Union{Nothing,AbstractString}=nothing,
@@ -11,7 +43,8 @@
                  use_statistics::Bool=true,
                  allow_missing_columns::Bool=false,
                  include_file_paths::Union{Nothing,AbstractString}=nothing,
-                 hive_partitioning::Union{Nothing,Bool}=nothing)::LazyFrame
+                 hive_partitioning::Union{Nothing,Bool}=nothing,
+                 storage_options::Union{Nothing,AbstractDict{<:AbstractString,<:AbstractString}}=nothing)::LazyFrame
 
 Lazily scans a parquet file, glob pattern, or directory of (optionally Hive-partitioned) parquet
 files, without reading it into memory.
@@ -29,6 +62,12 @@ files, without reading it into memory.
 - `include_file_paths`: if given, adds a column with this name containing each row's source path.
 - `hive_partitioning`: force Hive-style partition-column detection on (`true`) or off (`false`);
   `nothing` (default) auto-detects.
+- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
+  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
+  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
+  default) falls back to the provider's standard environment variables / config files (e.g.
+  `~/.aws/credentials`).
 """
 function scan_parquet(
         path;
@@ -43,7 +82,8 @@ function scan_parquet(
         use_statistics::Bool = true,
         allow_missing_columns::Bool = false,
         include_file_paths::Union{Nothing, AbstractString} = nothing,
-        hive_partitioning::Union{Nothing, Bool} = nothing
+        hive_partitioning::Union{Nothing, Bool} = nothing,
+        storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     parallel_enum = parallel == :auto ? API.PolarsParquetParallelAuto :
         parallel == :none ? API.PolarsParquetParallelNone :
@@ -61,13 +101,15 @@ function scan_parquet(
     hive_partitioning_ref = hive_partitioning === nothing ? Ptr{Bool}(C_NULL) : Ref(hive_partitioning)
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
-    err = GC.@preserve n_rows_ref hive_partitioning_ref begin
-        polars_lazy_frame_scan_parquet(
-            path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
-            UInt32(row_index_offset), parallel_enum, low_memory, rechunk, cache, glob,
-            use_statistics, allow_missing_columns, include_file_paths_arg, include_file_paths_len,
-            hive_partitioning_ref, Ptr{polars_cloud_options_t}(C_NULL), out
-        )
+    err = _with_cloud_options(storage_options) do cloud_options
+        GC.@preserve n_rows_ref hive_partitioning_ref begin
+            polars_lazy_frame_scan_parquet(
+                path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
+                UInt32(row_index_offset), parallel_enum, low_memory, rechunk, cache, glob,
+                use_statistics, allow_missing_columns, include_file_paths_arg, include_file_paths_len,
+                hive_partitioning_ref, cloud_options, out
+            )
+        end
     end
     polars_error(err)
     return LazyFrame(out[])
@@ -157,6 +199,12 @@ Accepts the same `compression`/`compression_level`/`statistics`/`row_group_size`
 keywords as [`write_parquet`](@ref), plus:
 - `mkdir`: create missing parent directories (default `false`).
 - `maintain_order`: preserve row order through the streaming pipeline (default `true`).
+- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
+  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
+  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
+  default) falls back to the provider's standard environment variables / config files (e.g.
+  `~/.aws/credentials`).
 """
 sink_parquet(df::DataFrame, path::String; kwargs...) = sink_parquet(lazy(df), path; kwargs...)
 function sink_parquet(
@@ -167,7 +215,8 @@ function sink_parquet(
         row_group_size::Union{Nothing, Integer} = nothing,
         data_page_size::Union{Nothing, Integer} = nothing,
         mkdir::Bool = false,
-        maintain_order::Bool = true
+        maintain_order::Bool = true,
+        storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     compression_enum = _parquet_compression_enum(compression)
     compression_level_ref = compression_level === nothing ? Ptr{Int32}(C_NULL) :
@@ -176,12 +225,14 @@ function sink_parquet(
     data_page_size_ref = data_page_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(data_page_size))
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
-    err = GC.@preserve compression_level_ref row_group_size_ref data_page_size_ref begin
-        polars_lazy_frame_sink_parquet(
-            lf, path, ncodeunits(path), compression_enum, compression_level_ref, statistics,
-            row_group_size_ref, data_page_size_ref, mkdir, maintain_order,
-            Ptr{polars_cloud_options_t}(C_NULL), out
-        )
+    err = _with_cloud_options(storage_options) do cloud_options
+        GC.@preserve compression_level_ref row_group_size_ref data_page_size_ref begin
+            polars_lazy_frame_sink_parquet(
+                lf, path, ncodeunits(path), compression_enum, compression_level_ref, statistics,
+                row_group_size_ref, data_page_size_ref, mkdir, maintain_order,
+                cloud_options, out
+            )
+        end
     end
     polars_error(err)
     collect(LazyFrame(out[]); engine = :streaming)

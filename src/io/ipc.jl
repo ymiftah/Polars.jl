@@ -17,7 +17,8 @@ end
              glob::Bool=true,
              include_file_paths::Union{Nothing,AbstractString}=nothing,
              hive_partitioning::Union{Nothing,Bool}=nothing,
-             allow_missing_columns::Bool=false)::LazyFrame
+             allow_missing_columns::Bool=false,
+             storage_options::Union{Nothing,AbstractDict{<:AbstractString,<:AbstractString}}=nothing)::LazyFrame
 
 Lazily scans an Arrow IPC (Feather) file, glob pattern, or directory of (optionally
 Hive-partitioned) IPC files, without reading it into memory.
@@ -32,6 +33,12 @@ Hive-partitioned) IPC files, without reading it into memory.
 - `hive_partitioning`: force Hive-style partition-column detection on (`true`) or off (`false`);
   `nothing` (default) auto-detects.
 - `allow_missing_columns`: allow columns present in some files but not others (filled with nulls).
+- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
+  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
+  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
+  default) falls back to the provider's standard environment variables / config files (e.g.
+  `~/.aws/credentials`).
 """
 function scan_ipc(
         path;
@@ -43,7 +50,8 @@ function scan_ipc(
         glob::Bool = true,
         include_file_paths::Union{Nothing, AbstractString} = nothing,
         hive_partitioning::Union{Nothing, Bool} = nothing,
-        allow_missing_columns::Bool = false
+        allow_missing_columns::Bool = false,
+        storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     n_rows_ref = n_rows === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n_rows))
     row_index_name_arg = row_index_name === nothing ? Ptr{UInt8}(C_NULL) : row_index_name
@@ -53,13 +61,15 @@ function scan_ipc(
     hive_partitioning_ref = hive_partitioning === nothing ? Ptr{Bool}(C_NULL) : Ref(hive_partitioning)
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
-    err = GC.@preserve n_rows_ref hive_partitioning_ref begin
-        polars_lazy_frame_scan_ipc(
-            path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
-            UInt32(row_index_offset), rechunk, cache, glob, include_file_paths_arg,
-            include_file_paths_len, hive_partitioning_ref, allow_missing_columns,
-            Ptr{polars_cloud_options_t}(C_NULL), out
-        )
+    err = _with_cloud_options(storage_options) do cloud_options
+        GC.@preserve n_rows_ref hive_partitioning_ref begin
+            polars_lazy_frame_scan_ipc(
+                path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
+                UInt32(row_index_offset), rechunk, cache, glob, include_file_paths_arg,
+                include_file_paths_len, hive_partitioning_ref, allow_missing_columns,
+                cloud_options, out
+            )
+        end
     end
     polars_error(err)
     return LazyFrame(out[])
@@ -119,6 +129,12 @@ Accepts the same `compression`/`compression_level`/`record_batch_size` keywords 
 [`write_ipc`](@ref), plus:
 - `mkdir`: create missing parent directories (default `false`).
 - `maintain_order`: preserve row order through the streaming pipeline (default `true`).
+- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
+  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
+  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
+  default) falls back to the provider's standard environment variables / config files (e.g.
+  `~/.aws/credentials`).
 """
 sink_ipc(df::DataFrame, path::String; kwargs...) = sink_ipc(lazy(df), path; kwargs...)
 function sink_ipc(
@@ -127,18 +143,21 @@ function sink_ipc(
         compression_level::Union{Nothing, Integer} = nothing,
         record_batch_size::Union{Nothing, Integer} = nothing,
         mkdir::Bool = false,
-        maintain_order::Bool = true
+        maintain_order::Bool = true,
+        storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     compression_enum = _ipc_compression_enum(compression)
     compression_level_ref = compression_level === nothing ? Ptr{Int32}(C_NULL) : Ref(Int32(compression_level))
     record_batch_size_ref = record_batch_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(record_batch_size))
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
-    err = GC.@preserve compression_level_ref record_batch_size_ref begin
-        polars_lazy_frame_sink_ipc(
-            lf, path, ncodeunits(path), compression_enum, compression_level_ref,
-            record_batch_size_ref, mkdir, maintain_order, Ptr{polars_cloud_options_t}(C_NULL), out
-        )
+    err = _with_cloud_options(storage_options) do cloud_options
+        GC.@preserve compression_level_ref record_batch_size_ref begin
+            polars_lazy_frame_sink_ipc(
+                lf, path, ncodeunits(path), compression_enum, compression_level_ref,
+                record_batch_size_ref, mkdir, maintain_order, cloud_options, out
+            )
+        end
     end
     polars_error(err)
     collect(LazyFrame(out[]); engine = :streaming)
