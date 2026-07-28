@@ -39,10 +39,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./c-polars"
           shared-key: "c-polars"
+      - name: Install cbindgen
+        run: cargo install cbindgen --version 0.29.0 --locked
+      - name: Check include/polars.h is up to date
+        run: |
+          uv tool install clang-format==22.1.8
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+          export PATH="$(uv tool dir --bin):$PATH"
+          ./regen_header.sh
+          git diff --exit-code -- include/polars.h
+        working-directory: ./c-polars
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
         working-directory: ./c-polars
