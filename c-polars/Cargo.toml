@@ -7,9 +7,6 @@ edition = "2021"
 name = "polars"
 crate-type = ["cdylib"]
 
-[build-dependencies]
-cbindgen = "0.29.0"
-
 [features]
 # Off by default: to_titlecase needs a nightly rustc (upstream still depends on unstable std
 # internals for this as of polars 0.54.4), which this repo's rust-toolchain pin deliberately
