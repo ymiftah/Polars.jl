@@ -93,3 +93,30 @@ end
         @test_throws Exception collect(scan_parquet(joinpath(multi, "*.parquet"); allow_missing_columns = true))
     end
 end
+
+@testset "cloud IO (Phase 1: aws/gcp/azure Cargo features enabled)" begin
+    @testset "s3:// scheme is recognized -- 'aws' feature must be enabled no longer fires" begin
+        # Regression guard for c-polars/Cargo.toml's `polars` dependency feature list: before the
+        # "aws"/"gcp"/"azure" features were added, any s3:// path failed with the clean
+        # `PolarsError: feature 'aws' must be enabled in order to use 'Aws' cloud urls` message
+        # (cloud/async/http were already transitively on, so this was never a process abort -- see
+        # CLAUDE.md/plans/cloud_io.md). This attempts a real connection and can be run with or
+        # without network access -- the assertion is only about the error message, not a
+        # successful round-trip, so it stays hermetic either way.
+        err_message = try
+            collect(scan_parquet("s3://some-bucket/some.parquet"))
+            nothing
+        catch e
+            sprint(showerror, e)
+        end
+        @test err_message !== nothing
+        @test !occursin("feature 'aws' must be enabled", err_message)
+    end
+
+    if get(ENV, "POLARS_JL_NETWORK_TESTS", "") == "1"
+        @testset "http(s) scan (network)" begin
+            df = collect(scan_csv("https://raw.githubusercontent.com/pola-rs/polars/main/examples/datasets/foods1.csv"))
+            @test size(df) == (27, 4)
+        end
+    end
+end
