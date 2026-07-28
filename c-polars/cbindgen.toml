@@ -1,0 +1,18 @@
+language = "C"
+pragma_once = true
+includes = ["arrow.h"]
+cpp_compat = false
+documentation = true
+documentation_style = "doxy"
+documentation_length = "full"
+line_length = 100 # matches .clang-format's ColumnLimit
+tab_width = 2 # matches .clang-format's IndentWidth
+autogen_warning = "/* GENERATED FILE -- do not edit. Regenerate with c-polars/regen_header.sh */"
+
+[parse]
+parse_deps = false
+
+[parse.expand]
+crates = ["c-polars"]
+all_features = false
+default_features = true # keeps the `nightly`-gated symbol out, matching today's header
