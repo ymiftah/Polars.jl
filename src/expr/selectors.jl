@@ -1,8 +1,3 @@
-# `polars.selectors` / py-polars' `cs.*` -- select columns by dtype/name/position/pattern instead
-# of writing out `col(...)` calls by hand, and combine selections with set algebra (`|`/`&`/`-`/
-# `xor`). See `plans/definitive_guide_gap_closure.md`'s Phase 2 for the full design writeup this
-# file implements.
-#
 # This file has two parts, in this order (the ordering is load-bearing -- see below):
 #
 #   1. Top-level code (this section, directly in `module Polars`, mirroring how `Expr` itself is
@@ -24,15 +19,7 @@
 """
     Selector
 
-A column selector (py-polars' `cs.*` / `polars.selectors`) -- wraps a `Polars.Expr` under the
-hood (`Selector::` is itself just another `Expr` variant on the Rust side), but is kept as a
-distinct Julia type rather than returned as a plain `Expr` so that `|`/`&`/`-`/`xor` can mean
-selector set-algebra (union/intersect/difference/exclusive-or over the *columns* a selector would
-match) without colliding with what those operators already mean for two `Expr`s (elementwise
-boolean logic over column *values*). Never constructed directly -- build one via the
-[`Selectors`](@ref) namespace (`Selectors.numeric()`, `Selectors.by_name(...)`, etc.) and pass it
-anywhere an `Expr` is accepted (`select`, `with_columns`, `filter`, `sort`, ...); it composes via
-`_as_expr` exactly like a `String`/`Symbol`/`Expr` column reference does.
+A column selector.
 
 !!! note "Mixing a `Selector` with a plain `Expr` via `|`/`&`/`-`/`xor` is a `MethodError`, not a promotion"
     `numeric() | col("x")` has genuinely ambiguous intent (does `col("x")` mean "the column named
@@ -94,12 +81,12 @@ Base.xor(a::Selector, b::Selector) = _combine_selectors(polars_expr_selector_exc
     Selectors
 
 Column selectors, mirroring py-polars' `polars.selectors` (conventionally imported as `cs` there;
-here just used qualified, `Selectors.numeric()`, matching `Structs`/`Dt`/`Lists`/`Strings`'s own
-qualified-use convention -- and avoiding clobbering `Base.all`/`Base.string`/`Base.float`/
-`Base.time`/`Base.contains`, which several selector names would otherwise collide with).
+here used qualified -- `Selectors.numeric()` -- matching `Structs`/`Dt`/`Lists`/`Strings`, and
+avoiding clobbering `Base.all`/`string`/`float`/`time`/`contains`, which several selector names
+would otherwise collide with).
 
 Every function here returns a [`Selector`](@ref), which can be passed anywhere an `Expr` is
-accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`/`&`/`-`/`xor`.
+accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`/`&`/`-`/`⊻`.
 
 | Function | Selects |
 |---|---|
@@ -117,10 +104,9 @@ accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`
 | `starts_with(prefixes...)`, `ends_with(suffixes...)`, `contains(substrings...)` | column names by literal substring (regex-escaped internally, not user-facing regex) |
 
 !!! note "`by_index` is 1-based here, unlike py-polars' 0-based `cs.by_index`"
-    Matches this package's own [`Polars.nth`](@ref) (`src/expr/expr.jl`), which already made the same
-    call for the same reason: 1-based indexing is the convention everywhere else in this Julia
-    package. Negative indices still count back from the end unchanged (`by_index(-1)` is the last
-    column, same as `nth(-1)`).
+    1-based indexing is the convention everywhere else in this package, matching
+    [`Polars.nth`](@ref). Negative indices still count back from the end unchanged
+    (`by_index(-1)` is the last column, same as `nth(-1)`).
 
 !!! note "Scope: no per-unit/zone temporal matching, no recursive nested-selector composition"
     `datetime()`/`duration()` match *any* time unit/time zone (no `cs.datetime(time_unit="ms")`

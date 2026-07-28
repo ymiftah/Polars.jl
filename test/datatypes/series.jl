@@ -160,9 +160,17 @@ end
         @test arr == collect(s)
 
         # the borrowed buffer must stay valid (and correct) after the source Series/DataFrame
-        # are dropped and GC'd -- the whole point of the release-on-finalize keeper.
+        # are dropped and GC'd -- the whole point of the release-on-finalize keeper. Regression
+        # test for a real use-after-free: `_dispatch_read` used to release the exported buffers
+        # unconditionally right after building `arr`, regardless of whether `arr` was a zero-copy
+        # alias of them -- freeing the very memory `arr` still pointed at. A single
+        # non-forced `GC.gc()` doesn't reliably surface this (the freed pages often still hold
+        # their old bytes), so force full collections and churn the heap with fresh allocations in
+        # between to encourage the freed memory to actually be reused before checking.
         s = nothing
-        GC.gc()
+        GC.gc(true)
+        junk = [rand(Int64, 64) for _ in 1:20_000]
+        GC.gc(true)
         @test arr == [10, 20, 30, 40, 50]
     end
 

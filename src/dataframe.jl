@@ -15,11 +15,19 @@ function DataFrame(table)
     try
         out = Ref{Ptr{polars_dataframe_t}}()
         err = API.polars_dataframe_new_from_carrow(schema, array, out)
-        # On success, Rust has taken ownership of `array` via the release-callback protocol (it
-        # stays rooted in `LIVE_ARRAYS` until Rust itself calls `base_release_array` later, once
-        # the imported buffers are dropped) -- do not release it here. On failure, Rust never
-        # took ownership, so `array` (and its Julia-owned buffers) would otherwise stay rooted in
-        # `LIVE_ARRAYS` forever; unroot it explicitly so it can be GC'd like any other object.
+        # `array` crosses the ccall boundary by value (see the Rust-side doc comment on
+        # `polars_dataframe_new_from_carrow`), so Rust receives its own independent copy and takes
+        # ownership unconditionally, on both the success and failure path -- `array`'s own copy is
+        # moved-from the instant the ccall returns, so mark it released here too (harmless if
+        # `base_release_array` already did this itself, e.g. on the synchronous failure path
+        # below).
+        _mark_released!(Base.unsafe_convert(Ptr{API.ArrowArray}, array))
+        # On failure, Rust's `ArrowArray: Drop` impl already released synchronously before
+        # returning (every early return in `polars_dataframe_new_from_carrow` drops its owned
+        # `carray` local) -- `array` is therefore already unrooted from `LIVE_ARRAYS` by the time
+        # we get here. On success, release is deferred until the imported buffers are eventually
+        # dropped (`array` stays rooted until then). Either way, `release_array!` below is a
+        # defensive, idempotent unroot, not a required one.
         try
             polars_error(err)
         catch

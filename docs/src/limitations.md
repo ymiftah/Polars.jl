@@ -81,5 +81,9 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   from several Julia tasks can oversubscribe the machine — set `POLARS_MAX_THREADS` explicitly if
   that's a concern.
 
+- **`DataFrame(table)` aliases fixed-width numeric column `Vector`s rather than copying them** —
+  mutating the source `Vector` afterwards mutates the `DataFrame` too; see [Developer](@ref) for
+  exactly which column types this applies to.
+
 See [Developer](@ref) for the implementation detail behind these gaps, plus notes on memory
 management, error handling, and internal Cargo feature configuration.

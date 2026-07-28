@@ -194,6 +194,24 @@ fn write_callback_receives_the_full_output() {
 }
 
 #[test]
+fn destroy_is_a_no_op_on_null_for_every_handle_type() {
+    // Every `*_destroy` used to `assert!(!ptr.is_null())`; a failed assert panics, and a panic
+    // crossing `extern "C"` aborts the whole host process (none of the destructors runs inside
+    // `guard_error`). `Opaque::destroy` treats null as a no-op instead, matching C's
+    // `free(NULL)` -- this exercises that all 7 handle types actually get that behavior instead
+    // of aborting. A previous version of this test would have crashed the test binary outright.
+    unsafe {
+        crate::polars_error_destroy(std::ptr::null());
+        crate::expr::polars_expr_destroy(std::ptr::null());
+        crate::series::polars_series_destroy(std::ptr::null_mut());
+        crate::value::polars_value_destroy(std::ptr::null_mut());
+        crate::dataframe::polars_dataframe_destroy(std::ptr::null_mut());
+        crate::dataframe::polars_lazy_frame_destroy(std::ptr::null_mut());
+        crate::dataframe::polars_lazy_group_by_destroy(std::ptr::null());
+    }
+}
+
+#[test]
 fn make_error_round_trips_through_the_accessor() {
     unsafe {
         let err = make_error("a specific message");

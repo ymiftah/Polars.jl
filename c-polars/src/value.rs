@@ -249,8 +249,7 @@ pub unsafe extern "C" fn polars_value_type(value: *mut polars_value_t) -> polars
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_value_destroy(value: *mut polars_value_t) {
-    assert!(!value.is_null());
-    let _ = Box::from_raw(value);
+    Opaque::destroy(value);
 }
 
 macro_rules! gen_value_get {
@@ -413,7 +412,7 @@ pub unsafe extern "C" fn polars_value_struct_get<'a>(
         return make_error(format!("invalid field index {fieldidx}"));
     };
 
-    *out = Box::into_raw(Box::new(polars_value_t { inner: field_value }));
+    *out = make_value(field_value);
 
     std::ptr::null()
 }

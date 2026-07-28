@@ -25,13 +25,12 @@ use crate::{
 };
 
 fn make_expr(expr: Expr) -> *const polars_expr_t {
-    Box::into_raw(Box::new(polars_expr_t { inner: expr }))
+    polars_expr_t { inner: expr }.into_handle().cast_const()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_destroy(expr: *const polars_expr_t) {
-    assert!(!expr.is_null());
-    let _ = Box::from_raw(expr.cast_mut());
+    Opaque::destroy(expr.cast_mut());
 }
 
 macro_rules! gen_literal_get {

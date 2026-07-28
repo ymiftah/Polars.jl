@@ -1,0 +1,16 @@
+coverage:
+  status:
+    project: off
+    patch: off
+
+flags:
+  rust:
+    paths:
+      - c-polars/src
+  julia:
+    paths:
+      - src
+      - ext
+
+comment:
+  layout: "reach, diff, flags, files"

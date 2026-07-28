@@ -27,8 +27,7 @@ end
 Builds the `@cfunction` pointer for `_write_callback`, shared by every FFI site that
 streams bytes back into a Julia `IO` (parquet/CSV/IPC writers, `Value` string/binary getters).
 Defined once here, rather than re-typed at each call site, so the argument types can't drift
-from the C `IOCallback` typedef again -- the length argument was `Cuint` (32-bit) at all 5 sites
-until this fix, silently narrowing the C side's `uintptr_t` (64-bit on any real platform).
+from the C `IOCallback`.
 """
 _io_callback() = @cfunction(_write_callback, Cssize_t, (Any, Ptr{Cchar}, Csize_t))
 
@@ -39,6 +38,9 @@ using .API
 using Dates
 using Statistics
 
+# Arrow interface
+# TODO Monitor progress of https://github.com/apache/arrow-julia/issues/184
+# which should be considered the "Official" julia arrow implementation
 include("./arrow/schema.jl")
 include("./arrow/array.jl")
 include("./series.jl")
@@ -141,9 +143,7 @@ export Series, DataFrame, PolarsError,
     drop, rename, drop_nulls, with_row_index, explode, unpivot, unnest, nth,
     describe, pivot, upsample, hstack, vstack, transpose
 
-# Cuts TTFX: without this, the first `DataFrame`/`select`/`filter`/`collect` call in a fresh
-# session pays full compilation for the whole eager-via-lazy pipeline plus both bulk-read paths
-# (numeric and string/view) exercised below.
+# Precompilation to reduce TTFX.
 PrecompileTools.@compile_workload begin
     df = DataFrame((; a = [1, 2, 3], b = ["x", "y", "z"]))
     lf = lazy(df)

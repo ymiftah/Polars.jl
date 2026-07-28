@@ -8,18 +8,15 @@ such as [`col`](@ref).
 !!! note "Not `<: Number`, not sortable/hashable as a DSL value"
     Earlier versions of this package made `Expr <: Number` purely so that mixed arguments (e.g.
     `col("x") + 1`) would reach the operators below via Julia's `Number`-specific promotion
-    fallbacks. That piggybacked correctness on a lie -- an `Expr` is not a number, and the
+    fallbacks. That piggybacked correctness on a lie: an `Expr` is not a number, and the
     supertype silently broke `isequal`/`isless`'s contracts (both must return `Bool`; both
     returned another `Expr` instead, matching the DSL's `==`/`<` behavior) and let `Expr` values
-    leak into arbitrary generic `Number` code paths that assume real arithmetic semantics. Every
-    operator below is now defined explicitly instead (`Expr`-`Expr` and both mixed-argument
+    leak into arbitrary generic `Number` code paths that assume real arithmetic semantics.
+    Every operator below is now defined explicitly instead (`Expr`-`Expr` and both mixed-argument
     orders), so no promotion machinery is needed. `isless`/`isequal` are deliberately *not*
     defined for `Expr`: `Expr`s are therefore not valid `sort`/`Dict`/`Set` keys. Both fail loudly
-    rather than silently misbehaving -- `isless` with a clear `MethodError` (no fallback exists in
-    Base for arbitrary types), `isequal` with a `TypeError` (Base's own generic fallback is
-    `isequal(x, y) = (x == y)::Bool`, and our `==` returns an `Expr`, which fails that type
-    assertion). This matches Python polars, where `Expr.__eq__` also builds a new expression
-    rather than comparing identity.
+    rather than silently misbehaving. This matches Python polars, where `Expr.__eq__` also builds
+    a new expression rather than comparing identity.
 """
 mutable struct Expr
     ptr::Ptr{polars_expr_t}
@@ -29,13 +26,11 @@ end
 
 Base.unsafe_convert(::Type{Ptr{polars_expr_t}}, expr::Expr) = expr.ptr
 
-# `Expr <: Number` used to make Julia's default `broadcastable(x::Number) = x` fallback treat an
-# `Expr` as a scalar during dot-broadcasting (e.g. `col("x") .> 1`, used throughout this package's
-# own tests). Without a supertype, `Expr` would instead hit Base's generic
-# `broadcastable(x) = collect(x)` fallback for otherwise-unmatched types, which tries to iterate
-# it and fails with a confusing `MethodError: no method matching length(::Expr)`. `Ref(expr)`
-# matches how `AbstractString`/`Symbol`/`Missing`/etc. (also not `<: Number`) opt into the same
-# scalar-broadcasting behavior.
+# `Expr` has no iteration protocol, so without this method it would hit Base's generic
+# `broadcastable(x) = collect(x)` fallback and fail with a confusing `MethodError: no method
+# matching length(::Expr)` inside a dot-broadcast expression like `col("x") .> 1`. Wrapping in
+# `Ref` marks `Expr` as a scalar for broadcasting purposes -- the same idiom
+# `AbstractString`/`Symbol`/`Missing` use -- so it participates as-is instead of being iterated.
 Base.Broadcast.broadcastable(expr::Expr) = Ref(expr)
 
 Base.convert(::Type{Expr}, ::Colon) = col("*")
@@ -120,25 +115,19 @@ _le(a::Expr, b::Expr) = not(gt(a, b))
 _ge(a::Expr, b::Expr) = not(Base.lt(a, b))
 _neq(a::Expr, b::Expr) = not(eq(a, b))
 
-# Every arithmetic/comparison/logical operator needs five methods -- `Expr`-`Expr`, both
-# mixed-argument orders (`Expr(x) op literal` and `literal op Expr(x)`), and both `Missing`
-# orders -- now that `Expr` isn't `<: Number` and can no longer piggyback on Julia's
-# `Number`-specific promotion fallbacks (see the struct docstring above). `dsl` is looked up
-# unqualified except `Base.lt`, which -- unlike `eq`/`gt`/`add`/... -- collides with an
-# *unexported* internal `Base.lt` binding, so `@generate_expr_fns` qualified its own definition to
-# `Base.lt` and it must be called that way too (the same class of gotcha as
-# `Expr::product`/`Base.product` documented in CLAUDE.md, just for an operator this package still
-# needs to call internally rather than export).
-#
-# The dedicated `(Expr, Missing)`/`(Missing, Expr)` pair exists only to resolve a method
-# ambiguity, not to add new behavior: `Base.$op(a::Expr, b) = ...` (b unconstrained) is exactly as
-# specific as Base's own `missing.jl` fallbacks (e.g. `==(::Any, ::Missing) = missing`,
-# `<(::Any, ::Missing) = missing`) for a literal `missing` second argument, so
-# `col("x") == missing` raised `MethodError: ==(::Expr, ::Missing) is ambiguous` without these --
-# Julia's own suggested fix is to add the strictly-more-specific `(Expr, Missing)` method, which
-# routes through `convert(Expr, missing)` (a real DSL null literal) same as any other literal,
-# rather than short-circuiting to Julia's `missing`-propagation the way plain `Any` values never
-# would have reached anyway.
+# Since `Expr` isn't `<: Number` (see the struct docstring above), each operator needs its
+# argument combinations spelled out explicitly rather than relying on promotion. For each `op`,
+# this generates:
+#   - `(Expr, Expr)`      -- the plain case, dispatches straight to `dsl`
+#   - `(Expr, Any)` / `(Any, Expr)`  -- `convert`s the literal side to an `Expr` first
+#   - `(Expr, Missing)` / `(Missing, Expr)`  -- strictly more specific than Base's own
+#     `missing.jl` fallbacks (e.g. `==(::Any, ::Missing) = missing`), which would otherwise tie
+#     with the `(Expr, Any)` method above and make `col("x") == missing` raise a `MethodError:
+#     ambiguous`. These route `missing` through `convert(Expr, missing)` -- a real DSL null
+#     literal -- so it participates in the DSL's own null-propagation instead of Julia's.
+# `dsl` is looked up unqualified except `Base.lt`, which collides with an unexported internal
+# `Base.lt` binding and must stay qualified (same class of gotcha as `Expr::product`/
+# `Base.product`).
 for (op, dsl) in (
         (:(==), :eq), (:!=, :_neq),
         (:<, :(Base.lt)), (:<=, :_le),
@@ -174,11 +163,12 @@ col(name::Symbol) = col(String(name))
 
 Coerces a column reference to an `Expr`: a `String`/`Symbol` becomes `col(x)`; an existing `Expr`
 passes through unchanged. Shared by every verb that accepts either a column name or a full
-expression (`select`, `filter`, `group_by`, `sort`, `join`, `over`, ...) in place of each one
-repeating its own `ex -> ex isa String ? col(ex) : ex` inline. Exhaustive over the three accepted
-input shapes (no generic fallback method): passing anything else raises a clear `MethodError`
-right at the coercion site rather than deferring to a more confusing failure further downstream
-(e.g. inside a later `convert(Vector{Expr}, ...)`).
+expression (`select`, `filter`, `group_by`, `sort`, `join`, `over`, ...), in place of each one
+repeating its own `ex -> ex isa String ? col(ex) : ex` inline.
+
+Exhaustive over the three accepted input shapes (no generic fallback method): passing anything
+else raises a clear `MethodError` right at the coercion site rather than deferring to a more
+confusing failure further downstream (e.g. inside a later `convert(Vector{Expr}, ...)`).
 """
 _as_expr(x::AbstractString) = col(String(x))
 _as_expr(x::Symbol) = col(String(x))
@@ -281,12 +271,14 @@ end
 
 """
 Maps a Julia type to its `polars_value_type_t` C enum code for a *plain, parameter-free* dtype
-match -- returns `nothing` if `dtype` isn't one of these. This deliberately excludes `DateTime` and
-the duration `Period` subtypes even though polars has dtypes for them: those need a time unit (and
-`DateTime` a time zone) that a bare `polars_value_type_t` code can't carry, so `cast` and
-[`Selectors.by_dtype`](@ref) each handle them separately (before/after calling this, respectively)
-rather than through this shared table. Single source of truth for the plain-dtype mapping, used by
-both.
+match -- returns `nothing` if `dtype` isn't one of these.
+
+Deliberately excludes `DateTime` and the duration `Period` subtypes even though polars has dtypes
+for them: those need a time unit (and `DateTime` a time zone) that a bare `polars_value_type_t`
+code can't carry, so `cast` and [`Selectors.by_dtype`](@ref) each handle them separately
+(before/after calling this, respectively) rather than through this shared table.
+
+Single source of truth for the plain-dtype mapping, used by both.
 """
 function _plain_value_type_code(dtype)
     return if dtype == Missing
@@ -331,15 +323,19 @@ end
          time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
     cast(dtype::Type; kwargs...)::Base.Callable
 
-Casts the series represented by the expression to the provided `dtype`. Supports `Missing`, the
-physical numeric types, `Bool`, `String`, `Vector{UInt8}` (Binary), `Date`, `Dates.Time`,
-`DateTime` (naive or timezone-aware -- see `time_unit`/`time_zone` below), and
-`Dates.Nanosecond`/`Dates.Microsecond`/`Dates.Millisecond` (Duration, resolution implied by the
-chosen `Period` subtype) -- `Categorical`, `Decimal`, `List`, and `Struct` need parameters this
-single-type-argument form can't carry; see [`cast_categorical`](@ref)/[`cast_decimal`](@ref) for
-those. Any other target raises an error. `time_unit`/`time_zone` only apply to a `DateTime`
-target (ignored otherwise): `time_unit` is one of `:ns`, `:us` (default), `:ms`; `time_zone` is
-`nothing` (default, naive) or an IANA time zone name.
+Casts the series represented by the expression to the provided `dtype`.
+
+Supported targets: `Missing`, the physical numeric types, `Bool`, `String`, `Vector{UInt8}`
+(Binary), `Date`, `Dates.Time`, `DateTime` (naive or timezone-aware -- see `time_unit`/`time_zone`
+below), and `Dates.Nanosecond`/`Dates.Microsecond`/`Dates.Millisecond` (Duration, resolution
+implied by the chosen `Period` subtype). Any other target raises an error.
+
+`Categorical`, `Decimal`, `List`, and `Struct` need parameters this single-type-argument form
+can't carry -- see [`cast_categorical`](@ref)/[`cast_decimal`](@ref) for those.
+
+`time_unit`/`time_zone` only apply to a `DateTime` target (ignored otherwise):
+- `time_unit`: one of `:ns`, `:us` (default), `:ms`
+- `time_zone`: `nothing` (default, naive) or an IANA time zone name
 """
 function cast(
         expr, dtype;
@@ -369,11 +365,14 @@ cast(dtype; kwargs...) = expr -> cast(expr, dtype; kwargs...)
     cast_datetime(expr::Polars.Expr; time_unit::Symbol=:us,
                   time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
 
-Casts `expr` to `Datetime(time_unit, time_zone)`. Also reachable as `cast(expr, DateTime;
-time_unit, time_zone)`; this is the underlying implementation (`polars_value_type_t`, used by the
-plain `cast`, can't carry a time unit or time zone, so `Datetime` needs its own entry point).
-`time_unit` is one of `:ns`, `:us` (default), `:ms`; `time_zone` is `nothing` (default, naive) or
-an IANA time zone name.
+Casts `expr` to `Datetime(time_unit, time_zone)`.
+
+Also reachable as `cast(expr, DateTime; time_unit, time_zone)` -- this is the underlying
+implementation. `Datetime` needs its own entry point because `polars_value_type_t` (what the plain
+`cast` dispatches on) can't carry a time unit or time zone.
+
+- `time_unit`: one of `:ns`, `:us` (default), `:ms`
+- `time_zone`: `nothing` (default, naive) or an IANA time zone name
 """
 function cast_datetime(
         expr::Expr; time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
@@ -397,10 +396,13 @@ end
 """
     cast_duration(expr::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr
 
-Casts `expr` to `Duration(time_unit)`. Also reachable via `cast(expr,
-Dates.Nanosecond|Microsecond|Millisecond)`, which just calls this with the unit implied by the
-chosen `Period` subtype -- this named form is for when you'd rather pass `time_unit` as a keyword.
-`time_unit` is one of `:ns`, `:us` (default), `:ms`.
+Casts `expr` to `Duration(time_unit)`.
+
+Also reachable via `cast(expr, Dates.Nanosecond|Microsecond|Millisecond)`, which just calls this
+with the unit implied by the chosen `Period` subtype -- this named form is for when you'd rather
+pass `time_unit` as a keyword.
+
+- `time_unit`: one of `:ns`, `:us` (default), `:ms`
 """
 function cast_duration(expr::Expr; time_unit::Symbol = :us)
     unit_enum = if time_unit == :ns
@@ -424,9 +426,11 @@ cast_duration(; time_unit::Symbol = :us) = expr -> cast_duration(expr; time_unit
     cast_decimal(precision::Integer, scale::Integer)::Base.Callable
 
 Casts `expr` to `Decimal(precision, scale)` (`1 <= precision <= 38`; `scale` is the number of
-digits after the decimal point). Decimal columns have no dedicated Julia read path yet --
-materializing one via `collect`/`getindex` is not supported -- so this is mainly useful for
-writing out decimal-typed columns (e.g. to parquet) rather than reading them back in Julia.
+digits after the decimal point).
+
+Decimal columns have no dedicated Julia read path yet -- materializing one via `collect`/`getindex`
+is not supported -- so this is mainly useful for writing out decimal-typed columns (e.g. to
+parquet) rather than reading them back in Julia.
 """
 function cast_decimal(expr::Expr, precision::Integer, scale::Integer)
     out = API.polars_expr_cast_decimal(expr, Csize_t(precision), Csize_t(scale))
@@ -635,20 +639,23 @@ end
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
 
-# Curried (Fix2-style) forms for the binary namespace-free ops above that have no natural
+# Curried (`Fix2`-style) forms for the binary namespace-free ops above that have no natural
 # operator equivalent (unlike +/-/*//, which already read fluently as infix). Each promotes a
 # literal second argument via `convert(Expr, ...)`, matching Python polars' `.is_in([1,2,3])`,
-# `.fill_null(0)`, etc. `log`/`rem` (and, elsewhere, `replace`/`diff`/`round`) are deliberately
-# excluded -- not because of dispatch ambiguity (Julia always prefers Base's existing concrete-type
-# methods, e.g. `log(::Float64)`, over anything added here, so no ambiguity error would ever occur), but
-# because a curry that's actually useful for plain numeric literals has to accept an untyped or
-# broadly-typed argument, and that means claiming argument-type combinations Base currently leaves
-# undefined (e.g. `log(1, 2)` on two bare `Int`s -- currently a MethodError). That's real type
-# piracy regardless of whether it happens to work today: it silently changes global Base behavior
-# outside this package's own types, which Aqua's piracy check flags and which is fragile against
-# future Base/other-package additions for the same combination. A curry typed narrowly to `Expr`
-# would avoid the piracy but would then only accept already-constructed `Expr`s, not bare literals
-# -- defeating the actual ergonomic goal, so it isn't worth doing either.
+# `.fill_null(0)`, etc.
+#
+# `log`/`rem` (and, elsewhere, `replace`/`diff`/`round`) are deliberately excluded. It isn't a
+# dispatch-ambiguity concern, Julia always prefers Base's own concrete-type methods (e.g.
+# `log(::Float64)`) over anything added here, so no ambiguity would occur. It's type piracy: a
+# curry that's actually useful for plain numeric literals needs an untyped or broadly-typed second
+# argument, which means claiming argument-type combinations Base currently leaves undefined (e.g.
+# `log(1, 2)` on two bare `Int`s is a `MethodError` today). That silently changes global Base
+# behavior for types this package doesn't own -- Aqua's piracy check flags it, and it's fragile
+# against future Base/other-package additions for the same combination.
+#
+# A curry typed narrowly to `Expr` would avoid the piracy, but would then only accept
+# already-constructed `Expr`s, not bare literals -- defeating the ergonomic point of currying at
+# all, so it isn't worth doing either.
 is_in(other::AbstractVector) = Base.Fix2(is_in, implode(convert(Expr, other)))
 is_in(other) = Base.Fix2(is_in, convert(Expr, other))
 fill_null(value) = Base.Fix2(fill_null, convert(Expr, value))
@@ -659,12 +666,16 @@ fill_nan(value) = Base.Fix2(fill_nan, convert(Expr, value))
     fill_null(; strategy::Symbol, limit::Union{Nothing,Integer}=nothing)
 
 Replaces every `null` value in `expr` using a fill *strategy* instead of a fixed value (see the
-2-arg `fill_null(expr, value)` above for that form). `strategy` is one of `:forward`/`:backward`
-(propagate the nearest non-null value in that direction -- `limit` caps how many consecutive
-nulls a single value may fill, `nothing` for unlimited), `:mean`/`:min`/`:max` (the column's own
-aggregate), or `:zero`/`:one` (a fixed numeric fill, dtype-appropriate). `limit` only applies to
-`:forward`/`:backward` and is ignored otherwise. Has a curried form (2nd method) for `|>`
-pipelines.
+2-arg `fill_null(expr, value)` above for that form).
+
+`strategy` is one of:
+- `:forward`/`:backward` -- propagate the nearest non-null value in that direction; `limit` caps
+  how many consecutive nulls a single value may fill (`nothing` for unlimited)
+- `:mean`/`:min`/`:max` -- the column's own aggregate
+- `:zero`/`:one` -- a fixed numeric fill, dtype-appropriate
+
+`limit` only applies to `:forward`/`:backward` and is ignored otherwise. Has a curried form (2nd
+method) for `|>` pipelines.
 """
 function fill_null(expr::Expr; strategy::Symbol, limit::Union{Nothing, Integer} = nothing)
     strategy_enum = if strategy == :backward
@@ -731,7 +742,7 @@ end
 """
     clip(min, max)::Base.Callable
 
-Curried form of [`clip`](@ref) for use with `|>` -- e.g. `col("x") |> clip(0, 10)`.
+Curried form of [`clip`](@ref) for use with `|>`, e.g. `col("x") |> clip(0, 10)`.
 """
 clip(min, max) = expr -> clip(expr, min, max)
 
@@ -741,9 +752,11 @@ export clip
     replace(expr::Polars.Expr, old, new)::Polars.Expr
 
 Replaces values equal to `old` with the corresponding `new` value (`old`/`new` are typically
-list-typed expressions built via [`implode`](@ref) for multi-value
-mappings). Values not found in `old` are left unchanged. Extends `Base.replace` — `isdefined(Base,
-:replace)` is `true`, matching the `Base.diff`/`Base.round`/`Base.log` precedent.
+list-typed expressions built via [`implode`](@ref) for multi-value mappings). Values not found in
+`old` are left unchanged.
+
+Extends `Base.replace` -- `isdefined(Base, :replace)` is `true`, matching the
+`Base.diff`/`Base.round`/`Base.log` precedent.
 """
 function Base.replace(expr::Expr, old, new)
     old = convert(Expr, old)
@@ -781,14 +794,9 @@ export replace_strict
 
 Product of the values.
 
-Extends `Base.prod` (hand-written outside the `@generate_expr_fns` block rather than
-auto-qualified, so it lands on the *exported* `Base.prod` -- not the unexported, unrelated
-internal `Base.product` binding the Rust method name `Expr::product` would otherwise collide
-with via `isdefined(Base, :product)`). This matches the `Base.sum` precedent: since `prod` is an
-exported Base name, plain `prod(expr)` resolves here with no qualification needed, unlike the
-`Base.product(...)`-qualification this used to require. `mean`/`median`/`std`/`var`/`quantile`
-follow the analogous pattern one level up, against `Statistics` instead of `Base` -- see their
-docstrings below.
+Defined outside the `@generate_expr_fns` block, extending `Base.prod` directly rather than letting
+the macro auto-qualify the Rust method name `Expr::product`, which would land on the unexported,
+unrelated internal `Base.product` binding.
 """
 Base.prod(expr::Expr) = Expr(API.polars_expr_product(expr))
 
@@ -797,14 +805,12 @@ import Statistics: mean, median, std, var, quantile
 """
     mean(expr::Polars.Expr)::Polars.Expr
 
-Arithmetic mean of the values. Extends `Statistics.mean` (rather than the `@generate_expr_fns`
-block above, which would otherwise define a brand-new top-level `mean` binding that *looks* like
-the Statistics stdlib function but isn't actually the same generic -- so `using Statistics, Polars`
-would force callers to disambiguate with `Polars.mean`/`Statistics.mean` even though nothing about
-the two ever needs to differ). Adding an `Expr` method to the real `Statistics.mean` instead means
-the two packages share one generic function with no clash, and this package still re-exports the
-name so plain `mean(col("x"))` works with just `using Polars` -- `using Statistics` is not
-required. See [`median`](@ref) for the same story applied to the median.
+Arithmetic mean of the values.
+
+Extends `Statistics.mean` rather than going through the `@generate_expr_fns` block, so the two
+packages share one generic function instead of clashing when both are loaded.
+
+See [`median`](@ref) for the same story applied to the median.
 """
 Statistics.mean(expr::Expr) = Expr(API.polars_expr_mean(expr))
 
@@ -847,11 +853,12 @@ end
 """
     quantile(expr::Polars.Expr, q; method::Symbol=:nearest)::Polars.Expr
 
-Computes the `q`-th quantile (`q` an `Expr` or a numeric literal in `[0, 1]`) of the values,
-using the given interpolation `method`: one of `:nearest` (default), `:lower`, `:higher`,
-`:midpoint`, `:linear`, `:equiprobable`. Extends `Statistics.quantile` -- see [`std`](@ref)'s
-docstring for why there's no curried form (`q |> quantile(0.5)`-style currying would need a
-piratical zero-`Expr`-argument method).
+Computes the `q`-th quantile (`q` an `Expr` or a numeric literal in `[0, 1]`) of the values, using
+the given interpolation `method`: one of `:nearest` (default), `:lower`, `:higher`, `:midpoint`,
+`:linear`, `:equiprobable`.
+
+Extends `Statistics.quantile` -- see [`std`](@ref)'s docstring for why there's no curried form
+(`q |> quantile(0.5)`-style currying would need a piratical zero-`Expr`-argument method).
 """
 function Statistics.quantile(expr::Expr, q; method::Symbol = :nearest)
     q = convert(Expr, q)
@@ -1114,11 +1121,7 @@ end
 """
     coalesce(exprs::Expr...)::Polars.Expr
 
-Returns the first non-null value among `exprs`, evaluated left to right. Extends `Base.coalesce`,
-matching the `Base.replace`/`Base.round`/`Base.diff` precedent (`coalesce` is an *exported* Base
-name; the signature is kept to plain `Expr` — not `Union{Expr,String}` — since Aqua's piracy
-check treats a Union with any foreign member, e.g. `String`, as foreign, which would flag this as
-type piracy against `Base.coalesce`).
+Returns the first non-null value among `exprs`, evaluated left to right.
 """
 function Base.coalesce(first::Expr, rest::Expr...)
     exprs = _expr_vector((first, rest...))
@@ -1347,9 +1350,6 @@ export cum_sum, cum_prod, cum_min, cum_max, cum_count
 Computes the first discrete difference between shifted items (`expr[i] - expr[i - n]`).
 `null_behavior` is one of `:ignore` (default, pads the first `n` values with `null`) or `:drop`
 (drops the first `n` values instead).
-
-Extends `Base.diff` with a method for `Polars.Expr`, so plain `diff(expr, ...)` dispatches here
-without any extra qualification (`diff` is an *exported* Base name, like `sum`/`prod`/`mean`).
 """
 function Base.diff(expr::Expr, n = 1; null_behavior::Symbol = :ignore)
     n = convert(Expr, n)
@@ -1400,9 +1400,7 @@ export rank
 export col, alias, prefix, suffix, to_lowercase, to_uppercase, lit, cast, when, element,
     cast_datetime, cast_duration, cast_decimal, cast_categorical,
     Lists, Strings, Dt, Structs, Selectors
-# `Meta` (`src/expr/meta.jl`) is deliberately NOT exported here, unlike its siblings above --
-# `Base.Meta` is itself an *exported* Base submodule (`Base.isexported(Base, :Meta) == true`,
-# unlike the plain-function collisions `@generate_expr_fns` guards against elsewhere), so
-# `export Meta` here would make plain `using Polars` immediately ambiguous-error on the bare name
-# `Meta` in the importing module, not just risk shadowing it. Always reachable fully qualified as
-# `Polars.Meta.output_name(...)` etc., same as any non-exported submodule.
+# `Meta` (`src/expr/meta.jl`) is deliberately NOT exported alongside its siblings above: `Base.Meta`
+# is itself an *exported* Base submodule, so `export Meta` here would make plain `using Polars`
+# ambiguous-error on the bare name `Meta`, not merely shadow it. Reachable fully qualified as
+# `Polars.Meta.output_name(...)`, same as any non-exported submodule.

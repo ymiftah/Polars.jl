@@ -1,6 +1,8 @@
 # Polars.jl
 
 [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://ymiftah.github.io/Polars.jl/dev/)
+[![codecov](https://codecov.io/gh/ymiftah/Polars.jl/graph/badge.svg)](https://codecov.io/gh/ymiftah/Polars.jl)
+[![Aqua QA](https://juliatesting.github.io/Aqua.jl/dev/assets/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
 Polars.jl is a thin wrapper for Julia around the dataframe manipulation library [polars](https://github.com/pola-rs/polars).
 
