@@ -1,22 +1,18 @@
 #pragma once
 
+/* GENERATED FILE -- do not edit. Regenerate with c-polars/regen_header.sh */
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include "arrow.h"
 
-typedef enum polars_engine_t {
-  PolarsEngineInMemory,
-  PolarsEngineStreaming,
-} polars_engine_t;
-
-typedef enum polars_time_unit_t {
-  PolarsTimeUnitNanosecond,
-  PolarsTimeUnitMicrosecond,
-  PolarsTimeUnitMillisecond,
-  PolarsTimeUnitInvalid,
-} polars_time_unit_t;
+typedef enum polars_asof_strategy_t {
+  PolarsAsofStrategyBackward,
+  PolarsAsofStrategyForward,
+  PolarsAsofStrategyNearest,
+} polars_asof_strategy_t;
 
 typedef enum polars_closed_window_t {
   PolarsClosedWindowLeft,
@@ -25,11 +21,154 @@ typedef enum polars_closed_window_t {
   PolarsClosedWindowNone,
 } polars_closed_window_t;
 
+typedef enum polars_concat_how_t {
+  PolarsConcatHowVertical,
+  PolarsConcatHowVerticalRelaxed,
+  PolarsConcatHowDiagonal,
+  PolarsConcatHowDiagonalRelaxed,
+  PolarsConcatHowHorizontal,
+} polars_concat_how_t;
+
+typedef enum polars_csv_compression_t {
+  PolarsCsvCompressionUncompressed,
+  PolarsCsvCompressionGzip,
+  PolarsCsvCompressionZstd,
+} polars_csv_compression_t;
+
+/**
+ * Zero-Julia-arg `DataTypeSelector` leaves. Includes four variants that are parametrized in Rust
+ * but exposed "any unit/any tz"-only from Julia (`Datetime`/`Duration`/`List`/`Array`) -- see the
+ * gap-closure plan's Phase 2 first-cut scope exclusions: no specific time-unit/zone matching, no
+ * recursive List/Array inner-selector composition in this cut.
+ */
+typedef enum polars_dtype_selector_kind_t {
+  PolarsDtypeSelectorKindNumeric,
+  PolarsDtypeSelectorKindInteger,
+  PolarsDtypeSelectorKindUnsignedInteger,
+  PolarsDtypeSelectorKindSignedInteger,
+  PolarsDtypeSelectorKindFloat,
+  PolarsDtypeSelectorKindEnum,
+  PolarsDtypeSelectorKindCategorical,
+  PolarsDtypeSelectorKindNested,
+  PolarsDtypeSelectorKindStruct,
+  PolarsDtypeSelectorKindDecimal,
+  PolarsDtypeSelectorKindTemporal,
+  PolarsDtypeSelectorKindObject,
+  PolarsDtypeSelectorKindDatetime,
+  PolarsDtypeSelectorKindDuration,
+  PolarsDtypeSelectorKindList,
+  PolarsDtypeSelectorKindArray,
+} polars_dtype_selector_kind_t;
+
+typedef enum polars_engine_t {
+  PolarsEngineInMemory,
+  PolarsEngineStreaming,
+} polars_engine_t;
+
+typedef enum polars_fill_null_strategy_t {
+  PolarsFillNullStrategyBackward,
+  PolarsFillNullStrategyForward,
+  PolarsFillNullStrategyMean,
+  PolarsFillNullStrategyMin,
+  PolarsFillNullStrategyMax,
+  PolarsFillNullStrategyZero,
+  PolarsFillNullStrategyOne,
+} polars_fill_null_strategy_t;
+
+typedef enum polars_interpolation_method_t {
+  PolarsInterpolationMethodLinear,
+  PolarsInterpolationMethodNearest,
+} polars_interpolation_method_t;
+
+typedef enum polars_ipc_compression_t {
+  PolarsIpcCompressionUncompressed,
+  PolarsIpcCompressionLz4,
+  PolarsIpcCompressionZstd,
+} polars_ipc_compression_t;
+
+typedef enum polars_join_type_t {
+  PolarsJoinTypeInner,
+  PolarsJoinTypeLeft,
+  PolarsJoinTypeRight,
+  PolarsJoinTypeFull,
+  PolarsJoinTypeSemi,
+  PolarsJoinTypeAnti,
+  PolarsJoinTypeCross,
+} polars_join_type_t;
+
 typedef enum polars_label_t {
   PolarsLabelLeft,
   PolarsLabelRight,
   PolarsLabelDataPoint,
 } polars_label_t;
+
+typedef enum polars_non_existent_t {
+  PolarsNonExistentRaise,
+  PolarsNonExistentNull,
+} polars_non_existent_t;
+
+typedef enum polars_null_behavior_t {
+  PolarsNullBehaviorDrop,
+  PolarsNullBehaviorIgnore,
+} polars_null_behavior_t;
+
+typedef enum polars_parquet_compression_t {
+  PolarsParquetCompressionUncompressed,
+  PolarsParquetCompressionSnappy,
+  PolarsParquetCompressionGzip,
+  PolarsParquetCompressionBrotli,
+  PolarsParquetCompressionZstd,
+  PolarsParquetCompressionLz4Raw,
+} polars_parquet_compression_t;
+
+typedef enum polars_parquet_parallel_strategy_t {
+  PolarsParquetParallelAuto,
+  PolarsParquetParallelNone,
+  PolarsParquetParallelColumns,
+  PolarsParquetParallelRowGroups,
+} polars_parquet_parallel_strategy_t;
+
+typedef enum polars_pivot_column_naming_t {
+  PolarsPivotColumnNamingCombine,
+  PolarsPivotColumnNamingAuto,
+} polars_pivot_column_naming_t;
+
+typedef enum polars_quantile_method_t {
+  PolarsQuantileMethodNearest,
+  PolarsQuantileMethodLower,
+  PolarsQuantileMethodHigher,
+  PolarsQuantileMethodMidpoint,
+  PolarsQuantileMethodLinear,
+  PolarsQuantileMethodEquiprobable,
+} polars_quantile_method_t;
+
+typedef enum polars_quote_style_t {
+  PolarsQuoteStyleNecessary,
+  PolarsQuoteStyleAlways,
+  PolarsQuoteStyleNonNumeric,
+  PolarsQuoteStyleNever,
+} polars_quote_style_t;
+
+typedef enum polars_rank_method_t {
+  PolarsRankMethodAverage,
+  PolarsRankMethodMin,
+  PolarsRankMethodMax,
+  PolarsRankMethodDense,
+  PolarsRankMethodOrdinal,
+} polars_rank_method_t;
+
+typedef enum polars_round_mode_t {
+  PolarsRoundModeHalfToEven,
+  PolarsRoundModeHalfAwayFromZero,
+  PolarsRoundModeToZero,
+} polars_round_mode_t;
+
+typedef enum polars_selector_match_kind_t {
+  PolarsSelectorMatchKindRegex,
+  PolarsSelectorMatchKindStartsWith,
+  PolarsSelectorMatchKindEndsWith,
+  PolarsSelectorMatchKindContains,
+} polars_selector_match_kind_t;
 
 typedef enum polars_start_by_t {
   PolarsStartByWindowBound,
@@ -42,6 +181,20 @@ typedef enum polars_start_by_t {
   PolarsStartBySaturday,
   PolarsStartBySunday,
 } polars_start_by_t;
+
+typedef enum polars_time_unit_t {
+  PolarsTimeUnitNanosecond,
+  PolarsTimeUnitMicrosecond,
+  PolarsTimeUnitMillisecond,
+  PolarsTimeUnitInvalid,
+} polars_time_unit_t;
+
+typedef enum polars_unique_keep_t {
+  PolarsUniqueKeepFirst,
+  PolarsUniqueKeepLast,
+  PolarsUniqueKeepNone,
+  PolarsUniqueKeepAny,
+} polars_unique_keep_t;
 
 typedef enum polars_value_type_t {
   PolarsValueTypeNull,
@@ -67,120 +220,6 @@ typedef enum polars_value_type_t {
   PolarsValueTypeUnknown,
 } polars_value_type_t;
 
-typedef enum polars_quantile_method_t {
-  PolarsQuantileMethodNearest,
-  PolarsQuantileMethodLower,
-  PolarsQuantileMethodHigher,
-  PolarsQuantileMethodMidpoint,
-  PolarsQuantileMethodLinear,
-  PolarsQuantileMethodEquiprobable,
-} polars_quantile_method_t;
-
-typedef enum polars_null_behavior_t {
-  PolarsNullBehaviorDrop,
-  PolarsNullBehaviorIgnore,
-} polars_null_behavior_t;
-
-typedef enum polars_rank_method_t {
-  PolarsRankMethodAverage,
-  PolarsRankMethodMin,
-  PolarsRankMethodMax,
-  PolarsRankMethodDense,
-  PolarsRankMethodOrdinal,
-} polars_rank_method_t;
-
-typedef enum polars_round_mode_t {
-  PolarsRoundModeHalfToEven,
-  PolarsRoundModeHalfAwayFromZero,
-  PolarsRoundModeToZero,
-} polars_round_mode_t;
-
-typedef enum polars_non_existent_t {
-  PolarsNonExistentRaise,
-  PolarsNonExistentNull,
-} polars_non_existent_t;
-
-typedef enum polars_join_type_t {
-  PolarsJoinTypeInner,
-  PolarsJoinTypeLeft,
-  PolarsJoinTypeRight,
-  PolarsJoinTypeFull,
-  PolarsJoinTypeSemi,
-  PolarsJoinTypeAnti,
-  PolarsJoinTypeCross,
-} polars_join_type_t;
-
-typedef enum polars_asof_strategy_t {
-  PolarsAsofStrategyBackward,
-  PolarsAsofStrategyForward,
-  PolarsAsofStrategyNearest,
-} polars_asof_strategy_t;
-
-typedef enum polars_pivot_column_naming_t {
-  PolarsPivotColumnNamingCombine,
-  PolarsPivotColumnNamingAuto,
-} polars_pivot_column_naming_t;
-
-typedef enum polars_unique_keep_t {
-  PolarsUniqueKeepFirst,
-  PolarsUniqueKeepLast,
-  PolarsUniqueKeepNone,
-  PolarsUniqueKeepAny,
-} polars_unique_keep_t;
-
-typedef enum polars_csv_compression_t {
-  PolarsCsvCompressionUncompressed,
-  PolarsCsvCompressionGzip,
-  PolarsCsvCompressionZstd,
-} polars_csv_compression_t;
-
-typedef enum polars_ipc_compression_t {
-  PolarsIpcCompressionUncompressed,
-  PolarsIpcCompressionLz4,
-  PolarsIpcCompressionZstd,
-} polars_ipc_compression_t;
-
-typedef enum polars_quote_style_t {
-  PolarsQuoteStyleNecessary,
-  PolarsQuoteStyleAlways,
-  PolarsQuoteStyleNonNumeric,
-  PolarsQuoteStyleNever,
-} polars_quote_style_t;
-
-typedef enum polars_parquet_compression_t {
-  PolarsParquetCompressionUncompressed,
-  PolarsParquetCompressionSnappy,
-  PolarsParquetCompressionGzip,
-  PolarsParquetCompressionBrotli,
-  PolarsParquetCompressionZstd,
-  PolarsParquetCompressionLz4Raw,
-} polars_parquet_compression_t;
-
-typedef enum polars_parquet_parallel_strategy_t {
-  PolarsParquetParallelAuto,
-  PolarsParquetParallelNone,
-  PolarsParquetParallelColumns,
-  PolarsParquetParallelRowGroups,
-} polars_parquet_parallel_strategy_t;
-
-typedef enum polars_fill_null_strategy_t {
-  PolarsFillNullStrategyBackward,
-  PolarsFillNullStrategyForward,
-  PolarsFillNullStrategyMean,
-  PolarsFillNullStrategyMin,
-  PolarsFillNullStrategyMax,
-  PolarsFillNullStrategyZero,
-  PolarsFillNullStrategyOne,
-} polars_fill_null_strategy_t;
-
-typedef enum polars_concat_how_t {
-  PolarsConcatHowVertical,
-  PolarsConcatHowVerticalRelaxed,
-  PolarsConcatHowDiagonal,
-  PolarsConcatHowDiagonalRelaxed,
-  PolarsConcatHowHorizontal,
-} polars_concat_how_t;
-
 typedef enum polars_window_mapping_t {
   PolarsWindowMappingGroupsToRows,
   PolarsWindowMappingExplode,
@@ -199,6 +238,14 @@ typedef struct polars_lazy_group_by_t polars_lazy_group_by_t;
 
 typedef struct polars_series_t polars_series_t;
 
+/**
+ * Borrows from its parent (a `Series`, or another `polars_value_t` for struct-field access via
+ * `polars_value_struct_get`) rather than owning its data. The lifetime parameter enforces
+ * nothing across the C boundary -- it is a caller invariant, not a compiler-checked one: the
+ * caller must keep the parent alive for as long as this value is alive, and must destroy this
+ * value before the parent. The Julia side roots the parent via `Value.parent` (`src/value.jl`).
+ * See `polars_value_struct_get`'s `# Safety` doc for the struct-field case specifically.
+ */
 typedef struct polars_value_t polars_value_t;
 
 /**
@@ -208,6 +255,10 @@ typedef intptr_t (*IOCallback)(const void *user, const uint8_t *data, uintptr_t 
 
 uintptr_t polars_version(const uint8_t **out);
 
+/**
+ * Borrowed pointer into the error's message, valid only as long as `err` is alive (same
+ * convention as `polars_series_name`).
+ */
 uintptr_t polars_error_message(const struct polars_error_t *err, const uint8_t **data);
 
 void polars_error_destroy(const struct polars_error_t *err);
@@ -221,7 +272,10 @@ void polars_dataframe_size(struct polars_dataframe_t *df, uintptr_t *rows, uintp
  * `cfield` must be a valid `ArrowSchema` per the C Data Interface. `carray` must be a valid
  * `ArrowArray` per the C Data Interface, and **ownership of it transfers to this call**: the
  * caller must not release it. It is released either via the resulting DataFrame's destructor
- * (`polars_dataframe_destroy`) on success, or before returning on failure.
+ * (`polars_dataframe_destroy`) on success, or before returning on failure -- `carray` is an
+ * owned by-value local and polars-arrow's `impl Drop for ArrowArray` invokes its `release`
+ * callback, so every early return below releases rather than leaks it. On the success path it is
+ * moved into `import_array_from_c`, which likewise takes it by value.
  */
 const struct polars_error_t *polars_dataframe_new_from_carrow(const ArrowSchema *cfield,
                                                               ArrowArray carray,
@@ -269,13 +323,6 @@ const struct polars_error_t *polars_dataframe_write_csv(struct polars_dataframe_
                                                         uintptr_t datetime_format_len,
                                                         const uintptr_t *float_precision,
                                                         bool decimal_comma);
-
-const struct polars_error_t *polars_dataframe_write_ipc(struct polars_dataframe_t *df,
-                                                        const void *user,
-                                                        IOCallback callback,
-                                                        enum polars_ipc_compression_t compression,
-                                                        const int32_t *compression_level,
-                                                        const uintptr_t *record_batch_size);
 
 const struct polars_error_t *polars_dataframe_show(struct polars_dataframe_t *df,
                                                    const void *user,
@@ -357,117 +404,12 @@ void polars_lazy_frame_destroy(struct polars_lazy_frame_t *df);
 
 struct polars_lazy_frame_t *polars_lazy_frame_clone(struct polars_lazy_frame_t *df);
 
-const struct polars_error_t *polars_lazy_frame_scan_parquet(
-    const uint8_t *path,
-    uintptr_t pathlen,
-    const uintptr_t *n_rows,
-    const uint8_t *row_index_name,
-    uintptr_t row_index_name_len,
-    uint32_t row_index_offset,
-    enum polars_parquet_parallel_strategy_t parallel,
-    bool low_memory,
-    bool rechunk,
-    bool cache,
-    bool glob,
-    bool use_statistics,
-    bool allow_missing_columns,
-    const uint8_t *include_file_paths,
-    uintptr_t include_file_paths_len,
-    const bool *hive_partitioning,
-    struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_scan_csv(const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        const uintptr_t *n_rows,
-                                                        const uint8_t *row_index_name,
-                                                        uintptr_t row_index_name_len,
-                                                        uint32_t row_index_offset,
-                                                        bool has_header,
-                                                        uint8_t separator,
-                                                        const uint8_t *quote_char,
-                                                        const uint8_t *comment_prefix,
-                                                        uintptr_t comment_prefix_len,
-                                                        uintptr_t skip_rows,
-                                                        uintptr_t skip_rows_after_header,
-                                                        const uint8_t *null_value,
-                                                        uintptr_t null_value_len,
-                                                        bool missing_is_null,
-                                                        bool truncate_ragged_lines,
-                                                        bool try_parse_dates,
-                                                        const uintptr_t *infer_schema_length,
-                                                        bool ignore_errors,
-                                                        bool low_memory,
-                                                        bool rechunk,
-                                                        bool cache,
-                                                        bool glob,
-                                                        const uint8_t *include_file_paths,
-                                                        uintptr_t include_file_paths_len,
-                                                        bool allow_missing_columns,
-                                                        struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_scan_ipc(const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        const uintptr_t *n_rows,
-                                                        const uint8_t *row_index_name,
-                                                        uintptr_t row_index_name_len,
-                                                        uint32_t row_index_offset,
-                                                        bool rechunk,
-                                                        bool cache,
-                                                        bool glob,
-                                                        const uint8_t *include_file_paths,
-                                                        uintptr_t include_file_paths_len,
-                                                        const bool *hive_partitioning,
-                                                        bool allow_missing_columns,
-                                                        struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_sink_parquet(
-    struct polars_lazy_frame_t *lf,
-    const uint8_t *path,
-    uintptr_t pathlen,
-    enum polars_parquet_compression_t compression,
-    const int32_t *compression_level,
-    bool statistics,
-    const uintptr_t *row_group_size,
-    const uintptr_t *data_page_size,
-    bool mkdir,
-    bool maintain_order,
-    struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_sink_csv(struct polars_lazy_frame_t *lf,
-                                                        const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        bool include_header,
-                                                        bool include_bom,
-                                                        uint8_t separator,
-                                                        uint8_t quote_char,
-                                                        const uint8_t *null_value,
-                                                        uintptr_t null_value_len,
-                                                        const uint8_t *line_terminator,
-                                                        uintptr_t line_terminator_len,
-                                                        enum polars_quote_style_t quote_style,
-                                                        const uint8_t *date_format,
-                                                        uintptr_t date_format_len,
-                                                        const uint8_t *time_format,
-                                                        uintptr_t time_format_len,
-                                                        const uint8_t *datetime_format,
-                                                        uintptr_t datetime_format_len,
-                                                        const uintptr_t *float_precision,
-                                                        bool decimal_comma,
-                                                        enum polars_csv_compression_t compression,
-                                                        const uint32_t *compression_level,
-                                                        bool mkdir,
-                                                        bool maintain_order,
-                                                        struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_sink_ipc(struct polars_lazy_frame_t *lf,
-                                                        const uint8_t *path,
-                                                        uintptr_t pathlen,
+const struct polars_error_t *polars_dataframe_write_ipc(struct polars_dataframe_t *df,
+                                                        const void *user,
+                                                        IOCallback callback,
                                                         enum polars_ipc_compression_t compression,
                                                         const int32_t *compression_level,
-                                                        const uintptr_t *record_batch_size,
-                                                        bool mkdir,
-                                                        bool maintain_order,
-                                                        struct polars_lazy_frame_t **out);
+                                                        const uintptr_t *record_batch_size);
 
 void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,
                             const struct polars_expr_t *const *exprs,
@@ -476,6 +418,14 @@ void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,
                             bool nulls_last,
                             bool maintain_order);
 
+/**
+ * `how` selects the concat mode. Vertical/relaxed/diagonal/relaxed-diagonal all go through the
+ * already-used `concat` (upstream's `concat_lf_diagonal` convenience wrapper is just `concat`
+ * with `diagonal: true` set -- reusing `concat` directly needs no extra Cargo feature, unlike
+ * that wrapper, which is gated behind `diagonal_concat`). `Horizontal` goes through the
+ * ungated `concat_lf_horizontal` instead -- a structurally different join, not a `UnionArgs`
+ * variant, so it can't share the `concat` call.
+ */
 const struct polars_error_t *polars_lazy_frame_concat(struct polars_lazy_frame_t *const *lfs,
                                                       uintptr_t n,
                                                       enum polars_concat_how_t how,
@@ -491,15 +441,16 @@ void polars_lazy_frame_select(struct polars_lazy_frame_t *df,
 
 void polars_lazy_frame_filter(struct polars_lazy_frame_t *df, const struct polars_expr_t *expr);
 
-void polars_lazy_frame_head(struct polars_lazy_frame_t *df, uintptr_t n);
-
 const struct polars_error_t *polars_lazy_frame_collect(struct polars_lazy_frame_t *df,
                                                        enum polars_engine_t engine,
                                                        struct polars_dataframe_t **out);
 
 /**
  * Resolves the lazy frame's schema (without collecting it) and returns it as an ArrowSchema
- * according to the Arrow C Data interface, matching the shape of `polars_dataframe_schema`.
+ * according to the Arrow C Data interface, wrapping the columns in a struct field the same way
+ * `polars_dataframe_schema` does. Unlike that function, this one is fallible (schema resolution
+ * can fail on an unresolved lazy plan) and so returns via out-param + `polars_error_t` rather
+ * than by value.
  */
 const struct polars_error_t *polars_lazy_frame_collect_schema(struct polars_lazy_frame_t *df,
                                                               ArrowSchema *out);
@@ -519,10 +470,10 @@ const struct polars_error_t *polars_lazy_frame_group_by_dynamic(
     uintptr_t period_len,
     const uint8_t *offset,
     uintptr_t offset_len,
-    polars_label_t label,
+    enum polars_label_t label,
     bool include_boundaries,
-    polars_closed_window_t closed_window,
-    polars_start_by_t start_by,
+    enum polars_closed_window_t closed_window,
+    enum polars_start_by_t start_by,
     struct polars_lazy_group_by_t **out);
 
 const struct polars_error_t *polars_lazy_frame_rolling(
@@ -534,7 +485,7 @@ const struct polars_error_t *polars_lazy_frame_rolling(
     uintptr_t period_len,
     const uint8_t *offset,
     uintptr_t offset_len,
-    polars_closed_window_t closed_window,
+    enum polars_closed_window_t closed_window,
     struct polars_lazy_group_by_t **out);
 
 struct polars_lazy_frame_t *polars_lazy_frame_join(struct polars_lazy_frame_t *a,
@@ -639,6 +590,8 @@ const struct polars_error_t *polars_lazy_frame_pivot(
     enum polars_pivot_column_naming_t column_naming,
     struct polars_lazy_frame_t **out);
 
+void polars_lazy_frame_head(struct polars_lazy_frame_t *df, uintptr_t n);
+
 void polars_lazy_frame_tail(struct polars_lazy_frame_t *df, uintptr_t n);
 
 void polars_lazy_group_by_destroy(const struct polars_lazy_group_by_t *gb);
@@ -677,6 +630,11 @@ const struct polars_error_t *polars_expr_col(const uint8_t *name,
 
 const struct polars_error_t *polars_expr_nth(int64_t n, const struct polars_expr_t **out);
 
+/**
+ * A placeholder for "the values in this group", used to build the `agg` expression passed to
+ * `pivot` (e.g. `element().sum()`) -- substituted in-place with the actual value column filtered
+ * to the current group at plan-build time.
+ */
 const struct polars_expr_t *polars_expr_element(void);
 
 const struct polars_error_t *polars_expr_coalesce(const struct polars_expr_t *const *exprs,
@@ -713,11 +671,6 @@ const struct polars_error_t *polars_expr_mean_horizontal(const struct polars_exp
                                                          bool ignore_nulls,
                                                          const struct polars_expr_t **out);
 
-typedef enum polars_interpolation_method_t {
-  PolarsInterpolationMethodLinear,
-  PolarsInterpolationMethodNearest,
-} polars_interpolation_method_t;
-
 const struct polars_expr_t *polars_expr_interpolate(const struct polars_expr_t *expr,
                                                     enum polars_interpolation_method_t method);
 
@@ -746,20 +699,40 @@ const struct polars_error_t *polars_expr_cast(const struct polars_expr_t *expr,
                                               enum polars_value_type_t dtype,
                                               const struct polars_expr_t **out);
 
+/**
+ * Targeted cast to `Datetime(unit, tz)` -- `polars_value_type_t::to_dtype` deliberately rejects
+ * this (it needs parameters a plain type code can't carry). `tz_len == 0` casts to a naive
+ * (timezone-less) Datetime, matching `read_opt_str`'s null-means-None convention.
+ */
 const struct polars_error_t *polars_expr_cast_datetime(const struct polars_expr_t *expr,
                                                        enum polars_time_unit_t unit,
                                                        const uint8_t *tz,
                                                        uintptr_t tz_len,
                                                        const struct polars_expr_t **out);
 
+/**
+ * Targeted cast to `Duration(unit)` -- see `polars_expr_cast_datetime`'s doc for why this needs
+ * its own entry point rather than going through the plain type-code `cast`.
+ */
 const struct polars_error_t *polars_expr_cast_duration(const struct polars_expr_t *expr,
                                                        enum polars_time_unit_t unit,
                                                        const struct polars_expr_t **out);
 
+/**
+ * Targeted cast to `Decimal(precision, scale)` (`dtype-decimal` is already enabled). polars'
+ * own invariant is `1 <= precision <= 38`; violating it surfaces as a normal cast error rather
+ * than a panic (`DataType::Decimal` itself does not validate -- `cast` does, at execution time).
+ */
 const struct polars_expr_t *polars_expr_cast_decimal(const struct polars_expr_t *expr,
                                                      uintptr_t precision,
                                                      uintptr_t scale);
 
+/**
+ * Targeted cast to `Categorical`, using the global category registry (`Categories::global()`,
+ * the same one every other Categorical column in a session shares -- matching py-polars'
+ * default). Reading a Categorical column back already materializes it as `String` (see
+ * `polars_value_type_t::from_dtype`), so no new read path is needed for the round trip.
+ */
 const struct polars_expr_t *polars_expr_cast_categorical(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_sum(const struct polars_expr_t *expr);
@@ -790,11 +763,25 @@ const struct polars_expr_t *polars_expr_when_then_otherwise(const struct polars_
                                                             const struct polars_expr_t *then,
                                                             const struct polars_expr_t *otherwise);
 
+/**
+ * Chained `when(c1).then(v1).when(c2).then(v2)....otherwise(otherwise)`, flattened into two
+ * parallel expr-slices (`conds`/`vals`) + a final `otherwise` -- no new builder-type FFI handle
+ * is needed since `When`/`Then`/`ChainedWhen`/`ChainedThen` all fold to a single right-nested
+ * `Expr::Ternary` chain, buildable directly with the existing `when`/`Then::otherwise` free
+ * functions already used by `polars_expr_when_then_otherwise` above. `n == 0` degenerates to
+ * `otherwise` unchanged.
+ */
 const struct polars_expr_t *polars_expr_when_then(const struct polars_expr_t *const *conds,
                                                   const struct polars_expr_t *const *vals,
                                                   uintptr_t n,
                                                   const struct polars_expr_t *otherwise);
 
+/**
+ * `order_by` is a single optional expr (null = none); `over_with_options` itself supports a
+ * `Vec` of order-by columns (folding >1 into a struct key), but a single column covers the
+ * common case and avoids pulling in that extra marshalling for now. `partition_by` and
+ * `order_by` can't both be empty/null (upstream requires at least one).
+ */
 const struct polars_error_t *polars_expr_over(const struct polars_expr_t *expr,
                                               const struct polars_expr_t *const *partition_by,
                                               uintptr_t n_partition_by,
@@ -838,15 +825,6 @@ const struct polars_expr_t *polars_expr_sqrt(const struct polars_expr_t *expr);
 const struct polars_expr_t *polars_expr_sign(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_exp(const struct polars_expr_t *expr);
-
-const struct polars_expr_t *polars_expr_log(const struct polars_expr_t *a,
-                                            const struct polars_expr_t *b);
-
-const struct polars_expr_t *polars_expr_rem(const struct polars_expr_t *a,
-                                            const struct polars_expr_t *b);
-
-const struct polars_expr_t *polars_expr_top_k(const struct polars_expr_t *a,
-                                              const struct polars_expr_t *b);
 
 const struct polars_expr_t *polars_expr_round(const struct polars_expr_t *expr,
                                               uint32_t decimals,
@@ -954,6 +932,11 @@ const struct polars_expr_t *polars_expr_fill_null(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_fill_nan(const struct polars_expr_t *a,
                                                  const struct polars_expr_t *b);
 
+/**
+ * `limit` (Backward/Forward only, ignored otherwise -- see
+ * `polars_fill_null_strategy_t::to_fill_null_strategy`) is the optional-scalar null-means-None
+ * convention used elsewhere (e.g. `sample_n`'s `seed`).
+ */
 const struct polars_expr_t *polars_expr_fill_null_with_strategy(
     const struct polars_expr_t *expr,
     enum polars_fill_null_strategy_t strategy,
@@ -967,6 +950,15 @@ const struct polars_expr_t *polars_expr_shift(const struct polars_expr_t *a,
 
 const struct polars_expr_t *polars_expr_pct_change(const struct polars_expr_t *a,
                                                    const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_log(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_rem(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_top_k(const struct polars_expr_t *a,
+                                              const struct polars_expr_t *b);
 
 const struct polars_expr_t *polars_expr_cum_sum(const struct polars_expr_t *expr, bool reverse);
 
@@ -1144,11 +1136,21 @@ const struct polars_expr_t *polars_expr_dt_round(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_dt_offset_by(const struct polars_expr_t *a,
                                                      const struct polars_expr_t *b);
 
+/**
+ * `convert_time_zone`: re-labels the same instant into a different (mandatory) time zone,
+ * e.g. UTC -> "America/New_York". Fails (via the out-param error convention) if `tz` is not a
+ * valid IANA time zone name.
+ */
 const struct polars_error_t *polars_expr_dt_convert_time_zone(const struct polars_expr_t *expr,
                                                               const uint8_t *tz,
                                                               uintptr_t tz_len,
                                                               const struct polars_expr_t **out);
 
+/**
+ * `replace_time_zone`: attaches/strips/re-attaches a time zone label to the *same* local
+ * wall-clock values (unlike `convert_time_zone`, which preserves the instant).
+ * `tz_len == 0` means "strip the time zone back to naive" (`time_zone = None`).
+ */
 const struct polars_error_t *polars_expr_dt_replace_time_zone(
     const struct polars_expr_t *expr,
     const uint8_t *tz,
@@ -1205,15 +1207,32 @@ bool polars_expr_meta_has_multiple_outputs(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_meta_undo_aliases(const struct polars_expr_t *expr);
 
+/**
+ * `output_name()` is fallible (`PolarsResult<PlSmallStr>`) -- e.g. a wildcard or a
+ * selector-expanded expression has no single well-defined output name. Written back through the
+ * shared `IOCallback` machinery, same convention as `polars_value_string_get`.
+ */
 const struct polars_error_t *polars_expr_meta_output_name(const struct polars_expr_t *expr,
                                                           const void *user,
                                                           IOCallback callback);
 
+/**
+ * Backs both `tree_format` (`display_as_dot = false`) and `show_graph` (`true`) via the single
+ * upstream `into_tree_formatter` code path. No schema is threaded through (`None`) -- unresolved
+ * column types show as untyped; a schema-aware overload is a plausible future enhancement, not
+ * blocking here.
+ */
 const struct polars_error_t *polars_expr_meta_tree_format(const struct polars_expr_t *expr,
                                                           bool display_as_dot,
                                                           const void *user,
                                                           IOCallback callback);
 
+/**
+ * `root_names()` count + per-index `IOCallback` loop below. `root_names()` itself recomputes a
+ * fresh `Vec<PlSmallStr>` on every call (cheap, and the count is always small), so this pair
+ * recomputes it N+1 times across a full `_len` + N x `_get` loop -- an accepted, documented
+ * non-blocking perf micro-note from the gap-closure plan, not an oversight.
+ */
 uintptr_t polars_expr_meta_root_names_len(const struct polars_expr_t *expr);
 
 const struct polars_error_t *polars_expr_meta_root_names_get(const struct polars_expr_t *expr,
@@ -1223,6 +1242,12 @@ const struct polars_error_t *polars_expr_meta_root_names_get(const struct polars
 
 const struct polars_expr_t *polars_expr_selector_all(void);
 
+/**
+ * `Selector::Empty` -- the identity element for the combinators below (`empty() | s == s`,
+ * `empty() & s == empty()`). Not reachable from the public `Selectors` surface on the Julia side
+ * in this first cut (see the gap-closure plan's Phase 2 scope note); kept here as a primitive
+ * since it is the natural base case underlying `Selector`'s own algebra.
+ */
 const struct polars_expr_t *polars_expr_selector_empty(void);
 
 const struct polars_error_t *polars_expr_selector_by_name(const uint8_t *const *names,
@@ -1231,44 +1256,41 @@ const struct polars_error_t *polars_expr_selector_by_name(const uint8_t *const *
                                                           bool strict,
                                                           const struct polars_expr_t **out);
 
+/**
+ * `Selector::ByIndex` -- 0-based upstream (negative indices already count back from the end via
+ * `negative_to_usize` inside `into_columns`, so no extra Rust-side handling is needed here). The
+ * Julia-facing `Selectors.by_index` is 1-based (matching this package's own `nth`) and converts
+ * down to this 0-based primitive before calling in -- see that function's docstring.
+ */
 const struct polars_expr_t *polars_expr_selector_by_index(const int64_t *indices,
                                                           uintptr_t n,
                                                           bool strict);
 
-typedef enum polars_selector_match_kind_t {
-  PolarsSelectorMatchKindRegex,
-  PolarsSelectorMatchKindStartsWith,
-  PolarsSelectorMatchKindEndsWith,
-  PolarsSelectorMatchKindContains,
-} polars_selector_match_kind_t;
-
+/**
+ * Backs `matches` (verbatim regex) and the regex-sugar `starts_with`/`ends_with`/`contains`
+ * (anchored/escaped literal substrings) -- all four build a `Selector::Matches(pattern)`, differing
+ * only in how `pattern` is derived from the caller's raw string. Anchoring and escaping happen
+ * here, not on the Julia side: Julia has no built-in regex-metacharacter escaper (`escape_string`
+ * escapes string *literals*, not regex syntax), so hand-rolling that table would otherwise have
+ * to happen twice.
+ */
 const struct polars_error_t *polars_expr_selector_matches(enum polars_selector_match_kind_t kind,
                                                           const uint8_t *pattern,
                                                           uintptr_t len,
                                                           const struct polars_expr_t **out);
 
-typedef enum polars_dtype_selector_kind_t {
-  PolarsDtypeSelectorKindNumeric,
-  PolarsDtypeSelectorKindInteger,
-  PolarsDtypeSelectorKindUnsignedInteger,
-  PolarsDtypeSelectorKindSignedInteger,
-  PolarsDtypeSelectorKindFloat,
-  PolarsDtypeSelectorKindEnum,
-  PolarsDtypeSelectorKindCategorical,
-  PolarsDtypeSelectorKindNested,
-  PolarsDtypeSelectorKindStruct,
-  PolarsDtypeSelectorKindDecimal,
-  PolarsDtypeSelectorKindTemporal,
-  PolarsDtypeSelectorKindObject,
-  PolarsDtypeSelectorKindDatetime,
-  PolarsDtypeSelectorKindDuration,
-  PolarsDtypeSelectorKindList,
-  PolarsDtypeSelectorKindArray,
-} polars_dtype_selector_kind_t;
-
 const struct polars_expr_t *polars_expr_selector_dtype_simple(
     enum polars_dtype_selector_kind_t kind);
 
+/**
+ * `ByDType(AnyOf([...]))` -- backs `string`/`boolean`/`binary`/`date`/`time` (dtypes with no
+ * dedicated `DataTypeSelector` variant, so they must route through `AnyOf` rather than
+ * `dtype_simple` above) and the explicit `by_dtype([...])`. Fallible per-element: `to_dtype`
+ * rejects type codes that need parameters it can't carry (Datetime/Duration/Decimal/List/Struct)
+ * -- see `polars_value_type_t::to_dtype`'s own doc. That is intentional here too: those
+ * parametrized dtypes are reached via `dtype_simple` instead, so hitting this error path from
+ * e.g. `by_dtype([Datetime])` is a real, expected error, not a bug.
+ */
 const struct polars_error_t *polars_expr_selector_dtype_any_of(
     const enum polars_value_type_t *value_types, uintptr_t n, const struct polars_expr_t **out);
 
@@ -1288,6 +1310,118 @@ const struct polars_error_t *polars_expr_selector_intersect(const struct polars_
                                                             const struct polars_expr_t *b,
                                                             const struct polars_expr_t **out);
 
+const struct polars_error_t *polars_lazy_frame_scan_parquet(
+    const uint8_t *path,
+    uintptr_t pathlen,
+    const uintptr_t *n_rows,
+    const uint8_t *row_index_name,
+    uintptr_t row_index_name_len,
+    uint32_t row_index_offset,
+    enum polars_parquet_parallel_strategy_t parallel,
+    bool low_memory,
+    bool rechunk,
+    bool cache,
+    bool glob,
+    bool use_statistics,
+    bool allow_missing_columns,
+    const uint8_t *include_file_paths,
+    uintptr_t include_file_paths_len,
+    const bool *hive_partitioning,
+    struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_scan_csv(const uint8_t *path,
+                                                        uintptr_t pathlen,
+                                                        const uintptr_t *n_rows,
+                                                        const uint8_t *row_index_name,
+                                                        uintptr_t row_index_name_len,
+                                                        uint32_t row_index_offset,
+                                                        bool has_header,
+                                                        uint8_t separator,
+                                                        const uint8_t *quote_char,
+                                                        const uint8_t *comment_prefix,
+                                                        uintptr_t comment_prefix_len,
+                                                        uintptr_t skip_rows,
+                                                        uintptr_t skip_rows_after_header,
+                                                        const uint8_t *null_value,
+                                                        uintptr_t null_value_len,
+                                                        bool missing_is_null,
+                                                        bool truncate_ragged_lines,
+                                                        bool try_parse_dates,
+                                                        const uintptr_t *infer_schema_length,
+                                                        bool ignore_errors,
+                                                        bool low_memory,
+                                                        bool rechunk,
+                                                        bool cache,
+                                                        bool glob,
+                                                        const uint8_t *include_file_paths,
+                                                        uintptr_t include_file_paths_len,
+                                                        bool allow_missing_columns,
+                                                        struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_scan_ipc(const uint8_t *path,
+                                                        uintptr_t pathlen,
+                                                        const uintptr_t *n_rows,
+                                                        const uint8_t *row_index_name,
+                                                        uintptr_t row_index_name_len,
+                                                        uint32_t row_index_offset,
+                                                        bool rechunk,
+                                                        bool cache,
+                                                        bool glob,
+                                                        const uint8_t *include_file_paths,
+                                                        uintptr_t include_file_paths_len,
+                                                        const bool *hive_partitioning,
+                                                        bool allow_missing_columns,
+                                                        struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_sink_parquet(
+    struct polars_lazy_frame_t *lf,
+    const uint8_t *path,
+    uintptr_t pathlen,
+    enum polars_parquet_compression_t compression,
+    const int32_t *compression_level,
+    bool statistics,
+    const uintptr_t *row_group_size,
+    const uintptr_t *data_page_size,
+    bool mkdir,
+    bool maintain_order,
+    struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_sink_csv(struct polars_lazy_frame_t *lf,
+                                                        const uint8_t *path,
+                                                        uintptr_t pathlen,
+                                                        bool include_header,
+                                                        bool include_bom,
+                                                        uint8_t separator,
+                                                        uint8_t quote_char,
+                                                        const uint8_t *null_value,
+                                                        uintptr_t null_value_len,
+                                                        const uint8_t *line_terminator,
+                                                        uintptr_t line_terminator_len,
+                                                        enum polars_quote_style_t quote_style,
+                                                        const uint8_t *date_format,
+                                                        uintptr_t date_format_len,
+                                                        const uint8_t *time_format,
+                                                        uintptr_t time_format_len,
+                                                        const uint8_t *datetime_format,
+                                                        uintptr_t datetime_format_len,
+                                                        const uintptr_t *float_precision,
+                                                        bool decimal_comma,
+                                                        enum polars_csv_compression_t compression,
+                                                        const uint32_t *compression_level,
+                                                        bool mkdir,
+                                                        bool maintain_order,
+                                                        struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_sink_ipc(struct polars_lazy_frame_t *lf,
+                                                        const uint8_t *path,
+                                                        uintptr_t pathlen,
+                                                        enum polars_ipc_compression_t compression,
+                                                        const int32_t *compression_level,
+                                                        const uintptr_t *record_batch_size,
+                                                        bool mkdir,
+                                                        bool maintain_order,
+                                                        struct polars_lazy_frame_t **out);
+
 void polars_series_destroy(struct polars_series_t *series);
 
 enum polars_value_type_t polars_series_type(struct polars_series_t *series);
@@ -1304,6 +1438,11 @@ const struct polars_error_t *polars_series_schema(struct polars_series_t *series
  * buffers via the release callback) and can outlive `series` -- the caller takes ownership and
  * must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly
  * once.
+ *
+ * `rechunk()` is a cheap Arc-clone when `series` is already single-chunk (the common case), but
+ * a genuinely fragmented series (many small chunks, e.g. after repeated `concat`/streaming
+ * appends without an explicit rechunk) pays a real one-time data copy here to produce the single
+ * contiguous chunk the C Data Interface export needs.
  */
 const struct polars_error_t *polars_series_export_carray(struct polars_series_t *series,
                                                          ArrowArray *out);
@@ -1322,6 +1461,10 @@ struct polars_series_t *polars_series_slice(struct polars_series_t *series,
                                             int64_t offset,
                                             uintptr_t length);
 
+/**
+ * Borrowed pointer into the series' name, valid only as long as `series` is alive (the same
+ * borrowed-pointer convention `polars_value_time_zone` cites this function as the reference for).
+ */
 uintptr_t polars_series_name(struct polars_series_t *series, const uint8_t **out);
 
 const struct polars_error_t *polars_series_get(struct polars_series_t *series,
@@ -1374,6 +1517,11 @@ const struct polars_error_t *polars_series_get_f64(struct polars_series_t *serie
 
 enum polars_time_unit_t polars_value_time_unit(struct polars_value_t *value);
 
+/**
+ * Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive
+ * (same convention as `polars_series_name`). Returns 0 (and leaves `out` unwritten) for a naive
+ * datetime or any non-datetime value.
+ */
 uintptr_t polars_value_time_zone(struct polars_value_t *value, const uint8_t **out);
 
 enum polars_value_type_t polars_value_type(struct polars_value_t *value);
@@ -1427,6 +1575,11 @@ const struct polars_error_t *polars_value_datetime_get(struct polars_value_t *va
  */
 const struct polars_error_t *polars_value_date_get(struct polars_value_t *value, int32_t *out);
 
+/**
+ * Get the underlying int64 for this time value. `DataType::Time` is always nanoseconds since
+ * midnight (unlike Datetime/Duration, it carries no `TimeUnit`), so there is no companion
+ * `polars_value_time_unit`-style call for it.
+ */
 const struct polars_error_t *polars_value_time_get(struct polars_value_t *value, int64_t *out);
 
 const struct polars_error_t *polars_value_binary_get(struct polars_value_t *value,
@@ -1434,11 +1587,14 @@ const struct polars_error_t *polars_value_binary_get(struct polars_value_t *valu
                                                      IOCallback callback);
 
 /**
- * Used to get value of of a Struct value fields.
+ * Returns the value of struct field `fieldidx`.
  *
- * NOTE: The value producing the new value must outlive the value from the field.
- *
- * Safety: Values lifetimes must be valid and only support physical dtypes for now.
+ * # Safety
+ * The returned value borrows into the parent struct's backing memory (as every `polars_value_t`
+ * does -- it wraps an `AnyValue<'a>`). Lifetime parameters on a `#[no_mangle] extern "C"` fn
+ * enforce nothing across the C boundary, so this is a *caller invariant*, not a compiler-checked
+ * one: **the caller must keep `value` (and its parent Series) alive until it is done with `*out`,
+ * and must destroy `*out` before `value`.** The Julia side roots the parent accordingly.
  */
 const struct polars_error_t *polars_value_struct_get(struct polars_value_t *value,
                                                      uintptr_t fieldidx,
