@@ -4,9 +4,9 @@ coverage:
     patch: off
 
 flags:
-  rust:
-    paths:
-      - c-polars/src
+  # rust:
+  #   paths:
+  #     - c-polars/src
   julia:
     paths:
       - src
