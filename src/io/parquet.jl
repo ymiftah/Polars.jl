@@ -153,6 +153,10 @@ Writes a dataframe to a parquet file provided as an `IO`.
 - `statistics`: whether to compute and write column statistics (default `true`).
 - `row_group_size`: maximum rows per row group (default: a single row group).
 - `data_page_size`: maximum bytes per data page (default: polars' own default, ~1 MiB).
+
+For the `path::String` method, a path containing `"://"` (e.g. `"s3://bucket/out.parquet"`) is
+routed to [`sink_parquet`](@ref) instead of local file IO, accepting `sink_parquet`'s full keyword
+set (including `storage_options`, `mkdir`, `maintain_order`) for such paths.
 """
 function write_parquet(
         io::IO, df::DataFrame;
@@ -179,7 +183,10 @@ function write_parquet(
     polars_error(err)
     return nothing
 end
-write_parquet(p::String, df::DataFrame; kwargs...) = open(io -> write_parquet(io, df; kwargs...), p, "w")
+function write_parquet(p::String, df::DataFrame; kwargs...)
+    occursin("://", p) && return sink_parquet(df, p; kwargs...)
+    return open(io -> write_parquet(io, df; kwargs...), p, "w")
+end
 """
     sink_parquet(lf::LazyFrame, path::String;
                  compression::Symbol=:zstd,

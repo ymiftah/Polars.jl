@@ -167,6 +167,9 @@ Writes a dataframe to a CSV file provided as an `IO`.
 
 Note: unlike [`write_parquet`](@ref), `write_csv` has no `compression` option -- only
 [`sink_csv`](@ref) supports writing compressed CSV.
+
+For the `path::String` method, a path containing `"://"` (e.g. `"s3://bucket/out.csv"`) is
+rejected with an error pointing at [`sink_csv`](@ref) instead of silently writing a local file.
 """
 function write_csv(
         io::IO, df::DataFrame;
@@ -209,7 +212,10 @@ function write_csv(
     polars_error(err)
     return nothing
 end
-write_csv(p::String, df::DataFrame; kwargs...) = open(io -> write_csv(io, df; kwargs...), p, "w")
+function write_csv(p::String, df::DataFrame; kwargs...)
+    occursin("://", p) && error("write_csv writes local files; use sink_csv for cloud URIs")
+    return open(io -> write_csv(io, df; kwargs...), p, "w")
+end
 
 """
     sink_csv(lf::LazyFrame, path::String; kwargs..., compression::Symbol=:uncompressed,

@@ -63,6 +63,25 @@ end
         write_ipc(io, df)
         @test io.size > 0
     end
+
+    @testset "write_ipc rejects cloud URIs instead of silently writing a local file" begin
+        cloud_dir = mktempdir()
+        err = nothing
+        try
+            write_ipc("s3://some-bucket/out.arrow", df)
+        catch e
+            err = e
+        end
+        @test err !== nothing
+        @test occursin("sink_ipc", sprint(showerror, err))
+        @test isempty(readdir(cloud_dir))
+        @test !isdir(joinpath(cloud_dir, "s3:"))
+
+        # regression guard: a plain local path still works exactly as before
+        local_path = joinpath(cloud_dir, "regression.arrow")
+        write_ipc(local_path, df)
+        @test read_ipc(local_path)[:x] == df[:x]
+    end
 end
 
 @testset "scan_ipc / sink_ipc options" begin

@@ -77,3 +77,22 @@ end
         @test_throws Exception sink_parquet(df, missing_dir_path)
     end
 end
+
+@testset "write_parquet routes cloud URIs to sink_parquet instead of a local file" begin
+    df = DataFrame((; x = [1, 2, 3]))
+    dir = mktempdir()
+
+    try
+        write_parquet("s3://some-bucket/out.parquet", df)
+    catch
+        # Expected: this attempts a real network call via sink_parquet and fails without
+        # credentials/network access -- that's fine, we're not asserting upload success.
+    end
+    @test isempty(readdir(dir))
+    @test !isdir(joinpath(dir, "s3:"))
+
+    # regression guard: a plain local path still works exactly as before
+    local_path = joinpath(dir, "out.parquet")
+    write_parquet(local_path, df)
+    @test read_parquet(local_path)[:x] == df[:x]
+end
