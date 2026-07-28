@@ -242,7 +242,7 @@ callback); shared between `base_release_schema` (here) and `base_release_array`
 (arrow/array.jl) since both C structs share the same trailing `(release, private_data)` layout.
 """
 function _mark_released!(ptr::Ptr{T}) where {T}
-    offset = fieldoffset(T, findfirst(==(:release), fieldnames(T)))
+    offset = fieldoffset(T, Base.fieldindex(T, :release))
     unsafe_store!(Ptr{Ptr{Cvoid}}(Ptr{UInt8}(ptr) + offset), C_NULL)
     return nothing
 end

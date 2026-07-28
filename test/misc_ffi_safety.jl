@@ -339,10 +339,19 @@ end
     Polars.root!(top_schema)
     Polars.root!(array)
     out = Ref{Ptr{Polars.API.polars_dataframe_t}}()
-    err = Polars.API.polars_dataframe_new_from_carrow(top_schema, array, out)
-    Polars.release_schema!(top_schema)
-    Polars.polars_error(err)
-    df = Polars.DataFrame(out[])
+    df = try
+        err = Polars.API.polars_dataframe_new_from_carrow(top_schema, array, out)
+        Polars.polars_error(err)
+        Polars.DataFrame(out[])
+    catch
+        # Mirror `DataFrame(table)`'s own failure handling: without this, a throw here would
+        # strand `array` in `LIVE_ARRAYS` for the rest of the session and break the unrelated
+        # `isempty(LIVE_ARRAYS)` assertions in test/dataframe/gc.jl.
+        Polars.release_array!(array)
+        rethrow()
+    finally
+        Polars.release_schema!(top_schema)
+    end
     @test size(df) == (3, 1)
     @test collect(df[:x]) == [1, 2, 3]
 end

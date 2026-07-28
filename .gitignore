@@ -3,4 +3,6 @@ docs/node_modules/
 docs/build/
 .claude/
 
-debug/
+# Repo-root scratch directory for local experiments; anchored so it can't swallow a real
+# `debug/` directory nested anywhere else in the tree.
+/debug/

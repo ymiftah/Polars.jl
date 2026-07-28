@@ -794,9 +794,9 @@ export replace_strict
 
 Product of the values.
 
-!!! Defined outside the `@generate_expr_fns` block, extending `Base.prod` directly rather than
-letting the macro auto-qualify the Rust method name `Expr::product`, which would land on the
-unexported, unrelated internal `Base.product` binding.
+Defined outside the `@generate_expr_fns` block, extending `Base.prod` directly rather than letting
+the macro auto-qualify the Rust method name `Expr::product`, which would land on the unexported,
+unrelated internal `Base.product` binding.
 """
 Base.prod(expr::Expr) = Expr(API.polars_expr_product(expr))
 
@@ -807,8 +807,8 @@ import Statistics: mean, median, std, var, quantile
 
 Arithmetic mean of the values.
 
-!!! Extends `Statistics.mean` rather than going through the `@generate_expr_fns` block to avoid clashing with
-`Statistics.mean` when both packages are loaded.
+Extends `Statistics.mean` rather than going through the `@generate_expr_fns` block, so the two
+packages share one generic function instead of clashing when both are loaded.
 
 See [`median`](@ref) for the same story applied to the median.
 """
@@ -1400,3 +1400,7 @@ export rank
 export col, alias, prefix, suffix, to_lowercase, to_uppercase, lit, cast, when, element,
     cast_datetime, cast_duration, cast_decimal, cast_categorical,
     Lists, Strings, Dt, Structs, Selectors
+# `Meta` (`src/expr/meta.jl`) is deliberately NOT exported alongside its siblings above: `Base.Meta`
+# is itself an *exported* Base submodule, so `export Meta` here would make plain `using Polars`
+# ambiguous-error on the bare name `Meta`, not merely shadow it. Reachable fully qualified as
+# `Polars.Meta.output_name(...)`, same as any non-exported submodule.

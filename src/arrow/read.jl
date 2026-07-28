@@ -190,13 +190,20 @@ function _read_numeric(::Type{T}, ca::CArrowArray, bufs::Vector, zerocopy::Bool,
     if ca.null_count == 0
         if zerocopy
             keepalive.borrowed = true # tells `_dispatch_read` not to eagerly release `keepalive`
+            arr = unsafe_wrap(Array, data_ptr, n; own = false)
+            # Root only once `arr` -- the object whose finalizer is the *sole* thing that ever
+            # unroots `keepalive` again -- actually exists. Rooting before this point would leave
+            # `keepalive` permanently rooted if anything in between threw.
             lock(LIVE_BORROWED_ARRAYS_LOCK) do
                 LIVE_BORROWED_ARRAYS[keepalive] = nothing
             end
-            arr = unsafe_wrap(Array, data_ptr, n; own = false)
             # Unroots (see `LIVE_BORROWED_ARRAYS`'s docstring for why a plain closure capture isn't
             # a reliable keepalive on its own) and releases `keepalive` once `arr` itself is
             # collected -- not before, since `arr` aliases `keepalive`'s buffers until then.
+            # NB this takes a lock from a finalizer, which Julia runs at arbitrary safepoints: safe
+            # here only because the critical section is a single `delete!` that never yields and
+            # never calls back into anything that could re-enter the GC. Keep it that way -- the
+            # `release!` ccall deliberately sits *outside* the lock.
             finalizer(arr) do _
                 lock(LIVE_BORROWED_ARRAYS_LOCK) do
                     delete!(LIVE_BORROWED_ARRAYS, keepalive)

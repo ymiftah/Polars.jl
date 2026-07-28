@@ -72,14 +72,18 @@ Base.:-(a::Selector, b::Selector) = _combine_selectors(polars_expr_selector_diff
 """
     xor(a::Selector, b::Selector)
 
-Exclusive or: columns matched by exactly one of `a`/`b`.
+Exclusive or: columns matched by exactly one of `a`/`b`. Note this is Julia's `xor`/`⊻`, not `^`
+-- `^` always means exponentiation in Julia, unlike Python's `cs.numeric() ^ cs.string()`.
 """
 Base.xor(a::Selector, b::Selector) = _combine_selectors(polars_expr_selector_exclusive_or, a, b)
 
 """
     Selectors
 
-Column selectors,
+Column selectors, mirroring py-polars' `polars.selectors` (conventionally imported as `cs` there;
+here used qualified -- `Selectors.numeric()` -- matching `Structs`/`Dt`/`Lists`/`Strings`, and
+avoiding clobbering `Base.all`/`string`/`float`/`time`/`contains`, which several selector names
+would otherwise collide with).
 
 Every function here returns a [`Selector`](@ref), which can be passed anywhere an `Expr` is
 accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`/`&`/`-`/`⊻`.
@@ -99,7 +103,10 @@ accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`
 | `matches(pattern)` | column names matching a regex |
 | `starts_with(prefixes...)`, `ends_with(suffixes...)`, `contains(substrings...)` | column names by literal substring (regex-escaped internally, not user-facing regex) |
 
-!!! note "`by_index` is 1-based here per Julia convention.
+!!! note "`by_index` is 1-based here, unlike py-polars' 0-based `cs.by_index`"
+    1-based indexing is the convention everywhere else in this package, matching
+    [`Polars.nth`](@ref). Negative indices still count back from the end unchanged
+    (`by_index(-1)` is the last column, same as `nth(-1)`).
 
 !!! note "Scope: no per-unit/zone temporal matching, no recursive nested-selector composition"
     `datetime()`/`duration()` match *any* time unit/time zone (no `cs.datetime(time_unit="ms")`

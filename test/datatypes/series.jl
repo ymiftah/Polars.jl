@@ -161,9 +161,9 @@ end
 
         # the borrowed buffer must stay valid (and correct) after the source Series/DataFrame
         # are dropped and GC'd -- the whole point of the release-on-finalize keeper. Regression
-        # test for a real use-after-free (P0-something): `_dispatch_read` used to release the
-        # exported buffers unconditionally right after building `arr`, regardless of whether `arr`
-        # was a zero-copy alias of them -- freeing the very memory `arr` still pointed at. A single
+        # test for a real use-after-free: `_dispatch_read` used to release the exported buffers
+        # unconditionally right after building `arr`, regardless of whether `arr` was a zero-copy
+        # alias of them -- freeing the very memory `arr` still pointed at. A single
         # non-forced `GC.gc()` doesn't reliably surface this (the freed pages often still hold
         # their old bytes), so force full collections and churn the heap with fresh allocations in
         # between to encourage the freed memory to actually be reused before checking.

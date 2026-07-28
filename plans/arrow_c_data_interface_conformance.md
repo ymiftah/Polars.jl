@@ -3,9 +3,9 @@
 ## Status
 
 Done. Three confirmed memory-safety defects fixed (D1-D3), four lower-severity conformance gaps
-closed (D4-D7), 32 new tests added, full suite passes: 1826 passed, 0 errored, 2 broken
-(pre-existing, unrelated), 1 failed (pre-existing, unrelated -- see "Pre-existing unrelated
-failure" below). All three reproductions were confirmed live before and after the fix.
+closed (D4-D7), 32 new tests added, full suite green: **1827 passed, 0 failed, 0 errored, 2 broken**
+(both pre-existing Aqua `@test_broken`s: method ambiguities and unbound type parameters). All three
+reproductions were confirmed live before and after the fix.
 
 ## Context
 
@@ -136,20 +136,13 @@ Two spec items were explicitly checked and found already compliant, so were left
   encoded form, and an end-to-end `polars_dataframe_new_from_carrow` call carrying non-empty
   metadata).
 
-## Pre-existing unrelated failure
-
-The suite's single failure (`Stale dependencies` under `Aqua`, flagging `BenchmarkTools`) predates
-this work -- `Project.toml` had an uncommitted change (visible in `git status` at the start of this
-session) adding `BenchmarkTools` as a dependency that isn't `using`d anywhere in `src/`. Left
-untouched; out of scope for this plan.
-
 ## Verification performed
 
 - Each of the three confirmed defects was reproduced live *before* the fix and confirmed fixed
   *after*, including under heavier stress than the original repro (full `GC.gc(true)` cycles,
   ~1M-element heap churn between drop and check, 10 failed constructions of two different shapes).
 - Full suite in a scratch environment (`Pkg.develop(path=".")` +
-  `Pkg.add(["Aqua","Test","Tables","TimeZones"])`): 1826 passed, 1 failed (pre-existing, see
-  above), 0 errored, 2 broken (pre-existing).
+  `Pkg.add(["Aqua","Test","Tables","TimeZones"])`): 1827 passed, 0 failed, 0 errored, 2 broken
+  (pre-existing).
 - `python3 c-polars/check_header_drift.py`: clean (no Rust/header changes in this plan).
 - `runic -i` over every touched `src/`/`test/` file.
