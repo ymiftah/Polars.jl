@@ -2,10 +2,15 @@
 
 ## Status
 
-Planned, not started. Research complete and verified live against the current `target/debug`
-build (see "Key research findings" — every claim below was checked against the vendored crate
-sources or executed, not inferred). Three phases, independently shippable in order; Phase 1 is a
-three-word `Cargo.toml` change with no FFI surface at all.
+Done. All three phases implemented, tested, and merged on `cloud-io`: Phase 1 (`abb1547`, the
+`aws`/`gcp`/`azure` Cargo feature enablement), Phase 2 (`f46347f` + `52ab3dc`, the
+`polars_cloud_options_t` handle and `storage_options` keyword wired through all six scan/sink
+functions), and Phase 3 (`b18293b`, `write_*` cloud-URI routing/errors). A final whole-branch
+review found three Important issues (vacuous "no local file created" tests, this plan's stale
+status, missing user docs) and two Minor recommendations (a `nothing`-unsafe test helper, an
+`io.rs` tidy-up); all five were fixed in one follow-up pass. Full suite: 1848 passed, 2 broken (a
+pre-existing, unrelated `Aqua`-detected condition), 0 failed, run via
+`JULIA_PROJECT=.scratch_test_env julia -e 'include("test/runtests.jl")'`.
 
 ## Context
 
@@ -118,11 +123,22 @@ against, but `CloudScheme::from_path(&str) -> Option<Self>`
 This is what makes the Phase 2 handle design below work: the handle can hold raw key/value pairs
 and defer scheme resolution to the call site, where the path is known.
 
-### 7. Unknown option keys already error cleanly
+### 7. Unknown option keys are silently dropped, not rejected — corrected during implementation
 
-`from_untyped_config` dispatches to `parse_untyped_config::<AmazonS3ConfigKey, _>` etc., which
-returns `Err` on an unrecognised key, and bails with `"'aws' feature is not enabled"` for a
-provider whose feature is off. No extra validation layer is needed on the Julia side.
+**This finding was wrong as originally written and has been corrected in place.** The original
+claim was that `from_untyped_config` dispatches to `parse_untyped_config::<AmazonS3ConfigKey, _>`
+etc., which returns `Err` on an unrecognised key. That is not what the vendored
+`polars-io-0.54.4` actually does: `parse_untyped_config` (`polars-io/src/cloud/options.rs`)
+`filter_map`s the incoming key/value pairs, silently dropping any key that doesn't parse as a
+known config enum (its own source comment reads "Silently ignores custom upstream
+storage_options") — it never returns `Err` for an unrecognised key. So a typo'd or unsupported
+`storage_options` key is not rejected at the point it's passed; it's dropped, and the scan/sink
+proceeds without it, only failing later (e.g. on the resulting connection attempt) rather than
+immediately with a clear "unknown key" error. Confirmed live in
+`test/lazyframe/scan_parquet.jl`'s "unknown option key does not crash the process" testset (Task
+3/Phase 2). No extra validation layer was added on the Julia side regardless — the wrapper still
+passes keys through verbatim — but callers should not expect an immediate, specific error for a
+mistyped option key.
 
 ## Phase 1 — enable the provider features (no FFI, no Julia changes)
 

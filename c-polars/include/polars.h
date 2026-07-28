@@ -226,6 +226,13 @@ typedef enum polars_window_mapping_t {
   PolarsWindowMappingJoin,
 } polars_window_mapping_t;
 
+/**
+ * Deviates from every other opaque handle in this crate, which wrap a real polars type: this one
+ * wraps the *unparsed* key/value option pairs, because `CloudOptions` cannot be constructed
+ * without knowing the target cloud scheme (`CloudScheme::from_path`), and the scheme is only
+ * known once the destination path is available -- i.e. at each scan/sink call site, not here.
+ * Resolution therefore happens per call (see `polars_lazy_frame_scan_parquet` etc.).
+ */
 typedef struct polars_cloud_options_t polars_cloud_options_t;
 
 typedef struct polars_dataframe_t polars_dataframe_t;
@@ -412,139 +419,6 @@ const struct polars_error_t *polars_dataframe_write_ipc(struct polars_dataframe_
                                                         enum polars_ipc_compression_t compression,
                                                         const int32_t *compression_level,
                                                         const uintptr_t *record_batch_size);
-
-/**
- * Builds a `polars_cloud_options_t` from parallel `(ptr-array, len-array, n)` key/value pairs --
- * e.g. `("aws_access_key_id", "...")`. The pairs are stored unparsed (see the type's own doc
- * comment in `types.rs`); actual `CloudOptions` construction is deferred to each scan/sink call
- * site, once the destination path (and so the cloud scheme) is known.
- */
-const struct polars_error_t *polars_cloud_options_new(const uint8_t *const *keys,
-                                                       const uintptr_t *key_lens,
-                                                       const uint8_t *const *values,
-                                                       const uintptr_t *value_lens,
-                                                       uintptr_t n,
-                                                       struct polars_cloud_options_t **out);
-
-void polars_cloud_options_destroy(struct polars_cloud_options_t *ptr);
-
-const struct polars_error_t *polars_lazy_frame_scan_parquet(
-    const uint8_t *path,
-    uintptr_t pathlen,
-    const uintptr_t *n_rows,
-    const uint8_t *row_index_name,
-    uintptr_t row_index_name_len,
-    uint32_t row_index_offset,
-    enum polars_parquet_parallel_strategy_t parallel,
-    bool low_memory,
-    bool rechunk,
-    bool cache,
-    bool glob,
-    bool use_statistics,
-    bool allow_missing_columns,
-    const uint8_t *include_file_paths,
-    uintptr_t include_file_paths_len,
-    const bool *hive_partitioning,
-    const struct polars_cloud_options_t *cloud_options,
-    struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_scan_csv(const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        const uintptr_t *n_rows,
-                                                        const uint8_t *row_index_name,
-                                                        uintptr_t row_index_name_len,
-                                                        uint32_t row_index_offset,
-                                                        bool has_header,
-                                                        uint8_t separator,
-                                                        const uint8_t *quote_char,
-                                                        const uint8_t *comment_prefix,
-                                                        uintptr_t comment_prefix_len,
-                                                        uintptr_t skip_rows,
-                                                        uintptr_t skip_rows_after_header,
-                                                        const uint8_t *null_value,
-                                                        uintptr_t null_value_len,
-                                                        bool missing_is_null,
-                                                        bool truncate_ragged_lines,
-                                                        bool try_parse_dates,
-                                                        const uintptr_t *infer_schema_length,
-                                                        bool ignore_errors,
-                                                        bool low_memory,
-                                                        bool rechunk,
-                                                        bool cache,
-                                                        bool glob,
-                                                        const uint8_t *include_file_paths,
-                                                        uintptr_t include_file_paths_len,
-                                                        bool allow_missing_columns,
-                                                        const struct polars_cloud_options_t *cloud_options,
-                                                        struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_scan_ipc(const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        const uintptr_t *n_rows,
-                                                        const uint8_t *row_index_name,
-                                                        uintptr_t row_index_name_len,
-                                                        uint32_t row_index_offset,
-                                                        bool rechunk,
-                                                        bool cache,
-                                                        bool glob,
-                                                        const uint8_t *include_file_paths,
-                                                        uintptr_t include_file_paths_len,
-                                                        const bool *hive_partitioning,
-                                                        bool allow_missing_columns,
-                                                        const struct polars_cloud_options_t *cloud_options,
-                                                        struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_sink_parquet(
-    struct polars_lazy_frame_t *lf,
-    const uint8_t *path,
-    uintptr_t pathlen,
-    enum polars_parquet_compression_t compression,
-    const int32_t *compression_level,
-    bool statistics,
-    const uintptr_t *row_group_size,
-    const uintptr_t *data_page_size,
-    bool mkdir,
-    bool maintain_order,
-    const struct polars_cloud_options_t *cloud_options,
-    struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_sink_csv(struct polars_lazy_frame_t *lf,
-                                                        const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        bool include_header,
-                                                        bool include_bom,
-                                                        uint8_t separator,
-                                                        uint8_t quote_char,
-                                                        const uint8_t *null_value,
-                                                        uintptr_t null_value_len,
-                                                        const uint8_t *line_terminator,
-                                                        uintptr_t line_terminator_len,
-                                                        enum polars_quote_style_t quote_style,
-                                                        const uint8_t *date_format,
-                                                        uintptr_t date_format_len,
-                                                        const uint8_t *time_format,
-                                                        uintptr_t time_format_len,
-                                                        const uint8_t *datetime_format,
-                                                        uintptr_t datetime_format_len,
-                                                        const uintptr_t *float_precision,
-                                                        bool decimal_comma,
-                                                        enum polars_csv_compression_t compression,
-                                                        const uint32_t *compression_level,
-                                                        bool mkdir,
-                                                        bool maintain_order,
-                                                        const struct polars_cloud_options_t *cloud_options,
-                                                        struct polars_lazy_frame_t **out);
-
-const struct polars_error_t *polars_lazy_frame_sink_ipc(struct polars_lazy_frame_t *lf,
-                                                        const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        enum polars_ipc_compression_t compression,
-                                                        const int32_t *compression_level,
-                                                        const uintptr_t *record_batch_size,
-                                                        bool mkdir,
-                                                        bool maintain_order,
-                                                        const struct polars_cloud_options_t *cloud_options,
-                                                        struct polars_lazy_frame_t **out);
 
 void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,
                             const struct polars_expr_t *const *exprs,
@@ -1462,51 +1336,56 @@ const struct polars_error_t *polars_lazy_frame_scan_parquet(
     const uint8_t *include_file_paths,
     uintptr_t include_file_paths_len,
     const bool *hive_partitioning,
+    const struct polars_cloud_options_t *cloud_options,
     struct polars_lazy_frame_t **out);
 
-const struct polars_error_t *polars_lazy_frame_scan_csv(const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        const uintptr_t *n_rows,
-                                                        const uint8_t *row_index_name,
-                                                        uintptr_t row_index_name_len,
-                                                        uint32_t row_index_offset,
-                                                        bool has_header,
-                                                        uint8_t separator,
-                                                        const uint8_t *quote_char,
-                                                        const uint8_t *comment_prefix,
-                                                        uintptr_t comment_prefix_len,
-                                                        uintptr_t skip_rows,
-                                                        uintptr_t skip_rows_after_header,
-                                                        const uint8_t *null_value,
-                                                        uintptr_t null_value_len,
-                                                        bool missing_is_null,
-                                                        bool truncate_ragged_lines,
-                                                        bool try_parse_dates,
-                                                        const uintptr_t *infer_schema_length,
-                                                        bool ignore_errors,
-                                                        bool low_memory,
-                                                        bool rechunk,
-                                                        bool cache,
-                                                        bool glob,
-                                                        const uint8_t *include_file_paths,
-                                                        uintptr_t include_file_paths_len,
-                                                        bool allow_missing_columns,
-                                                        struct polars_lazy_frame_t **out);
+const struct polars_error_t *polars_lazy_frame_scan_csv(
+    const uint8_t *path,
+    uintptr_t pathlen,
+    const uintptr_t *n_rows,
+    const uint8_t *row_index_name,
+    uintptr_t row_index_name_len,
+    uint32_t row_index_offset,
+    bool has_header,
+    uint8_t separator,
+    const uint8_t *quote_char,
+    const uint8_t *comment_prefix,
+    uintptr_t comment_prefix_len,
+    uintptr_t skip_rows,
+    uintptr_t skip_rows_after_header,
+    const uint8_t *null_value,
+    uintptr_t null_value_len,
+    bool missing_is_null,
+    bool truncate_ragged_lines,
+    bool try_parse_dates,
+    const uintptr_t *infer_schema_length,
+    bool ignore_errors,
+    bool low_memory,
+    bool rechunk,
+    bool cache,
+    bool glob,
+    const uint8_t *include_file_paths,
+    uintptr_t include_file_paths_len,
+    bool allow_missing_columns,
+    const struct polars_cloud_options_t *cloud_options,
+    struct polars_lazy_frame_t **out);
 
-const struct polars_error_t *polars_lazy_frame_scan_ipc(const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        const uintptr_t *n_rows,
-                                                        const uint8_t *row_index_name,
-                                                        uintptr_t row_index_name_len,
-                                                        uint32_t row_index_offset,
-                                                        bool rechunk,
-                                                        bool cache,
-                                                        bool glob,
-                                                        const uint8_t *include_file_paths,
-                                                        uintptr_t include_file_paths_len,
-                                                        const bool *hive_partitioning,
-                                                        bool allow_missing_columns,
-                                                        struct polars_lazy_frame_t **out);
+const struct polars_error_t *polars_lazy_frame_scan_ipc(
+    const uint8_t *path,
+    uintptr_t pathlen,
+    const uintptr_t *n_rows,
+    const uint8_t *row_index_name,
+    uintptr_t row_index_name_len,
+    uint32_t row_index_offset,
+    bool rechunk,
+    bool cache,
+    bool glob,
+    const uint8_t *include_file_paths,
+    uintptr_t include_file_paths_len,
+    const bool *hive_partitioning,
+    bool allow_missing_columns,
+    const struct polars_cloud_options_t *cloud_options,
+    struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_sink_parquet(
     struct polars_lazy_frame_t *lf,
@@ -1519,43 +1398,63 @@ const struct polars_error_t *polars_lazy_frame_sink_parquet(
     const uintptr_t *data_page_size,
     bool mkdir,
     bool maintain_order,
+    const struct polars_cloud_options_t *cloud_options,
     struct polars_lazy_frame_t **out);
 
-const struct polars_error_t *polars_lazy_frame_sink_csv(struct polars_lazy_frame_t *lf,
-                                                        const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        bool include_header,
-                                                        bool include_bom,
-                                                        uint8_t separator,
-                                                        uint8_t quote_char,
-                                                        const uint8_t *null_value,
-                                                        uintptr_t null_value_len,
-                                                        const uint8_t *line_terminator,
-                                                        uintptr_t line_terminator_len,
-                                                        enum polars_quote_style_t quote_style,
-                                                        const uint8_t *date_format,
-                                                        uintptr_t date_format_len,
-                                                        const uint8_t *time_format,
-                                                        uintptr_t time_format_len,
-                                                        const uint8_t *datetime_format,
-                                                        uintptr_t datetime_format_len,
-                                                        const uintptr_t *float_precision,
-                                                        bool decimal_comma,
-                                                        enum polars_csv_compression_t compression,
-                                                        const uint32_t *compression_level,
-                                                        bool mkdir,
-                                                        bool maintain_order,
-                                                        struct polars_lazy_frame_t **out);
+const struct polars_error_t *polars_lazy_frame_sink_csv(
+    struct polars_lazy_frame_t *lf,
+    const uint8_t *path,
+    uintptr_t pathlen,
+    bool include_header,
+    bool include_bom,
+    uint8_t separator,
+    uint8_t quote_char,
+    const uint8_t *null_value,
+    uintptr_t null_value_len,
+    const uint8_t *line_terminator,
+    uintptr_t line_terminator_len,
+    enum polars_quote_style_t quote_style,
+    const uint8_t *date_format,
+    uintptr_t date_format_len,
+    const uint8_t *time_format,
+    uintptr_t time_format_len,
+    const uint8_t *datetime_format,
+    uintptr_t datetime_format_len,
+    const uintptr_t *float_precision,
+    bool decimal_comma,
+    enum polars_csv_compression_t compression,
+    const uint32_t *compression_level,
+    bool mkdir,
+    bool maintain_order,
+    const struct polars_cloud_options_t *cloud_options,
+    struct polars_lazy_frame_t **out);
 
-const struct polars_error_t *polars_lazy_frame_sink_ipc(struct polars_lazy_frame_t *lf,
-                                                        const uint8_t *path,
-                                                        uintptr_t pathlen,
-                                                        enum polars_ipc_compression_t compression,
-                                                        const int32_t *compression_level,
-                                                        const uintptr_t *record_batch_size,
-                                                        bool mkdir,
-                                                        bool maintain_order,
-                                                        struct polars_lazy_frame_t **out);
+const struct polars_error_t *polars_lazy_frame_sink_ipc(
+    struct polars_lazy_frame_t *lf,
+    const uint8_t *path,
+    uintptr_t pathlen,
+    enum polars_ipc_compression_t compression,
+    const int32_t *compression_level,
+    const uintptr_t *record_batch_size,
+    bool mkdir,
+    bool maintain_order,
+    const struct polars_cloud_options_t *cloud_options,
+    struct polars_lazy_frame_t **out);
+
+/**
+ * Builds a `polars_cloud_options_t` from parallel `(ptr-array, len-array, n)` key/value pairs --
+ * e.g. `("aws_access_key_id", "...")`. The pairs are stored unparsed (see the type's own doc
+ * comment in `types.rs`); actual `CloudOptions` construction is deferred to each scan/sink call
+ * site, once the destination path (and so the cloud scheme) is known.
+ */
+const struct polars_error_t *polars_cloud_options_new(const uint8_t *const *keys,
+                                                      const uintptr_t *key_lens,
+                                                      const uint8_t *const *values,
+                                                      const uintptr_t *value_lens,
+                                                      uintptr_t n,
+                                                      struct polars_cloud_options_t **out);
+
+void polars_cloud_options_destroy(struct polars_cloud_options_t *ptr);
 
 void polars_series_destroy(struct polars_series_t *series);
 

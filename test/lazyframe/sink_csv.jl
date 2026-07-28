@@ -125,10 +125,12 @@ end
     dir = mktempdir()
 
     err = nothing
-    try
-        write_csv("s3://some-bucket/out.csv", df)
-    catch e
-        err = e
+    cd(dir) do
+        try
+            write_csv("s3://some-bucket/out.csv", df)
+        catch e
+            err = e
+        end
     end
     @test err !== nothing
     @test occursin("sink_csv", sprint(showerror, err))

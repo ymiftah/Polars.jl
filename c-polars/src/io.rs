@@ -11,7 +11,6 @@ use polars_utils::pl_path::CloudScheme;
 use polars_utils::slice_enum::Slice;
 
 use crate::ffi_util::*;
-use crate::types::Opaque;
 use crate::types::*;
 use crate::{guard_error, make_error, polars_error_t};
 
@@ -19,26 +18,6 @@ use crate::{guard_error, make_error, polars_error_t};
 /// a user-facing option. `1024` is a compile-time-checked non-zero constant, so this can never
 /// actually panic -- a plain `const` avoids a `.unwrap()` that reads as fallible but isn't.
 const CSV_WRITER_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(1024).unwrap();
-
-/// Resolves a (possibly null) `polars_cloud_options_t` handle into a real `CloudOptions`, given
-/// the destination `path`. `CloudOptions` cannot be constructed without knowing the target cloud
-/// scheme, which is why the handle only stores unparsed key/value pairs (see its own doc comment
-/// in `types.rs`) -- resolution happens here, per call, once `path` is available. A null handle
-/// (the common case: no `storage_options` given) yields `None`, matching every scan/sink
-/// function's pre-existing behavior.
-pub(crate) unsafe fn resolve_cloud_options(
-    path: &str,
-    cloud_options: *const polars_cloud_options_t,
-) -> PolarsResult<Option<CloudOptions>> {
-    if cloud_options.is_null() {
-        Ok(None)
-    } else {
-        Ok(Some(CloudOptions::from_untyped_config(
-            CloudScheme::from_path(path),
-            (*cloud_options).pairs.iter().cloned(),
-        )?))
-    }
-}
 
 /// Builds `ParquetWriteOptions` from the primitive knobs shared by `write_parquet` and
 /// `sink_parquet`. `compression_level` (null = unset) is only meaningful for the leveled
@@ -568,6 +547,26 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
         *out = make_lazy_frame(sunk);
         std::ptr::null()
     })
+}
+
+/// Resolves a (possibly null) `polars_cloud_options_t` handle into a real `CloudOptions`, given
+/// the destination `path`. `CloudOptions` cannot be constructed without knowing the target cloud
+/// scheme, which is why the handle only stores unparsed key/value pairs (see its own doc comment
+/// in `types.rs`) -- resolution happens here, per call, once `path` is available. A null handle
+/// (the common case: no `storage_options` given) yields `None`, matching every scan/sink
+/// function's pre-existing behavior.
+unsafe fn resolve_cloud_options(
+    path: &str,
+    cloud_options: *const polars_cloud_options_t,
+) -> PolarsResult<Option<CloudOptions>> {
+    if cloud_options.is_null() {
+        Ok(None)
+    } else {
+        Ok(Some(CloudOptions::from_untyped_config(
+            CloudScheme::from_path(path),
+            (*cloud_options).pairs.iter().cloned(),
+        )?))
+    }
 }
 
 /// Builds a `polars_cloud_options_t` from parallel `(ptr-array, len-array, n)` key/value pairs --
