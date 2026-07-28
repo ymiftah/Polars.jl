@@ -32,6 +32,15 @@ pub struct polars_expr_t {
     pub(crate) inner: Expr,
 }
 
+/// Deviates from every other opaque handle in this crate, which wrap a real polars type: this one
+/// wraps the *unparsed* key/value option pairs, because `CloudOptions` cannot be constructed
+/// without knowing the target cloud scheme (`CloudScheme::from_path`), and the scheme is only
+/// known once the destination path is available -- i.e. at each scan/sink call site, not here.
+/// Resolution therefore happens per call (see `polars_lazy_frame_scan_parquet` etc.).
+pub struct polars_cloud_options_t {
+    pub(crate) pairs: Vec<(PlSmallStr, PlSmallStr)>,
+}
+
 /// Every opaque handle that crosses the C ABI (`polars_dataframe_t`, `polars_expr_t`,
 /// `polars_error_t`, ...). Implementing it is the *only* way a handle should be allocated or
 /// reclaimed, so the two contracts that govern every one of them live in exactly one place:
@@ -71,6 +80,7 @@ impl Opaque for polars_lazy_frame_t {}
 impl Opaque for polars_lazy_group_by_t {}
 impl Opaque for polars_series_t {}
 impl Opaque for polars_expr_t {}
+impl Opaque for polars_cloud_options_t {}
 
 pub(crate) fn make_dataframe(df: DataFrame) -> *mut polars_dataframe_t {
     polars_dataframe_t { inner: df }.into_handle()

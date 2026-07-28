@@ -112,7 +112,7 @@ function scan_csv(
             Csize_t(skip_rows_after_header), null_value_arg, null_value_len, missing_is_null,
             truncate_ragged_lines, try_parse_dates, infer_schema_length_ref, ignore_errors,
             low_memory, rechunk, cache, glob, include_file_paths_arg, include_file_paths_len,
-            allow_missing_columns, out
+            allow_missing_columns, Ptr{polars_cloud_options_t}(C_NULL), out
         )
     end
     polars_error(err)
@@ -259,7 +259,7 @@ function sink_csv(
             line_terminator_len, quote_style_enum, date_format_arg, date_format_len,
             time_format_arg, time_format_len, datetime_format_arg, datetime_format_len,
             float_precision_ref, decimal_comma, compression_enum, compression_level_ref, mkdir,
-            maintain_order, out
+            maintain_order, Ptr{polars_cloud_options_t}(C_NULL), out
         )
     end
     polars_error(err)
