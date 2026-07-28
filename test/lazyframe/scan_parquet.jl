@@ -120,3 +120,164 @@ end
         end
     end
 end
+
+@testset "cloud IO (Phase 2: storage_options)" begin
+    # Task 2 (already merged) threads a `cloud_options: *const polars_cloud_options_t` handle
+    # through all six scan/sink C functions; `_with_cloud_options` (src/io/parquet.jl) builds one
+    # from a `storage_options::Dict` for the duration of a single ccall and always destroys it
+    # afterward. These tests are hermetic (no real endpoint) -- the FFI-safety property under test
+    # is "does a garbage/non-ASCII storage_options value crash the process or corrupt the string",
+    # not "does the request succeed".
+    @testset "unknown option key does not crash the process" begin
+        # NOTE: contrary to the cloud_io.md plan's finding #7 ("upstream polars already rejects
+        # unknown option keys with a clean error"), the actual upstream behavior in
+        # polars-io-0.54.4's `parse_untyped_config` (cloud/options.rs) is to *silently filter out*
+        # any key that doesn't parse as a known `AmazonS3ConfigKey` -- its own source comment reads
+        # "Silently ignores custom upstream storage_options" -- rather than erroring. So this key
+        # is dropped, not rejected: the scan proceeds with no explicit credentials and fails
+        # downstream with a connection/credentials error instead of an "unknown key" error. What
+        # this test still proves: passing a bogus key through the FFI boundary is safe (a clean
+        # `Exception`, not a process abort) and reaches real `CloudOptions` construction rather
+        # than being blocked by a missing Cargo feature (see the Phase 1 testset above).
+        err_message = try
+            collect(
+                scan_parquet(
+                    "s3://some-bucket/some.parquet";
+                    storage_options = Dict("not_a_real_option_key" => "x")
+                )
+            )
+            nothing
+        catch e
+            sprint(showerror, e)
+        end
+        @test err_message !== nothing
+        @test !occursin("feature 'aws' must be enabled", err_message)
+        @test !occursin("activate", err_message)
+    end
+
+    @testset "non-ASCII storage_options value survives the FFI round trip (ncodeunits regression guard)" begin
+        # Regression guard for the `length` vs `ncodeunits` bug class documented in CLAUDE.md (24
+        # sites truncated multi-byte UTF-8 mid-codepoint by passing a *character* count instead of
+        # a *byte* count across the FFI boundary). `_with_cloud_options` builds its key/value
+        # pointer arrays via `_name_ptrs` (src/verbs.jl), which is already correct (uses
+        # `ncodeunits`) -- this proves it end-to-end: if the byte length were wrong, the value
+        # would be truncated mid-codepoint and Rust's UTF-8 validation in
+        # `polars_cloud_options_new` would reject it with an "incomplete utf-8 byte sequence"
+        # error *before* any network attempt. There's no real endpoint at café.example.com, so
+        # this is expected to fail either way -- the point is *how* it fails.
+        err_message = try
+            collect(
+                scan_parquet(
+                    "s3://some-bucket/some.parquet";
+                    storage_options = Dict("aws_endpoint_url" => "https://café.example.com")
+                )
+            )
+            nothing
+        catch e
+            sprint(showerror, e)
+        end
+        @test err_message !== nothing
+        @test !occursin("utf-8", lowercase(err_message))
+        @test !occursin("utf8", lowercase(err_message))
+    end
+end
+
+if get(ENV, "POLARS_JL_MINIO_TESTS", "") == "1"
+    @testset "storage_options MinIO round-trip (real, live; requires Docker)" begin
+        # Spins up a throwaway local MinIO container and exercises a real S3-compatible
+        # sink_*/scan_* round-trip through `storage_options`, gated behind
+        # `POLARS_JL_MINIO_TESTS=1` since it needs Docker and a free port (CI has no Docker,
+        # offline runs have no meaningful way to reach even localhost containers from a sandboxed
+        # test runner) -- same gating pattern as `POLARS_JL_NETWORK_TESTS` above.
+        #
+        # This test drives the whole container lifecycle itself (start MinIO, wait for it to
+        # become healthy, create a bucket via the `minio/mc` image, tear the container down in a
+        # `finally` regardless of outcome). To reproduce/debug manually, the equivalent shell
+        # commands are:
+        #
+        #   docker run -d --name polars-jl-minio-manual -p 0:9000 \
+        #     -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+        #     minio/minio server /data --console-address :9001
+        #   HOST_PORT=$(docker port polars-jl-minio-manual 9000/tcp | head -1 | cut -d: -f2)
+        #   # poll http://localhost:$HOST_PORT/minio/health/live until it returns 200
+        #   docker run --rm --network container:polars-jl-minio-manual --entrypoint sh minio/mc -c \
+        #     "mc alias set local http://localhost:9000 minioadmin minioadmin && mc mb local/polars-jl-test-bucket"
+        #   # ... then aws_endpoint_url = "http://localhost:$HOST_PORT" in storage_options ...
+        #   docker rm -f polars-jl-minio-manual
+        #
+        # (`--network container:<name>` shares the MinIO container's network namespace with the
+        # short-lived `mc` container, so `mc` can reach it at `localhost:9000` without needing a
+        # separate user-defined docker network.)
+        @test Sys.which("docker") !== nothing
+
+        container = "polars-jl-minio-test-$(getpid())"
+        bucket = "polars-jl-test-bucket"
+        try
+            run(
+                `docker run -d --name $container -p 0:9000 -e MINIO_ROOT_USER=minioadmin
+                -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data --console-address :9001`
+            )
+
+            port_info = readchomp(`docker port $container 9000/tcp`)
+            host_port = parse(Int, split(split(port_info, '\n')[1], ':')[end])
+
+            ready = false
+            for _ in 1:60
+                try
+                    code = readchomp(
+                        `curl -s -o /dev/null -w '%{http_code}' http://localhost:$host_port/minio/health/live`
+                    )
+                    if code == "200"
+                        ready = true
+                        break
+                    end
+                catch
+                end
+                sleep(0.5)
+            end
+            @test ready
+
+            run(
+                `docker run --rm --network container:$container --entrypoint sh minio/mc -c
+                "mc alias set local http://localhost:9000 minioadmin minioadmin && mc mb local/$bucket"`
+            )
+
+            storage_options = Dict(
+                "aws_endpoint_url" => "http://localhost:$host_port",
+                "aws_access_key_id" => "minioadmin",
+                "aws_secret_access_key" => "minioadmin",
+                "aws_region" => "us-east-1",
+                "aws_allow_http" => "true"
+            )
+
+            df = DataFrame((; a = [1, 2, 3], b = ["x", "y", "z"], v = [1.5, 2.5, 3.5]))
+
+            @testset "sink_parquet / scan_parquet" begin
+                path = "s3://$bucket/roundtrip.parquet"
+                sink_parquet(df, path; storage_options)
+                df2 = collect(scan_parquet(path; storage_options))
+                @test df2 == df
+            end
+
+            @testset "sink_csv / scan_csv" begin
+                path = "s3://$bucket/roundtrip.csv"
+                sink_csv(df, path; storage_options)
+                df2 = collect(scan_csv(path; storage_options))
+                @test df2 == df
+            end
+
+            @testset "sink_ipc / scan_ipc" begin
+                path = "s3://$bucket/roundtrip.ipc"
+                sink_ipc(df, path; storage_options)
+                df2 = collect(scan_ipc(path; storage_options))
+                @test df2 == df
+            end
+        finally
+            try
+                run(`docker rm -f $container`)
+            catch e
+                @warn "failed to remove MinIO test container $container -- manual cleanup needed" exception = e
+            end
+        end
+    end
+end

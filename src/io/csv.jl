@@ -39,7 +39,8 @@ end
              cache::Bool=true,
              glob::Bool=true,
              include_file_paths::Union{Nothing,AbstractString}=nothing,
-             allow_missing_columns::Bool=false)::LazyFrame
+             allow_missing_columns::Bool=false,
+             storage_options::Union{Nothing,AbstractDict{<:AbstractString,<:AbstractString}}=nothing)::LazyFrame
 
 Lazily scans a CSV file, glob pattern, or directory of CSV files, without reading it into memory.
 
@@ -63,6 +64,12 @@ Lazily scans a CSV file, glob pattern, or directory of CSV files, without readin
 - `glob`: expand `path` as a glob pattern.
 - `include_file_paths`: if given, adds a column with this name containing each row's source path.
 - `allow_missing_columns`: allow columns present in some files but not others (filled with nulls).
+- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
+  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
+  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
+  default) falls back to the provider's standard environment variables / config files (e.g.
+  `~/.aws/credentials`).
 
 Note: unlike [`scan_parquet`](@ref)/[`scan_ipc`](@ref), CSV scanning has no `hive_partitioning`
 option -- the underlying reader doesn't support hive-partition detection.
@@ -89,7 +96,8 @@ function scan_csv(
         cache::Bool = true,
         glob::Bool = true,
         include_file_paths::Union{Nothing, AbstractString} = nothing,
-        allow_missing_columns::Bool = false
+        allow_missing_columns::Bool = false,
+        storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     n_rows_ref = n_rows === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n_rows))
     row_index_name_arg = row_index_name === nothing ? Ptr{UInt8}(C_NULL) : row_index_name
@@ -104,16 +112,18 @@ function scan_csv(
     include_file_paths_len = include_file_paths === nothing ? 0 : ncodeunits(include_file_paths)
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
-    err = GC.@preserve n_rows_ref quote_char_ref infer_schema_length_ref begin
-        polars_lazy_frame_scan_csv(
-            path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
-            UInt32(row_index_offset), has_header, UInt8(separator), quote_char_ref,
-            comment_prefix_arg, comment_prefix_len, Csize_t(skip_rows),
-            Csize_t(skip_rows_after_header), null_value_arg, null_value_len, missing_is_null,
-            truncate_ragged_lines, try_parse_dates, infer_schema_length_ref, ignore_errors,
-            low_memory, rechunk, cache, glob, include_file_paths_arg, include_file_paths_len,
-            allow_missing_columns, Ptr{polars_cloud_options_t}(C_NULL), out
-        )
+    err = _with_cloud_options(storage_options) do cloud_options
+        GC.@preserve n_rows_ref quote_char_ref infer_schema_length_ref begin
+            polars_lazy_frame_scan_csv(
+                path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
+                UInt32(row_index_offset), has_header, UInt8(separator), quote_char_ref,
+                comment_prefix_arg, comment_prefix_len, Csize_t(skip_rows),
+                Csize_t(skip_rows_after_header), null_value_arg, null_value_len, missing_is_null,
+                truncate_ragged_lines, try_parse_dates, infer_schema_length_ref, ignore_errors,
+                low_memory, rechunk, cache, glob, include_file_paths_arg, include_file_paths_len,
+                allow_missing_columns, cloud_options, out
+            )
+        end
     end
     polars_error(err)
     return LazyFrame(out[])
@@ -215,6 +225,12 @@ Accepts the same formatting keywords as [`write_csv`](@ref), plus:
   chosen algorithm (gzip/zstd only).
 - `mkdir`: create missing parent directories (default `false`).
 - `maintain_order`: preserve row order through the streaming pipeline (default `true`).
+- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
+  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
+  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
+  default) falls back to the provider's standard environment variables / config files (e.g.
+  `~/.aws/credentials`).
 """
 sink_csv(df::DataFrame, path::String; kwargs...) = sink_csv(lazy(df), path; kwargs...)
 function sink_csv(
@@ -234,7 +250,8 @@ function sink_csv(
         compression::Symbol = :uncompressed,
         compression_level::Union{Nothing, Integer} = nothing,
         mkdir::Bool = false,
-        maintain_order::Bool = true
+        maintain_order::Bool = true,
+        storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     null_value_arg = null_value === nothing ? Ptr{UInt8}(C_NULL) : null_value
     null_value_len = null_value === nothing ? 0 : ncodeunits(null_value)
@@ -252,15 +269,17 @@ function sink_csv(
     compression_level_ref = compression_level === nothing ? Ptr{UInt32}(C_NULL) : Ref(UInt32(compression_level))
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
-    err = GC.@preserve float_precision_ref compression_level_ref begin
-        polars_lazy_frame_sink_csv(
-            lf, path, ncodeunits(path), include_header, include_bom, UInt8(separator),
-            UInt8(quote_char), null_value_arg, null_value_len, line_terminator_arg,
-            line_terminator_len, quote_style_enum, date_format_arg, date_format_len,
-            time_format_arg, time_format_len, datetime_format_arg, datetime_format_len,
-            float_precision_ref, decimal_comma, compression_enum, compression_level_ref, mkdir,
-            maintain_order, Ptr{polars_cloud_options_t}(C_NULL), out
-        )
+    err = _with_cloud_options(storage_options) do cloud_options
+        GC.@preserve float_precision_ref compression_level_ref begin
+            polars_lazy_frame_sink_csv(
+                lf, path, ncodeunits(path), include_header, include_bom, UInt8(separator),
+                UInt8(quote_char), null_value_arg, null_value_len, line_terminator_arg,
+                line_terminator_len, quote_style_enum, date_format_arg, date_format_len,
+                time_format_arg, time_format_len, datetime_format_arg, datetime_format_len,
+                float_precision_ref, decimal_comma, compression_enum, compression_level_ref, mkdir,
+                maintain_order, cloud_options, out
+            )
+        end
     end
     polars_error(err)
     collect(LazyFrame(out[]); engine = :streaming)
