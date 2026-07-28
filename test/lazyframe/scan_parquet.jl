@@ -1,3 +1,16 @@
+# Captures the error message from calling `f`, or `nothing` if `f` doesn't throw. Used below by
+# the cloud IO testsets so an unexpectedly-successful call fails cleanly (`err_message === nothing`
+# short-circuits the downstream `occursin` check) instead of surfacing as a `MethodError` from
+# `occursin(pattern, nothing)`.
+function _capture_error_message(f)
+    try
+        f()
+        return nothing
+    catch e
+        return sprint(showerror, e)
+    end
+end
+
 @testset "scan_parquet" begin
     dir = mktempdir()
     write_parquet(
@@ -103,14 +116,11 @@ end
         # CLAUDE.md/plans/cloud_io.md). This attempts a real connection and can be run with or
         # without network access -- the assertion is only about the error message, not a
         # successful round-trip, so it stays hermetic either way.
-        err_message = try
+        err_message = _capture_error_message() do
             collect(scan_parquet("s3://some-bucket/some.parquet"))
-            nothing
-        catch e
-            sprint(showerror, e)
         end
         @test err_message !== nothing
-        @test !occursin("feature 'aws' must be enabled", err_message)
+        @test err_message !== nothing && !occursin("feature 'aws' must be enabled", err_message)
     end
 
     if get(ENV, "POLARS_JL_NETWORK_TESTS", "") == "1"
@@ -139,20 +149,17 @@ end
         # this test still proves: passing a bogus key through the FFI boundary is safe (a clean
         # `Exception`, not a process abort) and reaches real `CloudOptions` construction rather
         # than being blocked by a missing Cargo feature (see the Phase 1 testset above).
-        err_message = try
+        err_message = _capture_error_message() do
             collect(
                 scan_parquet(
                     "s3://some-bucket/some.parquet";
                     storage_options = Dict("not_a_real_option_key" => "x")
                 )
             )
-            nothing
-        catch e
-            sprint(showerror, e)
         end
         @test err_message !== nothing
-        @test !occursin("feature 'aws' must be enabled", err_message)
-        @test !occursin("activate", err_message)
+        @test err_message !== nothing && !occursin("feature 'aws' must be enabled", err_message)
+        @test err_message !== nothing && !occursin("activate", err_message)
     end
 
     @testset "non-ASCII storage_options value survives the FFI round trip (ncodeunits regression guard)" begin
@@ -165,20 +172,17 @@ end
         # `polars_cloud_options_new` would reject it with an "incomplete utf-8 byte sequence"
         # error *before* any network attempt. There's no real endpoint at café.example.com, so
         # this is expected to fail either way -- the point is *how* it fails.
-        err_message = try
+        err_message = _capture_error_message() do
             collect(
                 scan_parquet(
                     "s3://some-bucket/some.parquet";
                     storage_options = Dict("aws_endpoint_url" => "https://café.example.com")
                 )
             )
-            nothing
-        catch e
-            sprint(showerror, e)
         end
         @test err_message !== nothing
-        @test !occursin("utf-8", lowercase(err_message))
-        @test !occursin("utf8", lowercase(err_message))
+        @test err_message !== nothing && !occursin("utf-8", lowercase(err_message))
+        @test err_message !== nothing && !occursin("utf8", lowercase(err_message))
     end
 end
 

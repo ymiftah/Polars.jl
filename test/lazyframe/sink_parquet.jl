@@ -82,11 +82,13 @@ end
     df = DataFrame((; x = [1, 2, 3]))
     dir = mktempdir()
 
-    try
-        write_parquet("s3://some-bucket/out.parquet", df)
-    catch
-        # Expected: this attempts a real network call via sink_parquet and fails without
-        # credentials/network access -- that's fine, we're not asserting upload success.
+    cd(dir) do
+        try
+            write_parquet("s3://some-bucket/out.parquet", df)
+        catch
+            # Expected: this attempts a real network call via sink_parquet and fails without
+            # credentials/network access -- that's fine, we're not asserting upload success.
+        end
     end
     @test isempty(readdir(dir))
     @test !isdir(joinpath(dir, "s3:"))

@@ -99,6 +99,74 @@ compression option; `sink_ipc` takes `write_ipc`'s keywords), plus two extra key
 share: `mkdir` (create missing parent directories, default `false`) and `maintain_order` (preserve
 row order through the streaming pipeline, default `true`).
 
+## Cloud object storage
+
+`scan_parquet`/`read_parquet`/`sink_parquet` (and the CSV/IPC equivalents) accept `s3://`,
+`gs://`/`gcs://`, `az://`/`azure://`/`abfs(s)://`, and `hf://` URIs in addition to local paths and
+glob patterns, backed by upstream polars' `object_store`-based cloud IO. `write_parquet`/
+`write_csv`/`write_ipc` also recognize a cloud URI and route it through the equivalent `sink_*`
+function rather than attempting to create a local file — passing a `String` path with a
+`scheme://` prefix to any of the six read/write functions is enough to opt in; no separate flag is
+needed.
+
+`https://`/`http://` scanning is **not new** — it already worked before cloud object-store support
+was added, needs no `storage_options` and no extra Cargo feature, and is unrelated to the
+S3/GCS/Azure work described below:
+
+```julia
+scan_csv("https://raw.githubusercontent.com/pola-rs/polars/main/examples/datasets/foods1.csv")
+```
+
+For S3/GCS/Azure, credentials and endpoint configuration can come from two places:
+
+- **The ambient environment** — `AWS_ACCESS_KEY_ID`/`AWS_REGION`, `~/.aws/credentials`,
+  `~/.aws/config`, `GOOGLE_SERVICE_ACCOUNT`, `AZURE_STORAGE_ACCOUNT`, etc. — with no
+  `storage_options` argument at all:
+
+  ```julia
+  scan_parquet("s3://my-bucket/data.parquet")
+  sink_parquet(df, "s3://my-bucket/out.parquet")
+  ```
+
+- **Explicit `storage_options`**, a `Dict{<:AbstractString,<:AbstractString}` of key/value pairs
+  passed straight through to polars' `CloudOptions` — needed for a non-AWS S3-compatible endpoint
+  (MinIO, Cloudflare R2, ...), per-call credentials, or a non-default region:
+
+  ```julia
+  storage_options = Dict(
+      "aws_endpoint_url" => "http://localhost:9000",
+      "aws_access_key_id" => "minioadmin",
+      "aws_secret_access_key" => "minioadmin",
+      "aws_region" => "us-east-1",
+      "aws_allow_http" => "true",
+  )
+  df = collect(scan_parquet("s3://my-bucket/data.parquet"; storage_options))
+  sink_parquet(df, "s3://my-bucket/out.parquet"; storage_options)
+  ```
+
+  `storage_options` keys are passed through verbatim to polars with no allowlist on the Julia
+  side — an unrecognized key is not rejected outright, it's silently dropped by polars and the
+  operation proceeds without it (surfacing as a connection/credentials error later rather than an
+  immediate "unknown key" error), so double-check key spelling against
+  [polars' own cloud storage options documentation](https://docs.pola.rs/user-guide/io/cloud-storage/)
+  if a call fails in a way that looks like a missing credential.
+
+Two things worth keeping in mind:
+
+- **Remote files are cached locally**, honoring polars' `file_cache` feature — repeated scans of
+  the same remote file within the cache TTL avoid re-downloading it. Control the TTL with the
+  `POLARS_FILE_CACHE_TTL` environment variable (seconds).
+- **Cloud IO runs on polars' own async runtime**, independent of `JULIA_NUM_THREADS` — consistent
+  with the "Concurrency" note in [Limitations](@ref): handle-sharing rules across Julia
+  tasks/threads are unchanged, and cloud requests don't consume or contend with Julia's own thread
+  pool.
+
+Finally, a security note: if polars fails to parse or use a `storage_options` value (e.g. a
+malformed `aws_endpoint_url`), the value can appear verbatim in the resulting error message. Avoid
+putting real secrets directly in code that might get logged or pasted into a bug report/issue —
+prefer sourcing credentials from the environment (`~/.aws/credentials`, `AWS_ACCESS_KEY_ID`, etc.)
+where possible.
+
 ## Bulk materialization
 
 ```@docs

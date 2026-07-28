@@ -67,10 +67,12 @@ end
     @testset "write_ipc rejects cloud URIs instead of silently writing a local file" begin
         cloud_dir = mktempdir()
         err = nothing
-        try
-            write_ipc("s3://some-bucket/out.arrow", df)
-        catch e
-            err = e
+        cd(cloud_dir) do
+            try
+                write_ipc("s3://some-bucket/out.arrow", df)
+            catch e
+                err = e
+            end
         end
         @test err !== nothing
         @test occursin("sink_ipc", sprint(showerror, err))
