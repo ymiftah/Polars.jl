@@ -49,16 +49,10 @@ struct ArrowArray
     private_data::Ptr{Cvoid}
 end
 
-@cenum polars_engine_t::UInt32 begin
-    PolarsEngineInMemory = 0
-    PolarsEngineStreaming = 1
-end
-
-@cenum polars_time_unit_t::UInt32 begin
-    PolarsTimeUnitNanosecond = 0
-    PolarsTimeUnitMicrosecond = 1
-    PolarsTimeUnitMillisecond = 2
-    PolarsTimeUnitInvalid = 3
+@cenum polars_asof_strategy_t::UInt32 begin
+    PolarsAsofStrategyBackward = 0
+    PolarsAsofStrategyForward = 1
+    PolarsAsofStrategyNearest = 2
 end
 
 @cenum polars_closed_window_t::UInt32 begin
@@ -68,10 +62,152 @@ end
     PolarsClosedWindowNone = 3
 end
 
+@cenum polars_concat_how_t::UInt32 begin
+    PolarsConcatHowVertical = 0
+    PolarsConcatHowVerticalRelaxed = 1
+    PolarsConcatHowDiagonal = 2
+    PolarsConcatHowDiagonalRelaxed = 3
+    PolarsConcatHowHorizontal = 4
+end
+
+@cenum polars_csv_compression_t::UInt32 begin
+    PolarsCsvCompressionUncompressed = 0
+    PolarsCsvCompressionGzip = 1
+    PolarsCsvCompressionZstd = 2
+end
+
+"""
+    polars_dtype_selector_kind_t
+
+Zero-Julia-arg `DataTypeSelector` leaves. Includes four variants that are parametrized in Rust but exposed "any unit/any tz"-only from Julia (`Datetime`/`Duration`/`List`/`Array`) -- see the gap-closure plan's Phase 2 first-cut scope exclusions: no specific time-unit/zone matching, no recursive List/Array inner-selector composition in this cut.
+"""
+@cenum polars_dtype_selector_kind_t::UInt32 begin
+    PolarsDtypeSelectorKindNumeric = 0
+    PolarsDtypeSelectorKindInteger = 1
+    PolarsDtypeSelectorKindUnsignedInteger = 2
+    PolarsDtypeSelectorKindSignedInteger = 3
+    PolarsDtypeSelectorKindFloat = 4
+    PolarsDtypeSelectorKindEnum = 5
+    PolarsDtypeSelectorKindCategorical = 6
+    PolarsDtypeSelectorKindNested = 7
+    PolarsDtypeSelectorKindStruct = 8
+    PolarsDtypeSelectorKindDecimal = 9
+    PolarsDtypeSelectorKindTemporal = 10
+    PolarsDtypeSelectorKindObject = 11
+    PolarsDtypeSelectorKindDatetime = 12
+    PolarsDtypeSelectorKindDuration = 13
+    PolarsDtypeSelectorKindList = 14
+    PolarsDtypeSelectorKindArray = 15
+end
+
+@cenum polars_engine_t::UInt32 begin
+    PolarsEngineInMemory = 0
+    PolarsEngineStreaming = 1
+end
+
+@cenum polars_fill_null_strategy_t::UInt32 begin
+    PolarsFillNullStrategyBackward = 0
+    PolarsFillNullStrategyForward = 1
+    PolarsFillNullStrategyMean = 2
+    PolarsFillNullStrategyMin = 3
+    PolarsFillNullStrategyMax = 4
+    PolarsFillNullStrategyZero = 5
+    PolarsFillNullStrategyOne = 6
+end
+
+@cenum polars_interpolation_method_t::UInt32 begin
+    PolarsInterpolationMethodLinear = 0
+    PolarsInterpolationMethodNearest = 1
+end
+
+@cenum polars_ipc_compression_t::UInt32 begin
+    PolarsIpcCompressionUncompressed = 0
+    PolarsIpcCompressionLz4 = 1
+    PolarsIpcCompressionZstd = 2
+end
+
+@cenum polars_join_type_t::UInt32 begin
+    PolarsJoinTypeInner = 0
+    PolarsJoinTypeLeft = 1
+    PolarsJoinTypeRight = 2
+    PolarsJoinTypeFull = 3
+    PolarsJoinTypeSemi = 4
+    PolarsJoinTypeAnti = 5
+    PolarsJoinTypeCross = 6
+end
+
 @cenum polars_label_t::UInt32 begin
     PolarsLabelLeft = 0
     PolarsLabelRight = 1
     PolarsLabelDataPoint = 2
+end
+
+@cenum polars_non_existent_t::UInt32 begin
+    PolarsNonExistentRaise = 0
+    PolarsNonExistentNull = 1
+end
+
+@cenum polars_null_behavior_t::UInt32 begin
+    PolarsNullBehaviorDrop = 0
+    PolarsNullBehaviorIgnore = 1
+end
+
+@cenum polars_parquet_compression_t::UInt32 begin
+    PolarsParquetCompressionUncompressed = 0
+    PolarsParquetCompressionSnappy = 1
+    PolarsParquetCompressionGzip = 2
+    PolarsParquetCompressionBrotli = 3
+    PolarsParquetCompressionZstd = 4
+    PolarsParquetCompressionLz4Raw = 5
+end
+
+@cenum polars_parquet_parallel_strategy_t::UInt32 begin
+    PolarsParquetParallelAuto = 0
+    PolarsParquetParallelNone = 1
+    PolarsParquetParallelColumns = 2
+    PolarsParquetParallelRowGroups = 3
+end
+
+@cenum polars_pivot_column_naming_t::UInt32 begin
+    PolarsPivotColumnNamingCombine = 0
+    PolarsPivotColumnNamingAuto = 1
+end
+
+@cenum polars_quantile_method_t::UInt32 begin
+    PolarsQuantileMethodNearest = 0
+    PolarsQuantileMethodLower = 1
+    PolarsQuantileMethodHigher = 2
+    PolarsQuantileMethodMidpoint = 3
+    PolarsQuantileMethodLinear = 4
+    PolarsQuantileMethodEquiprobable = 5
+end
+
+@cenum polars_quote_style_t::UInt32 begin
+    PolarsQuoteStyleNecessary = 0
+    PolarsQuoteStyleAlways = 1
+    PolarsQuoteStyleNonNumeric = 2
+    PolarsQuoteStyleNever = 3
+end
+
+@cenum polars_rank_method_t::UInt32 begin
+    PolarsRankMethodAverage = 0
+    PolarsRankMethodMin = 1
+    PolarsRankMethodMax = 2
+    PolarsRankMethodDense = 3
+    PolarsRankMethodOrdinal = 4
+end
+
+@cenum polars_round_mode_t::UInt32 begin
+    PolarsRoundModeHalfToEven = 0
+    PolarsRoundModeHalfAwayFromZero = 1
+    PolarsRoundModeToZero = 2
+end
+
+@cenum polars_selector_match_kind_t::UInt32 begin
+    PolarsSelectorMatchKindRegex = 0
+    PolarsSelectorMatchKindStartsWith = 1
+    PolarsSelectorMatchKindEndsWith = 2
+    PolarsSelectorMatchKindContains = 3
 end
 
 @cenum polars_start_by_t::UInt32 begin
@@ -84,6 +220,20 @@ end
     PolarsStartByFriday = 6
     PolarsStartBySaturday = 7
     PolarsStartBySunday = 8
+end
+
+@cenum polars_time_unit_t::UInt32 begin
+    PolarsTimeUnitNanosecond = 0
+    PolarsTimeUnitMicrosecond = 1
+    PolarsTimeUnitMillisecond = 2
+    PolarsTimeUnitInvalid = 3
+end
+
+@cenum polars_unique_keep_t::UInt32 begin
+    PolarsUniqueKeepFirst = 0
+    PolarsUniqueKeepLast = 1
+    PolarsUniqueKeepNone = 2
+    PolarsUniqueKeepAny = 3
 end
 
 @cenum polars_value_type_t::UInt32 begin
@@ -108,120 +258,6 @@ end
     PolarsValueTypeDuration = 18
     PolarsValueTypeTime = 19
     PolarsValueTypeUnknown = 20
-end
-
-@cenum polars_quantile_method_t::UInt32 begin
-    PolarsQuantileMethodNearest = 0
-    PolarsQuantileMethodLower = 1
-    PolarsQuantileMethodHigher = 2
-    PolarsQuantileMethodMidpoint = 3
-    PolarsQuantileMethodLinear = 4
-    PolarsQuantileMethodEquiprobable = 5
-end
-
-@cenum polars_null_behavior_t::UInt32 begin
-    PolarsNullBehaviorDrop = 0
-    PolarsNullBehaviorIgnore = 1
-end
-
-@cenum polars_rank_method_t::UInt32 begin
-    PolarsRankMethodAverage = 0
-    PolarsRankMethodMin = 1
-    PolarsRankMethodMax = 2
-    PolarsRankMethodDense = 3
-    PolarsRankMethodOrdinal = 4
-end
-
-@cenum polars_round_mode_t::UInt32 begin
-    PolarsRoundModeHalfToEven = 0
-    PolarsRoundModeHalfAwayFromZero = 1
-    PolarsRoundModeToZero = 2
-end
-
-@cenum polars_non_existent_t::UInt32 begin
-    PolarsNonExistentRaise = 0
-    PolarsNonExistentNull = 1
-end
-
-@cenum polars_join_type_t::UInt32 begin
-    PolarsJoinTypeInner = 0
-    PolarsJoinTypeLeft = 1
-    PolarsJoinTypeRight = 2
-    PolarsJoinTypeFull = 3
-    PolarsJoinTypeSemi = 4
-    PolarsJoinTypeAnti = 5
-    PolarsJoinTypeCross = 6
-end
-
-@cenum polars_asof_strategy_t::UInt32 begin
-    PolarsAsofStrategyBackward = 0
-    PolarsAsofStrategyForward = 1
-    PolarsAsofStrategyNearest = 2
-end
-
-@cenum polars_pivot_column_naming_t::UInt32 begin
-    PolarsPivotColumnNamingCombine = 0
-    PolarsPivotColumnNamingAuto = 1
-end
-
-@cenum polars_unique_keep_t::UInt32 begin
-    PolarsUniqueKeepFirst = 0
-    PolarsUniqueKeepLast = 1
-    PolarsUniqueKeepNone = 2
-    PolarsUniqueKeepAny = 3
-end
-
-@cenum polars_csv_compression_t::UInt32 begin
-    PolarsCsvCompressionUncompressed = 0
-    PolarsCsvCompressionGzip = 1
-    PolarsCsvCompressionZstd = 2
-end
-
-@cenum polars_ipc_compression_t::UInt32 begin
-    PolarsIpcCompressionUncompressed = 0
-    PolarsIpcCompressionLz4 = 1
-    PolarsIpcCompressionZstd = 2
-end
-
-@cenum polars_quote_style_t::UInt32 begin
-    PolarsQuoteStyleNecessary = 0
-    PolarsQuoteStyleAlways = 1
-    PolarsQuoteStyleNonNumeric = 2
-    PolarsQuoteStyleNever = 3
-end
-
-@cenum polars_parquet_compression_t::UInt32 begin
-    PolarsParquetCompressionUncompressed = 0
-    PolarsParquetCompressionSnappy = 1
-    PolarsParquetCompressionGzip = 2
-    PolarsParquetCompressionBrotli = 3
-    PolarsParquetCompressionZstd = 4
-    PolarsParquetCompressionLz4Raw = 5
-end
-
-@cenum polars_parquet_parallel_strategy_t::UInt32 begin
-    PolarsParquetParallelAuto = 0
-    PolarsParquetParallelNone = 1
-    PolarsParquetParallelColumns = 2
-    PolarsParquetParallelRowGroups = 3
-end
-
-@cenum polars_fill_null_strategy_t::UInt32 begin
-    PolarsFillNullStrategyBackward = 0
-    PolarsFillNullStrategyForward = 1
-    PolarsFillNullStrategyMean = 2
-    PolarsFillNullStrategyMin = 3
-    PolarsFillNullStrategyMax = 4
-    PolarsFillNullStrategyZero = 5
-    PolarsFillNullStrategyOne = 6
-end
-
-@cenum polars_concat_how_t::UInt32 begin
-    PolarsConcatHowVertical = 0
-    PolarsConcatHowVerticalRelaxed = 1
-    PolarsConcatHowDiagonal = 2
-    PolarsConcatHowDiagonalRelaxed = 3
-    PolarsConcatHowHorizontal = 4
 end
 
 @cenum polars_window_mapping_t::UInt32 begin
@@ -254,6 +290,11 @@ function polars_version(out)
     return @ccall libpolars.polars_version(out::Ptr{Ptr{UInt8}})::Csize_t
 end
 
+"""
+    polars_error_message(err, data)
+
+Borrowed pointer into the error's message, valid only as long as `err` is alive (same convention as [`polars_series_name`](@ref)).
+"""
 function polars_error_message(err, data)
     return @ccall libpolars.polars_error_message(err::Ptr{polars_error_t}, data::Ptr{Ptr{UInt8}})::Csize_t
 end
@@ -271,7 +312,7 @@ end
 
 Creates a DataFrame from an [`ArrowArray`](@ref) + [`ArrowSchema`](@ref) pair per the Arrow C Data Interface.
 
-# Safety `cfield` must be a valid [`ArrowSchema`](@ref) per the C Data Interface. `carray` must be a valid [`ArrowArray`](@ref) per the C Data Interface, and **ownership of it transfers to this call**: the caller must not release it. It is released either via the resulting DataFrame's destructor ([`polars_dataframe_destroy`](@ref)) on success, or before returning on failure.
+# Safety `cfield` must be a valid [`ArrowSchema`](@ref) per the C Data Interface. `carray` must be a valid [`ArrowArray`](@ref) per the C Data Interface, and **ownership of it transfers to this call**: the caller must not release it. It is released either via the resulting DataFrame's destructor ([`polars_dataframe_destroy`](@ref)) on success, or before returning on failure -- `carray` is an owned by-value local and polars-arrow's `impl Drop for [`ArrowArray`](@ref)` invokes its `release` callback, so every early return below releases rather than leaks it. On the success path it is moved into `import_array_from_c`, which likewise takes it by value.
 """
 function polars_dataframe_new_from_carrow(cfield, carray, out)
     return @ccall libpolars.polars_dataframe_new_from_carrow(cfield::Ptr{ArrowSchema}, carray::ArrowArray, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
@@ -300,10 +341,6 @@ end
 
 function polars_dataframe_write_csv(df, user, callback, include_header, include_bom, separator, quote_char, null_value, null_value_len, line_terminator, line_terminator_len, quote_style, date_format, date_format_len, time_format, time_format_len, datetime_format, datetime_format_len, float_precision, decimal_comma)
     return @ccall libpolars.polars_dataframe_write_csv(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback, include_header::Bool, include_bom::Bool, separator::UInt8, quote_char::UInt8, null_value::Ptr{UInt8}, null_value_len::Csize_t, line_terminator::Ptr{UInt8}, line_terminator_len::Csize_t, quote_style::polars_quote_style_t, date_format::Ptr{UInt8}, date_format_len::Csize_t, time_format::Ptr{UInt8}, time_format_len::Csize_t, datetime_format::Ptr{UInt8}, datetime_format_len::Csize_t, float_precision::Ptr{Csize_t}, decimal_comma::Bool)::Ptr{polars_error_t}
-end
-
-function polars_dataframe_write_ipc(df, user, callback, compression, compression_level, record_batch_size)
-    return @ccall libpolars.polars_dataframe_write_ipc(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback, compression::polars_ipc_compression_t, compression_level::Ptr{Int32}, record_batch_size::Ptr{Csize_t})::Ptr{polars_error_t}
 end
 
 function polars_dataframe_show(df, user, callback)
@@ -361,34 +398,19 @@ function polars_lazy_frame_clone(df)
     return @ccall libpolars.polars_lazy_frame_clone(df::Ptr{polars_lazy_frame_t})::Ptr{polars_lazy_frame_t}
 end
 
-function polars_lazy_frame_scan_parquet(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, parallel, low_memory, rechunk, cache, glob, use_statistics, allow_missing_columns, include_file_paths, include_file_paths_len, hive_partitioning, out)
-    return @ccall libpolars.polars_lazy_frame_scan_parquet(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, parallel::polars_parquet_parallel_strategy_t, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool, use_statistics::Bool, allow_missing_columns::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
-end
-
-function polars_lazy_frame_scan_csv(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, has_header, separator, quote_char, comment_prefix, comment_prefix_len, skip_rows, skip_rows_after_header, null_value, null_value_len, missing_is_null, truncate_ragged_lines, try_parse_dates, infer_schema_length, ignore_errors, low_memory, rechunk, cache, glob, include_file_paths, include_file_paths_len, allow_missing_columns, out)
-    return @ccall libpolars.polars_lazy_frame_scan_csv(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, has_header::Bool, separator::UInt8, quote_char::Ptr{UInt8}, comment_prefix::Ptr{UInt8}, comment_prefix_len::Csize_t, skip_rows::Csize_t, skip_rows_after_header::Csize_t, null_value::Ptr{UInt8}, null_value_len::Csize_t, missing_is_null::Bool, truncate_ragged_lines::Bool, try_parse_dates::Bool, infer_schema_length::Ptr{Csize_t}, ignore_errors::Bool, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, allow_missing_columns::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
-end
-
-function polars_lazy_frame_scan_ipc(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, rechunk, cache, glob, include_file_paths, include_file_paths_len, hive_partitioning, allow_missing_columns, out)
-    return @ccall libpolars.polars_lazy_frame_scan_ipc(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, rechunk::Bool, cache::Bool, glob::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, allow_missing_columns::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
-end
-
-function polars_lazy_frame_sink_parquet(lf, path, pathlen, compression, compression_level, statistics, row_group_size, data_page_size, mkdir, maintain_order, out)
-    return @ccall libpolars.polars_lazy_frame_sink_parquet(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, compression::polars_parquet_compression_t, compression_level::Ptr{Int32}, statistics::Bool, row_group_size::Ptr{Csize_t}, data_page_size::Ptr{Csize_t}, mkdir::Bool, maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
-end
-
-function polars_lazy_frame_sink_csv(lf, path, pathlen, include_header, include_bom, separator, quote_char, null_value, null_value_len, line_terminator, line_terminator_len, quote_style, date_format, date_format_len, time_format, time_format_len, datetime_format, datetime_format_len, float_precision, decimal_comma, compression, compression_level, mkdir, maintain_order, out)
-    return @ccall libpolars.polars_lazy_frame_sink_csv(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, include_header::Bool, include_bom::Bool, separator::UInt8, quote_char::UInt8, null_value::Ptr{UInt8}, null_value_len::Csize_t, line_terminator::Ptr{UInt8}, line_terminator_len::Csize_t, quote_style::polars_quote_style_t, date_format::Ptr{UInt8}, date_format_len::Csize_t, time_format::Ptr{UInt8}, time_format_len::Csize_t, datetime_format::Ptr{UInt8}, datetime_format_len::Csize_t, float_precision::Ptr{Csize_t}, decimal_comma::Bool, compression::polars_csv_compression_t, compression_level::Ptr{UInt32}, mkdir::Bool, maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
-end
-
-function polars_lazy_frame_sink_ipc(lf, path, pathlen, compression, compression_level, record_batch_size, mkdir, maintain_order, out)
-    return @ccall libpolars.polars_lazy_frame_sink_ipc(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, compression::polars_ipc_compression_t, compression_level::Ptr{Int32}, record_batch_size::Ptr{Csize_t}, mkdir::Bool, maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_dataframe_write_ipc(df, user, callback, compression, compression_level, record_batch_size)
+    return @ccall libpolars.polars_dataframe_write_ipc(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback, compression::polars_ipc_compression_t, compression_level::Ptr{Int32}, record_batch_size::Ptr{Csize_t})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_sort(df, exprs, nexprs, descending, nulls_last, maintain_order)
     return @ccall libpolars.polars_lazy_frame_sort(df::Ptr{polars_lazy_frame_t}, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t, descending::Ptr{Bool}, nulls_last::Bool, maintain_order::Bool)::Cvoid
 end
 
+"""
+    polars_lazy_frame_concat(lfs, n, how, out)
+
+`how` selects the concat mode. Vertical/relaxed/diagonal/relaxed-diagonal all go through the already-used `concat` (upstream's `concat_lf_diagonal` convenience wrapper is just `concat` with `diagonal: true` set -- reusing `concat` directly needs no extra Cargo feature, unlike that wrapper, which is gated behind `diagonal_concat`). `Horizontal` goes through the ungated `concat_lf_horizontal` instead -- a structurally different join, not a `UnionArgs` variant, so it can't share the `concat` call.
+"""
 function polars_lazy_frame_concat(lfs, n, how, out)
     return @ccall libpolars.polars_lazy_frame_concat(lfs::Ptr{Ptr{polars_lazy_frame_t}}, n::Csize_t, how::polars_concat_how_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
@@ -405,10 +427,6 @@ function polars_lazy_frame_filter(df, expr)
     return @ccall libpolars.polars_lazy_frame_filter(df::Ptr{polars_lazy_frame_t}, expr::Ptr{polars_expr_t})::Cvoid
 end
 
-function polars_lazy_frame_head(df, n)
-    return @ccall libpolars.polars_lazy_frame_head(df::Ptr{polars_lazy_frame_t}, n::Csize_t)::Cvoid
-end
-
 function polars_lazy_frame_collect(df, engine, out)
     return @ccall libpolars.polars_lazy_frame_collect(df::Ptr{polars_lazy_frame_t}, engine::polars_engine_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
@@ -416,7 +434,7 @@ end
 """
     polars_lazy_frame_collect_schema(df, out)
 
-Resolves the lazy frame's schema (without collecting it) and returns it as an [`ArrowSchema`](@ref) according to the Arrow C Data interface, matching the shape of [`polars_dataframe_schema`](@ref).
+Resolves the lazy frame's schema (without collecting it) and returns it as an [`ArrowSchema`](@ref) according to the Arrow C Data interface, wrapping the columns in a struct field the same way [`polars_dataframe_schema`](@ref) does. Unlike that function, this one is fallible (schema resolution can fail on an unresolved lazy plan) and so returns via out-param + [`polars_error_t`](@ref) rather than by value.
 """
 function polars_lazy_frame_collect_schema(df, out)
     return @ccall libpolars.polars_lazy_frame_collect_schema(df::Ptr{polars_lazy_frame_t}, out::Ptr{ArrowSchema})::Ptr{polars_error_t}
@@ -476,6 +494,10 @@ end
 
 function polars_lazy_frame_pivot(lf, on_names, on_lens, n_on, on_columns, index_names, index_lens, n_index, values_names, values_lens, n_values, agg, maintain_order, separator, separator_len, column_naming, out)
     return @ccall libpolars.polars_lazy_frame_pivot(lf::Ptr{polars_lazy_frame_t}, on_names::Ptr{Ptr{UInt8}}, on_lens::Ptr{Csize_t}, n_on::Csize_t, on_columns::Ptr{polars_dataframe_t}, index_names::Ptr{Ptr{UInt8}}, index_lens::Ptr{Csize_t}, n_index::Csize_t, values_names::Ptr{Ptr{UInt8}}, values_lens::Ptr{Csize_t}, n_values::Csize_t, agg::Ptr{polars_expr_t}, maintain_order::Bool, separator::Ptr{UInt8}, separator_len::Csize_t, column_naming::polars_pivot_column_naming_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_head(df, n)
+    return @ccall libpolars.polars_lazy_frame_head(df::Ptr{polars_lazy_frame_t}, n::Csize_t)::Cvoid
 end
 
 function polars_lazy_frame_tail(df, n)
@@ -542,6 +564,11 @@ function polars_expr_nth(n, out)
     return @ccall libpolars.polars_expr_nth(n::Int64, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_element()
+
+A placeholder for "the values in this group", used to build the `agg` expression passed to `pivot` (e.g. `element().sum()`) -- substituted in-place with the actual value column filtered to the current group at plan-build time.
+"""
 function polars_expr_element()
     return @ccall libpolars.polars_expr_element()::Ptr{polars_expr_t}
 end
@@ -578,11 +605,6 @@ function polars_expr_mean_horizontal(exprs, n, ignore_nulls, out)
     return @ccall libpolars.polars_expr_mean_horizontal(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, ignore_nulls::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
-@cenum polars_interpolation_method_t::UInt32 begin
-    PolarsInterpolationMethodLinear = 0
-    PolarsInterpolationMethodNearest = 1
-end
-
 function polars_expr_interpolate(expr, method)
     return @ccall libpolars.polars_expr_interpolate(expr::Ptr{polars_expr_t}, method::polars_interpolation_method_t)::Ptr{polars_expr_t}
 end
@@ -615,18 +637,38 @@ function polars_expr_cast(expr, dtype, out)
     return @ccall libpolars.polars_expr_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_cast_datetime(expr, unit, tz, tz_len, out)
+
+Targeted cast to `Datetime(unit, tz)` -- `[`polars_value_type_t`](@ref)::to\\_dtype` deliberately rejects this (it needs parameters a plain type code can't carry). `tz\\_len == 0` casts to a naive (timezone-less) Datetime, matching `read_opt_str`'s null-means-None convention.
+"""
 function polars_expr_cast_datetime(expr, unit, tz, tz_len, out)
     return @ccall libpolars.polars_expr_cast_datetime(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, tz::Ptr{UInt8}, tz_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_cast_duration(expr, unit, out)
+
+Targeted cast to `Duration(unit)` -- see [`polars_expr_cast_datetime`](@ref)'s doc for why this needs its own entry point rather than going through the plain type-code `cast`.
+"""
 function polars_expr_cast_duration(expr, unit, out)
     return @ccall libpolars.polars_expr_cast_duration(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_cast_decimal(expr, precision, scale)
+
+Targeted cast to `Decimal(precision, scale)` (`dtype-decimal` is already enabled). polars' own invariant is `1 <= precision <= 38`; violating it surfaces as a normal cast error rather than a panic (`DataType::Decimal` itself does not validate -- `cast` does, at execution time).
+"""
 function polars_expr_cast_decimal(expr, precision, scale)
     return @ccall libpolars.polars_expr_cast_decimal(expr::Ptr{polars_expr_t}, precision::Csize_t, scale::Csize_t)::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_cast_categorical(expr)
+
+Targeted cast to `Categorical`, using the global category registry (`Categories::global()`, the same one every other Categorical column in a session shares -- matching py-polars' default). Reading a Categorical column back already materializes it as `String` (see `[`polars_value_type_t`](@ref)::from\\_dtype`), so no new read path is needed for the round trip.
+"""
 function polars_expr_cast_categorical(expr)
     return @ccall libpolars.polars_expr_cast_categorical(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -683,10 +725,20 @@ function polars_expr_when_then_otherwise(cond, then, otherwise)
     return @ccall libpolars.polars_expr_when_then_otherwise(cond::Ptr{polars_expr_t}, then::Ptr{polars_expr_t}, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_when_then(conds, vals, n, otherwise)
+
+Chained `when(c1).then(v1).when(c2).then(v2)....otherwise(otherwise)`, flattened into two parallel expr-slices (`conds`/`vals`) + a final `otherwise` -- no new builder-type FFI handle is needed since `When`/`Then`/`ChainedWhen`/`ChainedThen` all fold to a single right-nested `Expr::Ternary` chain, buildable directly with the existing `when`/`Then::otherwise` free functions already used by [`polars_expr_when_then_otherwise`](@ref) above. `n == 0` degenerates to `otherwise` unchanged.
+"""
 function polars_expr_when_then(conds, vals, n, otherwise)
     return @ccall libpolars.polars_expr_when_then(conds::Ptr{Ptr{polars_expr_t}}, vals::Ptr{Ptr{polars_expr_t}}, n::Csize_t, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_over(expr, partition_by, n_partition_by, order_by, descending, nulls_last, mapping, out)
+
+`order_by` is a single optional expr (null = none); `over_with_options` itself supports a `Vec` of order-by columns (folding >1 into a struct key), but a single column covers the common case and avoids pulling in that extra marshalling for now. `partition_by` and `order_by` can't both be empty/null (upstream requires at least one).
+"""
 function polars_expr_over(expr, partition_by, n_partition_by, order_by, descending, nulls_last, mapping, out)
     return @ccall libpolars.polars_expr_over(expr::Ptr{polars_expr_t}, partition_by::Ptr{Ptr{polars_expr_t}}, n_partition_by::Csize_t, order_by::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool, mapping::polars_window_mapping_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
@@ -745,18 +797,6 @@ end
 
 function polars_expr_exp(expr)
     return @ccall libpolars.polars_expr_exp(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
-function polars_expr_log(a, b)
-    return @ccall libpolars.polars_expr_log(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
-function polars_expr_rem(a, b)
-    return @ccall libpolars.polars_expr_rem(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
-function polars_expr_top_k(a, b)
-    return @ccall libpolars.polars_expr_top_k(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_round(expr, decimals, mode)
@@ -911,6 +951,11 @@ function polars_expr_fill_nan(a, b)
     return @ccall libpolars.polars_expr_fill_nan(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_fill_null_with_strategy(expr, strategy, limit)
+
+`limit` (Backward/Forward only, ignored otherwise -- see `[`polars_fill_null_strategy_t`](@ref)::to\\_fill\\_null\\_strategy`) is the optional-scalar null-means-None convention used elsewhere (e.g. `sample_n`'s `seed`).
+"""
 function polars_expr_fill_null_with_strategy(expr, strategy, limit)
     return @ccall libpolars.polars_expr_fill_null_with_strategy(expr::Ptr{polars_expr_t}, strategy::polars_fill_null_strategy_t, limit::Ptr{UInt32})::Ptr{polars_expr_t}
 end
@@ -925,6 +970,18 @@ end
 
 function polars_expr_pct_change(a, b)
     return @ccall libpolars.polars_expr_pct_change(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_log(a, b)
+    return @ccall libpolars.polars_expr_log(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_rem(a, b)
+    return @ccall libpolars.polars_expr_rem(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_top_k(a, b)
+    return @ccall libpolars.polars_expr_top_k(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_cum_sum(expr, reverse)
@@ -1167,10 +1224,20 @@ function polars_expr_dt_offset_by(a, b)
     return @ccall libpolars.polars_expr_dt_offset_by(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_dt_convert_time_zone(expr, tz, tz_len, out)
+
+`convert_time_zone`: re-labels the same instant into a different (mandatory) time zone, e.g. UTC -> "America/New\\_York". Fails (via the out-param error convention) if `tz` is not a valid IANA time zone name.
+"""
 function polars_expr_dt_convert_time_zone(expr, tz, tz_len, out)
     return @ccall libpolars.polars_expr_dt_convert_time_zone(expr::Ptr{polars_expr_t}, tz::Ptr{UInt8}, tz_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_dt_replace_time_zone(expr, tz, tz_len, ambiguous, non_existent, out)
+
+`replace_time_zone`: attaches/strips/re-attaches a time zone label to the *same* local wall-clock values (unlike `convert_time_zone`, which preserves the instant). `tz\\_len == 0` means "strip the time zone back to naive" (`time\\_zone = None`).
+"""
 function polars_expr_dt_replace_time_zone(expr, tz, tz_len, ambiguous, non_existent, out)
     return @ccall libpolars.polars_expr_dt_replace_time_zone(expr::Ptr{polars_expr_t}, tz::Ptr{UInt8}, tz_len::Csize_t, ambiguous::Ptr{polars_expr_t}, non_existent::polars_non_existent_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
@@ -1235,14 +1302,29 @@ function polars_expr_meta_undo_aliases(expr)
     return @ccall libpolars.polars_expr_meta_undo_aliases(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_meta_output_name(expr, user, callback)
+
+`output\\_name()` is fallible (`PolarsResult<PlSmallStr>`) -- e.g. a wildcard or a selector-expanded expression has no single well-defined output name. Written back through the shared [`IOCallback`](@ref) machinery, same convention as [`polars_value_string_get`](@ref).
+"""
 function polars_expr_meta_output_name(expr, user, callback)
     return @ccall libpolars.polars_expr_meta_output_name(expr::Ptr{polars_expr_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_meta_tree_format(expr, display_as_dot, user, callback)
+
+Backs both `tree_format` (`display\\_as\\_dot = false`) and `show_graph` (`true`) via the single upstream `into_tree_formatter` code path. No schema is threaded through (`None`) -- unresolved column types show as untyped; a schema-aware overload is a plausible future enhancement, not blocking here.
+"""
 function polars_expr_meta_tree_format(expr, display_as_dot, user, callback)
     return @ccall libpolars.polars_expr_meta_tree_format(expr::Ptr{polars_expr_t}, display_as_dot::Bool, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_meta_root_names_len(expr)
+
+`root\\_names()` count + per-index [`IOCallback`](@ref) loop below. `root\\_names()` itself recomputes a fresh `Vec<PlSmallStr>` on every call (cheap, and the count is always small), so this pair recomputes it N+1 times across a full `_len` + N x `_get` loop -- an accepted, documented non-blocking perf micro-note from the gap-closure plan, not an oversight.
+"""
 function polars_expr_meta_root_names_len(expr)
     return @ccall libpolars.polars_expr_meta_root_names_len(expr::Ptr{polars_expr_t})::Csize_t
 end
@@ -1255,6 +1337,11 @@ function polars_expr_selector_all()
     return @ccall libpolars.polars_expr_selector_all()::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_selector_empty()
+
+`Selector::Empty` -- the identity element for the combinators below (`empty() | s == s`, `empty() & s == empty()`). Not reachable from the public `Selectors` surface on the Julia side in this first cut (see the gap-closure plan's Phase 2 scope note); kept here as a primitive since it is the natural base case underlying `Selector`'s own algebra.
+"""
 function polars_expr_selector_empty()
     return @ccall libpolars.polars_expr_selector_empty()::Ptr{polars_expr_t}
 end
@@ -1263,44 +1350,33 @@ function polars_expr_selector_by_name(names, lens, n, strict, out)
     return @ccall libpolars.polars_expr_selector_by_name(names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, strict::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_selector_by_index(indices, n, strict)
+
+`Selector::ByIndex` -- 0-based upstream (negative indices already count back from the end via `negative_to_usize` inside `into_columns`, so no extra Rust-side handling is needed here). The Julia-facing `Selectors.by\\_index` is 1-based (matching this package's own `nth`) and converts down to this 0-based primitive before calling in -- see that function's docstring.
+"""
 function polars_expr_selector_by_index(indices, n, strict)
     return @ccall libpolars.polars_expr_selector_by_index(indices::Ptr{Int64}, n::Csize_t, strict::Bool)::Ptr{polars_expr_t}
 end
 
-@cenum polars_selector_match_kind_t::UInt32 begin
-    PolarsSelectorMatchKindRegex = 0
-    PolarsSelectorMatchKindStartsWith = 1
-    PolarsSelectorMatchKindEndsWith = 2
-    PolarsSelectorMatchKindContains = 3
-end
+"""
+    polars_expr_selector_matches(kind, pattern, len, out)
 
+Backs `matches` (verbatim regex) and the regex-sugar `starts_with`/`ends_with`/`contains` (anchored/escaped literal substrings) -- all four build a `Selector::Matches(pattern)`, differing only in how `pattern` is derived from the caller's raw string. Anchoring and escaping happen here, not on the Julia side: Julia has no built-in regex-metacharacter escaper (`escape_string` escapes string *literals*, not regex syntax), so hand-rolling that table would otherwise have to happen twice.
+"""
 function polars_expr_selector_matches(kind, pattern, len, out)
     return @ccall libpolars.polars_expr_selector_matches(kind::polars_selector_match_kind_t, pattern::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
-end
-
-@cenum polars_dtype_selector_kind_t::UInt32 begin
-    PolarsDtypeSelectorKindNumeric = 0
-    PolarsDtypeSelectorKindInteger = 1
-    PolarsDtypeSelectorKindUnsignedInteger = 2
-    PolarsDtypeSelectorKindSignedInteger = 3
-    PolarsDtypeSelectorKindFloat = 4
-    PolarsDtypeSelectorKindEnum = 5
-    PolarsDtypeSelectorKindCategorical = 6
-    PolarsDtypeSelectorKindNested = 7
-    PolarsDtypeSelectorKindStruct = 8
-    PolarsDtypeSelectorKindDecimal = 9
-    PolarsDtypeSelectorKindTemporal = 10
-    PolarsDtypeSelectorKindObject = 11
-    PolarsDtypeSelectorKindDatetime = 12
-    PolarsDtypeSelectorKindDuration = 13
-    PolarsDtypeSelectorKindList = 14
-    PolarsDtypeSelectorKindArray = 15
 end
 
 function polars_expr_selector_dtype_simple(kind)
     return @ccall libpolars.polars_expr_selector_dtype_simple(kind::polars_dtype_selector_kind_t)::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_selector_dtype_any_of(value_types, n, out)
+
+`ByDType(AnyOf([...]))` -- backs `string`/`boolean`/`binary`/`date`/`time` (dtypes with no dedicated `DataTypeSelector` variant, so they must route through `AnyOf` rather than `dtype_simple` above) and the explicit `by\\_dtype([...])`. Fallible per-element: `to_dtype` rejects type codes that need parameters it can't carry (Datetime/Duration/Decimal/List/Struct) -- see `[`polars_value_type_t`](@ref)::to\\_dtype`'s own doc. That is intentional here too: those parametrized dtypes are reached via `dtype_simple` instead, so hitting this error path from e.g. `by\\_dtype([Datetime])` is a real, expected error, not a bug.
+"""
 function polars_expr_selector_dtype_any_of(value_types, n, out)
     return @ccall libpolars.polars_expr_selector_dtype_any_of(value_types::Ptr{polars_value_type_t}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
@@ -1319,6 +1395,30 @@ end
 
 function polars_expr_selector_intersect(a, b, out)
     return @ccall libpolars.polars_expr_selector_intersect(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_scan_parquet(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, parallel, low_memory, rechunk, cache, glob, use_statistics, allow_missing_columns, include_file_paths, include_file_paths_len, hive_partitioning, out)
+    return @ccall libpolars.polars_lazy_frame_scan_parquet(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, parallel::polars_parquet_parallel_strategy_t, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool, use_statistics::Bool, allow_missing_columns::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_scan_csv(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, has_header, separator, quote_char, comment_prefix, comment_prefix_len, skip_rows, skip_rows_after_header, null_value, null_value_len, missing_is_null, truncate_ragged_lines, try_parse_dates, infer_schema_length, ignore_errors, low_memory, rechunk, cache, glob, include_file_paths, include_file_paths_len, allow_missing_columns, out)
+    return @ccall libpolars.polars_lazy_frame_scan_csv(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, has_header::Bool, separator::UInt8, quote_char::Ptr{UInt8}, comment_prefix::Ptr{UInt8}, comment_prefix_len::Csize_t, skip_rows::Csize_t, skip_rows_after_header::Csize_t, null_value::Ptr{UInt8}, null_value_len::Csize_t, missing_is_null::Bool, truncate_ragged_lines::Bool, try_parse_dates::Bool, infer_schema_length::Ptr{Csize_t}, ignore_errors::Bool, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, allow_missing_columns::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_scan_ipc(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, rechunk, cache, glob, include_file_paths, include_file_paths_len, hive_partitioning, allow_missing_columns, out)
+    return @ccall libpolars.polars_lazy_frame_scan_ipc(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, rechunk::Bool, cache::Bool, glob::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, allow_missing_columns::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_sink_parquet(lf, path, pathlen, compression, compression_level, statistics, row_group_size, data_page_size, mkdir, maintain_order, out)
+    return @ccall libpolars.polars_lazy_frame_sink_parquet(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, compression::polars_parquet_compression_t, compression_level::Ptr{Int32}, statistics::Bool, row_group_size::Ptr{Csize_t}, data_page_size::Ptr{Csize_t}, mkdir::Bool, maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_sink_csv(lf, path, pathlen, include_header, include_bom, separator, quote_char, null_value, null_value_len, line_terminator, line_terminator_len, quote_style, date_format, date_format_len, time_format, time_format_len, datetime_format, datetime_format_len, float_precision, decimal_comma, compression, compression_level, mkdir, maintain_order, out)
+    return @ccall libpolars.polars_lazy_frame_sink_csv(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, include_header::Bool, include_bom::Bool, separator::UInt8, quote_char::UInt8, null_value::Ptr{UInt8}, null_value_len::Csize_t, line_terminator::Ptr{UInt8}, line_terminator_len::Csize_t, quote_style::polars_quote_style_t, date_format::Ptr{UInt8}, date_format_len::Csize_t, time_format::Ptr{UInt8}, time_format_len::Csize_t, datetime_format::Ptr{UInt8}, datetime_format_len::Csize_t, float_precision::Ptr{Csize_t}, decimal_comma::Bool, compression::polars_csv_compression_t, compression_level::Ptr{UInt32}, mkdir::Bool, maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_sink_ipc(lf, path, pathlen, compression, compression_level, record_batch_size, mkdir, maintain_order, out)
+    return @ccall libpolars.polars_lazy_frame_sink_ipc(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, compression::polars_ipc_compression_t, compression_level::Ptr{Int32}, record_batch_size::Ptr{Csize_t}, mkdir::Bool, maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_series_destroy(series)
@@ -1345,6 +1445,8 @@ end
     polars_series_export_carray(series, out)
 
 Exports the series' data as a single Arrow C Data Interface [`ArrowArray`](@ref), collapsing the series to one chunk first if necessary. The returned [`ArrowArray`](@ref) is self-contained (owns its buffers via the release callback) and can outlive `series` -- the caller takes ownership and must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly once.
+
+`rechunk()` is a cheap Arc-clone when `series` is already single-chunk (the common case), but a genuinely fragmented series (many small chunks, e.g. after repeated `concat`/streaming appends without an explicit rechunk) pays a real one-time data copy here to produce the single contiguous chunk the C Data Interface export needs.
 """
 function polars_series_export_carray(series, out)
     return @ccall libpolars.polars_series_export_carray(series::Ptr{polars_series_t}, out::Ptr{ArrowArray})::Ptr{polars_error_t}
@@ -1368,6 +1470,11 @@ function polars_series_slice(series, offset, length)
     return @ccall libpolars.polars_series_slice(series::Ptr{polars_series_t}, offset::Int64, length::Csize_t)::Ptr{polars_series_t}
 end
 
+"""
+    polars_series_name(series, out)
+
+Borrowed pointer into the series' name, valid only as long as `series` is alive (the same borrowed-pointer convention [`polars_value_time_zone`](@ref) cites this function as the reference for).
+"""
 function polars_series_name(series, out)
     return @ccall libpolars.polars_series_name(series::Ptr{polars_series_t}, out::Ptr{Ptr{UInt8}})::Csize_t
 end
@@ -1424,6 +1531,11 @@ function polars_value_time_unit(value)
     return @ccall libpolars.polars_value_time_unit(value::Ptr{polars_value_t})::polars_time_unit_t
 end
 
+"""
+    polars_value_time_zone(value, out)
+
+Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive (same convention as [`polars_series_name`](@ref)). Returns 0 (and leaves `out` unwritten) for a naive datetime or any non-datetime value.
+"""
 function polars_value_time_zone(value, out)
     return @ccall libpolars.polars_value_time_zone(value::Ptr{polars_value_t}, out::Ptr{Ptr{UInt8}})::Csize_t
 end
@@ -1520,6 +1632,11 @@ function polars_value_date_get(value, out)
     return @ccall libpolars.polars_value_date_get(value::Ptr{polars_value_t}, out::Ptr{Int32})::Ptr{polars_error_t}
 end
 
+"""
+    polars_value_time_get(value, out)
+
+Get the underlying int64 for this time value. `DataType::Time` is always nanoseconds since midnight (unlike Datetime/Duration, it carries no `TimeUnit`), so there is no companion [`polars_value_time_unit`](@ref)-style call for it.
+"""
 function polars_value_time_get(value, out)
     return @ccall libpolars.polars_value_time_get(value::Ptr{polars_value_t}, out::Ptr{Int64})::Ptr{polars_error_t}
 end
@@ -1531,11 +1648,9 @@ end
 """
     polars_value_struct_get(value, fieldidx, out)
 
-Used to get value of of a Struct value fields.
+Returns the value of struct field `fieldidx`.
 
-NOTE: The value producing the new value must outlive the value from the field.
-
-Safety: Values lifetimes must be valid and only support physical dtypes for now.
+# Safety The returned value borrows into the parent struct's backing memory (as every [`polars_value_t`](@ref) does -- it wraps an `AnyValue<'a>`). Lifetime parameters on a `#[no\\_mangle] extern "C"` fn enforce nothing across the C boundary, so this is a *caller invariant*, not a compiler-checked one: **the caller must keep `value` (and its parent Series) alive until it is done with `*out`, and must destroy `*out` before `value`.** The Julia side roots the parent accordingly.
 """
 function polars_value_struct_get(value, fieldidx, out)
     return @ccall libpolars.polars_value_struct_get(value::Ptr{polars_value_t}, fieldidx::Csize_t, out::Ptr{Ptr{polars_value_t}})::Ptr{polars_error_t}
