@@ -1,25 +1,18 @@
-name: Build libpolars
+name: Release libpolars
 
-# PHASE 1 (probe) -- build only. This workflow does not publish anything yet: no release, no tag,
-# no Artifacts.toml. Its whole job is to answer questions that cannot be answered on the dev box,
-# because `cargo build --release` has never been run in this repo and the release profile
-# (thin LTO + codegen-units = 1, see c-polars/Cargo.toml) is far heavier than the dev profile:
+# Builds the native library for every supported platform, publishes the tarballs as GitHub Release
+# assets, and rewrites the root Artifacts.toml to point at them. This repo does NOT use the
+# registered libpolars_jll: that JLL is built from the original upstream repo and exports ~153
+# symbols against the 298 this fork needs, so it fails at ccall time for anyone installing from git.
 #
-#   1. does it compile clean on both targets?
-#   2. does `strip = "symbols"` + thin LTO preserve all 298 exported `polars_*` symbols?
-#   3. how large is the stripped library, and the tarball?
-#   4. does macos-14 (3 vCPU / 7 GB) survive the build without an OOM kill?
+# Manual trigger only. The version comes from c-polars/Cargo.toml -- bump it in the PR that changes
+# the C ABI, merge, then run this workflow. Release procedure in docs/src/developer.md.
 #
-# The `push:` trigger below is scoped to the probe branch and is a temporary scaffold: GitHub only
-# offers `workflow_dispatch` for workflows that exist on the *default* branch, so a dispatch-only
-# workflow sitting on a feature branch cannot be triggered at all. Delete the `push:` block before
-# merging -- from `main`, `workflow_dispatch` works on its own.
+# Any change under c-polars/ is invisible to outside users until this runs. The `artifact` job in
+# Tests.yml is what catches that drift.
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - libpolars-release-probe
 
 env:
   CARGO_TERM_COLOR: always
@@ -138,3 +131,80 @@ jobs:
           name: libpolars-${{ matrix.target }}
           path: libpolars.v*.tar.gz
           if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      # Needed twice over: to create the release, and to push the regenerated Artifacts.toml.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out the branch by name, not the detached SHA actions/checkout defaults to --
+          # the Artifacts.toml commit at the end of this job needs somewhere to land.
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          # Flatten the per-target upload names back into one directory of tarballs.
+          merge-multiple: true
+
+      - name: Resolve version from c-polars/Cargo.toml
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^version' c-polars/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "releasing libpolars v$version"
+          ls -l dist/
+
+      - name: Verify every tarball carries that version
+        # Guards against a half-updated matrix silently publishing a stale target.
+        run: |
+          set -euo pipefail
+          for f in dist/*.tar.gz; do
+            case "$(basename "$f")" in
+              "libpolars.v${VERSION}."*) ;;
+              *) echo "::error::$(basename "$f") does not match libpolars.v${VERSION}.*"; exit 1 ;;
+            esac
+          done
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: libpolars-v${{ env.VERSION }}
+          name: libpolars v${{ env.VERSION }}
+          body: |
+            Native `libpolars` build for Polars.jl, produced from `c-polars/` at this commit.
+
+            Consumed via the root `Artifacts.toml` — not a Julia package, and not the registered
+            `libpolars_jll`. Nothing here needs to be downloaded by hand.
+          files: dist/*.tar.gz
+          fail_on_unmatched_files: true
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1"
+
+      - name: Regenerate Artifacts.toml
+        # Deliberately after the release exists. The download URLs are deterministic from the tag,
+        # so the ordering is not strictly forced -- but committing hashes for assets that failed to
+        # upload would be worse than the reverse.
+        run: julia .github/scripts/update_artifacts_toml.jl "$VERSION" dist Artifacts.toml
+
+      - name: Commit Artifacts.toml
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Artifacts.toml
+          if git diff --staged --quiet; then
+            echo "Artifacts.toml unchanged"
+            exit 0
+          fi
+          git commit -m "Point Artifacts.toml at libpolars v${VERSION}
+
+          Generated by the Release libpolars workflow from run ${GITHUB_RUN_ID}."
+          git push origin "HEAD:${GITHUB_REF_NAME}"
