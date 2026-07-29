@@ -768,6 +768,17 @@ const struct polars_expr_t *polars_expr_std(const struct polars_expr_t *expr, ui
 
 const struct polars_expr_t *polars_expr_var(const struct polars_expr_t *expr, uint8_t ddof);
 
+const struct polars_expr_t *polars_expr_cov(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b,
+                                            uint8_t ddof);
+
+const struct polars_expr_t *polars_expr_pearson_corr(const struct polars_expr_t *a,
+                                                     const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_spearman_rank_corr(const struct polars_expr_t *a,
+                                                           const struct polars_expr_t *b,
+                                                           bool propagate_nans);
+
 const struct polars_expr_t *polars_expr_when_then_otherwise(const struct polars_expr_t *cond,
                                                             const struct polars_expr_t *then,
                                                             const struct polars_expr_t *otherwise);
@@ -1010,6 +1021,26 @@ const struct polars_expr_t *polars_expr_sample_frac(const struct polars_expr_t *
                                                     bool with_replacement,
                                                     bool shuffle,
                                                     const uint64_t *seed);
+
+/**
+ * Takes values at 0-based positions given by `idx` (itself an expression, e.g. a literal array
+ * or the result of `arg_sort`). Negative indices count from the end. Building the plan never
+ * fails here -- an out-of-bounds index with `null_on_oob = false` only surfaces as a
+ * `PolarsResult::Err` once the plan is actually executed (e.g. at `collect`), which already goes
+ * through this crate's fallible out-param + error-pointer convention on that call.
+ */
+const struct polars_expr_t *polars_expr_gather(const struct polars_expr_t *expr,
+                                               const struct polars_expr_t *idx,
+                                               bool null_on_oob);
+
+/**
+ * Takes every `n`th value starting at 0-based position `offset`. `n == 0` is rejected with a
+ * proper `PolarsResult::Err` at execution time (`polars-core`'s `Series::gather_every` guards it
+ * with `polars_ensure!`), not a panic, so it also flows through the same fallible-collect path.
+ */
+const struct polars_expr_t *polars_expr_gather_every(const struct polars_expr_t *expr,
+                                                     uintptr_t n,
+                                                     uintptr_t offset);
 
 const struct polars_expr_t *polars_expr_list_lengths(const struct polars_expr_t *a);
 
