@@ -899,11 +899,6 @@ pub unsafe extern "C" fn polars_expr_sample_frac(
     make_expr(expr.sample_frac(frac, with_replacement, shuffle, seed))
 }
 
-/// Takes values at 0-based positions given by `idx` (itself an expression, e.g. a literal array
-/// or the result of `arg_sort`). Negative indices count from the end. Building the plan never
-/// fails here -- an out-of-bounds index with `null_on_oob = false` only surfaces as a
-/// `PolarsResult::Err` once the plan is actually executed (e.g. at `collect`), which already goes
-/// through this crate's fallible out-param + error-pointer convention on that call.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_gather(
     expr: *const polars_expr_t,
@@ -915,9 +910,6 @@ pub unsafe extern "C" fn polars_expr_gather(
     make_expr(expr.gather(idx, null_on_oob))
 }
 
-/// Takes every `n`th value starting at 0-based position `offset`. `n == 0` is rejected with a
-/// proper `PolarsResult::Err` at execution time (`polars-core`'s `Series::gather_every` guards it
-/// with `polars_ensure!`), not a panic, so it also flows through the same fallible-collect path.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_gather_every(
     expr: *const polars_expr_t,

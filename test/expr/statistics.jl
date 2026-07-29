@@ -86,4 +86,10 @@ end
     r_pearson = select(df, Polars.cor(col("x"), col("y")) |> alias("p"))
     @test only(r_spearman[:s]) ≈ 1.0
     @test only(r_pearson[:p]) < 1.0
+
+    # propagate_nans: true makes any NaN produce NaN; false (the default) ranks NaN above every
+    # finite value instead, so a NaN at the largest position preserves the perfect rank correlation
+    dn = DataFrame((; x = [1.0, 2.0, 3.0, NaN], y = [1.0, 8.0, 27.0, NaN]))
+    @test isnan(only(select(dn, spearman_rank_corr(col("x"), col("y"); propagate_nans = true) |> alias("s"))[:s]))
+    @test only(select(dn, spearman_rank_corr(col("x"), col("y")) |> alias("s"))[:s]) ≈ 1.0
 end
