@@ -80,10 +80,9 @@ Base.xor(a::Selector, b::Selector) = _combine_selectors(polars_expr_selector_exc
 """
     Selectors
 
-Column selectors, mirroring py-polars' `polars.selectors` (conventionally imported as `cs` there;
-here used qualified -- `Selectors.numeric()` -- matching `Structs`/`Dt`/`Lists`/`Strings`, and
-avoiding clobbering `Base.all`/`string`/`float`/`time`/`contains`, which several selector names
-would otherwise collide with).
+Column selectors, used qualified -- `Selectors.numeric()` -- matching `Structs`/`Dt`/`Lists`/`Strings`
+and avoiding clobbering `Base.all`/`string`/`float`/`time`/`contains`, which several selector names
+would otherwise collide with.
 
 Every function here returns a [`Selector`](@ref), which can be passed anywhere an `Expr` is
 accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`/`&`/`-`/`⊻`.
@@ -103,10 +102,10 @@ accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`
 | `matches(pattern)` | column names matching a regex |
 | `starts_with(prefixes...)`, `ends_with(suffixes...)`, `contains(substrings...)` | column names by literal substring (regex-escaped internally, not user-facing regex) |
 
-!!! note "`by_index` is 1-based here, unlike py-polars' 0-based `cs.by_index`"
+!!! note "`by_index` is 1-based"
     1-based indexing is the convention everywhere else in this package, matching
-    [`Polars.nth`](@ref). Negative indices still count back from the end unchanged
-    (`by_index(-1)` is the last column, same as `nth(-1)`).
+    [`Polars.nth`](@ref). Negative indices count back from the end (`by_index(-1)` is the last
+    column, same as `nth(-1)`).
 
 !!! note "Scope: no per-unit/zone temporal matching, no recursive nested-selector composition"
     `datetime()`/`duration()` match *any* time unit/time zone (no `cs.datetime(time_unit="ms")`
@@ -225,8 +224,8 @@ module Selectors
     """
         list()::Selector
 
-    Selects List-dtype columns, matching any inner dtype. Recursive inner-selector composition (e.g.
-    `cs.list(cs.numeric())` in py-polars) is not exposed in this first cut -- see
+    Selects List-dtype columns, matching any inner dtype. Composing a selector over the inner dtype is
+    not supported -- see
     [`Selectors`](@ref)'s scope note.
     """
     list() = _dtype_simple(API.PolarsDtypeSelectorKindList)
@@ -373,8 +372,7 @@ module Selectors
     """
         by_index(indices::Integer...; strict::Bool=true)::Selector
 
-    Selects columns by position. **1-based**, matching this package's own [`Polars.nth`](@ref) (py-polars'
-    own `cs.by_index` is 0-based -- see [`Selectors`](@ref)'s note on this divergence). Negative
+    Selects columns by position. **1-based**, matching this package's own [`Polars.nth`](@ref). Negative
     indices count from the end (`by_index(-1)` is the last column, same as `nth(-1)`). If `strict`
     (default), an out-of-range index raises a `PolarsError`; if not, it is silently skipped.
     """
