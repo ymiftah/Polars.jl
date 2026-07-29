@@ -903,8 +903,10 @@ export mean, median, std, var, quantile
 """
     cov(a::Polars.Expr, b::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
-Covariance between `a` and `b`, with `ddof` degrees of freedom subtracted (defaults to `ddof=1`,
-the sample covariance -- use `ddof=0` for the population covariance).
+Compute the covariance between two expressions.
+
+`ddof` is the "delta degrees of freedom": the divisor used in the calculation is `N - ddof`, where
+`N` is the number of elements. Defaults to `1`.
 
 !!! note
     No curried (`|>`) form.
@@ -917,8 +919,11 @@ end
 """
     cor(a::Polars.Expr, b::Polars.Expr)::Polars.Expr
 
-Pearson correlation coefficient between `a` and `b`. A constant (zero-variance) input gives `NaN`
-rather than an error.
+Compute the Pearson correlation between two expressions.
+
+A constant (zero-variance) input gives `NaN`.
+
+See also [`spearman_rank_corr`](@ref) for the rank correlation.
 """
 function Statistics.cor(a::Expr, b::Expr)
     out = API.polars_expr_pearson_corr(a, b)
@@ -928,17 +933,17 @@ end
 export cov, cor
 
 """
-    spearman_rank_corr(a::Polars.Expr, b::Polars.Expr; propagate_nans::Bool=true)::Polars.Expr
+    spearman_rank_corr(a::Polars.Expr, b::Polars.Expr; propagate_nans::Bool=false)::Polars.Expr
 
-Spearman rank correlation coefficient between `a` and `b` -- unlike [`cor`](@ref) (Pearson), this
-measures monotonic rather than strictly linear association, so a monotonic-but-nonlinear
-relationship (e.g. `y = x^3`) gives exactly `1.0` here even though its Pearson correlation is
-below `1.0`.
+Compute the Spearman rank correlation between two expressions.
 
-If `propagate_nans` is `true` (the default), any `NaN` in either input makes the result `NaN`; if
-`false`, `NaN`s are instead treated as larger than any finite value when ranking.
+If `propagate_nans` is `true`, any `NaN` encountered leads to `NaN` in the output. Defaults to
+`false`, where `NaN`s are regarded as larger than any finite number and thus lead to the highest
+rank.
+
+See also [`cor`](@ref) for the Pearson correlation.
 """
-function spearman_rank_corr(a::Expr, b::Expr; propagate_nans::Bool = true)
+function spearman_rank_corr(a::Expr, b::Expr; propagate_nans::Bool = false)
     out = API.polars_expr_spearman_rank_corr(a, b, propagate_nans)
     return Expr(out)
 end
@@ -1065,17 +1070,17 @@ export arg_sort
 """
     gather(expr::Polars.Expr, idx; null_on_oob::Bool=false)::Polars.Expr
 
-Takes the values of `expr` at the given `idx` positions -- an `Expr`, or a literal integer vector
-(promoted via [`lit`](@ref)).
+Take values by index. `idx` is an expression, or an integer vector promoted via [`lit`](@ref).
 
-**0-based**, unlike [`Polars.nth`](@ref)/`Selectors.by_index` -- those are static column selectors
-supplied directly by the caller, whereas `idx` here is itself computed data and most naturally
-comes from [`arg_sort`](@ref)/`arg_min`/`arg_max`, which already return 0-indexed row positions (see
-their docstrings); matching that avoids an off-by-one when chaining `gather(x, arg_sort(y))`.
-Negative indices count from the end, same as `nth`.
+`null_on_oob` sets the behaviour when an index is out of bounds: `true` gives `missing`, `false`
+(the default) raises a [`PolarsError`](@ref) when the result is collected.
 
-If `null_on_oob` is `false` (the default), an out-of-bounds index raises a `PolarsError` once the
-result is collected; if `true`, it produces `missing` instead.
+!!! note "Indices are 0-based"
+    `idx` is 0-based, and negative indices count from the end. This differs from
+    [`Polars.nth`](@ref) and `Selectors.by_index`, which are 1-based: those select a column from a
+    position the caller writes literally, whereas `idx` here is data, and usually comes from
+    [`arg_sort`](@ref), `arg_min` or `arg_max`, which return 0-based positions. Sharing one
+    convention lets `gather(x, arg_sort(y))` compose without an offset.
 """
 function gather(expr::Expr, idx; null_on_oob::Bool = false)
     idx = convert(Expr, idx)
@@ -1088,7 +1093,7 @@ export gather
 """
     gather_every(expr::Polars.Expr, n::Integer; offset::Integer=0)::Polars.Expr
 
-Takes every `n`th value of `expr`, starting at the 0-based position `offset`.
+Take every `n`th value. `offset` is the starting index, 0-based.
 """
 function gather_every(expr::Expr, n::Integer; offset::Integer = 0)
     out = API.polars_expr_gather_every(expr, n, offset)

@@ -365,10 +365,14 @@ df4 = DataFrame((; x = collect(1:10)))
 select(df4, sample_n(col("x"), 3; seed = 42))
 ```
 
-`gather(expr, idx)` takes values at arbitrary positions; `gather_every(expr, n; offset)` takes
-every `n`th value. `gather`'s indices are **0-based** (matching `arg_sort`/`arg_min`/`arg_max`
-above, not this package's 1-based `nth`/`Selectors.by_index`), and negative indices count from the
-end:
+`gather(expr, idx)` takes values by index; `gather_every(expr, n; offset)` takes every `n`th value.
+
+`gather`'s indices are **0-based**, and negative indices count from the end. `nth` and
+`Selectors.by_index` are 1-based instead, because they pick a column from a position written
+literally in the call, where Julia's own 1-based convention applies. `gather`'s `idx` is data
+rather than a literal — it usually comes from `arg_sort`, `arg_min` or `arg_max`, which return
+0-based positions — so `gather` shares their convention and `gather(x, arg_sort(y))` composes
+without an offset.
 
 ```@example expressions
 df_gather = DataFrame((; x = [10, 20, 30, 40]))
