@@ -588,10 +588,17 @@ end
     gen_impl_expr!(polars_expr_cosh, Expr::cosh, "Hyperbolic cosine of each value of `expr`.")
     gen_impl_expr!(polars_expr_sinh, Expr::sinh, "Hyperbolic sine of each value of `expr`.")
     gen_impl_expr!(polars_expr_tanh, Expr::tanh, "Hyperbolic tangent of each value of `expr`.")
+    gen_impl_expr!(polars_expr_arccos, Expr::arccos, "Inverse cosine of each value of `expr`, in radians.")
+    gen_impl_expr!(polars_expr_degrees, Expr::degrees, "Converts each value of `expr` from radians to degrees.")
+    gen_impl_expr!(polars_expr_radians, Expr::radians, "Converts each value of `expr` from degrees to radians.")
 
     gen_impl_expr!(polars_expr_sqrt, Expr::sqrt, "Square root of each value of `expr`.")
     gen_impl_expr!(polars_expr_sign, Expr::sign, "Sign of each value of `expr`: `-1`, `0`, or `1` (float dtypes only; `NaN` maps to `NaN`).")
     gen_impl_expr!(polars_expr_exp, Expr::exp, "`e` raised to each value of `expr`.")
+    gen_impl_expr!(polars_expr_log1p, Expr::log1p, "Natural logarithm of `1 + expr`, elementwise -- more numerically accurate than `log(expr + 1)` for `expr` values near zero. Bound as `Base.log1p`, an exported Base name, so it works unqualified.")
+
+    gen_impl_expr!(polars_expr_rle, Expr::rle, "Run-length-encodes `expr`: collapses consecutive runs of identical values into one row per run, each a `Struct{len, value}` (see [Struct](@ref)) giving the run's length and its repeated value. Consecutive `null`s form a single run like any other value (three-valued equality is not used here).")
+    gen_impl_expr!(polars_expr_rle_id, Expr::rle_id, "Maps each value of `expr` to a 0-indexed run ID: rows within the same consecutive run of identical values share an ID, and the ID increments by one at each run boundary. Unlike [`rle`](@ref), this does not shorten the column -- one output row per input row.")
 
     gen_impl_expr!(polars_expr_n_unique, Expr::n_unique, "Counts the number of distinct values in `expr` (`null` counts as one distinct value), one result per group (or a single overall count outside a `group_by`).")
     gen_impl_expr!(polars_expr_unique, Expr::unique, "Returns the distinct values of `expr` (order not guaranteed), shortening the column. Inside `agg`, per-group distinct values are automatically collected into a `List` (see [List](@ref expr-list)) so the aggregation still produces one row per group.")
@@ -635,9 +642,42 @@ end
     gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`. Has a curried form `shift(n)` -- see [Curried forms for pipe-based composition](@ref).")
     gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`. Has a curried form `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref).")
 
-    gen_impl_expr_binary!(polars_expr_log, Expr::log, "Logarithm of `a` with base `b` (e.g. `log(expr, lit(2))` for log base 2; use `lit(ℯ)` for natural log). Bound as `Base.log`, an exported Base name, so it works unqualified.")
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
+
+"""
+    log(base::Polars.Expr, x::Polars.Expr)::Polars.Expr
+
+Logarithm of `x` in base `base` -- e.g. `log(lit(2), col("x"))` for log base 2. For the natural
+log, use `lit(ℯ)`.
+
+!!! note "Argument order follows Base, not polars"
+    `Base.log(b, x)` takes the **base first** (`log(2, 8) == 3`), while polars' own
+    `Expr::log(base)` / py-polars' `Expr.log(base)` take the **value first**. Since this package
+    extends `Base.log` rather than defining a new name, it must match Base's signature -- so the
+    two arguments are swapped here before crossing the FFI boundary.
+
+    This is why `log` is hand-written instead of going through `@generate_expr_fns` above: that
+    macro passes arguments straight through in source order, which would silently compute
+    `log(x, base)`. Both arguments are `Expr`, so a flipped call type-checks and returns a wrong
+    number rather than erroring.
+"""
+function Base.log(base::Expr, x::Expr)
+    out = API.polars_expr_log(x, base)
+    return Expr(out)
+end
+
+"""
+    log10(expr::Polars.Expr)::Polars.Expr
+
+Base-10 logarithm of each value of `expr`.
+
+There is no dedicated `Expr::log10` in polars -- upstream py-polars' own `Expr.log10()` is itself
+just sugar for `self.log(10.0)`. This is the same one-liner, composed over the already-wrapped
+binary [`log`](@ref) rather than needing any new Rust/FFI code. Bound as `Base.log10`, an exported
+Base name, matching the `log`/`round`/`diff`/`replace` qualified-name precedent above.
+"""
+Base.log10(expr::Expr) = log(convert(Expr, 10), expr)
 
 # Curried (`Fix2`-style) forms for the binary namespace-free ops above that have no natural
 # operator equivalent (unlike +/-/*//, which already read fluently as infix). Each promotes a

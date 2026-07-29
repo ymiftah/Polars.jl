@@ -22,7 +22,7 @@ end
     df = DataFrame((; x = [1.0, 4.0, 9.0]))
 
     r = select(
-        df, alias(Base.log(col("x"), lit(2.0)), "log2"),
+        df, alias(Base.log(lit(2.0), col("x")), "log2"),
         alias(Polars.exp(col("x")), "exp"),
         alias(Base.sqrt(col("x")), "sqrt"),
         alias(Polars.sign(col("x") .- 4.0), "sign")

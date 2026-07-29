@@ -1,3 +1,51 @@
+@testset "get_column / Polars.item (API gap batch four, Phase 5)" begin
+    df = DataFrame((; x = [1, 2, 3], y = ["a", "b", "c"]))
+
+    # get_column matches plain getindex, same values and name
+    gc = get_column(df, "x")
+    @test collect(gc) == collect(df[:x])
+    @test Polars.name(gc) == "x"
+    @test collect(get_column(df, :y)) == collect(df[:y])
+
+    # nonexistent column name -> clean PolarsError, not a panic, naming the missing column
+    @test_throws PolarsError get_column(df, "nonexistent")
+    try
+        get_column(df, "nonexistent")
+        @test false
+    catch e
+        @test e isa PolarsError
+        @test occursin("nonexistent", e.message)
+    end
+
+    # `default` keyword (mirrors py-polars' `get_column(name, default=...)`, df_test.py:156-164):
+    # a nonexistent column returns `default` instead of raising, including `default=nothing`
+    # itself as a valid (non-raising) default -- distinct from the keyword being omitted entirely
+    default_series = Series("x", ["?", "?", "?"])
+    @test collect(get_column(df, "nonexistent"; default = default_series)) == ["?", "?", "?"]
+    @test get_column(df, "nonexistent"; default = nothing) === nothing
+    # a column that DOES exist ignores `default` and returns the real column
+    @test collect(get_column(df, "x"; default = default_series)) == collect(df[:x])
+
+    # Polars.item(series) on length-1/length-0/length-N
+    @test Polars.item(Series("s", [42])) == 42
+    @test_throws ErrorException Polars.item(Series("s", Int[]))
+    @test_throws ErrorException Polars.item(Series("s", [1, 2]))
+
+    # Polars.item(df) on a genuine 1x1 frame
+    @test Polars.item(DataFrame((; x = [7]))) == 7
+
+    # Polars.item(df) on 1xN / Nx1 / NxM frames should all error (strict (1,1)-only semantics)
+    @test_throws ErrorException Polars.item(DataFrame((; x = [1], y = [2]))) # 1x2
+    @test_throws ErrorException Polars.item(DataFrame((; x = [1, 2]))) # 2x1
+    @test_throws ErrorException Polars.item(df) # 3x2
+
+    # Polars.item(df, row, col) with both col forms (name and integer index)
+    @test Polars.item(df, 2, "x") == 2
+    @test Polars.item(df, 2, :x) == 2
+    @test Polars.item(df, 2, 1) == 2
+    @test Polars.item(df, 3, "y") == "c"
+end
+
 @testset "unique" begin
     df = DataFrame((; g = ["a", "a", "b", "b"], x = [1, 2, 3, 4]))
 

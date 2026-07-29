@@ -62,3 +62,25 @@ end
     r = collect(with_columns(lazy(df), alias(over(cum_sum(col("x")), "g"), "cs")))
     @test r[:cs] == [1, 3, 7, 10, 30]
 end
+
+@testset "rle / rle_id (API gap batch four, Phase 1; fixture mirrors py-polars' test_rle.py)" begin
+    # Upstream's exact fixture (`test_rle`/`test_rle_id` in py-polars' test_rle.py): the value `1`
+    # appears on *both sides* of a `null`, proving a null breaks a run rather than merging the two
+    # separate runs of `1` into one.
+    df = DataFrame((; a = [1, 1, 2, 1, missing, 1, 3, 3]))
+
+    r = select(df, alias(rle(col("a")), "r"))
+    struct_vals = collect(r[:r])
+    @test [s.len for s in struct_vals] == UInt32[2, 1, 1, 1, 1, 2]
+    @test isequal([s.value for s in struct_vals], [1, 2, 1, missing, 1, 3])
+
+    r_id = select(df, alias(rle_id(col("a")), "id"))
+    @test r_id[:id] == UInt32[0, 0, 1, 2, 3, 4, 5, 5]
+
+    # test_empty_rle_21787: empty Int64 column -> both rle and rle_id produce empty results
+    df_empty = DataFrame((; a = Int[]))
+    r_empty = select(df_empty, alias(rle(col("a")), "r"))
+    @test isempty(collect(r_empty[:r]))
+    r_empty_id = select(df_empty, alias(rle_id(col("a")), "id"))
+    @test isempty(collect(r_empty_id[:id]))
+end

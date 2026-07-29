@@ -47,6 +47,29 @@ function Base.size(df::DataFrame)
 end
 Base.size(df::DataFrame, dim::Integer) = size(df)[dim]
 
+"""
+    Polars.item(df::DataFrame)
+    Polars.item(df::DataFrame, row::Integer, col)
+
+With no extra arguments, returns the sole value of a 1×1 `df` (a clear `error(...)` otherwise,
+matching [`Polars.item(::Series)`](@ref)'s message shape) -- the strict `(1,1)`-only
+interpretation, chosen deliberately because upstream py-polars' own no-arg `DataFrame.item()` has
+an additional 1-row-or-1-column relaxation that is ambiguous/version-dependent.
+
+With `row`/`col`, this is a thin renaming wrapper around the existing `getindex(df, row, col)` for
+py-polars-name parity -- `col` accepts either an `Integer` index or a column-name `String`/`Symbol`,
+same as indexing.
+
+Not exported under a bare `item` -- too generic/collision-prone a name to add unqualified to a
+package's top-level namespace -- reach it as `Polars.item(...)`.
+"""
+function item(df::DataFrame)
+    sz = size(df)
+    sz == (1, 1) || error("item() requires a DataFrame of shape (1, 1), got shape $sz")
+    return df[1, 1]
+end
+item(df::DataFrame, row::Integer, col) = getindex(df, row, col)
+
 Base.getindex(df::DataFrame, row_index, col_index) = getindex(getindex(df, col_index), row_index)
 Base.getindex(df::DataFrame, idx::Int) = Tables.getcolumn(df, idx)
 Base.getindex(df::DataFrame, s::String) = getindex(df, Symbol(s))
@@ -56,6 +79,31 @@ function Base.getindex(df::DataFrame, s::Symbol)
     err = polars_dataframe_get(df, s, ncodeunits(s), out)
     polars_error(err)
     return Series(out[])
+end
+
+struct _NoDefault end
+# Sentinel rather than a `default = nothing` default value: `nothing` is itself a valid `default`
+# upstream (`df.get_column("x", default=None)` returns `None`, not an error), so it can't double as
+# "no default was given".
+const _NO_DEFAULT = _NoDefault()
+
+"""
+    get_column(df::DataFrame, name::Union{AbstractString,Symbol})::Series
+    get_column(df::DataFrame, name::Union{AbstractString,Symbol}; default)
+
+Returns the column named `name` as a [`Series`](@ref) -- a named alias for `df[name]`, for callers
+who prefer the py-polars-shaped method name over indexing syntax. A nonexistent column name raises
+a [`PolarsError`](@ref) naming the column, same as indexing -- unless `default` is given, in which
+case it is returned instead (matching py-polars' own `get_column(name, default=...)`; note `default
+= nothing` is itself a valid, non-raising default, distinct from omitting the keyword entirely).
+"""
+function get_column(df::DataFrame, name::Union{AbstractString, Symbol}; default = _NO_DEFAULT)
+    try
+        return df[name]
+    catch e
+        (e isa PolarsError && default !== _NO_DEFAULT) || rethrow()
+        return default
+    end
 end
 
 Base.unsafe_convert(::Type{Ptr{polars_dataframe_t}}, df::DataFrame) = df.ptr

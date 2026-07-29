@@ -26,7 +26,9 @@ Polars.name
 ```
 
 `Polars.name(series)` returns its column name as a `String` — not exported, so it's always called
-qualified.
+qualified. `Polars.item(series)` (see [DataFrame](@ref), documented there alongside its
+`DataFrame` methods) likewise returns the sole value of a length-1 `series` — a clear `error(...)`
+for any other length.
 
 ## Manipulation/selection
 

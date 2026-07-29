@@ -803,6 +803,18 @@ function polars_expr_tanh(expr)
     return @ccall libpolars.polars_expr_tanh(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_arccos(expr)
+    return @ccall libpolars.polars_expr_arccos(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_degrees(expr)
+    return @ccall libpolars.polars_expr_degrees(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_radians(expr)
+    return @ccall libpolars.polars_expr_radians(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_sqrt(expr)
     return @ccall libpolars.polars_expr_sqrt(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -813,6 +825,18 @@ end
 
 function polars_expr_exp(expr)
     return @ccall libpolars.polars_expr_exp(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_log1p(expr)
+    return @ccall libpolars.polars_expr_log1p(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_rle(expr)
+    return @ccall libpolars.polars_expr_rle(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_rle_id(expr)
+    return @ccall libpolars.polars_expr_rle_id(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_round(expr, decimals, mode)

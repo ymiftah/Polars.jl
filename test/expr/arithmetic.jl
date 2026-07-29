@@ -128,6 +128,62 @@ end
     @test isequal(collect(r[:ne]), [true, false, true, missing])
 end
 
+@testset "arccos / degrees / radians (API gap batch four, Phase 1; fixture mirrors py-polars' test_trigonometric)" begin
+    # Upstream's exact fixture (`test_trigonometric` in series_test.py, parametrized over `arccos`
+    # among others): null propagates as null, NaN propagates as NaN, and `arccos(π)` is NaN because
+    # π > 1 is out of arccos's [-1, 1] domain -- the interesting edge the happy-path-only version of
+    # this test previously missed entirely.
+    dftrig = DataFrame((; a = Union{Float64, Missing}[0.0, π, missing, NaN]))
+
+    r = select(dftrig, alias(arccos(col("a")), "arccos"))
+    out = collect(r[:arccos])
+    @test out[1] ≈ acos(0.0)
+    @test isnan(out[2]) # out-of-domain (π > 1), not an error
+    @test ismissing(out[3])
+    @test isnan(out[4])
+
+    # degrees/radians over the same fixture, at least the null case (both are pure elementwise
+    # linear scalings with no domain restriction, so no analogous NaN-from-domain case exists)
+    r2 = select(dftrig, alias(degrees(col("a")), "deg"), alias(radians(col("a")), "rad"))
+    deg = collect(r2[:deg])
+    rad = collect(r2[:rad])
+    @test deg[1] ≈ 0.0 && rad[1] ≈ 0.0
+    @test deg[2] ≈ 180.0 && rad[2] ≈ π * π / 180
+    @test ismissing(deg[3]) && ismissing(rad[3])
+    @test isnan(deg[4]) && isnan(rad[4])
+
+    # test_trigonometric_invalid_input: a String column must raise a catchable PolarsError, not
+    # abort the process -- CLAUDE.md documents two real incidents of exactly this failure mode for
+    # other functions, so this matters more here than it does upstream. Message text is
+    # deliberately not asserted on, only that it raises cleanly.
+    dfstr = DataFrame((; s = ["1", "2", "3"]))
+    @test_throws PolarsError select(dfstr, arccos(col("s")))
+end
+
+@testset "log1p / log10 (API gap batch four, Phase 1; domain edges per py-polars' test_exp_log1p)" begin
+    dflog = DataFrame((; x = [0.0, -1.0, -2.0, 1.0, 9.0]))
+    r = select(dflog, alias(Base.log1p(col("x")), "log1p"))
+    out = collect(r[:log1p])
+    @test out[1] == 0.0
+    @test isinf(out[2]) && out[2] < 0 # log1p(-1) -> -Inf
+    @test isnan(out[3]) # log1p(-2) -> NaN, below domain
+    @test out[4] ≈ Base.log1p(1.0)
+    @test out[5] ≈ Base.log1p(9.0)
+
+    dflog10 = DataFrame((; x = [1.0, 10.0, 100.0, 0.0, -5.0]))
+    r2 = select(dflog10, alias(Base.log10(col("x")), "log10"))
+    out2 = collect(r2[:log10])
+    @test out2[1:3] ≈ [0.0, 1.0, 2.0]
+    @test isinf(out2[4]) && out2[4] < 0 # log10(0) -> -Inf
+    @test isnan(out2[5]) # log10(negative) -> NaN
+
+    # missing passthrough for both
+    dfmissing = DataFrame((; x = Union{Float64, Missing}[1.0, missing]))
+    r3 = select(dfmissing, alias(Base.log1p(col("x")), "log1p"), alias(Base.log10(col("x")), "log10"))
+    @test ismissing(collect(r3[:log1p])[2])
+    @test ismissing(collect(r3[:log10])[2])
+end
+
 @testset "Expr <: Number was dropped -- explicit mixed-argument operators (Julia-side P2.1)" begin
     df = DataFrame((; x = [1, 2, 3]))
 
