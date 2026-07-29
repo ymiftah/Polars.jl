@@ -348,7 +348,7 @@ select(df4, sample_n(col("x"), 3; seed = 42))
 ### Run-length encoding: `rle`/`rle_id`
 
 `rle` collapses consecutive runs of identical values into one row per run (a `Struct{len, value}`
-— see [Struct](@ref)); `rle_id` instead keeps one row per input row, mapping each to a 0-indexed
+— see [Struct](@ref expr-struct)); `rle_id` instead keeps one row per input row, mapping each to a 0-indexed
 run ID that increments at every run boundary:
 
 ```@example expressions

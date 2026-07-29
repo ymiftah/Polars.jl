@@ -594,7 +594,7 @@ end
     gen_impl_expr!(polars_expr_exp, Expr::exp, "`e` raised to each value of `expr`.")
     gen_impl_expr!(polars_expr_log1p, Expr::log1p, "Natural logarithm of `1 + expr`, elementwise -- more accurate than `log(lit(ℯ), expr + 1)` for values near zero.")
 
-    gen_impl_expr!(polars_expr_rle, Expr::rle, "Run-length-encodes `expr`: collapses each run of consecutive identical values into one row, a `Struct{len, value}` (see [Struct](@ref)) holding the run's length and the repeated value. Consecutive `null`s form a run like any other value.")
+    gen_impl_expr!(polars_expr_rle, Expr::rle, "Run-length-encodes `expr`: collapses each run of consecutive identical values into one row, a `Struct{len, value}` (see [Struct](@ref expr-struct)) holding the run's length and the repeated value. Consecutive `null`s form a run like any other value.")
     gen_impl_expr!(polars_expr_rle_id, Expr::rle_id, "Maps each value of `expr` to a 0-indexed run ID: rows in the same run of consecutive identical values share an ID, which increments at each run boundary. Unlike [`rle`](@ref), the column keeps its length -- one output row per input row.")
 
     gen_impl_expr!(polars_expr_n_unique, Expr::n_unique, "Counts the number of distinct values in `expr` (`null` counts as one distinct value), one result per group (or a single overall count outside a `group_by`).")
