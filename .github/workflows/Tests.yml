@@ -107,6 +107,45 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  artifact:
+    # Exercises the path outside users actually take: the prebuilt libpolars from Artifacts.toml,
+    # with NO local cargo build. Every other job builds c-polars first, so the local override in
+    # gen/prologue.jl always wins and the shipped binary is never touched -- which is exactly how
+    # the registered libpolars_jll stayed broken for so long without any job noticing.
+    #
+    # Push-only, deliberately. Artifacts.toml pins a fixed release tag, so a commit that changes
+    # c-polars/ without a matching release will fail this job. That is correct signal, but it must
+    # not block merging the PR that makes the change -- the release can only be cut after it lands.
+    # Expect main to be briefly red between such a merge and the release; see
+    # plans/jll_distribution.md.
+    runs-on: "ubuntu-22.04"
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1"
+      - uses: julia-actions/cache@v2
+
+      # Note: no `cargo build` step. That omission is the entire point of this job.
+
+      - name: Download the artifact
+        run: julia --project=. -e 'import Pkg; Pkg.instantiate()'
+
+      - name: Resolve libpolars and check symbol coverage
+        run: |
+          set -euo pipefail
+          lib=$(julia --project=. -e 'using Polars; print(Polars.API.libpolars)')
+          echo "resolved libpolars -> $lib"
+          case "$lib" in
+            *"/artifacts/"*) ;;
+            *) echo "::error::expected resolution to an installed artifact, got $lib"; exit 1 ;;
+          esac
+          python3 c-polars/check_header_drift.py --lib "$lib"
+
+      - uses: julia-actions/julia-runtest@v1
+
   docs:
     runs-on: "ubuntu-latest"
     needs: test

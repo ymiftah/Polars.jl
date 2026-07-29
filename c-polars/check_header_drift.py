@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard against drift between the Rust FFI surface and the hand-maintained C header.
+"""Guard against drift between the Rust FFI surface, the C header, and a built library.
 
 `include/polars.h` is hand-edited (see CLAUDE.md), and `src/api/generated.jl` is generated *from*
 it -- so a symbol that exists in Rust but never makes it into the header is invisible to the Julia
@@ -9,12 +9,30 @@ waiting to happen. CI already checks header -> generated.jl; this checks Rust ->
 This caught `polars_dataframe_new`, which was additionally declared `#[no_mangle] pub fn` (Rust
 ABI, not `extern "C"`) and referenced by nothing at all.
 
-Run from anywhere:  python3 c-polars/check_header_drift.py
+Two modes:
+
+    python3 c-polars/check_header_drift.py
+        Rust source -> include/polars.h. The default.
+
+    python3 c-polars/check_header_drift.py --lib path/to/libpolars.so
+        include/polars.h -> a built shared library's dynamic symbol table.
+
+The second mode exists because the distributed binary and the bindings are versioned separately:
+`Artifacts.toml` pins a fixed release tag, so a change under `c-polars/` reaches nobody until a new
+release is cut. A stale artifact produces exactly the failure that made the registered
+`libpolars_jll` useless -- an undefined symbol at first `ccall`, long after load, rather than
+anything a clean build would catch.
+
+Header -> library is the right comparison rather than Rust -> library: `#[cfg]`-gated symbols
+(e.g. `polars_expr_str_to_titlecase`, behind the `nightly` feature) are legitimately absent from
+both a default build and the header, so they drop out on their own.
 """
 
 from __future__ import annotations
 
+import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -43,6 +61,68 @@ NO_MANGLE_NON_EXTERN = re.compile(
 )
 
 
+def header_symbols() -> set[str]:
+    return set(re.findall(r"\b(polars_\w+)\s*\(", HEADER.read_text()))
+
+
+def library_symbols(lib: Path) -> set[str]:
+    """Exported `polars_*` symbols in a built shared library.
+
+    `nm` needs different flags per platform, and getting this wrong fails open -- an empty symbol
+    set would make every check trivially pass. On Linux the release artifacts are stripped
+    (`strip = "symbols"` in Cargo.toml), so only the *dynamic* symbol table survives and plain
+    `nm -g` reports "no symbols"; `-D` is mandatory. macOS keeps exports in the regular table, and
+    Mach-O prefixes C symbols with an underscore.
+    """
+    if sys.platform == "darwin":
+        argv = ["nm", "-gU", str(lib)]
+    else:
+        argv = ["nm", "-D", "--defined-only", str(lib)]
+
+    try:
+        out = subprocess.run(argv, capture_output=True, text=True, check=True).stdout
+    except FileNotFoundError:
+        sys.exit("error: `nm` not found; it ships with binutils (Linux) or Xcode CLT (macOS)")
+    except subprocess.CalledProcessError as exc:
+        sys.exit(f"error: {' '.join(argv)} failed:\n{exc.stderr.strip()}")
+
+    symbols = {
+        name.lstrip("_")
+        for name in re.findall(r"\b_?(polars_\w+)\b", out)
+    }
+    if not symbols:
+        # Fail loudly rather than reporting a vacuous pass.
+        sys.exit(f"error: no polars_* symbols found in {lib} -- wrong file, or stripped too far?")
+    return symbols
+
+
+def check_library(lib: Path) -> int:
+    declared = header_symbols()
+    exported = library_symbols(lib)
+
+    missing = sorted(declared - exported)
+    extra = sorted(exported - declared)
+
+    if missing:
+        print(f"include/polars.h declares {len(missing)} symbol(s) absent from {lib}:")
+        for name in missing:
+            print(f"  - {name}")
+        print(
+            "\nThe library is stale relative to the bindings. Every one of these is an undefined"
+            "\nsymbol at first `ccall`. If this is the published artifact, cut a new release:"
+            "\nbump c-polars/Cargo.toml, then run the `Release libpolars` workflow."
+        )
+        return 1
+
+    if extra:
+        # Not fatal: a non-default build (e.g. --features nightly) legitimately exports more than
+        # the header, which describes the default build.
+        print(f"note: {len(extra)} symbol(s) exported but not declared in the header: {', '.join(extra)}")
+
+    print(f"OK: all {len(declared)} header-declared symbols are exported by {lib}")
+    return 0
+
+
 def main() -> int:
     rust_symbols: set[str] = set()
     cfg_gated: set[str] = set()
@@ -55,11 +135,10 @@ def main() -> int:
         cfg_gated |= {name for pair in CFG_GATED.findall(text) for name in pair if name}
         rust_abi_exports += [f"{name} ({path.name})" for name in NO_MANGLE_NON_EXTERN.findall(text)]
 
-    header_text = HEADER.read_text()
-    header_symbols = set(re.findall(r"\b(polars_\w+)\s*\(", header_text))
+    declared = header_symbols()
 
-    missing_from_header = sorted(rust_symbols - header_symbols - cfg_gated)
-    missing_from_rust = sorted(header_symbols - rust_symbols)
+    missing_from_header = sorted(rust_symbols - declared - cfg_gated)
+    missing_from_rust = sorted(declared - rust_symbols)
 
     problems = False
 
@@ -98,4 +177,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--lib",
+        type=Path,
+        metavar="PATH",
+        help="check a built shared library's exports against include/polars.h instead of "
+        "checking the Rust source against the header",
+    )
+    args = parser.parse_args()
+    sys.exit(check_library(args.lib) if args.lib else main())

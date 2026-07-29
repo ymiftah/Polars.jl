@@ -2,9 +2,9 @@
 
 ## Status
 
-Done — `libpolars-v0.2.0` published, `Artifacts.toml` committed, resolution switched off
-`libpolars_jll`. Follow-up (not done): the `artifact` CI job and `check_header_drift.py --lib`, see
-"Remaining" below.
+Done. `libpolars-v0.2.0` published, `Artifacts.toml` committed, resolution switched off
+`libpolars_jll`, and the `artifact` CI job plus `check_header_drift.py --lib` now guard against
+artifact drift. Full suite passes against the artifact: 1848 pass, 2 broken, 1850 total.
 
 ## Problem
 
@@ -77,12 +77,36 @@ See "Distributing the native library" in `docs/src/developer.md`. Short version:
 **Any change under `c-polars/` is invisible to outside users until a release is cut**, since
 `Artifacts.toml` pins a fixed tag.
 
-## Remaining
+## Drift guard
 
-1. `--lib PATH` mode on `c-polars/check_header_drift.py`: assert every header-declared symbol is
-   present in a built library's dynamic symbol table. The script already computes `header_symbols`,
-   so this is small.
-2. An `artifact` job in `Tests.yml` (push-only) that deliberately does *not* build `c-polars`, so
-   the shipped path is actually exercised — no current job tests it. Keep it off PRs: a commit
-   changing Rust without a matching release will fail it, which is correct signal but must not
-   block merges.
+Two pieces, both landed:
+
+1. **`check_header_drift.py --lib PATH`** — asserts every symbol declared in `include/polars.h` is
+   exported by a built library. Compares *header → library* rather than Rust → library so that
+   `#[cfg]`-gated symbols drop out on their own. Fails loudly if `nm` finds no `polars_*` symbols
+   at all, rather than reporting a vacuous pass.
+
+   Confirmed to have teeth against the real failure: run against the stale `libpolars_jll` 0.1.1
+   binary still sitting in the local artifact store, it reports **153 missing symbols** and exits 1
+   — `polars_expr_str_slice`, `polars_lazy_frame_join_asof`, `polars_expr_dt_convert_time_zone`,
+   the whole selector and datetime surface.
+
+2. **The `artifact` job in `Tests.yml`** — deliberately does *not* build `c-polars`, so
+   `gen/prologue.jl` falls through to the artifact. It asserts resolution actually landed in the
+   artifact store (not silently on some other library), runs the symbol check, then runs the full
+   suite. Push-only: a commit changing `c-polars/` without a matching release will fail it, which
+   is correct signal, but the release can only be cut *after* that commit lands — so `main` is
+   briefly red in between and PRs must not be blocked by it.
+
+Before this, **no CI job exercised the shipped path at all** — every job builds `c-polars` first, so
+the local override always won. That is precisely how the broken JLL survived undetected.
+
+## Possible follow-ups
+
+- More platforms (`aarch64-linux-gnu`, `x86_64-apple-darwin`, Windows): one matrix row plus one
+  `Artifacts.toml` entry each.
+- Lower the glibc floor below 2.34 with `cargo-zigbuild` (`--target x86_64-unknown-linux-gnu.2.17`)
+  or a `manylinux` container, if anyone reports needing it.
+- At General-registration time, move to a Yggdrasil-built `libpolars_jll`: restore the dependency,
+  swap the artifact branch in the prologue for `using libpolars_jll`, delete `Artifacts.toml` and
+  the release workflow. The JLL-layout tarballs keep this close to a drop-in.
