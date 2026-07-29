@@ -52,7 +52,7 @@ end
 """Elementwise ≈ that treats missing==missing and NaN==NaN as equal (upstream py-polars fixtures mix all three)."""
 approx_or_missing(actual, expected; kw...) =
     length(actual) == length(expected) && all(
-        ismissing(a) || ismissing(e) || (a isa AbstractFloat && isnan(a)) || (e isa AbstractFloat && isnan(e)) ?
+    ismissing(a) || ismissing(e) || (a isa AbstractFloat && isnan(a)) || (e isa AbstractFloat && isnan(e)) ?
         isequal(a, e) : isapprox(a, e; kw...)
         for (a, e) in zip(actual, expected)
-    )
+)
