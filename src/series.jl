@@ -54,12 +54,9 @@ Base.size(series::Series) = (series.length,)
 """
     Polars.item(series::Series)
 
-Returns the sole value of a length-1 `series` (a clear `error(...)` for any other length, matching
-[`Polars.item(::DataFrame)`](@ref)'s message shape). Reuses the existing bounds-checked
-`getindex(series, i)`.
+Returns the sole value of a length-1 `series`, and errors for any other length.
 
-Not exported under a bare `item` -- too generic/collision-prone a name to add unqualified to a
-package's top-level namespace -- reach it as `Polars.item(...)`.
+Not exported: call it as `Polars.item(...)`.
 """
 function item(series::Series)
     length(series) == 1 || error("item() requires a Series of length 1, got length $(length(series))")

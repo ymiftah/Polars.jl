@@ -181,8 +181,8 @@ result.
   have columns) — a wrong-length `new_col_names` errors rather than reading out of bounds or
   silently truncating/padding.
 
-Only these two `new_col_names` modes are supported (omitted, or an explicit name per row) — unlike
-py-polars, using an existing column's *values* as the new names is not available here.
+Only these two `new_col_names` modes are supported: omitted, or an explicit name per row. Using an
+existing column's *values* as the new names is not available.
 
 Eager-only (no `LazyFrame` method) — transposing needs the whole frame materialized first, unlike
 this package's usual `collect ∘ op ∘ lazy` pattern.

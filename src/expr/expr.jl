@@ -442,8 +442,7 @@ cast_decimal(precision::Integer, scale::Integer) = expr -> cast_decimal(expr, pr
     cast_categorical(expr::Polars.Expr)::Polars.Expr
 
 Casts `expr` to `Categorical`, using the global category registry shared by every Categorical
-column in the session (matching py-polars' default `Categorical` behavior -- there is no
-per-column category set in this wrapper). Reading a Categorical column back already materializes
+column in the session; there is no per-column category set. Reading a Categorical column back already materializes
 it as `String` with no extra step (see the `Strings` namespace for string operations on it).
 """
 function cast_categorical(expr::Expr)
@@ -468,10 +467,8 @@ end
 """
     when(pairs::Pair...; otherwise)::Polars.Expr
 
-Chained conditional expression -- the native equivalent of py-polars'
-`when(c1).then(v1).when(c2).then(v2)....otherwise(...)` builder. Evaluates each `cond => value`
-pair in order and takes the first `value` whose `cond` is `true`; falls back to `otherwise` if
-none match. `cond`s must be `Polars.Expr`s; `value`s and `otherwise` may be `Polars.Expr`s or
+Chained conditional expression. Evaluates each `cond => value` pair in order and takes the first
+`value` whose `cond` is `true`, falling back to `otherwise` if none match. `cond`s must be `Polars.Expr`s; `value`s and `otherwise` may be `Polars.Expr`s or
 literal scalars (promoted via [`lit`](@ref)).
 
 ```julia
@@ -595,10 +592,10 @@ end
     gen_impl_expr!(polars_expr_sqrt, Expr::sqrt, "Square root of each value of `expr`.")
     gen_impl_expr!(polars_expr_sign, Expr::sign, "Sign of each value of `expr`: `-1`, `0`, or `1` (float dtypes only; `NaN` maps to `NaN`).")
     gen_impl_expr!(polars_expr_exp, Expr::exp, "`e` raised to each value of `expr`.")
-    gen_impl_expr!(polars_expr_log1p, Expr::log1p, "Natural logarithm of `1 + expr`, elementwise -- more numerically accurate than `log(expr + 1)` for `expr` values near zero. Bound as `Base.log1p`, an exported Base name, so it works unqualified.")
+    gen_impl_expr!(polars_expr_log1p, Expr::log1p, "Natural logarithm of `1 + expr`, elementwise -- more accurate than `log(lit(ℯ), expr + 1)` for values near zero.")
 
-    gen_impl_expr!(polars_expr_rle, Expr::rle, "Run-length-encodes `expr`: collapses consecutive runs of identical values into one row per run, each a `Struct{len, value}` (see [Struct](@ref)) giving the run's length and its repeated value. Consecutive `null`s form a single run like any other value (three-valued equality is not used here).")
-    gen_impl_expr!(polars_expr_rle_id, Expr::rle_id, "Maps each value of `expr` to a 0-indexed run ID: rows within the same consecutive run of identical values share an ID, and the ID increments by one at each run boundary. Unlike [`rle`](@ref), this does not shorten the column -- one output row per input row.")
+    gen_impl_expr!(polars_expr_rle, Expr::rle, "Run-length-encodes `expr`: collapses each run of consecutive identical values into one row, a `Struct{len, value}` (see [Struct](@ref)) holding the run's length and the repeated value. Consecutive `null`s form a run like any other value.")
+    gen_impl_expr!(polars_expr_rle_id, Expr::rle_id, "Maps each value of `expr` to a 0-indexed run ID: rows in the same run of consecutive identical values share an ID, which increments at each run boundary. Unlike [`rle`](@ref), the column keeps its length -- one output row per input row.")
 
     gen_impl_expr!(polars_expr_n_unique, Expr::n_unique, "Counts the number of distinct values in `expr` (`null` counts as one distinct value), one result per group (or a single overall count outside a `group_by`).")
     gen_impl_expr!(polars_expr_unique, Expr::unique, "Returns the distinct values of `expr` (order not guaranteed), shortening the column. Inside `agg`, per-group distinct values are automatically collected into a `List` (see [List](@ref expr-list)) so the aggregation still produces one row per group.")
@@ -623,7 +620,7 @@ end
     gen_impl_expr!(polars_expr_reverse, Expr::reverse, "Reverses the row order of `expr`'s values.")
 
     gen_impl_expr_binary!(polars_expr_eq, Expr::eq, "Elementwise equality between `a` and `b` -- the named-function form of `a .== b` (see [Named binary functions](@ref)). Comparing against `null` gives `null`, not `false` (three-valued logic).")
-    gen_impl_expr_binary!(polars_expr_lt, Expr::lt, "Elementwise `a < b` -- the named-function form of the `<` operator. Bound as `Base.lt` since plain `lt` is an unexported internal `Base` binding; call it qualified (`Base.lt(a, b)`), or use `.>` with the arguments flipped.")
+    gen_impl_expr_binary!(polars_expr_lt, Expr::lt, "Elementwise `a < b` -- the named-function form of the `<` operator. Call it qualified as `Base.lt(a, b)`, or use `.>` with the arguments flipped.")
     gen_impl_expr_binary!(polars_expr_gt, Expr::gt, "Elementwise `a > b` -- the named-function form of `a .> b`.")
     gen_impl_expr_binary!(polars_expr_or, Expr::or, "Elementwise logical OR between two boolean expressions -- the named-function form of `a .| b`.")
     gen_impl_expr_binary!(polars_expr_xor, Expr::xor, "Elementwise logical XOR between two boolean expressions. Has no operator equivalent in this package -- must be called by name.")
@@ -649,18 +646,12 @@ end
     log(base::Polars.Expr, x::Polars.Expr)::Polars.Expr
 
 Logarithm of `x` in base `base` -- e.g. `log(lit(2), col("x"))` for log base 2. For the natural
-log, use `lit(ℯ)`.
+logarithm, use `lit(ℯ)`.
 
-!!! note "Argument order follows Base, not polars"
-    `Base.log(b, x)` takes the **base first** (`log(2, 8) == 3`), while polars' own
-    `Expr::log(base)` / py-polars' `Expr.log(base)` take the **value first**. Since this package
-    extends `Base.log` rather than defining a new name, it must match Base's signature -- so the
-    two arguments are swapped here before crossing the FFI boundary.
-
-    This is why `log` is hand-written instead of going through `@generate_expr_fns` above: that
-    macro passes arguments straight through in source order, which would silently compute
-    `log(x, base)`. Both arguments are `Expr`, so a flipped call type-checks and returns a wrong
-    number rather than erroring.
+!!! note "The base comes first"
+    Argument order matches `Base.log(b, x)`, where the base is the first argument
+    (`log(2, 8) == 3`). Both arguments are expressions, so writing them the other way round
+    produces a different number rather than an error.
 """
 function Base.log(base::Expr, x::Expr)
     out = API.polars_expr_log(x, base)
@@ -671,11 +662,6 @@ end
     log10(expr::Polars.Expr)::Polars.Expr
 
 Base-10 logarithm of each value of `expr`.
-
-There is no dedicated `Expr::log10` in polars -- upstream py-polars' own `Expr.log10()` is itself
-just sugar for `self.log(10.0)`. This is the same one-liner, composed over the already-wrapped
-binary [`log`](@ref) rather than needing any new Rust/FFI code. Bound as `Base.log10`, an exported
-Base name, matching the `log`/`round`/`diff`/`replace` qualified-name precedent above.
 """
 Base.log10(expr::Expr) = log(convert(Expr, 10), expr)
 
@@ -795,8 +781,6 @@ Replaces values equal to `old` with the corresponding `new` value (`old`/`new` a
 list-typed expressions built via [`implode`](@ref) for multi-value mappings). Values not found in
 `old` are left unchanged.
 
-Extends `Base.replace` -- `isdefined(Base, :replace)` is `true`, matching the
-`Base.diff`/`Base.round`/`Base.log` precedent.
 """
 function Base.replace(expr::Expr, old, new)
     old = convert(Expr, old)
@@ -834,9 +818,6 @@ export replace_strict
 
 Product of the values.
 
-Defined outside the `@generate_expr_fns` block, extending `Base.prod` directly rather than letting
-the macro auto-qualify the Rust method name `Expr::product`, which would land on the unexported,
-unrelated internal `Base.product` binding.
 """
 Base.prod(expr::Expr) = Expr(API.polars_expr_product(expr))
 
