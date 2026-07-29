@@ -141,7 +141,7 @@ export Series, DataFrame, PolarsError,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
     drop, rename, drop_nulls, with_row_index, explode, unpivot, unnest, nth,
-    describe, pivot, upsample, hstack, vstack, transpose
+    describe, pivot, upsample, hstack, vstack, transpose, get_column
 
 # Precompilation to reduce TTFX.
 PrecompileTools.@compile_workload begin

@@ -533,10 +533,17 @@ gen_impl_expr!(polars_expr_tan, Expr::tan);
 gen_impl_expr!(polars_expr_cosh, Expr::cosh);
 gen_impl_expr!(polars_expr_sinh, Expr::sinh);
 gen_impl_expr!(polars_expr_tanh, Expr::tanh);
+gen_impl_expr!(polars_expr_arccos, Expr::arccos);
+gen_impl_expr!(polars_expr_degrees, Expr::degrees);
+gen_impl_expr!(polars_expr_radians, Expr::radians);
 
 gen_impl_expr!(polars_expr_sqrt, Expr::sqrt);
 gen_impl_expr!(polars_expr_sign, Expr::sign);
 gen_impl_expr!(polars_expr_exp, Expr::exp);
+gen_impl_expr!(polars_expr_log1p, Expr::log1p);
+
+gen_impl_expr!(polars_expr_rle, Expr::rle);
+gen_impl_expr!(polars_expr_rle_id, Expr::rle_id);
 
 #[repr(C)]
 #[allow(dead_code)]

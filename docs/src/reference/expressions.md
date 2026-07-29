@@ -148,6 +148,11 @@ tan
 cosh
 sinh
 tanh
+arccos
+degrees
+radians
+Base.log10
+Base.log1p
 pow
 add
 sub
@@ -192,7 +197,7 @@ select(
 ```
 
 ```@example expressions
-select(dfmath, pow(col("x"), lit(2.0)) |> alias("squared"), log(abs(col("x")), lit(2.0)) |> alias("log2"), rem(col("x"), lit(3.0)) |> alias("rem3"))
+select(dfmath, pow(col("x"), lit(2.0)) |> alias("squared"), log(lit(2.0), abs(col("x"))) |> alias("log2"), rem(col("x"), lit(3.0)) |> alias("rem3"))
 ```
 
 ```@example expressions
@@ -201,6 +206,24 @@ select(
     dftrig,
     cos(col("theta")) |> alias("cos"), sin(col("theta")) |> alias("sin"), tan(col("theta")) |> alias("tan"),
     cosh(col("theta")) |> alias("cosh"), sinh(col("theta")) |> alias("sinh"), tanh(col("theta")) |> alias("tanh"),
+)
+```
+
+`arccos`/`degrees`/`radians` round out the trigonometry family; `log10`/`log1p` round out `log`
+(`log10` is pure Julia composition over the binary `log` -- there is no dedicated `Expr::log10`
+upstream).
+
+!!! note "`log` takes the base first"
+    `log(base, x)` matches `Base.log`'s own argument order (`log(2, 8) == 3`), **not** polars'
+    `Expr.log(base)`, which takes the value first. Since both arguments are expressions, a flipped
+    call is silently wrong rather than an error -- write `log(lit(2), col("x"))` for log base 2.
+
+```@example expressions
+dfmath2 = DataFrame((; x = [1.0, 100.0], theta = [1.0, 0.0]))
+select(
+    dfmath2,
+    arccos(col("theta")) |> alias("arccos"), degrees(col("theta")) |> alias("degrees"), radians(col("theta")) |> alias("radians"),
+    log10(col("x")) |> alias("log10"), log1p(col("x")) |> alias("log1p"),
 )
 ```
 
@@ -277,6 +300,8 @@ over
 as_struct
 sample_n
 sample_frac
+rle
+rle_id
 ```
 
 `reverse` reverses row order; `flatten` is the expression-level inverse of `implode` — it explodes
@@ -318,6 +343,21 @@ with_columns(df3, (sum(col("x")) |> over("g")) |> alias("group_total"))
 ```@example expressions
 df4 = DataFrame((; x = collect(1:10)))
 select(df4, sample_n(col("x"), 3; seed = 42))
+```
+
+### Run-length encoding: `rle`/`rle_id`
+
+`rle` collapses consecutive runs of identical values into one row per run (a `Struct{len, value}`
+— see [Struct](@ref)); `rle_id` instead keeps one row per input row, mapping each to a 0-indexed
+run ID that increments at every run boundary:
+
+```@example expressions
+df5 = DataFrame((; x = [1, 1, 2, 2, 2, 3]))
+select(df5, rle(col("x")))
+```
+
+```@example expressions
+select(df5, col("x"), rle_id(col("x")) |> alias("run_id"))
 ```
 
 ## Name

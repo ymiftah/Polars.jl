@@ -2,7 +2,17 @@
 
 ## Status
 
-Not started.
+Phase 1 (`arccos`, `degrees`, `radians`, `log1p`, `rle`, `rle_id`, `log10`) and Phase 5 (`item`,
+`get_column`) are **Done** — landed on the `api-wave1-unary-fns` branch, 1892 pass / 2 broken / 1894
+total (up from a 1848/2/1850 baseline). `get_column` additionally grew a `default` keyword
+(py-polars parity, not originally scoped here — see `default_series`/`default = nothing` in
+`test/operations/frame_verbs.jl`). Tests were aligned to the corresponding py-polars fixtures
+post-hoc (see `plans/pypolars_test_parity_recipe.md`) rather than left happy-path-only.
+
+Phases 2/3/4 (`gather`/`gather_every`, `is_between`/`hist`, `partition_by`) are **not started**.
+The `is_between`/`rolling_window`/`moment` Cargo features from the table below were pre-added in the
+Phase 1 rebuild (see `c-polars/Cargo.toml`) so a later wave doesn't pay a second full rebuild, but no
+Rust/Julia code uses them yet.
 
 ## Context
 

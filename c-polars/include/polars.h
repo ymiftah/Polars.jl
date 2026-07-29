@@ -829,11 +829,23 @@ const struct polars_expr_t *polars_expr_sinh(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_tanh(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_arccos(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_degrees(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_radians(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_sqrt(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_sign(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_exp(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_log1p(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_rle(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_rle_id(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_round(const struct polars_expr_t *expr,
                                               uint32_t decimals,

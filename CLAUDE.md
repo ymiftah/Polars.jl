@@ -314,6 +314,13 @@ Create one with `Pkg.develop(path=".")` plus `Pkg.add(["Aqua", "Test", "Tables",
   that one item out of the `@generate_expr_fns` block and hand-write it under the *exported* Base
   name instead (`prod`, not `product`) — same pattern already used for `std`/`var`/`quantile`/`rank`
   (extra args the macro's plain shape can't express).
+- **`@generate_expr_fns` passes arguments straight through in source order, so any polars method
+  whose argument order differs from the `Base` name it's bound to must be hand-written.** `log` is
+  the live case: `Base.log(b, x)` is base-first, polars' `Expr::log(base)` is value-first. Going
+  through the macro produced a `Base.log(a, b)` that computed `log(a)` base `b` — the reverse of
+  what `log(2, 8) == 3` means in Julia, and silently wrong rather than an error since both
+  arguments are `Expr`. It's now hand-written below the macro block, swapping before the ccall.
+  Check argument order against the Base binding before adding any binary op to that block.
 - **CSV scanning has no `hive_partitioning` option, unlike parquet/IPC** — not a scope choice, a
   real gap in upstream: `polars_lazy::frame::LazyCsvReader` (the builder `scan_csv` uses)
   hardcodes `hive_options: HiveOptions::new_disabled()` internally and doesn't expose a way to

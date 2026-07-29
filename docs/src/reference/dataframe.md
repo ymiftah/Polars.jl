@@ -52,6 +52,17 @@ df[2, :x]
 
 ```@docs
 Base.names
+get_column
+Polars.item
+```
+
+`get_column(df, name)` is a named alias for `df[name]`, for callers who prefer the py-polars-shaped
+method name over indexing syntax. `Polars.item` extracts the sole value of a 1×1 frame (or, with a
+`row`/`col` pair, is a thin renamed wrapper around `df[row, col]`) — not exported under the bare
+name `item` (too generic/collision-prone), so it's always called qualified:
+
+```@example dataframe
+Polars.item(DataFrame((; x = [42])))
 ```
 
 ## Descriptive
