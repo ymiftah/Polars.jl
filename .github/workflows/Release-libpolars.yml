@@ -1,0 +1,140 @@
+name: Build libpolars
+
+# PHASE 1 (probe) -- build only. This workflow does not publish anything yet: no release, no tag,
+# no Artifacts.toml. Its whole job is to answer questions that cannot be answered on the dev box,
+# because `cargo build --release` has never been run in this repo and the release profile
+# (thin LTO + codegen-units = 1, see c-polars/Cargo.toml) is far heavier than the dev profile:
+#
+#   1. does it compile clean on both targets?
+#   2. does `strip = "symbols"` + thin LTO preserve all 298 exported `polars_*` symbols?
+#   3. how large is the stripped library, and the tarball?
+#   4. does macos-14 (3 vCPU / 7 GB) survive the build without an OOM kill?
+#
+# The `push:` trigger below is scoped to the probe branch and is a temporary scaffold: GitHub only
+# offers `workflow_dispatch` for workflows that exist on the *default* branch, so a dispatch-only
+# workflow sitting on a feature branch cannot be triggered at all. Delete the `push:` block before
+# merging -- from `main`, `workflow_dispatch` works on its own.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - libpolars-release-probe
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux-gnu
+            runner: ubuntu-22.04
+            # ubuntu runners are 4 vCPU / 16 GB.
+            build-jobs: 4
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            # macos-14 is 3 vCPU / 7 GB -- the tightest box in the matrix, and the one most likely
+            # to OOM under codegen-units = 1. Drop to 1 if this row gets killed.
+            build-jobs: 2
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./c-polars"
+          # Deliberately NOT the "c-polars" key used by Tests.yml: that cache holds dev-profile
+          # artifacts, and release/dev profiles share nothing. Keeping them separate stops the two
+          # from evicting each other.
+          shared-key: "c-polars-release"
+
+      - name: Report runner resources
+        run: |
+          echo "runner: ${{ matrix.runner }} / build-jobs: ${{ matrix.build-jobs }}"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            sysctl -n hw.ncpu hw.memsize
+            df -h /
+          else
+            nproc
+            free -g
+            df -h /
+          fi
+
+      - name: Build libpolars (release)
+        run: cargo build --release --verbose
+        working-directory: ./c-polars
+        env:
+          CARGO_BUILD_JOBS: ${{ matrix.build-jobs }}
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+      - name: Stage into JLL layout
+        run: |
+          set -euo pipefail
+          mkdir -p staging/lib
+          if [ -f c-polars/target/release/libpolars.so ]; then
+            cp c-polars/target/release/libpolars.so staging/lib/
+          elif [ -f c-polars/target/release/libpolars.dylib ]; then
+            cp c-polars/target/release/libpolars.dylib staging/lib/
+            # JLL convention. We dlopen by absolute path so this is not load-bearing today, but it
+            # keeps the tarball drop-in compatible with a future Yggdrasil-built libpolars_jll.
+            install_name_tool -id @rpath/libpolars.dylib staging/lib/libpolars.dylib
+          else
+            echo "::error::no built library found in c-polars/target/release/"
+            ls -la c-polars/target/release/ || true
+            exit 1
+          fi
+
+      - name: Symbol parity check
+        # The dynamic symbol table IS the product. `strip = "symbols"` should only drop debug and
+        # local symbols, and `#[no_mangle] extern "C"` should survive thin LTO -- but neither has
+        # ever been verified for this crate, and a silent shortfall here is exactly the failure
+        # that makes the stale registered libpolars_jll useless (153 symbols vs the 298 needed).
+        run: |
+          set -euo pipefail
+          lib=$(ls staging/lib/libpolars.*)
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # Mach-O prefixes exported C symbols with an underscore.
+            count=$(nm -gU "$lib" | grep -c ' T _polars_' || true)
+          else
+            count=$(nm -D --defined-only "$lib" | grep -c ' T polars_' || true)
+          fi
+          echo "exported polars_* symbols: $count (expected 298)"
+          if [ "$count" -ne 298 ]; then
+            echo "::error::symbol count $count != 298 -- the release profile is dropping exports"
+            exit 1
+          fi
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^version' c-polars/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+          echo "c-polars version: $version"
+          tar -czf "libpolars.v${version}.${{ matrix.target }}.tar.gz" -C staging .
+
+      - name: Report artifact sizes
+        # Phase 1 exists partly to replace guesswork here: every size figure in the plan so far is
+        # extrapolated from the 240 MB *debug* build.
+        run: |
+          set -euo pipefail
+          echo "--- stripped library ---"
+          ls -l staging/lib/
+          echo "--- tarball ---"
+          ls -l libpolars.v*.tar.gz
+          {
+            echo "### ${{ matrix.target }}"
+            echo ""
+            echo '```'
+            du -h staging/lib/* libpolars.v*.tar.gz
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libpolars-${{ matrix.target }}
+          path: libpolars.v*.tar.gz
+          if-no-files-found: error
