@@ -15,8 +15,8 @@ pkg> add https://github.com/ymiftah/Polars.jl
 ```
 
 The native library is downloaded as a prebuilt artifact — no Rust toolchain needed — for `x86_64`
-Linux (glibc ≥ 2.34) and `aarch64` macOS. See [Installation](@ref) on the home page for other
-platforms.
+Linux (glibc ≥ 2.34) and `aarch64` macOS. On other platforms, build it from a repo checkout with
+`cd c-polars && cargo build --release`.
 
 ## Eager vs. lazy
 
