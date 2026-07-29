@@ -173,6 +173,7 @@ cum_max
 cum_count
 rank
 null_count
+has_nulls
 drop_nans
 Base.replace
 replace_strict
