@@ -31,3 +31,22 @@ end
 
     @test_throws ErrorException Polars.quantile(col("x"), 0.5; method = :bogus)
 end
+
+@testset "std / var / max / min / median / quantile against fruits_cars_df (py-polars test_std/test_var/test_max/test_min/test_median/test_quantile)" begin
+    # upstream's own fixture is literally `fruits_cars_df()`'s `A` column ([1,2,3,4,5]) -- reused
+    # rather than reinvented, pinning upstream's exact numeric answers as a regression floor.
+    df = fruits_cars_df()
+
+    @test only(select(df, alias(Polars.std(col("A")), "s"))[:s]) ≈ 1.5811388300841898
+    @test only(select(df, alias(Polars.var(col("A")), "v"))[:v]) ≈ 2.5
+    @test only(select(df, alias(Polars.max(col("A")), "m"))[:m]) == 5
+    @test only(select(df, alias(Polars.min(col("A")), "m"))[:m]) == 1
+    @test only(select(df, alias(median(col("A")), "m"))[:m]) == 3.0
+
+    for (q, m, expected) in (
+            (0.25, :nearest, 2), (0.24, :lower, 1), (0.26, :higher, 3),
+            (0.24, :midpoint, 1.5), (0.24, :linear, 1.96),
+        )
+        @test only(select(df, alias(Polars.quantile(col("A"), q; method = m), "q"))[:q]) ≈ expected
+    end
+end
