@@ -21,6 +21,31 @@ every fallible `ccall` returns a `*const polars_error_t` (null on success) along
 result. On the Julia side, this is unwrapped into a single exception type — `PolarsError`, whose
 `message` field is polars' own (Rust-side) error text, passed across the boundary unmodified.
 
+## Distributing the native library
+
+The native `libpolars` is **not** taken from the registered `libpolars_jll`. That JLL is built from
+the original upstream repo and exports roughly half the C ABI surface this fork needs, which
+surfaces as undefined-symbol failures at `ccall` time rather than at load time. Instead, binaries
+are built by the `Release libpolars` workflow, published as GitHub Release assets on this repo, and
+pinned by the root `Artifacts.toml`. Pkg fetches artifacts by URL with no registry lookup, so this
+works for an unregistered package.
+
+Resolution order lives in `gen/prologue.jl` (pasted verbatim into `src/api/generated.jl`): a local
+`cargo build --release`, then `cargo build`, then the artifact, then a clear "build from source"
+error on unsupported platforms.
+
+**Any change under `c-polars/` is invisible to outside users until a new release is cut**, since
+`Artifacts.toml` pins a fixed tag. To publish one:
+
+1. Bump `version` in `c-polars/Cargo.toml` — the single source of truth for the artifact version,
+   read by the workflow for the tag, tarball names, and download URLs. Merge that.
+2. Run the **Release libpolars** workflow from `main`. It builds every target, verifies the exported
+   symbol count matches the header, and publishes tag `libpolars-v<version>` with the tarballs.
+3. Take the generated `Artifacts.toml` from the run summary (or the downloadable artifact of the
+   same name), commit it, and merge. CI cannot commit it directly: `main` is protected and
+   `github-actions[bot]` is not an admin, and a CI-opened PR would never run the required status
+   checks because events raised with `GITHUB_TOKEN` do not trigger workflows.
+
 ## Cargo features & build configuration
 
 Some polars capabilities are gated behind Cargo features that aren't enabled by default in

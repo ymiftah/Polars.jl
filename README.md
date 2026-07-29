@@ -12,6 +12,29 @@ Polars.jl is a thin wrapper for Julia around the dataframe manipulation library 
 > and docs in this fork were written with heavy AI assistance and are **still under review**; treat
 > it as less vetted than the upstream project until that review is further along.
 
+## Installation
+
+Not yet registered in the General registry — install directly from the repo:
+
+```julia-repl
+pkg> add https://github.com/ymiftah/Polars.jl
+```
+
+The native `libpolars` library ships as a prebuilt binary artifact, so no Rust toolchain is needed.
+Binaries are published for:
+
+| Platform | Notes |
+|---|---|
+| `x86_64` Linux (glibc) | requires glibc ≥ 2.34 |
+| `aarch64` macOS (Apple Silicon) | macOS ≥ 11 |
+
+On any other platform, installation succeeds but loading raises an error telling you to build from
+source — see [Polars C-API](#polars-c-api) below. A local `cargo build` always takes precedence over
+the downloaded artifact, so contributors get their own build automatically.
+
+> Polars.jl does **not** use the registered `libpolars_jll`. That JLL is built from the original
+> upstream repo and exposes far fewer C ABI symbols than this fork needs.
+
 ## See Also
 
 Julia already has a very good dataframe story with [DataFrames.jl](https://github.com/JuliaData/DataFrames.jl), which provides a more Julian experience since any types of collections can be used as a column.
