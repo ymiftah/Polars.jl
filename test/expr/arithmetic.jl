@@ -41,6 +41,51 @@ end
     @test collect(r[:xorcol]) == [false, true, true, false]
 end
 
+@testset "boolean operators Kleene three-valued logic with missing" begin
+    # `&`/`|` on Polars.jl route through the same Rust `Expr::and`/`Expr::or` as py-polars'
+    # `&`/`|` dunders (verified against `polars-compute`'s `boolean::and`/`or` kernel source,
+    # explicitly Kleene-logic), so a `false`/`true` operand short-circuits regardless of a
+    # `missing` on the other side -- distinct from strict null propagation, where any missing
+    # operand would poison the whole row.
+    df = DataFrame((; a = [false, true, missing], b = Union{Missing, Bool}[missing, missing, missing]))
+    r = select(df, alias(col("a") & col("b"), "and"), alias(col("a") | col("b"), "or"))
+    @test isequal(collect(r[:and]), [false, missing, missing]) # false & anything = false
+    @test isequal(collect(r[:or]), [missing, true, missing]) # true | anything = true
+
+    # bitwise `|`/`&` also work on plain integer columns (not just Bool), per py-polars'
+    # test_bitwise_6311 -- these are the same Rust operator, not a separate boolean-only path
+    df_int = DataFrame((; flag = [0, 0, 0, 0]))
+    r_int = select(df_int, alias(Polars.or(col("flag"), lit(2)), "flag"))
+    @test collect(r_int[:flag]) == [2, 2, 2, 2]
+end
+
+@testset "arithmetic null propagation (py-polars test_arithmetic_null_count / test_null_column_arithmetic)" begin
+    # one operand missing per-row, both broadcast directions
+    df = DataFrame((; a = [1, missing, 2], b = [missing, 2, 1]))
+    r = select(
+        df, alias(col("a") + col("b"), "add"),
+        alias(lit(1) + col("b"), "broadcast_left"),
+        alias(col("a") + lit(1), "broadcast_right"),
+    )
+    @test isequal(collect(r[:add]), [missing, missing, 3])
+    @test isequal(collect(r[:broadcast_left]), [missing, 3, 2])
+    @test isequal(collect(r[:broadcast_right]), [2, missing, 3])
+
+    # an entirely-null column: every row of the result is missing, not an error. Uses an
+    # explicitly-typed `Union{Missing,Int}` fixture rather than the bare `[missing, missing]`
+    # literal -- the latter constructs as a plain `Vector{Missing}`, which currently crashes
+    # DataFrame construction with an UndefVarError (see plans/parity/batch-1-math-arithmetic.md;
+    # genuine Julia-side gap, deferred to the dataframe/construction.jl batch, not this one).
+    df_null = DataFrame((; a = Union{Missing, Int}[missing, missing], b = Union{Missing, Int}[missing, missing]))
+    r_null = select(df_null, alias(col("a") + col("b"), "add"))
+    @test isequal(collect(r_null[:add]), [missing, missing])
+end
+
+@testset "pow: null exponent raises cleanly (py-polars test_power_series, Step 5 process-abort check)" begin
+    df = DataFrame((; a = [1, 2]))
+    @test_throws PolarsError select(df, alias(col("a")^lit(missing), "a"))
+end
+
 @testset "arithmetic edge cases" begin
     # Division by zero produces Inf (for float division)
     df_div = DataFrame((; x = [1.0, 2.0, 3.0], y = [1.0, 0.0, -1.0]))
