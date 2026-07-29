@@ -1,7 +1,14 @@
 Manifest.toml
 docs/node_modules/
 docs/build/
-.claude/
+# `.claude/*` (not `.claude/`) so git still descends into the directory to evaluate the
+# `!.claude/skills/` negation below -- gitignore can never re-include a path whose parent
+# directory itself is excluded, which `.claude/` alone would do.
+.claude/*
+# ...except checked-in skills -- e.g. .claude/skills/pypolars-test-parity/ -- which are project
+# documentation like any other file, not personal/local config like settings.local.json above.
+!.claude/skills/
+!.claude/skills/**
 
 # Repo-root scratch directory for local experiments; anchored so it can't swallow a real
 # `debug/` directory nested anywhere else in the tree.
