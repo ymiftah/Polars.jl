@@ -16,6 +16,23 @@
     df2 = DataFrame((; x = [1.0, 5.0, 10.0]))
     r_clip = select(df2, alias(clip(col("x"), lit(2.0), lit(8.0)), "c"))
     @test r_clip[:c] == [2.0, 5.0, 8.0]
+
+    # round on an integer column is a no-op (py-polars test_round_int)
+    df_int = DataFrame((; x = [1, 2, 3]))
+    r_int = select(df_int, alias(Base.round(col("x")), "r"))
+    @test r_int[:r] == [1, 2, 3]
+
+    # clip: a null bound (per-row, not a scalar) passes that side through unclamped -- upstream
+    # test_clip_int's exact fixture, including its own missing/mixed-bound rows
+    df_clip_null = DataFrame(
+        (;
+            a = [1, 2, 3, 4, 5, missing],
+            mn = [0, -1, 4, missing, 4, -10],
+            mx = [2, 1, 8, 5, missing, 10],
+        )
+    )
+    r_clip_null = select(df_clip_null, alias(clip(col("a"), col("mn"), col("mx")), "clip"))
+    @test isequal(collect(r_clip_null[:clip]), [1, 1, 4, 4, 5, missing])
 end
 
 @testset "log / exp / sqrt / sign / %" begin
@@ -35,4 +52,31 @@ end
     df2 = DataFrame((; x = [7, 8, 9, 10]))
     r2 = select(df2, alias(col("x") % lit(3), "m"))
     @test r2[:m] == [1, 2, 0, 1]
+end
+
+@testset "sqrt / log / abs domain edges and wrong-dtype (py-polars test_sqrt_neg_inf, test_log_exp, test_abs_non_numeric)" begin
+    # sqrt of negative -> NaN, sqrt(0) -> 0, sqrt(Inf) -> Inf -- upstream's exact fixture
+    df_sqrt = DataFrame((; val = [-Inf, -9.0, 0.0, 9.0, Inf]))
+    r_sqrt = select(df_sqrt, alias(Base.sqrt(col("val")), "sqrt"))
+    out_sqrt = collect(r_sqrt[:sqrt])
+    @test isnan(out_sqrt[1]) && isnan(out_sqrt[2])
+    @test out_sqrt[3] == 0.0 && out_sqrt[4] == 3.0 && isinf(out_sqrt[5]) && out_sqrt[5] > 0
+
+    # log domain edges: log(0) -> -Inf, log(negative) -> NaN (base e via lit(exp(1.0)); note the
+    # base comes first, matching Base.log(b, x) -- see CLAUDE.md's `@generate_expr_fns` note)
+    df_log = DataFrame((; x = [0.0, -1.0, exp(1.0)]))
+    r_log = select(df_log, alias(Base.log(lit(exp(1.0)), col("x")), "ln"))
+    out_log = collect(r_log[:ln])
+    @test isinf(out_log[1]) && out_log[1] < 0
+    @test isnan(out_log[2])
+    @test out_log[3] ≈ 1.0
+
+    # abs: missing propagates, non-numeric (String) raises a clean PolarsError rather than
+    # aborting the process (Step 5 -- process-abort check, see CLAUDE.md)
+    df_abs = DataFrame((; a = [-1, 0, 1, missing]))
+    r_abs = select(df_abs, alias(abs(col("a")), "a"))
+    @test isequal(collect(r_abs[:a]), [1, 0, 1, missing])
+
+    df_abs_str = DataFrame((; a = ["p", "q", "r"]))
+    @test_throws PolarsError select(df_abs_str, alias(abs(col("a")), "a"))
 end
