@@ -14,6 +14,10 @@ Not yet registered in the General registry — install directly from the repo:
 pkg> add https://github.com/ymiftah/Polars.jl
 ```
 
+The native library is downloaded as a prebuilt artifact — no Rust toolchain needed — for `x86_64`
+Linux (glibc ≥ 2.34) and `aarch64` macOS. See [Installation](@ref) on the home page for other
+platforms.
+
 ## Eager vs. lazy
 
 Polars.jl provides two frame types:

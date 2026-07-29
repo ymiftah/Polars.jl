@@ -73,3 +73,11 @@ Not yet registered in the General registry — install directly from the repo:
 ```julia-repl
 pkg> add https://github.com/ymiftah/Polars.jl
 ```
+
+The native `libpolars` library is downloaded as a prebuilt binary artifact, so no Rust toolchain is
+required. Binaries are published for **`x86_64` Linux** (glibc ≥ 2.34) and **`aarch64` macOS**
+(Apple Silicon, macOS ≥ 11).
+
+On any other platform the install itself succeeds, but loading Polars raises an error directing you
+to build from source (`cd c-polars && cargo build --release` in a checkout). A local build always
+takes precedence over the downloaded artifact, so contributors automatically get their own.
