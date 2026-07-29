@@ -119,10 +119,7 @@ jobs:
     # Expect main to be briefly red between such a merge and the release; see
     # plans/jll_distribution.md.
     runs-on: "ubuntu-22.04"
-    # TEMPORARY(drift-guard): the `|| github.head_ref ==` clause exists only so this job can be
-    # validated on its own PR -- it is push-only by design and would otherwise never run before
-    # merging. Remove that clause before merge.
-    if: github.event_name == 'push' || github.head_ref == 'libpolars-artifact-drift-guard'
+    if: github.event_name == 'push'
 
     steps:
       - uses: actions/checkout@v4
