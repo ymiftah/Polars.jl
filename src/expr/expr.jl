@@ -821,25 +821,19 @@ Product of the values.
 """
 Base.prod(expr::Expr) = Expr(API.polars_expr_product(expr))
 
-import Statistics: mean, median, std, var, quantile
+import Statistics: cor, cov, mean, median, quantile, std, var
 
 """
     mean(expr::Polars.Expr)::Polars.Expr
 
 Arithmetic mean of the values.
-
-Extends `Statistics.mean` rather than going through the `@generate_expr_fns` block, so the two
-packages share one generic function instead of clashing when both are loaded.
-
-See [`median`](@ref) for the same story applied to the median.
 """
 Statistics.mean(expr::Expr) = Expr(API.polars_expr_mean(expr))
 
 """
     median(expr::Polars.Expr)::Polars.Expr
 
-Median of the values. Extends `Statistics.median` for the same reason [`mean`](@ref) extends
-`Statistics.mean` -- see its docstring.
+Median of the values.
 """
 Statistics.median(expr::Expr) = Expr(API.polars_expr_median(expr))
 
@@ -847,13 +841,10 @@ Statistics.median(expr::Expr) = Expr(API.polars_expr_median(expr))
     std(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
 Standard deviation of the values, with `ddof` degrees of freedom subtracted (defaults to
-`ddof=1`). Extends `Statistics.std` (see the [`mean`](@ref)/[`median`](@ref) docstring above for
-why).
+`ddof=1`).
 
 !!! note
-    No curried (`|>`) form: `Statistics.std(; ddof=2)` with no positional argument at all would
-    be type piracy (nothing in that signature mentions `Expr`) -- use `x -> std(x; ddof=2)`
-    instead.
+    No curried (`|>`) form -- use `x -> std(x; ddof=2)` instead.
 """
 function Statistics.std(expr::Expr; ddof::Integer = 1)
     out = API.polars_expr_std(expr, UInt8(ddof))
@@ -864,7 +855,9 @@ end
     var(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
 Variance of the values, with `ddof` degrees of freedom subtracted (defaults to `ddof=1`).
-Extends `Statistics.var` -- see [`std`](@ref)'s docstring for why there's no curried form.
+
+!!! note
+    No curried (`|>`) form -- use `x -> var(x; ddof=2)` instead.
 """
 function Statistics.var(expr::Expr; ddof::Integer = 1)
     out = API.polars_expr_var(expr, UInt8(ddof))
@@ -878,8 +871,8 @@ Computes the `q`-th quantile (`q` an `Expr` or a numeric literal in `[0, 1]`) of
 the given interpolation `method`: one of `:nearest` (default), `:lower`, `:higher`, `:midpoint`,
 `:linear`, `:equiprobable`.
 
-Extends `Statistics.quantile` -- see [`std`](@ref)'s docstring for why there's no curried form
-(`q |> quantile(0.5)`-style currying would need a piratical zero-`Expr`-argument method).
+!!! note
+    No curried (`|>`) form -- use `x -> quantile(x, 0.5)` instead.
 """
 function Statistics.quantile(expr::Expr, q; method::Symbol = :nearest)
     q = convert(Expr, q)
@@ -906,6 +899,51 @@ function Statistics.quantile(expr::Expr, q; method::Symbol = :nearest)
 end
 
 export mean, median, std, var, quantile
+
+"""
+    cov(a::Polars.Expr, b::Polars.Expr; ddof::Integer=1)::Polars.Expr
+
+Covariance between `a` and `b`, with `ddof` degrees of freedom subtracted (defaults to `ddof=1`,
+the sample covariance -- use `ddof=0` for the population covariance).
+
+!!! note
+    No curried (`|>`) form.
+"""
+function Statistics.cov(a::Expr, b::Expr; ddof::Integer = 1)
+    out = API.polars_expr_cov(a, b, UInt8(ddof))
+    return Expr(out)
+end
+
+"""
+    cor(a::Polars.Expr, b::Polars.Expr)::Polars.Expr
+
+Pearson correlation coefficient between `a` and `b`. A constant (zero-variance) input gives `NaN`
+rather than an error.
+"""
+function Statistics.cor(a::Expr, b::Expr)
+    out = API.polars_expr_pearson_corr(a, b)
+    return Expr(out)
+end
+
+export cov, cor
+
+"""
+    spearman_rank_corr(a::Polars.Expr, b::Polars.Expr; propagate_nans::Bool=true)::Polars.Expr
+
+Spearman rank correlation coefficient between `a` and `b` -- unlike [`cor`](@ref) (Pearson), this
+measures monotonic rather than strictly linear association, so a monotonic-but-nonlinear
+relationship (e.g. `y = x^3`) gives exactly `1.0` here even though its Pearson correlation is
+below `1.0`.
+
+If `propagate_nans` is `true` (the default), any `NaN` in either input makes the result `NaN`; if
+`false`, `NaN`s are instead treated as larger than any finite value when ranking.
+"""
+function spearman_rank_corr(a::Expr, b::Expr; propagate_nans::Bool = true)
+    out = API.polars_expr_spearman_rank_corr(a, b, propagate_nans)
+    return Expr(out)
+end
+
+export spearman_rank_corr
 
 """
     over(expr::Polars.Expr, partition_by...; mapping_strategy::Symbol=:group_to_rows,
@@ -1023,6 +1061,41 @@ Curried form of [`arg_sort`](@ref) for use with `|>`.
 arg_sort(; descending::Bool = false, nulls_last::Bool = false) = expr -> arg_sort(expr; descending, nulls_last)
 
 export arg_sort
+
+"""
+    gather(expr::Polars.Expr, idx; null_on_oob::Bool=false)::Polars.Expr
+
+Takes the values of `expr` at the given `idx` positions -- an `Expr`, or a literal integer vector
+(promoted via [`lit`](@ref)).
+
+**0-based**, unlike [`Polars.nth`](@ref)/`Selectors.by_index` -- those are static column selectors
+supplied directly by the caller, whereas `idx` here is itself computed data and most naturally
+comes from [`arg_sort`](@ref)/`arg_min`/`arg_max`, which already return 0-indexed row positions (see
+their docstrings); matching that avoids an off-by-one when chaining `gather(x, arg_sort(y))`.
+Negative indices count from the end, same as `nth`.
+
+If `null_on_oob` is `false` (the default), an out-of-bounds index raises a `PolarsError` once the
+result is collected; if `true`, it produces `missing` instead.
+"""
+function gather(expr::Expr, idx; null_on_oob::Bool = false)
+    idx = convert(Expr, idx)
+    out = API.polars_expr_gather(expr, idx, null_on_oob)
+    return Expr(out)
+end
+
+export gather
+
+"""
+    gather_every(expr::Polars.Expr, n::Integer; offset::Integer=0)::Polars.Expr
+
+Takes every `n`th value of `expr`, starting at the 0-based position `offset`.
+"""
+function gather_every(expr::Expr, n::Integer; offset::Integer = 0)
+    out = API.polars_expr_gather_every(expr, n, offset)
+    return Expr(out)
+end
+
+export gather_every
 
 """
     top_k(expr::Polars.Expr, k)::Polars.Expr

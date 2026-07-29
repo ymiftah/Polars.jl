@@ -8,8 +8,8 @@ use polars_ops::series::round::RoundMode;
 use polars_ops::series::InterpolationMethod;
 use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_plan::dsl::functions::{
-    all_horizontal, any_horizontal, as_struct, coalesce, max_horizontal, mean_horizontal,
-    min_horizontal, sum_horizontal,
+    all_horizontal, any_horizontal, as_struct, coalesce, cov, max_horizontal, mean_horizontal,
+    min_horizontal, pearson_corr, spearman_rank_corr, sum_horizontal,
 };
 use polars_plan::dsl::DataTypeExpr;
 use polars_plan::prelude::Literal;
@@ -386,6 +386,38 @@ pub unsafe extern "C" fn polars_expr_var(
 ) -> *const polars_expr_t {
     let expr = (*expr).inner.clone();
     make_expr(expr.var(ddof))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cov(
+    a: *const polars_expr_t,
+    b: *const polars_expr_t,
+    ddof: u8,
+) -> *const polars_expr_t {
+    let a = (*a).inner.clone();
+    let b = (*b).inner.clone();
+    make_expr(cov(a, b, ddof))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_pearson_corr(
+    a: *const polars_expr_t,
+    b: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let a = (*a).inner.clone();
+    let b = (*b).inner.clone();
+    make_expr(pearson_corr(a, b))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_spearman_rank_corr(
+    a: *const polars_expr_t,
+    b: *const polars_expr_t,
+    propagate_nans: bool,
+) -> *const polars_expr_t {
+    let a = (*a).inner.clone();
+    let b = (*b).inner.clone();
+    make_expr(spearman_rank_corr(a, b, propagate_nans))
 }
 
 #[repr(C)]
@@ -865,6 +897,35 @@ pub unsafe extern "C" fn polars_expr_sample_frac(
     let expr = (*expr).inner.clone();
     let frac = (*frac).inner.clone();
     make_expr(expr.sample_frac(frac, with_replacement, shuffle, seed))
+}
+
+/// Takes values at 0-based positions given by `idx` (itself an expression, e.g. a literal array
+/// or the result of `arg_sort`). Negative indices count from the end. Building the plan never
+/// fails here -- an out-of-bounds index with `null_on_oob = false` only surfaces as a
+/// `PolarsResult::Err` once the plan is actually executed (e.g. at `collect`), which already goes
+/// through this crate's fallible out-param + error-pointer convention on that call.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_gather(
+    expr: *const polars_expr_t,
+    idx: *const polars_expr_t,
+    null_on_oob: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let idx = (*idx).inner.clone();
+    make_expr(expr.gather(idx, null_on_oob))
+}
+
+/// Takes every `n`th value starting at 0-based position `offset`. `n == 0` is rejected with a
+/// proper `PolarsResult::Err` at execution time (`polars-core`'s `Series::gather_every` guards it
+/// with `polars_ensure!`), not a panic, so it also flows through the same fallible-collect path.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_gather_every(
+    expr: *const polars_expr_t,
+    n: usize,
+    offset: usize,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.gather_every(n, offset))
 }
 
 macro_rules! gen_impl_expr_list {

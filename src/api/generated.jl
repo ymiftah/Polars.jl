@@ -737,6 +737,18 @@ function polars_expr_var(expr, ddof)
     return @ccall libpolars.polars_expr_var(expr::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
 end
 
+function polars_expr_cov(a, b, ddof)
+    return @ccall libpolars.polars_expr_cov(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
+end
+
+function polars_expr_pearson_corr(a, b)
+    return @ccall libpolars.polars_expr_pearson_corr(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_spearman_rank_corr(a, b, propagate_nans)
+    return @ccall libpolars.polars_expr_spearman_rank_corr(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, propagate_nans::Bool)::Ptr{polars_expr_t}
+end
+
 function polars_expr_when_then_otherwise(cond, then, otherwise)
     return @ccall libpolars.polars_expr_when_then_otherwise(cond::Ptr{polars_expr_t}, then::Ptr{polars_expr_t}, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1058,6 +1070,24 @@ end
 
 function polars_expr_sample_frac(expr, frac, with_replacement, shuffle, seed)
     return @ccall libpolars.polars_expr_sample_frac(expr::Ptr{polars_expr_t}, frac::Ptr{polars_expr_t}, with_replacement::Bool, shuffle::Bool, seed::Ptr{UInt64})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_gather(expr, idx, null_on_oob)
+
+Takes values at 0-based positions given by `idx` (itself an expression, e.g. a literal array or the result of `arg_sort`). Negative indices count from the end. Building the plan never fails here -- an out-of-bounds index with `null\\_on\\_oob = false` only surfaces as a `PolarsResult::Err` once the plan is actually executed (e.g. at `collect`), which already goes through this crate's fallible out-param + error-pointer convention on that call.
+"""
+function polars_expr_gather(expr, idx, null_on_oob)
+    return @ccall libpolars.polars_expr_gather(expr::Ptr{polars_expr_t}, idx::Ptr{polars_expr_t}, null_on_oob::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_gather_every(expr, n, offset)
+
+Takes every `n`th value starting at 0-based position `offset`. `n == 0` is rejected with a proper `PolarsResult::Err` at execution time (`polars-core`'s `Series::gather\\_every` guards it with `polars\\_ensure!`), not a panic, so it also flows through the same fallible-collect path.
+"""
+function polars_expr_gather_every(expr, n, offset)
+    return @ccall libpolars.polars_expr_gather_every(expr::Ptr{polars_expr_t}, n::Csize_t, offset::Csize_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_lengths(a)
