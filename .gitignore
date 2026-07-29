@@ -6,3 +6,7 @@ docs/build/
 # Repo-root scratch directory for local experiments; anchored so it can't swallow a real
 # `debug/` directory nested anywhere else in the tree.
 /debug/
+
+# Python bytecode from c-polars/check_header_drift.py
+__pycache__/
+*.pyc

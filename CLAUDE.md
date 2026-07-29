@@ -206,6 +206,11 @@ instance. Pattern (see `ext/PolarsTimeZonesExt.jl`, `Project.toml`'s `[weakdeps]
    `lint` CI job, with the full generated-vs-committed-header diff checked separately in the `rust`
    job. Since `generated.jl` is derived from the header, a symbol you forget in Rust (or a Rust fn
    that isn't `extern "C"`) is simply invisible to Julia rather than a build error.
+   The same script has a second mode, `--lib PATH`, checking the other end of the chain: that a
+   *built* library actually exports everything the header declares. The `artifact` CI job runs it
+   against the downloaded `Artifacts.toml` binary, because that binary is versioned separately from
+   the bindings — see "Distributing the native library" in `docs/src/developer.md`. **Any change
+   under `c-polars/` is invisible to outside users until a new libpolars release is cut.**
 5. **Regenerate `src/api/generated.jl`** by running `julia --project=gen gen/generate.jl` from the
    repo root — this picks up the new function/enum from the header automatically. Do not hand-edit
    `generated.jl` directly; if the output looks wrong, fix `c-polars/include/polars.h` or
