@@ -89,3 +89,61 @@ end
     @test ismissing(get_vals[2])  # empty list -> null
     @test ismissing(get_vals[3])  # [missing, ...] at index 0 is missing
 end
+
+@testset "Lists.get: negative indices, null index, whole-row-null list (py-polars test_list_arr_get*)" begin
+    df = DataFrame((; a = [[1, 2, 3], [4, 5], [6, 7, 8, 9]]))
+    # negative index counts from the end, matching Python's list.get(-1)
+    r_last = select(df, Lists.get(col("a"), lit(-1)) |> alias("last"))
+    @test collect(r_last[:last]) == [3, 5, 9]
+    r_neg3 = select(df, Lists.get(col("a"), lit(-3); null_on_oob = true) |> alias("n3"))
+    @test isequal(collect(r_neg3[:n3]), [1, missing, 7])  # out-of-range negative -> null
+
+    # a null index (not an out-of-bounds value index) propagates to a null result
+    r_nullidx = select(df, Lists.get(col("a"), lit(missing)) |> alias("g"))
+    @test isequal(collect(r_nullidx[:g]), [missing, missing, missing])
+
+    # a whole-row-null list (the list itself is missing, not just an element within it)
+    df2 = DataFrame((; a = Union{Missing, Vector{Int}}[missing, [1, 2]]))
+    r2 = select(df2, Lists.get(col("a"), lit(0); null_on_oob = true) |> alias("g"))
+    @test isequal(collect(r2[:g]), [missing, 1])
+end
+
+@testset "Lists.sum over Boolean lists (py-polars test_list_sum_and_dtypes)" begin
+    df = DataFrame((; a = [[true], [true, true], [true, false, true], [true, true, true]]))
+    r = select(df, Lists.sum(col("a")) |> alias("s"))
+    @test collect(r[:s]) == [1, 2, 2, 3]
+end
+
+@testset "Lists.mean/min/max with a whole-row-null list, not just a null element within a list (py-polars test_list_mean, test_list_min_max_13978)" begin
+    df_mean = DataFrame((; a = Union{Missing, Vector{Int}}[[1], [1, 2, 3], [1, 2, 3, 4], missing]))
+    r_mean = select(df_mean, Lists.mean(col("a")) |> alias("m"))
+    @test isequal(collect(r_mean[:m]), [1.0, 2.0, 2.5, missing])
+
+    df_mm = DataFrame((; a = Union{Missing, Vector{Int}}[missing, [1, 2, 3]]))
+    r_mm = select(df_mm, Lists.min(col("a")) |> alias("mn"), Lists.max(col("a")) |> alias("mx"))
+    @test isequal(collect(r_mm[:mn]), [missing, 1])
+    @test isequal(collect(r_mm[:mx]), [missing, 3])
+end
+
+@testset "Lists.unique on Boolean lists collapses repeated nulls to one (py-polars test_list_unique_boolean_22753)" begin
+    df = DataFrame(
+        (;
+            a = [
+                Union{Missing, Bool}[],
+                Union{Missing, Bool}[missing],
+                Union{Missing, Bool}[missing, missing],
+                Union{Missing, Bool}[missing, missing, missing, false],
+                Union{Missing, Bool}[
+                    missing, missing, missing, false, missing, missing, missing, true, true,
+                ],
+            ],
+        )
+    )
+    r = select(df, Lists.unique(col("a")) |> alias("u"))
+    # unique's own element order isn't guaranteed (docstring), so compare as sets per row
+    rows = [Set(collect(row)) for row in collect(r[:u])]
+    @test rows == [
+        Set{Union{Missing, Bool}}(), Set([missing]), Set([missing]), Set([missing, false]),
+        Set([missing, false, true]),
+    ]
+end
