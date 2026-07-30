@@ -3,7 +3,7 @@ name = "c-polars"
 # Source of truth for the published libpolars artifact version: the release workflow reads this
 # to name the tag (`libpolars-v<version>`), the tarballs, and the Artifacts.toml download URLs.
 # Bump it in the PR that changes the C ABI, then run the release workflow.
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [lib]
