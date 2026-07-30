@@ -665,6 +665,15 @@ Base-10 logarithm of each value of `expr`.
 """
 Base.log10(expr::Expr) = log(convert(Expr, 10), expr)
 
+"""
+    has_nulls(expr::Polars.Expr)::Polars.Expr
+
+Whether `expr` contains any `null` value, one result per group (or a single overall value outside
+a `group_by`).
+"""
+has_nulls(expr::Expr) = null_count(expr) > 0
+export has_nulls
+
 # Curried (`Fix2`-style) forms for the binary namespace-free ops above that have no natural
 # operator equivalent (unlike +/-/*//, which already read fluently as infix). Each promotes a
 # literal second argument via `convert(Expr, ...)`, matching Python polars' `.is_in([1,2,3])`,
