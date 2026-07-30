@@ -90,6 +90,22 @@ end
     @test only(r5[:r]) == "a-b-c"
 end
 
+@testset "Strings.replace: null propagation and a column (with a null) as the replacement value (py-polars test_string_replace_with_nulls_10124 / test_str_replace_null_19601)" begin
+    df = DataFrame((; col1 = Union{Missing, String}["S", "S", "S", missing, "S"]))
+    r = select(df, alias(Strings.replace(col("col1"), lit("S"), lit("O")), "n1"))
+    @test isequal(collect(r[:n1]), ["O", "O", "O", missing, "O"])
+
+    df2 = DataFrame((; key = ["1", "2"], one = Union{Missing, String}["---", missing]))
+    r2 = select(df2, alias(Strings.replace(col("key"), lit("1"), col("one")), "result"))
+    @test collect(r2[:result]) == ["---", "2"]
+end
+
+@testset "Strings.zfill: byte-based width (not character count), and null passthrough (py-polars test_str_zfill_unicode_not_respected)" begin
+    df = DataFrame((; a = Union{Missing, String}["Café", "345", "東京", missing]))
+    r = select(df, alias(Strings.zfill(col("a"), lit(6)), "z"))
+    @test isequal(collect(r[:z]), ["0Café", "000345", "東京", missing])
+end
+
 @testset "Strings.to_date / Strings.to_datetime" begin
     df = DataFrame((; d = ["2024-01-15", "2024-06-30"]))
 
