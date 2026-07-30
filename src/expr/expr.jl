@@ -669,8 +669,7 @@ Base.log10(expr::Expr) = log(convert(Expr, 10), expr)
     has_nulls(expr::Polars.Expr)::Polars.Expr
 
 Whether `expr` contains any `null` value, one result per group (or a single overall value outside
-a `group_by`). Pure Julia composition over [`null_count`](@ref) -- there is no dedicated
-`Expr::has_nulls` FFI call, and none is needed.
+a `group_by`).
 """
 has_nulls(expr::Expr) = null_count(expr) > 0
 export has_nulls
