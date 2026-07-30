@@ -84,6 +84,32 @@ end
     @test sort(filter(!ismissing, full)) == [1, 2, 3, 4]
 end
 
+@testset "gather" begin
+    df = DataFrame((; a = [1, 2, 3, 4]))
+
+    # upstream test_gather.py:11 -- negative indices count from the end; 0-based (see docstring)
+    r = select(df, gather(col("a"), lit([0, -1])) |> alias("g"))
+    @test r[:g] == [1, 4]
+
+    # null_on_oob = true -> missing instead of raising
+    r_null = select(df, gather(col("a"), lit([0, 99]); null_on_oob = true) |> alias("g"))
+    @test isequal(collect(r_null[:g]), [1, missing])
+
+    # null_on_oob = false (default) -> a catchable PolarsError, not a process abort -- the
+    # highest-value check in this testset (see CLAUDE.md's `polars_series_get` history)
+    @test_throws PolarsError collect(select(lazy(df), gather(col("a"), lit([99])) |> alias("g")))
+end
+
+@testset "gather_every" begin
+    df = DataFrame((; a = collect(1:10)))
+
+    r = select(df, gather_every(col("a"), 3) |> alias("g"))
+    @test r[:g] == [1, 4, 7, 10]
+
+    r_offset = select(df, gather_every(col("a"), 3; offset = 1) |> alias("g"))
+    @test r_offset[:g] == [2, 5, 8]
+end
+
 @testset "value_counts" begin
     df = DataFrame((; g = ["a", "a", "b", "b", "b"]))
 
