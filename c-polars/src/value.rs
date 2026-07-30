@@ -224,9 +224,8 @@ pub unsafe extern "C" fn polars_value_time_unit(value: *mut polars_value_t) -> p
     }
 }
 
-/// Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive
-/// (same convention as `polars_series_name`). Returns 0 (and leaves `out` unwritten) for a naive
-/// datetime or any non-datetime value.
+/// Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive.
+/// Returns 0 (and leaves `out` unwritten) for a naive datetime or any non-datetime value.
 #[no_mangle]
 pub unsafe extern "C" fn polars_value_time_zone(
     value: *mut polars_value_t,
