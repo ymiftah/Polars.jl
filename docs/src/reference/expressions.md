@@ -225,6 +225,7 @@ rolling_std
 rolling_var
 rank
 null_count
+has_nulls
 drop_nans
 Base.replace
 replace_strict

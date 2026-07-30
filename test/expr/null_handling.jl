@@ -15,6 +15,39 @@
     @test r2[:filled][4] == 4.0
 end
 
+@testset "has_nulls (py-polars test_has_nulls_expr / test_has_nulls_group_by) -- pure Julia composition over null_count, no FFI needed" begin
+    df = DataFrame((; a = Union{Missing, Int}[1, 2, missing], b = ["x", "y", "z"]))
+    r = select(df, alias(has_nulls(col("a")), "a"), alias(has_nulls(col("b")), "b"))
+    @test only(r[:a]) == true
+    @test only(r[:b]) == false
+
+    df_grouped = DataFrame(
+        (;
+            g = ["a", "a", "b", "b", "c", "c", "d"],
+            x = Union{Missing, Int}[1, missing, 2, 3, missing, missing, 4],
+        )
+    )
+    r_grouped = collect(agg(group_by(lazy(df_grouped), "g"), alias(has_nulls(col("x")), "x")))
+    by_group = Dict(r_grouped[:g][i] => r_grouped[:x][i] for i in 1:size(r_grouped, 1))
+    @test by_group["a"] == true
+    @test by_group["b"] == false
+    @test by_group["c"] == true
+    @test by_group["d"] == false
+end
+
+@testset "is_null / is_not_null on an all-null column (py-polars test_is_null_null)" begin
+    df = DataFrame((; x = Union{Missing, Int}[missing, missing]))
+    r = select(df, alias(is_null(col("x")), "n"), alias(is_not_null(col("x")), "nn"))
+    @test collect(r[:n]) == [true, true]
+    @test collect(r[:nn]) == [false, false]
+end
+
+@testset "fill_null with a column expression fill value, not just a literal (py-polars test_fill_null_non_lit)" begin
+    df = DataFrame((; a = Union{Missing, Int}[1, missing, 3], b = [10, 20, 30]))
+    r = select(df, alias(fill_null(col("a"), col("b")), "f"))
+    @test collect(r[:f]) == [1, 20, 3]
+end
+
 @testset "fill_null with strategy" begin
     df = DataFrame((; x = [1, missing, missing, 4, missing]))
 
