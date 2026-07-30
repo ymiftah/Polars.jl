@@ -13,6 +13,15 @@
     @test r3[:r] == ["A", "b", "C", "d"]
 end
 
+@testset "replace: many-to-one mapping, and mismatched-length raises (py-polars test_replace_old_new_many_to_one / test_replace_old_new_mismatched_lengths)" begin
+    df = DataFrame((; x = [1, 2, 2, 3]))
+    r = select(df, alias(Base.replace(col("x"), implode(lit([2, 3])), lit(9)), "r"))
+    @test r[:r] == [1, 9, 9, 9]
+
+    df2 = DataFrame((; x = [1, 2, 2, 3, 4]))
+    @test_throws PolarsError select(df2, alias(Base.replace(col("x"), implode(lit([2, 3, 4])), implode(lit([8, 9]))), "r"))
+end
+
 @testset "replace_strict" begin
     df = DataFrame((; x = ["a", "b", "c", "d"]))
 
@@ -22,6 +31,23 @@ end
     # unmapped values fall back to `default`
     r = select(df, alias(replace_strict(col("x"), lit("a"), lit("A"); default = lit("?")), "r"))
     @test r[:r] == ["A", "?", "?", "?"]
+end
+
+@testset "replace_strict: null as a mapping key (py-polars test_replace_strict_mapping_null_*)" begin
+    df = DataFrame((; a = Union{Missing, Int}[1, 2, 2, missing, missing]))
+
+    # null not specified in the mapping -> passes through as null, not an error
+    r_unspecified = select(df, alias(replace_strict(col("a"), implode(lit([1, 2])), implode(lit([10, 20]))), "r"))
+    @test isequal(collect(r_unspecified[:r]), [10, 20, 20, missing, missing])
+
+    # null specified as a mapping key -> mapped like any other value
+    r_specified = select(
+        df, alias(replace_strict(col("a"), implode(lit([1, 2, missing])), implode(lit([10, 20, 0]))), "r"),
+    )
+    @test collect(r_specified[:r]) == [10, 20, 20, 0, 0]
+
+    # incomplete mapping + a null present in the input -> raises cleanly (Step 5)
+    @test_throws PolarsError select(df, alias(replace_strict(col("a"), implode(lit([1])), implode(lit([10]))), "r"))
 end
 
 @testset "coalesce edge cases" begin
