@@ -123,6 +123,19 @@ end
     @test collect(truncated[:x]) == [1, 2, -1]
 end
 
+@testset "cast: non-strict overflow returns missing, not an error or silent wraparound (py-polars test_cast_int)" begin
+    # cast() always uses CastOptions::NonStrict (the free `cast()` fn in the vendored polars-plan
+    # crate, as opposed to Expr::cast()/Expr::strict_cast()'s own distinction -- there is no
+    # `strict` option exposed here at all, a genuine gap flagged in
+    # plans/parity/batch-6-replace-whenthen-cast.md, not fixed). Upstream's exact fixture: Int8(-1)
+    # overflows UInt8's range -> missing; an in-range value round-trips unaffected.
+    df = DataFrame((; x = Int8[-1, 5]))
+    r = select(df, alias(cast(col("x"), UInt8), "c"))
+    out = collect(r[:c])
+    @test ismissing(out[1])
+    @test out[2] == 0x05
+end
+
 @testset "cast to every remaining supported dtype" begin
     df = DataFrame((; x = [1, 2, 3]))
 
