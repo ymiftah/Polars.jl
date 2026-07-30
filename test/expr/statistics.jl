@@ -93,3 +93,28 @@ end
     @test isnan(only(select(dn, spearman_rank_corr(col("x"), col("y"); propagate_nans = true) |> alias("s"))[:s]))
     @test only(select(dn, spearman_rank_corr(col("x"), col("y")) |> alias("s"))[:s]) ≈ 1.0
 end
+
+@testset "skew (py-polars test_skew)" begin
+    df = DataFrame((; a = [1, 2, 3, 2, 2, 3, 0]))
+
+    @test only(select(df, alias(skew(col("a")), "s"))[:s]) ≈ -0.5953924651018018
+    @test only(select(df, alias(skew(col("a"); bias = true), "s"))[:s]) ≈ -0.5953924651018018
+    @test only(select(df, alias(skew(col("a"); bias = false), "s"))[:s]) ≈ -0.7717168360221258
+end
+
+@testset "kurtosis (py-polars test_kurtosis / test_kurtosis_same_vals)" begin
+    df = DataFrame((; a = [1, 2, 3, 2, 2, 3, 0]))
+
+    @test only(select(df, alias(kurtosis(col("a")), "k"))[:k]) ≈ -0.6406250000000004
+    @test only(select(df, alias(kurtosis(col("a"); fisher = true, bias = true), "k"))[:k]) ≈ -0.6406250000000004
+
+    # non-default fisher/bias combinations -- exercised, not just the default
+    kf = only(select(df, alias(kurtosis(col("a"); fisher = false), "k"))[:k])
+    kb = only(select(df, alias(kurtosis(col("a"); bias = false), "k"))[:k])
+    @test kf ≈ only(select(df, alias(kurtosis(col("a")), "k"))[:k]) + 3.0
+    @test kb != only(select(df, alias(kurtosis(col("a")), "k"))[:k])
+
+    # constant input gives NaN, not an error
+    df_const = DataFrame((; a = fill(1.0042855193121334, 11)))
+    @test isnan(only(select(df_const, alias(kurtosis(col("a")), "k"))[:k]))
+end

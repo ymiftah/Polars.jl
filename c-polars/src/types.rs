@@ -3,11 +3,8 @@ use polars_core::frame::PivotColumnNaming;
 use polars_utils::compression::ZstdLevel;
 
 /// Borrows from its parent (a `Series`, or another `polars_value_t` for struct-field access via
-/// `polars_value_struct_get`) rather than owning its data. The lifetime parameter enforces
-/// nothing across the C boundary -- it is a caller invariant, not a compiler-checked one: the
-/// caller must keep the parent alive for as long as this value is alive, and must destroy this
-/// value before the parent. The Julia side roots the parent via `Value.parent` (`src/value.jl`).
-/// See `polars_value_struct_get`'s `# Safety` doc for the struct-field case specifically.
+/// `polars_value_struct_get`) rather than owning its data. The caller must keep the parent alive
+/// for as long as this value is alive, and must destroy this value before the parent.
 pub struct polars_value_t<'a> {
     pub(crate) inner: AnyValue<'a>,
 }
@@ -32,11 +29,8 @@ pub struct polars_expr_t {
     pub(crate) inner: Expr,
 }
 
-/// Deviates from every other opaque handle in this crate, which wrap a real polars type: this one
-/// wraps the *unparsed* key/value option pairs, because `CloudOptions` cannot be constructed
-/// without knowing the target cloud scheme (`CloudScheme::from_path`), and the scheme is only
-/// known once the destination path is available -- i.e. at each scan/sink call site, not here.
-/// Resolution therefore happens per call (see `polars_lazy_frame_scan_parquet` etc.).
+/// Holds unparsed cloud storage key/value option pairs (e.g. `aws_access_key_id`); resolved into
+/// real cloud options once the destination path (and so its cloud scheme) is known.
 pub struct polars_cloud_options_t {
     pub(crate) pairs: Vec<(PlSmallStr, PlSmallStr)>,
 }

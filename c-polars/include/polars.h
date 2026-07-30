@@ -14,6 +14,13 @@ typedef enum polars_asof_strategy_t {
   PolarsAsofStrategyNearest,
 } polars_asof_strategy_t;
 
+typedef enum polars_closed_interval_t {
+  PolarsClosedIntervalBoth,
+  PolarsClosedIntervalLeft,
+  PolarsClosedIntervalRight,
+  PolarsClosedIntervalNone,
+} polars_closed_interval_t;
+
 typedef enum polars_closed_window_t {
   PolarsClosedWindowLeft,
   PolarsClosedWindowRight,
@@ -36,10 +43,8 @@ typedef enum polars_csv_compression_t {
 } polars_csv_compression_t;
 
 /**
- * Zero-Julia-arg `DataTypeSelector` leaves. Includes four variants that are parametrized in Rust
- * but exposed "any unit/any tz"-only from Julia (`Datetime`/`Duration`/`List`/`Array`) -- see the
- * gap-closure plan's Phase 2 first-cut scope exclusions: no specific time-unit/zone matching, no
- * recursive List/Array inner-selector composition in this cut.
+ * Zero-argument `DataTypeSelector` leaves. `Datetime`/`Duration`/`List`/`Array` match any
+ * unit/timezone rather than a specific one; List/Array do not support inner-selector composition.
  */
 typedef enum polars_dtype_selector_kind_t {
   PolarsDtypeSelectorKindNumeric,
@@ -227,11 +232,8 @@ typedef enum polars_window_mapping_t {
 } polars_window_mapping_t;
 
 /**
- * Deviates from every other opaque handle in this crate, which wrap a real polars type: this one
- * wraps the *unparsed* key/value option pairs, because `CloudOptions` cannot be constructed
- * without knowing the target cloud scheme (`CloudScheme::from_path`), and the scheme is only
- * known once the destination path is available -- i.e. at each scan/sink call site, not here.
- * Resolution therefore happens per call (see `polars_lazy_frame_scan_parquet` etc.).
+ * Holds unparsed cloud storage key/value option pairs (e.g. `aws_access_key_id`); resolved into
+ * real cloud options once the destination path (and so its cloud scheme) is known.
  */
 typedef struct polars_cloud_options_t polars_cloud_options_t;
 
@@ -249,11 +251,8 @@ typedef struct polars_series_t polars_series_t;
 
 /**
  * Borrows from its parent (a `Series`, or another `polars_value_t` for struct-field access via
- * `polars_value_struct_get`) rather than owning its data. The lifetime parameter enforces
- * nothing across the C boundary -- it is a caller invariant, not a compiler-checked one: the
- * caller must keep the parent alive for as long as this value is alive, and must destroy this
- * value before the parent. The Julia side roots the parent via `Value.parent` (`src/value.jl`).
- * See `polars_value_struct_get`'s `# Safety` doc for the struct-field case specifically.
+ * `polars_value_struct_get`) rather than owning its data. The caller must keep the parent alive
+ * for as long as this value is alive, and must destroy this value before the parent.
  */
 typedef struct polars_value_t polars_value_t;
 
@@ -265,8 +264,7 @@ typedef intptr_t (*IOCallback)(const void *user, const uint8_t *data, uintptr_t 
 uintptr_t polars_version(const uint8_t **out);
 
 /**
- * Borrowed pointer into the error's message, valid only as long as `err` is alive (same
- * convention as `polars_series_name`).
+ * Borrowed pointer into the error's message, valid only as long as `err` is alive.
  */
 uintptr_t polars_error_message(const struct polars_error_t *err, const uint8_t **data);
 
@@ -356,13 +354,9 @@ const struct polars_error_t *polars_dataframe_upsample(struct polars_dataframe_t
                                                        struct polars_dataframe_t **out);
 
 /**
- * Attaches loose `Series` as new columns (unlike `concat`'s `:horizontal` mode, which joins two
- * full `DataFrame`s side by side -- this is the real value-add: no second `DataFrame` needed).
- * `hstack(&self, ...)` only reads `df`, so no clone/mutation is needed here. A length mismatch
- * between `series` and `df`'s existing height, or a name collision with an existing column (or
- * between two of the given `series` themselves), surfaces as a clean `PolarsError` from
- * `DataFrame::new`'s own validation (`validate_columns_slice`) -- not a panic (verified live, see
- * `plans/definitive_guide_gap_closure.md`).
+ * Attaches loose `Series` as new columns. A length mismatch between `series` and `df`'s existing
+ * height, or a name collision with an existing column (or between two of the given `series`
+ * themselves), raises a `PolarsError`.
  */
 const struct polars_error_t *polars_dataframe_hstack(struct polars_dataframe_t *df,
                                                      struct polars_series_t *const *series,
@@ -370,36 +364,20 @@ const struct polars_error_t *polars_dataframe_hstack(struct polars_dataframe_t *
                                                      struct polars_dataframe_t **out);
 
 /**
- * Stacks `other`'s rows beneath `df`'s. `vstack(&self, other: &DataFrame)` only reads both
- * inputs, so no clone/mutation is needed here. Unlike `concat`'s `:vertical_relaxed` mode,
- * `vstack` does no supertype casting -- a genuine column-count/dtype mismatch between `df` and
- * `other` surfaces as a clean `PolarsError`, not a panic (verified live).
+ * Stacks `other`'s rows beneath `df`'s. Does no supertype casting: a column-count/dtype mismatch
+ * between `df` and `other` raises a `PolarsError`.
  */
 const struct polars_error_t *polars_dataframe_vstack(struct polars_dataframe_t *df,
                                                      struct polars_dataframe_t *other,
                                                      struct polars_dataframe_t **out);
 
 /**
- * Transposes rows and columns. Upstream `transpose(&mut self, ...)` needs `&mut self` (it
- * rechunks/materializes `self` in place before transposing) -- unlike `hstack`/`vstack` above,
- * this repo's "no caller observes the mutation" convention means we operate on a clone
- * (`.inner.clone()`, a cheap Arc-level clone) rather than `&mut (*df).inner` directly.
- *
- * Only two of upstream's three `new_col_names` modes are supported here: omitted (`None`,
- * auto-generated `"column_N"` names) and an explicit `Vec<String>` (`Either::Right`) -- a
- * zero-length `new_col_names` array is treated as "omitted", the same "empty means None"
- * convention `selector_by_name_opt` already uses elsewhere in this file. py-polars' third mode
- * (`Either::Left`: an existing column's *values* become the new names) is a deliberate scope cut
- * for this first pass, not an oversight.
- *
- * A `new_col_names` of the wrong length (relative to the transposed frame's row count, i.e.
- * `df`'s original *column* count) surfaces as a clean `ShapeMismatch` `PolarsError` from
- * `transpose_impl`'s own `polars_ensure!` check, not an index-out-of-bounds panic (verified
- * live, despite looking like a real risk on paper -- see `plans/definitive_guide_gap_closure.md`).
- * The upstream `Object`-dtype `polars_bail!` arm is a non-issue here (the `object` Cargo feature
- * isn't enabled anywhere in this crate, so no `Object`-dtype column can ever exist to hit it);
- * Struct/List columns instead fall through to the generic supertype-cast path and surface a
- * clean `PolarsError` there (verified live).
+ * Transposes rows and columns. `keep_names_as`, if given, names a new first column holding the
+ * original column names. `new_col_names`, if given (a zero-length array counts as omitted), sets
+ * the transposed frame's column names explicitly; otherwise they are auto-generated
+ * (`"column_N"`). Setting an existing column's *values* as the new names is not supported. A
+ * `new_col_names` of the wrong length (relative to `df`'s original column count) raises a
+ * `ShapeMismatch` `PolarsError`.
  */
 const struct polars_error_t *polars_dataframe_transpose(struct polars_dataframe_t *df,
                                                         const uint8_t *keep_names_as,
@@ -428,12 +406,7 @@ void polars_lazy_frame_sort(struct polars_lazy_frame_t *df,
                             bool maintain_order);
 
 /**
- * `how` selects the concat mode. Vertical/relaxed/diagonal/relaxed-diagonal all go through the
- * already-used `concat` (upstream's `concat_lf_diagonal` convenience wrapper is just `concat`
- * with `diagonal: true` set -- reusing `concat` directly needs no extra Cargo feature, unlike
- * that wrapper, which is gated behind `diagonal_concat`). `Horizontal` goes through the
- * ungated `concat_lf_horizontal` instead -- a structurally different join, not a `UnionArgs`
- * variant, so it can't share the `concat` call.
+ * `how` selects the concat mode.
  */
 const struct polars_error_t *polars_lazy_frame_concat(struct polars_lazy_frame_t *const *lfs,
                                                       uintptr_t n,
@@ -709,9 +682,7 @@ const struct polars_error_t *polars_expr_cast(const struct polars_expr_t *expr,
                                               const struct polars_expr_t **out);
 
 /**
- * Targeted cast to `Datetime(unit, tz)` -- `polars_value_type_t::to_dtype` deliberately rejects
- * this (it needs parameters a plain type code can't carry). `tz_len == 0` casts to a naive
- * (timezone-less) Datetime, matching `read_opt_str`'s null-means-None convention.
+ * Casts to `Datetime(unit, tz)`. `tz_len == 0` casts to a naive (timezone-less) Datetime.
  */
 const struct polars_error_t *polars_expr_cast_datetime(const struct polars_expr_t *expr,
                                                        enum polars_time_unit_t unit,
@@ -720,8 +691,7 @@ const struct polars_error_t *polars_expr_cast_datetime(const struct polars_expr_
                                                        const struct polars_expr_t **out);
 
 /**
- * Targeted cast to `Duration(unit)` -- see `polars_expr_cast_datetime`'s doc for why this needs
- * its own entry point rather than going through the plain type-code `cast`.
+ * Casts to `Duration(unit)`.
  */
 const struct polars_error_t *polars_expr_cast_duration(const struct polars_expr_t *expr,
                                                        enum polars_time_unit_t unit,
@@ -737,10 +707,8 @@ const struct polars_expr_t *polars_expr_cast_decimal(const struct polars_expr_t 
                                                      uintptr_t scale);
 
 /**
- * Targeted cast to `Categorical`, using the global category registry (`Categories::global()`,
- * the same one every other Categorical column in a session shares -- matching py-polars'
- * default). Reading a Categorical column back already materializes it as `String` (see
- * `polars_value_type_t::from_dtype`), so no new read path is needed for the round trip.
+ * Casts to `Categorical`, using the global category registry shared by every Categorical column
+ * in the session.
  */
 const struct polars_expr_t *polars_expr_cast_categorical(const struct polars_expr_t *expr);
 
@@ -779,17 +747,56 @@ const struct polars_expr_t *polars_expr_spearman_rank_corr(const struct polars_e
                                                            const struct polars_expr_t *b,
                                                            bool propagate_nans);
 
+const struct polars_expr_t *polars_expr_skew(const struct polars_expr_t *expr, bool bias);
+
+const struct polars_expr_t *polars_expr_kurtosis(const struct polars_expr_t *expr,
+                                                 bool fisher,
+                                                 bool bias);
+
+const struct polars_expr_t *polars_expr_is_between(const struct polars_expr_t *expr,
+                                                   const struct polars_expr_t *lower,
+                                                   const struct polars_expr_t *upper,
+                                                   enum polars_closed_interval_t closed);
+
+const struct polars_expr_t *polars_expr_rolling_mean(const struct polars_expr_t *expr,
+                                                     uintptr_t window_size,
+                                                     uintptr_t min_periods,
+                                                     bool center);
+
+const struct polars_expr_t *polars_expr_rolling_sum(const struct polars_expr_t *expr,
+                                                    uintptr_t window_size,
+                                                    uintptr_t min_periods,
+                                                    bool center);
+
+const struct polars_expr_t *polars_expr_rolling_min(const struct polars_expr_t *expr,
+                                                    uintptr_t window_size,
+                                                    uintptr_t min_periods,
+                                                    bool center);
+
+const struct polars_expr_t *polars_expr_rolling_max(const struct polars_expr_t *expr,
+                                                    uintptr_t window_size,
+                                                    uintptr_t min_periods,
+                                                    bool center);
+
+const struct polars_expr_t *polars_expr_rolling_var(const struct polars_expr_t *expr,
+                                                    uintptr_t window_size,
+                                                    uintptr_t min_periods,
+                                                    bool center,
+                                                    uint8_t ddof);
+
+const struct polars_expr_t *polars_expr_rolling_std(const struct polars_expr_t *expr,
+                                                    uintptr_t window_size,
+                                                    uintptr_t min_periods,
+                                                    bool center,
+                                                    uint8_t ddof);
+
 const struct polars_expr_t *polars_expr_when_then_otherwise(const struct polars_expr_t *cond,
                                                             const struct polars_expr_t *then,
                                                             const struct polars_expr_t *otherwise);
 
 /**
- * Chained `when(c1).then(v1).when(c2).then(v2)....otherwise(otherwise)`, flattened into two
- * parallel expr-slices (`conds`/`vals`) + a final `otherwise` -- no new builder-type FFI handle
- * is needed since `When`/`Then`/`ChainedWhen`/`ChainedThen` all fold to a single right-nested
- * `Expr::Ternary` chain, buildable directly with the existing `when`/`Then::otherwise` free
- * functions already used by `polars_expr_when_then_otherwise` above. `n == 0` degenerates to
- * `otherwise` unchanged.
+ * Chained `when(c1).then(v1).when(c2).then(v2)....otherwise(otherwise)`, given as two parallel
+ * expr-slices (`conds`/`vals`) plus a final `otherwise`. `n == 0` returns `otherwise` unchanged.
  */
 const struct polars_expr_t *polars_expr_when_then(const struct polars_expr_t *const *conds,
                                                   const struct polars_expr_t *const *vals,
@@ -797,10 +804,8 @@ const struct polars_expr_t *polars_expr_when_then(const struct polars_expr_t *co
                                                   const struct polars_expr_t *otherwise);
 
 /**
- * `order_by` is a single optional expr (null = none); `over_with_options` itself supports a
- * `Vec` of order-by columns (folding >1 into a struct key), but a single column covers the
- * common case and avoids pulling in that extra marshalling for now. `partition_by` and
- * `order_by` can't both be empty/null (upstream requires at least one).
+ * `order_by` is a single optional expr (null = none). `partition_by` and `order_by` cannot both
+ * be empty/null -- at least one is required.
  */
 const struct polars_error_t *polars_expr_over(const struct polars_expr_t *expr,
                                               const struct polars_expr_t *const *partition_by,
@@ -965,9 +970,8 @@ const struct polars_expr_t *polars_expr_fill_nan(const struct polars_expr_t *a,
                                                  const struct polars_expr_t *b);
 
 /**
- * `limit` (Backward/Forward only, ignored otherwise -- see
- * `polars_fill_null_strategy_t::to_fill_null_strategy`) is the optional-scalar null-means-None
- * convention used elsewhere (e.g. `sample_n`'s `seed`).
+ * `limit` applies only to the `Backward`/`Forward` strategies and is ignored otherwise; a null
+ * `limit` means unlimited.
  */
 const struct polars_expr_t *polars_expr_fill_null_with_strategy(
     const struct polars_expr_t *expr,
@@ -1178,8 +1182,7 @@ const struct polars_expr_t *polars_expr_dt_offset_by(const struct polars_expr_t 
 
 /**
  * `convert_time_zone`: re-labels the same instant into a different (mandatory) time zone,
- * e.g. UTC -> "America/New_York". Fails (via the out-param error convention) if `tz` is not a
- * valid IANA time zone name.
+ * e.g. UTC -> "America/New_York". Fails if `tz` is not a valid IANA time zone name.
  */
 const struct polars_error_t *polars_expr_dt_convert_time_zone(const struct polars_expr_t *expr,
                                                               const uint8_t *tz,
@@ -1248,31 +1251,22 @@ bool polars_expr_meta_has_multiple_outputs(const struct polars_expr_t *expr);
 const struct polars_expr_t *polars_expr_meta_undo_aliases(const struct polars_expr_t *expr);
 
 /**
- * `output_name()` is fallible (`PolarsResult<PlSmallStr>`) -- e.g. a wildcard or a
- * selector-expanded expression has no single well-defined output name. Written back through the
- * shared `IOCallback` machinery, same convention as `polars_value_string_get`.
+ * Fails if the expression has no single well-defined output name (e.g. a wildcard or a
+ * selector-expanded expression).
  */
 const struct polars_error_t *polars_expr_meta_output_name(const struct polars_expr_t *expr,
                                                           const void *user,
                                                           IOCallback callback);
 
 /**
- * Backs both `tree_format` (`display_as_dot = false`) and `show_graph` (`true`) via the single
- * upstream `into_tree_formatter` code path. No schema is threaded through (`None`) -- unresolved
- * column types show as untyped; a schema-aware overload is a plausible future enhancement, not
- * blocking here.
+ * Backs both `tree_format` (`display_as_dot = false`) and `show_graph` (`true`). No schema is
+ * threaded through, so unresolved column types show as untyped.
  */
 const struct polars_error_t *polars_expr_meta_tree_format(const struct polars_expr_t *expr,
                                                           bool display_as_dot,
                                                           const void *user,
                                                           IOCallback callback);
 
-/**
- * `root_names()` count + per-index `IOCallback` loop below. `root_names()` itself recomputes a
- * fresh `Vec<PlSmallStr>` on every call (cheap, and the count is always small), so this pair
- * recomputes it N+1 times across a full `_len` + N x `_get` loop -- an accepted, documented
- * non-blocking perf micro-note from the gap-closure plan, not an oversight.
- */
 uintptr_t polars_expr_meta_root_names_len(const struct polars_expr_t *expr);
 
 const struct polars_error_t *polars_expr_meta_root_names_get(const struct polars_expr_t *expr,
@@ -1283,10 +1277,7 @@ const struct polars_error_t *polars_expr_meta_root_names_get(const struct polars
 const struct polars_expr_t *polars_expr_selector_all(void);
 
 /**
- * `Selector::Empty` -- the identity element for the combinators below (`empty() | s == s`,
- * `empty() & s == empty()`). Not reachable from the public `Selectors` surface on the Julia side
- * in this first cut (see the gap-closure plan's Phase 2 scope note); kept here as a primitive
- * since it is the natural base case underlying `Selector`'s own algebra.
+ * The identity element for selector combinators (`empty() | s == s`, `empty() & s == empty()`).
  */
 const struct polars_expr_t *polars_expr_selector_empty(void);
 
@@ -1297,10 +1288,7 @@ const struct polars_error_t *polars_expr_selector_by_name(const uint8_t *const *
                                                           const struct polars_expr_t **out);
 
 /**
- * `Selector::ByIndex` -- 0-based upstream (negative indices already count back from the end via
- * `negative_to_usize` inside `into_columns`, so no extra Rust-side handling is needed here). The
- * Julia-facing `Selectors.by_index` is 1-based (matching this package's own `nth`) and converts
- * down to this 0-based primitive before calling in -- see that function's docstring.
+ * Selects columns by 0-based index; negative indices count back from the end.
  */
 const struct polars_expr_t *polars_expr_selector_by_index(const int64_t *indices,
                                                           uintptr_t n,
@@ -1501,13 +1489,7 @@ const struct polars_error_t *polars_series_schema(struct polars_series_t *series
  * Exports the series' data as a single Arrow C Data Interface `ArrowArray`, collapsing the
  * series to one chunk first if necessary. The returned `ArrowArray` is self-contained (owns its
  * buffers via the release callback) and can outlive `series` -- the caller takes ownership and
- * must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly
- * once.
- *
- * `rechunk()` is a cheap Arc-clone when `series` is already single-chunk (the common case), but
- * a genuinely fragmented series (many small chunks, e.g. after repeated `concat`/streaming
- * appends without an explicit rechunk) pays a real one-time data copy here to produce the single
- * contiguous chunk the C Data Interface export needs.
+ * must eventually invoke `.release` exactly once.
  */
 const struct polars_error_t *polars_series_export_carray(struct polars_series_t *series,
                                                          ArrowArray *out);
@@ -1527,8 +1509,7 @@ struct polars_series_t *polars_series_slice(struct polars_series_t *series,
                                             uintptr_t length);
 
 /**
- * Borrowed pointer into the series' name, valid only as long as `series` is alive (the same
- * borrowed-pointer convention `polars_value_time_zone` cites this function as the reference for).
+ * Borrowed pointer into the series' name, valid only as long as `series` is alive.
  */
 uintptr_t polars_series_name(struct polars_series_t *series, const uint8_t **out);
 
@@ -1583,9 +1564,8 @@ const struct polars_error_t *polars_series_get_f64(struct polars_series_t *serie
 enum polars_time_unit_t polars_value_time_unit(struct polars_value_t *value);
 
 /**
- * Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive
- * (same convention as `polars_series_name`). Returns 0 (and leaves `out` unwritten) for a naive
- * datetime or any non-datetime value.
+ * Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive.
+ * Returns 0 (and leaves `out` unwritten) for a naive datetime or any non-datetime value.
  */
 uintptr_t polars_value_time_zone(struct polars_value_t *value, const uint8_t **out);
 

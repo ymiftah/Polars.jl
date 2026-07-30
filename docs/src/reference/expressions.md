@@ -34,6 +34,8 @@ quantile
 cov
 cor
 spearman_rank_corr
+skew
+kurtosis
 count
 n_unique
 Base.first
@@ -90,6 +92,18 @@ counts = select(df5, value_counts(col("g"); sort = true) |> alias("vc"))
 select(counts, Structs.field_by_name(col("vc"), "g"), Structs.field_by_name(col("vc"), "count"))
 ```
 
+`skew`/`kurtosis` measure the shape of a column's distribution; a constant (zero-variance) column
+gives `NaN` for `kurtosis` rather than an error:
+
+```@example expressions
+df_shape = DataFrame((; x = [1, 2, 3, 2, 2, 3, 0]))
+select(
+    df_shape,
+    skew(col("x")) |> alias("skew"),
+    kurtosis(col("x")) |> alias("kurtosis"),
+)
+```
+
 `unique` (distinct values of a column) is documented once, on the [DataFrame](@ref) page (it shares
 a name with the frame-level row-dedup verb) — inside `agg`, per-group results are automatically
 collected into a `List` (see [`list`](@ref expr-list)) so the aggregation still produces one row
@@ -111,6 +125,7 @@ is_null
 is_not_null
 is_duplicated
 is_unique
+is_between
 eq
 Base.lt
 gt
@@ -141,6 +156,14 @@ select(df, not(col("y")) |> alias("not_y"))
 ```@example expressions
 df7 = DataFrame((; x = [1, 1, 2, 3, 3, 3]))
 select(df7, col("x"), is_duplicated(col("x")) |> alias("dup"), is_unique(col("x")) |> alias("uniq"))
+```
+
+`is_between(expr, lower, upper; closed=:both)` checks each value against a `[lower, upper]` range;
+`closed` controls which side(s) are inclusive:
+
+```@example expressions
+dfbetween = DataFrame((; x = [1, 2, 3, 4, 5]))
+select(dfbetween, col("x"), is_between(col("x"), 2, 4) |> alias("between"))
 ```
 
 `eq`/`Base.lt`/`gt`/`or`/`xor`/`and` are named-function equivalents of the comparison/logical
@@ -189,6 +212,12 @@ cum_prod
 cum_min
 cum_max
 cum_count
+rolling_mean
+rolling_sum
+rolling_min
+rolling_max
+rolling_std
+rolling_var
 rank
 null_count
 drop_nans
@@ -302,6 +331,29 @@ upstream polars semantics).
 ```@example expressions
 dffs = DataFrame((; x = [1, missing, missing, 4]))
 select(dffs, fill_null(col("x"); strategy = :forward) |> alias("ffill"))
+```
+
+`rolling_mean`/`rolling_sum`/`rolling_min`/`rolling_max`/`rolling_std`/`rolling_var` compute a
+moving-window statistic: the window at a given row covers that row and the `window_size - 1` rows
+before it. `min_samples` (default `window_size`) is how many non-null values the window needs
+before producing a result — the leading `min_samples - 1` rows are `null`. `center` labels each
+result at the middle of its window instead of the last row:
+
+```@example expressions
+dfroll = DataFrame((; x = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+select(
+    dfroll,
+    col("x"),
+    rolling_mean(col("x"), 3) |> alias("rolling_mean"),
+    rolling_mean(col("x"), 3; center = true) |> alias("centered"),
+)
+```
+
+`rolling_std`/`rolling_var` also take `ddof` (the divisor for a window of length `N` is `N - ddof`,
+defaulting to `1`):
+
+```@example expressions
+select(dfroll, rolling_std(col("x"), 3) |> alias("std"), rolling_var(col("x"), 3; ddof = 0) |> alias("var_pop"))
 ```
 
 ## Manipulation/selection
