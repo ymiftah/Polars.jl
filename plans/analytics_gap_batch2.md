@@ -2,13 +2,33 @@
 
 ## Status
 
-Follows on from `plans/analytics_gap_batch.md` (coalesce/upsample/interpolate/horizontal
-reductions/as_struct, shipped) and `plans/timezones.md` (tz support, in progress as a package
-extension). This covers the remaining Tier 1/Tier 2 items from the "what's missing for most
-workflows" review, **excluding timezones** (its own plan/effort, tracked separately).
+**B1 (rolling), B2 (corr/cov), B3 (concat modes) and B4 (skew/kurtosis) are all shipped.**
+B5 (EWM), B6 (cut/qcut) and B7 (JSON I/O) remain open. See `plans/api_gap_batch_four.md` for the
+wave structure the shipped items landed under.
 
-Researched against vendored polars 0.54.4 sources. Timezone item deliberately omitted here since
-it's mid-implementation elsewhere.
+Four claims in the sections below were found to be wrong during implementation. Corrected in place,
+but flagged here because each one cost real time:
+
+- **B2: "Statistics.jl (not a dependency here)" is false.** `Statistics` is a direct dependency
+  (`Project.toml`) and `src/Polars.jl` does `using Statistics`. `cov`/`cor` therefore extend
+  `Statistics.*` rather than defining bare names. Note `isdefined(Base, :cov)` is `false` — these
+  names live in Statistics, not Base — so `@generate_expr_fns`' collision guard does **not** catch
+  them and they must be hand-written.
+- **B2: `cov`/`pearson_corr` are not unconditional.** The whole
+  `polars_plan::dsl::functions::correlation` module is `#[cfg(feature = "cov")]`-gated, and `cov`
+  was not active transitively. Confirmed with `cargo tree -e features`, per CLAUDE.md's warning that
+  the declared `features = [...]` list is not the source of truth.
+- **B4/`is_between`: `is_between` takes a `closed` argument** (`both`/`none`/`left`/`right`), so it
+  needs a `#[repr(C)]` enum mirror, not the plain wrapper assumed here.
+- **B1: the upstream keyword is `min_samples`, not `min_periods`.** The Rust struct field kept the
+  old name; py-polars renamed the public one. The Julia API uses `min_samples` and maps at the
+  boundary.
+
+B1's suggestion to skip `fn_params` also turned out to be unnecessary — `ddof` on
+`rolling_var`/`rolling_std` is reachable via `RollingFnParams::Var(RollingVarParams { ddof })` and
+is exposed.
+
+Researched against vendored polars 0.54.4 sources.
 
 ## Tier 1 — genuinely common, cheap-to-medium cost
 
@@ -37,7 +57,7 @@ needed.
   follow-up (need `RollingOptionsDynamicWindow`, a materially different shape — time-based window
   spec via a duration string, mirroring `group_by_dynamic`'s `Duration::try_parse` pattern) unless
   requested.
-- **Julia** (`src/expr.jl`, top-level, alongside `cum_sum`/`cum_prod` etc.):
+- **Julia** (`src/expr/expr.jl`, top-level, alongside `cum_sum`/`cum_prod` etc.):
   `rolling_mean(expr::Expr, window_size::Integer; min_periods::Integer = window_size, center::Bool
   = false)` and siblings. No Base collision for any of the 6 names — plain exports.
 - Test: `test/expr/rolling.jl` — a small sequential fixture (`1:10`), hand-verify a 3-window mean/
@@ -74,13 +94,11 @@ Current `polars_lazy_frame_concat` ([lib.rs:577](c-polars/src/lib.rs#L577)) hard
   already has a `diagonal: bool` field (plus `to_supertypes: bool`) — `concat_lf_diagonal` in
   upstream `polars-lazy` is confirmed to be *pure sugar* over the exact same `concat_impl` the
   existing vertical `concat` free function already calls, just with `args.diagonal = true` set
-  first. **But** `concat_lf_diagonal` itself is gated `#[cfg(feature = "diagonal_concat")]` even
-  though the underlying `UnionArgs.diagonal` field and `concat`/`concat_impl` are not
-  feature-gated at the type level — per CLAUDE.md's "missing Cargo features are a live danger"
-  warning, this strongly suggests the execution engine's diagonal-schema-alignment logic is only
-  compiled in behind that feature, so **do not** just flip `diagonal: true` on the existing
-  unconditional `concat` without adding `diagonal_concat` to Cargo.toml first — confirm this
-  empirically at implementation time (small 2-frame diagonal-schema test) before trusting it.
+  first. **Resolved:** `concat(how = :diagonal)` shipped in `914159c` and works correctly with
+  `diagonal_concat` *not* in the feature list — verified live on two frames with partially
+  overlapping schemas. The concern below about the engine's alignment logic being gated turned out
+  not to apply; no feature was needed.
+
 - **Horizontal is a genuinely new function**: `concat_lf_horizontal(inputs, options:
   HConcatOptions) -> PolarsResult<LazyFrame>` in `polars_lazy::dsl::functions`, **no feature
   gate**. `HConcatOptions { parallel: bool, strict: bool, broadcast_unit_length: bool }`,
@@ -96,7 +114,6 @@ Current `polars_lazy_frame_concat` ([lib.rs:577](c-polars/src/lib.rs#L577)) hard
   break for existing callers (keyword has a default). New `hconcat(frames::Vector{LazyFrame})`
   sibling calling the new horizontal ccall. Both get free eager `DataFrame` forms via
   `collect ∘ concat ∘ map(lazy)` (same pattern `concat` already uses).
-- Cargo feature: add `diagonal_concat`.
 - Test: extend `test/operations/concat.jl` — diagonal: two frames with partially-overlapping
   column sets, confirm the union of columns with `missing` filled for the gaps (mirrors upstream's
   own `test_diag_concat_lf` fixture shape). Horizontal: two frames with disjoint columns, same row

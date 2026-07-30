@@ -69,6 +69,13 @@ end
     PolarsAsofStrategyNearest = 2
 end
 
+@cenum polars_closed_interval_t::UInt32 begin
+    PolarsClosedIntervalBoth = 0
+    PolarsClosedIntervalLeft = 1
+    PolarsClosedIntervalRight = 2
+    PolarsClosedIntervalNone = 3
+end
+
 @cenum polars_closed_window_t::UInt32 begin
     PolarsClosedWindowLeft = 0
     PolarsClosedWindowRight = 1
@@ -93,7 +100,7 @@ end
 """
     polars_dtype_selector_kind_t
 
-Zero-Julia-arg `DataTypeSelector` leaves. Includes four variants that are parametrized in Rust but exposed "any unit/any tz"-only from Julia (`Datetime`/`Duration`/`List`/`Array`) -- see the gap-closure plan's Phase 2 first-cut scope exclusions: no specific time-unit/zone matching, no recursive List/Array inner-selector composition in this cut.
+Zero-argument `DataTypeSelector` leaves. `Datetime`/`Duration`/`List`/`Array` match any unit/timezone rather than a specific one; List/Array do not support inner-selector composition.
 """
 @cenum polars_dtype_selector_kind_t::UInt32 begin
     PolarsDtypeSelectorKindNumeric = 0
@@ -309,7 +316,7 @@ end
 """
     polars_error_message(err, data)
 
-Borrowed pointer into the error's message, valid only as long as `err` is alive (same convention as [`polars_series_name`](@ref)).
+Borrowed pointer into the error's message, valid only as long as `err` is alive.
 """
 function polars_error_message(err, data)
     return @ccall libpolars.polars_error_message(err::Ptr{polars_error_t}, data::Ptr{Ptr{UInt8}})::Csize_t
@@ -378,7 +385,7 @@ end
 """
     polars_dataframe_hstack(df, series, n, out)
 
-Attaches loose `Series` as new columns (unlike `concat`'s `:horizontal` mode, which joins two full `DataFrame`s side by side -- this is the real value-add: no second `DataFrame` needed). `hstack(&self, ...)` only reads `df`, so no clone/mutation is needed here. A length mismatch between `series` and `df`'s existing height, or a name collision with an existing column (or between two of the given `series` themselves), surfaces as a clean `PolarsError` from `DataFrame::new`'s own validation (`validate_columns_slice`) -- not a panic (verified live, see `plans/definitive\\_guide\\_gap\\_closure.md`).
+Attaches loose `Series` as new columns. A length mismatch between `series` and `df`'s existing height, or a name collision with an existing column (or between two of the given `series` themselves), raises a `PolarsError`.
 """
 function polars_dataframe_hstack(df, series, n, out)
     return @ccall libpolars.polars_dataframe_hstack(df::Ptr{polars_dataframe_t}, series::Ptr{Ptr{polars_series_t}}, n::Csize_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
@@ -387,7 +394,7 @@ end
 """
     polars_dataframe_vstack(df, other, out)
 
-Stacks `other`'s rows beneath `df`'s. `vstack(&self, other: &DataFrame)` only reads both inputs, so no clone/mutation is needed here. Unlike `concat`'s `:vertical\\_relaxed` mode, `vstack` does no supertype casting -- a genuine column-count/dtype mismatch between `df` and `other` surfaces as a clean `PolarsError`, not a panic (verified live).
+Stacks `other`'s rows beneath `df`'s. Does no supertype casting: a column-count/dtype mismatch between `df` and `other` raises a `PolarsError`.
 """
 function polars_dataframe_vstack(df, other, out)
     return @ccall libpolars.polars_dataframe_vstack(df::Ptr{polars_dataframe_t}, other::Ptr{polars_dataframe_t}, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
@@ -396,11 +403,7 @@ end
 """
     polars_dataframe_transpose(df, keep_names_as, keep_names_as_len, new_col_names, new_col_names_lens, n_new_col_names, out)
 
-Transposes rows and columns. Upstream `transpose(&mut self, ...)` needs `&mut self` (it rechunks/materializes `self` in place before transposing) -- unlike `hstack`/`vstack` above, this repo's "no caller observes the mutation" convention means we operate on a clone (`.inner.clone()`, a cheap Arc-level clone) rather than `&mut (*df).inner` directly.
-
-Only two of upstream's three `new_col_names` modes are supported here: omitted (`None`, auto-generated `"column\\_N"` names) and an explicit `Vec<String>` (`Either::Right`) -- a zero-length `new_col_names` array is treated as "omitted", the same "empty means None" convention `selector_by_name_opt` already uses elsewhere in this file. py-polars' third mode (`Either::Left`: an existing column's *values* become the new names) is a deliberate scope cut for this first pass, not an oversight.
-
-A `new_col_names` of the wrong length (relative to the transposed frame's row count, i.e. `df`'s original *column* count) surfaces as a clean `ShapeMismatch` `PolarsError` from `transpose_impl`'s own `polars\\_ensure!` check, not an index-out-of-bounds panic (verified live, despite looking like a real risk on paper -- see `plans/definitive\\_guide\\_gap\\_closure.md`). The upstream `Object`-dtype `polars\\_bail!` arm is a non-issue here (the `object` Cargo feature isn't enabled anywhere in this crate, so no `Object`-dtype column can ever exist to hit it); Struct/List columns instead fall through to the generic supertype-cast path and surface a clean `PolarsError` there (verified live).
+Transposes rows and columns. `keep_names_as`, if given, names a new first column holding the original column names. `new_col_names`, if given (a zero-length array counts as omitted), sets the transposed frame's column names explicitly; otherwise they are auto-generated (`"column\\_N"`). Setting an existing column's *values* as the new names is not supported. A `new_col_names` of the wrong length (relative to `df`'s original column count) raises a `ShapeMismatch` `PolarsError`.
 """
 function polars_dataframe_transpose(df, keep_names_as, keep_names_as_len, new_col_names, new_col_names_lens, n_new_col_names, out)
     return @ccall libpolars.polars_dataframe_transpose(df::Ptr{polars_dataframe_t}, keep_names_as::Ptr{UInt8}, keep_names_as_len::Csize_t, new_col_names::Ptr{Ptr{UInt8}}, new_col_names_lens::Ptr{Csize_t}, n_new_col_names::Csize_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
@@ -425,7 +428,7 @@ end
 """
     polars_lazy_frame_concat(lfs, n, how, out)
 
-`how` selects the concat mode. Vertical/relaxed/diagonal/relaxed-diagonal all go through the already-used `concat` (upstream's `concat_lf_diagonal` convenience wrapper is just `concat` with `diagonal: true` set -- reusing `concat` directly needs no extra Cargo feature, unlike that wrapper, which is gated behind `diagonal_concat`). `Horizontal` goes through the ungated `concat_lf_horizontal` instead -- a structurally different join, not a `UnionArgs` variant, so it can't share the `concat` call.
+`how` selects the concat mode.
 """
 function polars_lazy_frame_concat(lfs, n, how, out)
     return @ccall libpolars.polars_lazy_frame_concat(lfs::Ptr{Ptr{polars_lazy_frame_t}}, n::Csize_t, how::polars_concat_how_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
@@ -656,7 +659,7 @@ end
 """
     polars_expr_cast_datetime(expr, unit, tz, tz_len, out)
 
-Targeted cast to `Datetime(unit, tz)` -- `[`polars_value_type_t`](@ref)::to\\_dtype` deliberately rejects this (it needs parameters a plain type code can't carry). `tz\\_len == 0` casts to a naive (timezone-less) Datetime, matching `read_opt_str`'s null-means-None convention.
+Casts to `Datetime(unit, tz)`. `tz\\_len == 0` casts to a naive (timezone-less) Datetime.
 """
 function polars_expr_cast_datetime(expr, unit, tz, tz_len, out)
     return @ccall libpolars.polars_expr_cast_datetime(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, tz::Ptr{UInt8}, tz_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
@@ -665,7 +668,7 @@ end
 """
     polars_expr_cast_duration(expr, unit, out)
 
-Targeted cast to `Duration(unit)` -- see [`polars_expr_cast_datetime`](@ref)'s doc for why this needs its own entry point rather than going through the plain type-code `cast`.
+Casts to `Duration(unit)`.
 """
 function polars_expr_cast_duration(expr, unit, out)
     return @ccall libpolars.polars_expr_cast_duration(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
@@ -683,7 +686,7 @@ end
 """
     polars_expr_cast_categorical(expr)
 
-Targeted cast to `Categorical`, using the global category registry (`Categories::global()`, the same one every other Categorical column in a session shares -- matching py-polars' default). Reading a Categorical column back already materializes it as `String` (see `[`polars_value_type_t`](@ref)::from\\_dtype`), so no new read path is needed for the round trip.
+Casts to `Categorical`, using the global category registry shared by every Categorical column in the session.
 """
 function polars_expr_cast_categorical(expr)
     return @ccall libpolars.polars_expr_cast_categorical(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
@@ -749,6 +752,42 @@ function polars_expr_spearman_rank_corr(a, b, propagate_nans)
     return @ccall libpolars.polars_expr_spearman_rank_corr(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, propagate_nans::Bool)::Ptr{polars_expr_t}
 end
 
+function polars_expr_skew(expr, bias)
+    return @ccall libpolars.polars_expr_skew(expr::Ptr{polars_expr_t}, bias::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_kurtosis(expr, fisher, bias)
+    return @ccall libpolars.polars_expr_kurtosis(expr::Ptr{polars_expr_t}, fisher::Bool, bias::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_is_between(expr, lower, upper, closed)
+    return @ccall libpolars.polars_expr_is_between(expr::Ptr{polars_expr_t}, lower::Ptr{polars_expr_t}, upper::Ptr{polars_expr_t}, closed::polars_closed_interval_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rolling_mean(expr, window_size, min_periods, center)
+    return @ccall libpolars.polars_expr_rolling_mean(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rolling_sum(expr, window_size, min_periods, center)
+    return @ccall libpolars.polars_expr_rolling_sum(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rolling_min(expr, window_size, min_periods, center)
+    return @ccall libpolars.polars_expr_rolling_min(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rolling_max(expr, window_size, min_periods, center)
+    return @ccall libpolars.polars_expr_rolling_max(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rolling_var(expr, window_size, min_periods, center, ddof)
+    return @ccall libpolars.polars_expr_rolling_var(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool, ddof::UInt8)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rolling_std(expr, window_size, min_periods, center, ddof)
+    return @ccall libpolars.polars_expr_rolling_std(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool, ddof::UInt8)::Ptr{polars_expr_t}
+end
+
 function polars_expr_when_then_otherwise(cond, then, otherwise)
     return @ccall libpolars.polars_expr_when_then_otherwise(cond::Ptr{polars_expr_t}, then::Ptr{polars_expr_t}, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -756,7 +795,7 @@ end
 """
     polars_expr_when_then(conds, vals, n, otherwise)
 
-Chained `when(c1).then(v1).when(c2).then(v2)....otherwise(otherwise)`, flattened into two parallel expr-slices (`conds`/`vals`) + a final `otherwise` -- no new builder-type FFI handle is needed since `When`/`Then`/`ChainedWhen`/`ChainedThen` all fold to a single right-nested `Expr::Ternary` chain, buildable directly with the existing `when`/`Then::otherwise` free functions already used by [`polars_expr_when_then_otherwise`](@ref) above. `n == 0` degenerates to `otherwise` unchanged.
+Chained `when(c1).then(v1).when(c2).then(v2)....otherwise(otherwise)`, given as two parallel expr-slices (`conds`/`vals`) plus a final `otherwise`. `n == 0` returns `otherwise` unchanged.
 """
 function polars_expr_when_then(conds, vals, n, otherwise)
     return @ccall libpolars.polars_expr_when_then(conds::Ptr{Ptr{polars_expr_t}}, vals::Ptr{Ptr{polars_expr_t}}, n::Csize_t, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
@@ -765,7 +804,7 @@ end
 """
     polars_expr_over(expr, partition_by, n_partition_by, order_by, descending, nulls_last, mapping, out)
 
-`order_by` is a single optional expr (null = none); `over_with_options` itself supports a `Vec` of order-by columns (folding >1 into a struct key), but a single column covers the common case and avoids pulling in that extra marshalling for now. `partition_by` and `order_by` can't both be empty/null (upstream requires at least one).
+`order_by` is a single optional expr (null = none). `partition_by` and `order_by` cannot both be empty/null -- at least one is required.
 """
 function polars_expr_over(expr, partition_by, n_partition_by, order_by, descending, nulls_last, mapping, out)
     return @ccall libpolars.polars_expr_over(expr::Ptr{polars_expr_t}, partition_by::Ptr{Ptr{polars_expr_t}}, n_partition_by::Csize_t, order_by::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool, mapping::polars_window_mapping_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
@@ -1006,7 +1045,7 @@ end
 """
     polars_expr_fill_null_with_strategy(expr, strategy, limit)
 
-`limit` (Backward/Forward only, ignored otherwise -- see `[`polars_fill_null_strategy_t`](@ref)::to\\_fill\\_null\\_strategy`) is the optional-scalar null-means-None convention used elsewhere (e.g. `sample_n`'s `seed`).
+`limit` applies only to the `Backward`/`Forward` strategies and is ignored otherwise; a null `limit` means unlimited.
 """
 function polars_expr_fill_null_with_strategy(expr, strategy, limit)
     return @ccall libpolars.polars_expr_fill_null_with_strategy(expr::Ptr{polars_expr_t}, strategy::polars_fill_null_strategy_t, limit::Ptr{UInt32})::Ptr{polars_expr_t}
@@ -1287,7 +1326,7 @@ end
 """
     polars_expr_dt_convert_time_zone(expr, tz, tz_len, out)
 
-`convert_time_zone`: re-labels the same instant into a different (mandatory) time zone, e.g. UTC -> "America/New\\_York". Fails (via the out-param error convention) if `tz` is not a valid IANA time zone name.
+`convert_time_zone`: re-labels the same instant into a different (mandatory) time zone, e.g. UTC -> "America/New\\_York". Fails if `tz` is not a valid IANA time zone name.
 """
 function polars_expr_dt_convert_time_zone(expr, tz, tz_len, out)
     return @ccall libpolars.polars_expr_dt_convert_time_zone(expr::Ptr{polars_expr_t}, tz::Ptr{UInt8}, tz_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
@@ -1365,7 +1404,7 @@ end
 """
     polars_expr_meta_output_name(expr, user, callback)
 
-`output\\_name()` is fallible (`PolarsResult<PlSmallStr>`) -- e.g. a wildcard or a selector-expanded expression has no single well-defined output name. Written back through the shared [`IOCallback`](@ref) machinery, same convention as [`polars_value_string_get`](@ref).
+Fails if the expression has no single well-defined output name (e.g. a wildcard or a selector-expanded expression).
 """
 function polars_expr_meta_output_name(expr, user, callback)
     return @ccall libpolars.polars_expr_meta_output_name(expr::Ptr{polars_expr_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
@@ -1374,17 +1413,12 @@ end
 """
     polars_expr_meta_tree_format(expr, display_as_dot, user, callback)
 
-Backs both `tree_format` (`display\\_as\\_dot = false`) and `show_graph` (`true`) via the single upstream `into_tree_formatter` code path. No schema is threaded through (`None`) -- unresolved column types show as untyped; a schema-aware overload is a plausible future enhancement, not blocking here.
+Backs both `tree_format` (`display\\_as\\_dot = false`) and `show_graph` (`true`). No schema is threaded through, so unresolved column types show as untyped.
 """
 function polars_expr_meta_tree_format(expr, display_as_dot, user, callback)
     return @ccall libpolars.polars_expr_meta_tree_format(expr::Ptr{polars_expr_t}, display_as_dot::Bool, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
 end
 
-"""
-    polars_expr_meta_root_names_len(expr)
-
-`root\\_names()` count + per-index [`IOCallback`](@ref) loop below. `root\\_names()` itself recomputes a fresh `Vec<PlSmallStr>` on every call (cheap, and the count is always small), so this pair recomputes it N+1 times across a full `_len` + N x `_get` loop -- an accepted, documented non-blocking perf micro-note from the gap-closure plan, not an oversight.
-"""
 function polars_expr_meta_root_names_len(expr)
     return @ccall libpolars.polars_expr_meta_root_names_len(expr::Ptr{polars_expr_t})::Csize_t
 end
@@ -1400,7 +1434,7 @@ end
 """
     polars_expr_selector_empty()
 
-`Selector::Empty` -- the identity element for the combinators below (`empty() | s == s`, `empty() & s == empty()`). Not reachable from the public `Selectors` surface on the Julia side in this first cut (see the gap-closure plan's Phase 2 scope note); kept here as a primitive since it is the natural base case underlying `Selector`'s own algebra.
+The identity element for selector combinators (`empty() | s == s`, `empty() & s == empty()`).
 """
 function polars_expr_selector_empty()
     return @ccall libpolars.polars_expr_selector_empty()::Ptr{polars_expr_t}
@@ -1413,7 +1447,7 @@ end
 """
     polars_expr_selector_by_index(indices, n, strict)
 
-`Selector::ByIndex` -- 0-based upstream (negative indices already count back from the end via `negative_to_usize` inside `into_columns`, so no extra Rust-side handling is needed here). The Julia-facing `Selectors.by\\_index` is 1-based (matching this package's own `nth`) and converts down to this 0-based primitive before calling in -- see that function's docstring.
+Selects columns by 0-based index; negative indices count back from the end.
 """
 function polars_expr_selector_by_index(indices, n, strict)
     return @ccall libpolars.polars_expr_selector_by_index(indices::Ptr{Int64}, n::Csize_t, strict::Bool)::Ptr{polars_expr_t}
@@ -1517,9 +1551,7 @@ end
 """
     polars_series_export_carray(series, out)
 
-Exports the series' data as a single Arrow C Data Interface [`ArrowArray`](@ref), collapsing the series to one chunk first if necessary. The returned [`ArrowArray`](@ref) is self-contained (owns its buffers via the release callback) and can outlive `series` -- the caller takes ownership and must eventually invoke `.release` (directly or via a Julia-side keeper/finalizer) exactly once.
-
-`rechunk()` is a cheap Arc-clone when `series` is already single-chunk (the common case), but a genuinely fragmented series (many small chunks, e.g. after repeated `concat`/streaming appends without an explicit rechunk) pays a real one-time data copy here to produce the single contiguous chunk the C Data Interface export needs.
+Exports the series' data as a single Arrow C Data Interface [`ArrowArray`](@ref), collapsing the series to one chunk first if necessary. The returned [`ArrowArray`](@ref) is self-contained (owns its buffers via the release callback) and can outlive `series` -- the caller takes ownership and must eventually invoke `.release` exactly once.
 """
 function polars_series_export_carray(series, out)
     return @ccall libpolars.polars_series_export_carray(series::Ptr{polars_series_t}, out::Ptr{ArrowArray})::Ptr{polars_error_t}
@@ -1546,7 +1578,7 @@ end
 """
     polars_series_name(series, out)
 
-Borrowed pointer into the series' name, valid only as long as `series` is alive (the same borrowed-pointer convention [`polars_value_time_zone`](@ref) cites this function as the reference for).
+Borrowed pointer into the series' name, valid only as long as `series` is alive.
 """
 function polars_series_name(series, out)
     return @ccall libpolars.polars_series_name(series::Ptr{polars_series_t}, out::Ptr{Ptr{UInt8}})::Csize_t
@@ -1607,7 +1639,7 @@ end
 """
     polars_value_time_zone(value, out)
 
-Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive (same convention as [`polars_series_name`](@ref)). Returns 0 (and leaves `out` unwritten) for a naive datetime or any non-datetime value.
+Borrowed pointer into this datetime value's timezone name, valid as long as `value` is alive. Returns 0 (and leaves `out` unwritten) for a naive datetime or any non-datetime value.
 """
 function polars_value_time_zone(value, out)
     return @ccall libpolars.polars_value_time_zone(value::Ptr{polars_value_t}, out::Ptr{Ptr{UInt8}})::Csize_t
