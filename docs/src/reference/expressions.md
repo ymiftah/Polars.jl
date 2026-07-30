@@ -31,6 +31,9 @@ median
 std
 var
 quantile
+cov
+cor
+spearman_rank_corr
 count
 n_unique
 Base.first
@@ -60,6 +63,21 @@ propagate it — if any value in the group is `NaN`, the result is `NaN`:
 ```@example expressions
 dfnan = DataFrame((; x = [1.0, NaN, 3.0]))
 select(dfnan, min(col("x")) |> alias("min"), nan_min(col("x")) |> alias("nan_min"), max(col("x")) |> alias("max"), nan_max(col("x")) |> alias("nan_max"))
+```
+
+`cov`/`cor` take two columns rather than one; `cor` is the Pearson correlation coefficient (a
+constant column gives `NaN` rather than an error). `spearman_rank_corr` measures monotonic rather
+than strictly linear association, so a curved-but-monotonic relationship can score `1.0` there
+even though its Pearson correlation is lower:
+
+```@example expressions
+df_corr = DataFrame((; x = [1.0, 2.0, 3.0, 4.0], y = [1.0, 8.0, 27.0, 64.0]))
+select(
+    df_corr,
+    cov(col("x"), col("y")) |> alias("cov"),
+    cor(col("x"), col("y")) |> alias("pearson"),
+    spearman_rank_corr(col("x"), col("y")) |> alias("spearman"),
+)
 ```
 
 `value_counts(expr; sort=false, parallel=false, name="count", normalize=false)` counts occurrences
@@ -296,6 +314,8 @@ reverse
 is_in
 top_k
 arg_sort
+gather
+gather_every
 sort_by
 over
 as_struct
@@ -345,6 +365,27 @@ with_columns(df3, (sum(col("x")) |> over("g")) |> alias("group_total"))
 df4 = DataFrame((; x = collect(1:10)))
 select(df4, sample_n(col("x"), 3; seed = 42))
 ```
+
+`gather(expr, idx)` takes values by index; `gather_every(expr, n; offset)` takes every `n`th value.
+
+`gather`'s indices are **0-based**, and negative indices count from the end. `nth` and
+`Selectors.by_index` are 1-based instead, because they pick a column from a position written
+literally in the call, where Julia's own 1-based convention applies. `gather`'s `idx` is data
+rather than a literal — it usually comes from `arg_sort`, `arg_min` or `arg_max`, which return
+0-based positions — so `gather` shares their convention and `gather(x, arg_sort(y))` composes
+without an offset.
+
+```@example expressions
+df_gather = DataFrame((; x = [10, 20, 30, 40]))
+select(df_gather, gather(col("x"), lit([0, -1])) |> alias("first_last"))
+```
+
+```@example expressions
+select(df_gather, gather_every(col("x"), 2) |> alias("every_other"))
+```
+
+By default (`null_on_oob = false`), an out-of-bounds `gather` index raises rather than silently
+returning `missing`; pass `null_on_oob = true` to get `missing` for out-of-range positions instead.
 
 ### Run-length encoding: `rle`/`rle_id`
 

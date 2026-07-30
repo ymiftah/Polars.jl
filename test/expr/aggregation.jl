@@ -131,6 +131,78 @@ end
     @test ismissing(only(r_nan_empty[:xm]))
 end
 
+@testset "count excludes nulls, unlike size (py-polars test_count)" begin
+    df = DataFrame(
+        (;
+            nulls = Union{Missing, Int}[missing, missing, missing],
+            one_null_str = ["one", missing, "three"],
+            one_null_float = [1.0, 2.0, missing],
+            no_nulls_int = [1, 2, 3],
+        )
+    )
+    r = select(
+        df, alias(Polars.count(col("nulls")), "nulls"),
+        alias(Polars.count(col("one_null_str")), "one_null_str"),
+        alias(Polars.count(col("one_null_float")), "one_null_float"),
+        alias(Polars.count(col("no_nulls_int")), "no_nulls_int"),
+    )
+    @test only(r[:nulls]) == 0
+    @test only(r[:one_null_str]) == 2
+    @test only(r[:one_null_float]) == 2
+    @test only(r[:no_nulls_int]) == 3
+end
+
+@testset "aggregations on Boolean dtype (py-polars test_boolean_aggs)" begin
+    df = DataFrame((; bool = [true, false, missing, true]))
+    r = select(df, alias(mean(col("bool")), "mean"), alias(Polars.std(col("bool")), "std"), alias(Polars.var(col("bool")), "var"))
+    @test only(r[:mean]) ≈ 0.6666666666666666
+    @test only(r[:std]) ≈ 0.5773502691896258
+    @test only(r[:var]) ≈ 0.33333333333333337
+end
+
+@testset "sum: empty/all-null identity is 0, not missing (py-polars test_sum_empty_and_null_set)" begin
+    df_empty = DataFrame((; a = Float32[]))
+    @test only(select(df_empty, alias(Polars.sum(col("a")), "s"))[:s]) == 0.0
+
+    df_null = DataFrame((; a = Union{Missing, Float32}[missing]))
+    @test only(select(df_null, alias(Polars.sum(col("a")), "s"))[:s]) == 0.0
+end
+
+@testset "sum_horizontal: a missing operand is the identity, not propagated (py-polars test_horizontal_sum_null_to_identity)" begin
+    df = DataFrame((; a = [1, 5], b = Union{Missing, Int}[10, missing]))
+    r = select(df, alias(sum_horizontal(col("a"), col("b")), "s"))
+    @test collect(r[:s]) == [11, 5]
+end
+
+@testset "grouped min/max/mean: NaN vs null vs Inf asymmetry (py-polars test_nan_inf_aggregation)" begin
+    # min/max treat NaN as non-extremal when a real value exists in the same group ([NaN,5] ->
+    # min=max=5), but mean is poisoned by any NaN -> NaN. All-null groups return missing for all
+    # three; Inf behaves as an ordinary value throughout. Upstream's exact 6-group fixture.
+    df = DataFrame(
+        (;
+            g = [
+                "both_nan", "both_nan", "nan_5", "nan_5", "nan_null", "nan_null",
+                "both_none", "both_none", "both_inf", "both_inf", "inf_null", "inf_null",
+            ],
+            v = Union{Float64, Missing}[NaN, NaN, NaN, 5.0, NaN, missing, missing, missing, Inf, Inf, Inf, missing],
+        )
+    )
+    r = collect(
+        agg(
+            group_by(lazy(df), "g"), alias(Polars.min(col("v")), "min"),
+            alias(Polars.max(col("v")), "max"), alias(mean(col("v")), "mean"),
+        )
+    )
+    byrow = Dict(r[:g][i] => (min = r[:min][i], max = r[:max][i], mean = r[:mean][i]) for i in 1:size(r, 1))
+
+    @test isnan(byrow["both_nan"].min) && isnan(byrow["both_nan"].max) && isnan(byrow["both_nan"].mean)
+    @test byrow["nan_5"].min == 5.0 && byrow["nan_5"].max == 5.0 && isnan(byrow["nan_5"].mean)
+    @test isnan(byrow["nan_null"].min) && isnan(byrow["nan_null"].max) && isnan(byrow["nan_null"].mean)
+    @test ismissing(byrow["both_none"].min) && ismissing(byrow["both_none"].max) && ismissing(byrow["both_none"].mean)
+    @test isinf(byrow["both_inf"].min) && isinf(byrow["both_inf"].max) && isinf(byrow["both_inf"].mean)
+    @test isinf(byrow["inf_null"].min) && isinf(byrow["inf_null"].max) && isinf(byrow["inf_null"].mean)
+end
+
 @testset "keep_name / implode / flatten / reverse" begin
     df = DataFrame((; x = [1, 2, 3]))
 
