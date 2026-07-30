@@ -768,6 +768,17 @@ const struct polars_expr_t *polars_expr_std(const struct polars_expr_t *expr, ui
 
 const struct polars_expr_t *polars_expr_var(const struct polars_expr_t *expr, uint8_t ddof);
 
+const struct polars_expr_t *polars_expr_cov(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b,
+                                            uint8_t ddof);
+
+const struct polars_expr_t *polars_expr_pearson_corr(const struct polars_expr_t *a,
+                                                     const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_spearman_rank_corr(const struct polars_expr_t *a,
+                                                           const struct polars_expr_t *b,
+                                                           bool propagate_nans);
+
 const struct polars_expr_t *polars_expr_when_then_otherwise(const struct polars_expr_t *cond,
                                                             const struct polars_expr_t *then,
                                                             const struct polars_expr_t *otherwise);
@@ -1010,6 +1021,14 @@ const struct polars_expr_t *polars_expr_sample_frac(const struct polars_expr_t *
                                                     bool with_replacement,
                                                     bool shuffle,
                                                     const uint64_t *seed);
+
+const struct polars_expr_t *polars_expr_gather(const struct polars_expr_t *expr,
+                                               const struct polars_expr_t *idx,
+                                               bool null_on_oob);
+
+const struct polars_expr_t *polars_expr_gather_every(const struct polars_expr_t *expr,
+                                                     uintptr_t n,
+                                                     uintptr_t offset);
 
 const struct polars_expr_t *polars_expr_list_lengths(const struct polars_expr_t *a);
 
