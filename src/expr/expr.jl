@@ -1028,10 +1028,15 @@ the calculation is corrected for statistical bias.
 
 A constant (zero-variance) input gives `NaN`, not an error.
 
-!!! note "Name collision with StatsBase"
-    StatsBase.jl also exports `kurtosis`. With both packages loaded, the bare name resolves to
-    neither -- call it as `Polars.kurtosis(expr)`. `skew` is unaffected (StatsBase spells it
-    `skewness`).
+!!! note "Not exported -- call it qualified, or load StatsBase"
+    StatsBase.jl exports its own `kurtosis`. If this package exported one too, neither would be
+    usable unqualified when both are loaded, so this one is deliberately not exported.
+
+    Write `Polars.kurtosis(expr)`, or load StatsBase and write `kurtosis(expr)` -- with StatsBase
+    present the bare name is its generic, and this package adds the `Expr` method to it.
+
+    `skew` is exported normally; StatsBase spells it `skewness`, and `StatsBase.skewness(expr)`
+    also works when StatsBase is loaded.
 
 """
 function kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true)
@@ -1040,13 +1045,14 @@ function kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true)
 end
 
 """
-    kurtosis(; fisher::Bool=true, bias::Bool=true)
+    Polars.kurtosis(; fisher::Bool=true, bias::Bool=true)
 
-Curried form of [`kurtosis`](@ref) for use with `|>`.
+Curried form of [`kurtosis`](@ref) for use with `|>`. Only available qualified, as
+`Polars.kurtosis(; ...)` -- the curried form takes no positional argument, so it cannot be added
+to StatsBase's generic without claiming a signature that mentions no type from this package.
 """
 kurtosis(; fisher::Bool = true, bias::Bool = true) = expr -> kurtosis(expr; fisher, bias)
 
-export kurtosis
 
 """
     over(expr::Polars.Expr, partition_by...; mapping_strategy::Symbol=:group_to_rows,
