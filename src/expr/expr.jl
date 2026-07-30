@@ -1524,9 +1524,6 @@ row itself and the `window_size - 1` elements before it. `min_samples` is the nu
 values required in the window before a result is computed (defaults to `window_size`, so the
 leading `min_samples - 1` rows are `null`). `center` labels each window's result at its middle
 row instead of its last.
-
-!!! note
-    Unlike upstream, there is no `weights` parameter to multiply elementwise into the window.
 """
 function rolling_mean(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
     out = API.polars_expr_rolling_mean(expr, Csize_t(window_size), Csize_t(min_samples), center)
@@ -1539,9 +1536,6 @@ end
 
 Apply a rolling sum over the values. See [`rolling_mean`](@ref) for the meaning of `window_size`,
 `min_samples`, and `center`.
-
-!!! note
-    Unlike upstream, there is no `weights` parameter to multiply elementwise into the window.
 """
 function rolling_sum(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
     out = API.polars_expr_rolling_sum(expr, Csize_t(window_size), Csize_t(min_samples), center)
@@ -1554,9 +1548,6 @@ end
 
 Apply a rolling minimum over the values. See [`rolling_mean`](@ref) for the meaning of
 `window_size`, `min_samples`, and `center`.
-
-!!! note
-    Unlike upstream, there is no `weights` parameter to multiply elementwise into the window.
 """
 function rolling_min(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
     out = API.polars_expr_rolling_min(expr, Csize_t(window_size), Csize_t(min_samples), center)
@@ -1569,9 +1560,6 @@ end
 
 Apply a rolling maximum over the values. See [`rolling_mean`](@ref) for the meaning of
 `window_size`, `min_samples`, and `center`.
-
-!!! note
-    Unlike upstream, there is no `weights` parameter to multiply elementwise into the window.
 """
 function rolling_max(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
     out = API.polars_expr_rolling_max(expr, Csize_t(window_size), Csize_t(min_samples), center)
@@ -1585,9 +1573,6 @@ end
 Compute a rolling standard deviation. See [`rolling_mean`](@ref) for the meaning of
 `window_size`, `min_samples`, and `center`. `ddof` is the "delta degrees of freedom": the divisor
 used for a window of length `N` is `N - ddof`.
-
-!!! note
-    Unlike upstream, there is no `weights` parameter to multiply elementwise into the window.
 """
 function rolling_std(
         expr::Expr, window_size::Integer;
@@ -1604,9 +1589,6 @@ end
 Compute a rolling variance. See [`rolling_mean`](@ref) for the meaning of `window_size`,
 `min_samples`, and `center`. `ddof` is the "delta degrees of freedom": the divisor used for a
 window of length `N` is `N - ddof`.
-
-!!! note
-    Unlike upstream, there is no `weights` parameter to multiply elementwise into the window.
 """
 function rolling_var(
         expr::Expr, window_size::Integer;
