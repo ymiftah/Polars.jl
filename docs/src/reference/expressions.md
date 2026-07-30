@@ -558,6 +558,10 @@ Python polars' fluent `.method(...)` chaining style.
 | `top_k(expr, k)` | `top_k(k)` |
 | `sample_n(expr, n; ...)` | `sample_n(n; ...)` |
 | `sample_frac(expr, frac; ...)` | `sample_frac(frac; ...)` |
+| `rolling_mean(expr, window_size; ...)` | `rolling_mean(window_size; ...)` — same for `rolling_sum`/`rolling_min`/`rolling_max`/`rolling_std`/`rolling_var` |
+| `is_between(expr, lower, upper; closed)` | `is_between(lower, upper; closed)` |
+| `skew(expr; bias)` | `skew(; bias)` |
+| `kurtosis(expr; fisher, bias)` | `kurtosis(; fisher, bias)` |
 | `over(expr, partition_by...)` | `over(partition_by::String...)` |
 | `sort_by(expr, by...; ...)` | `sort_by(by::String...; ...)` |
 | `arg_sort(expr; descending, nulls_last)` | `arg_sort(; descending, nulls_last)` |

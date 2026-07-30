@@ -804,6 +804,14 @@ function is_between(expr::Expr, lower_bound, upper_bound; closed::Symbol = :both
     return Expr(out)
 end
 
+"""
+    is_between(lower_bound, upper_bound; closed::Symbol=:both)
+
+Curried form of [`is_between`](@ref) for use with `|>`.
+"""
+is_between(lower_bound, upper_bound; closed::Symbol = :both) =
+    expr -> is_between(expr, lower_bound, upper_bound; closed)
+
 export is_between
 
 """
@@ -999,6 +1007,13 @@ function skew(expr::Expr; bias::Bool = true)
     return Expr(out)
 end
 
+"""
+    skew(; bias::Bool=true)
+
+Curried form of [`skew`](@ref) for use with `|>`.
+"""
+skew(; bias::Bool = true) = expr -> skew(expr; bias)
+
 export skew
 
 """
@@ -1012,11 +1027,24 @@ if `false`, Pearson's definition is used (`3.0` for a normal distribution). If `
 the calculation is corrected for statistical bias.
 
 A constant (zero-variance) input gives `NaN`, not an error.
+
+!!! note "Name collision with StatsBase"
+    StatsBase.jl also exports `kurtosis`. With both packages loaded, the bare name resolves to
+    neither -- call it as `Polars.kurtosis(expr)`. `skew` is unaffected (StatsBase spells it
+    `skewness`).
+
 """
 function kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true)
     out = API.polars_expr_kurtosis(expr, fisher, bias)
     return Expr(out)
 end
+
+"""
+    kurtosis(; fisher::Bool=true, bias::Bool=true)
+
+Curried form of [`kurtosis`](@ref) for use with `|>`.
+"""
+kurtosis(; fisher::Bool = true, bias::Bool = true) = expr -> kurtosis(expr; fisher, bias)
 
 export kurtosis
 
@@ -1597,6 +1625,54 @@ function rolling_var(
     out = API.polars_expr_rolling_var(expr, Csize_t(window_size), Csize_t(min_samples), center, UInt8(ddof))
     return Expr(out)
 end
+
+"""
+    rolling_mean(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_mean`](@ref) for use with `|>`.
+"""
+rolling_mean(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_mean(expr, window_size; min_samples, center)
+
+"""
+    rolling_sum(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_sum`](@ref) for use with `|>`.
+"""
+rolling_sum(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_sum(expr, window_size; min_samples, center)
+
+"""
+    rolling_min(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_min`](@ref) for use with `|>`.
+"""
+rolling_min(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_min(expr, window_size; min_samples, center)
+
+"""
+    rolling_max(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_max`](@ref) for use with `|>`.
+"""
+rolling_max(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_max(expr, window_size; min_samples, center)
+
+"""
+    rolling_std(window_size::Integer; min_samples::Integer=window_size, center::Bool=false, ddof::Integer=1)
+
+Curried form of [`rolling_std`](@ref) for use with `|>`.
+"""
+rolling_std(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1) =
+    expr -> rolling_std(expr, window_size; min_samples, center, ddof)
+
+"""
+    rolling_var(window_size::Integer; min_samples::Integer=window_size, center::Bool=false, ddof::Integer=1)
+
+Curried form of [`rolling_var`](@ref) for use with `|>`.
+"""
+rolling_var(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1) =
+    expr -> rolling_var(expr, window_size; min_samples, center, ddof)
 
 export rolling_mean, rolling_sum, rolling_min, rolling_max, rolling_std, rolling_var
 

@@ -234,3 +234,43 @@ end
     r_curried4 = select(df, alias(col("d") |> Dt.strftime("%Y-%m"), "r"))
     @test r_direct4[:r] == r_curried4[:r] == ["2024-01", "2024-06"]
 end
+
+@testset "curried rolling / is_between / skew / kurtosis" begin
+    df = DataFrame((; x = collect(1.0:6.0), a = [1, 2, 3, 4, 5, 6]))
+
+    # each curried form must equal its direct call -- rolling results carry `missing`, so
+    # compare with isequal rather than == (== against a missing-bearing vector is `missing`)
+    for (curried, direct) in (
+            (col("x") |> rolling_mean(3), rolling_mean(col("x"), 3)),
+            (col("x") |> rolling_sum(3), rolling_sum(col("x"), 3)),
+            (col("x") |> rolling_min(3), rolling_min(col("x"), 3)),
+            (col("x") |> rolling_max(3), rolling_max(col("x"), 3)),
+            (col("x") |> rolling_std(3), rolling_std(col("x"), 3)),
+            (col("x") |> rolling_var(3), rolling_var(col("x"), 3)),
+        )
+        @test isequal(
+            collect(select(df, alias(curried, "r"))[:r]),
+            collect(select(df, alias(direct, "r"))[:r]),
+        )
+    end
+
+    # keyword pass-through survives currying
+    @test isequal(
+        collect(select(df, alias(col("x") |> rolling_mean(3; min_samples = 1), "r"))[:r]),
+        collect(select(df, alias(rolling_mean(col("x"), 3; min_samples = 1), "r"))[:r]),
+    )
+    @test isequal(
+        collect(select(df, alias(col("x") |> rolling_var(3; ddof = 0), "r"))[:r]),
+        collect(select(df, alias(rolling_var(col("x"), 3; ddof = 0), "r"))[:r]),
+    )
+
+    @test collect(select(df, alias(col("a") |> is_between(2, 4), "r"))[:r]) ==
+        collect(select(df, alias(is_between(col("a"), 2, 4), "r"))[:r])
+    @test collect(select(df, alias(col("a") |> is_between(2, 4; closed = :none), "r"))[:r]) ==
+        [false, false, true, false, false, false]
+
+    @test only(select(df, alias(col("x") |> skew(), "r"))[:r]) ==
+        only(select(df, alias(skew(col("x")), "r"))[:r])
+    @test only(select(df, alias(col("x") |> kurtosis(; fisher = false), "r"))[:r]) ==
+        only(select(df, alias(kurtosis(col("x"); fisher = false), "r"))[:r])
+end
