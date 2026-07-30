@@ -737,6 +737,18 @@ function polars_expr_var(expr, ddof)
     return @ccall libpolars.polars_expr_var(expr::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
 end
 
+function polars_expr_cov(a, b, ddof)
+    return @ccall libpolars.polars_expr_cov(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
+end
+
+function polars_expr_pearson_corr(a, b)
+    return @ccall libpolars.polars_expr_pearson_corr(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_spearman_rank_corr(a, b, propagate_nans)
+    return @ccall libpolars.polars_expr_spearman_rank_corr(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, propagate_nans::Bool)::Ptr{polars_expr_t}
+end
+
 function polars_expr_when_then_otherwise(cond, then, otherwise)
     return @ccall libpolars.polars_expr_when_then_otherwise(cond::Ptr{polars_expr_t}, then::Ptr{polars_expr_t}, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1058,6 +1070,14 @@ end
 
 function polars_expr_sample_frac(expr, frac, with_replacement, shuffle, seed)
     return @ccall libpolars.polars_expr_sample_frac(expr::Ptr{polars_expr_t}, frac::Ptr{polars_expr_t}, with_replacement::Bool, shuffle::Bool, seed::Ptr{UInt64})::Ptr{polars_expr_t}
+end
+
+function polars_expr_gather(expr, idx, null_on_oob)
+    return @ccall libpolars.polars_expr_gather(expr::Ptr{polars_expr_t}, idx::Ptr{polars_expr_t}, null_on_oob::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_gather_every(expr, n, offset)
+    return @ccall libpolars.polars_expr_gather_every(expr::Ptr{polars_expr_t}, n::Csize_t, offset::Csize_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_lengths(a)
