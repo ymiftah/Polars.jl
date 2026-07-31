@@ -106,6 +106,26 @@ Curried form of [`contains`](@ref) for use with `|>`.
 contains(pat; strict::Bool = true) = expr -> contains(expr, convert(Expr, pat); strict)
 
 """
+    find(expr::Polars.Expr, pat::Polars.Expr; strict::Bool=true)::Polars.Expr
+
+Index of the start of the first match of the regex `pat` in each string of `expr` (`null` if
+there is no match). If `strict` is `true` (default), an invalid regex raises an error; if
+`false`, it returns `null` instead. For a plain substring (non-regex) search, build the
+literal-search equivalent via [`contains_literal`](@ref) instead.
+"""
+function find(expr::Expr, pat::Expr; strict::Bool = true)
+    out = API.polars_expr_str_find(expr, pat, strict)
+    return Expr(out)
+end
+
+"""
+    find(pat; strict::Bool=true)::Base.Callable
+
+Curried form of [`find`](@ref) for use with `|>`.
+"""
+find(pat; strict::Bool = true) = expr -> find(expr, convert(Expr, pat); strict)
+
+"""
     slice(expr::Polars.Expr, offset::Polars.Expr, length::Polars.Expr)::Polars.Expr
 
 Extracts a substring starting at `offset` (0-indexed; negative indexes from the end) with
@@ -122,6 +142,46 @@ end
 Curried form of [`slice`](@ref) for use with `|>`.
 """
 slice(offset, length) = expr -> slice(expr, convert(Expr, offset), convert(Expr, length))
+
+"""
+    pad_start(expr::Polars.Expr, length::Integer; fill_char::Char=' ')::Polars.Expr
+
+Pads each string of `expr` on the left with `fill_char` until it reaches `length` characters
+(no-op for a string already at least that long).
+"""
+function pad_start(expr::Expr, length::Integer; fill_char::Char = ' ')
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_str_pad_start(expr, convert(Expr, length), codepoint(fill_char), out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+"""
+    pad_start(length::Integer; fill_char::Char=' ')::Base.Callable
+
+Curried form of [`pad_start`](@ref) for use with `|>`.
+"""
+pad_start(length::Integer; fill_char::Char = ' ') = expr -> pad_start(expr, length; fill_char)
+
+"""
+    pad_end(expr::Polars.Expr, length::Integer; fill_char::Char=' ')::Polars.Expr
+
+Pads each string of `expr` on the right with `fill_char` until it reaches `length` characters
+(no-op for a string already at least that long).
+"""
+function pad_end(expr::Expr, length::Integer; fill_char::Char = ' ')
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_str_pad_end(expr, convert(Expr, length), codepoint(fill_char), out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+"""
+    pad_end(length::Integer; fill_char::Char=' ')::Base.Callable
+
+Curried form of [`pad_end`](@ref) for use with `|>`.
+"""
+pad_end(length::Integer; fill_char::Char = ' ') = expr -> pad_end(expr, length; fill_char)
 
 """
     replace(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr; literal::Bool=false)::Polars.Expr
@@ -267,8 +327,96 @@ function to_datetime(
     return expr -> to_datetime(expr; format, time_unit, strict, exact)
 end
 
-# `contains`/`replace` are intentionally not exported -- they collide with
-# `Base.contains`/`Base.replace` and are designed for qualified use (`Strings.contains`, etc.);
-# `using Polars.Strings` would otherwise clash with those.
-export slice, replace_all, extract, count_matches, to_date, to_datetime
+"""
+    join(expr::Polars.Expr; ignore_nulls::Bool=false)::Polars.Expr
+
+!!! warning "Unavailable in this build"
+    Upstream `StringNameSpace::join` (concatenating a whole String column into one value) sits
+    behind polars' own `concat_str` Cargo feature, which is not enabled in this build. To
+    enable it, add `"concat_str"` to `c-polars/Cargo.toml`'s `polars` feature list, rebuild
+    `c-polars`, and regenerate the bindings.
+
+This method exists only to fail with that explanation: without it, calling `Strings.join`
+raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
+"""
+function join(::Expr; ignore_nulls::Bool = false)
+    return error(
+        "Strings.join is unavailable in this build: polars' string `join` requires " *
+            "the `concat_str` Cargo feature, which c-polars does not currently enable " *
+            "(see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list and " *
+            "rebuild to enable it."
+    )
+end
+
+"""
+    to_integer(expr::Polars.Expr; base::Integer=10, strict::Bool=true)::Polars.Expr
+
+!!! warning "Unavailable in this build"
+    Upstream `StringNameSpace::to_integer` sits behind polars' own `string_to_integer` Cargo
+    feature, which is not enabled in this build. To enable it, add `"string_to_integer"` to
+    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
+    bindings.
+
+This method exists only to fail with that explanation: without it, calling
+`Strings.to_integer` raises a bare `UndefVarError` for a missing `ccall` symbol, which says
+nothing about why.
+"""
+function to_integer(::Expr; base::Integer = 10, strict::Bool = true)
+    return error(
+        "Strings.to_integer is unavailable in this build: polars' `to_integer` requires " *
+            "the `string_to_integer` Cargo feature, which c-polars does not currently " *
+            "enable (see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list " *
+            "and rebuild to enable it."
+    )
+end
+
+"""
+    extract_groups(expr::Polars.Expr, pat::AbstractString)::Polars.Expr
+
+!!! warning "Unavailable in this build"
+    Upstream `StringNameSpace::extract_groups` sits behind polars' own `extract_groups` Cargo
+    feature, which is not enabled in this build. To enable it, add `"extract_groups"` to
+    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
+    bindings.
+
+This method exists only to fail with that explanation: without it, calling
+`Strings.extract_groups` raises a bare `UndefVarError` for a missing `ccall` symbol, which
+says nothing about why.
+"""
+function extract_groups(::Expr, ::AbstractString)
+    return error(
+        "Strings.extract_groups is unavailable in this build: polars' `extract_groups` " *
+            "requires the `extract_groups` Cargo feature, which c-polars does not currently " *
+            "enable (see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list " *
+            "and rebuild to enable it."
+    )
+end
+
+"""
+    reverse(expr::Polars.Expr)::Polars.Expr
+
+!!! warning "Unavailable in this build"
+    Upstream `StringNameSpace::reverse` sits behind polars' own `string_reverse` Cargo
+    feature, which is not enabled in this build. To enable it, add `"string_reverse"` to
+    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
+    bindings.
+
+This method exists only to fail with that explanation: without it, calling `Strings.reverse`
+raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
+"""
+function reverse(::Expr)
+    return error(
+        "Strings.reverse is unavailable in this build: polars' string `reverse` requires " *
+            "the `string_reverse` Cargo feature, which c-polars does not currently enable " *
+            "(see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list and " *
+            "rebuild to enable it."
+    )
+end
+
+# `contains`/`replace`/`join`/`reverse` are intentionally not exported -- they collide with
+# `Base.contains`/`Base.replace`/`Base.join`/`Base.reverse` and are designed for qualified use
+# (`Strings.contains`, etc.); `using Polars.Strings` would otherwise clash with those.
+# `to_integer`/`extract_groups` are unavailable in this build (see above), so are left
+# unexported too.
+export slice, replace_all, extract, count_matches, to_date, to_datetime, find, pad_start, pad_end
 end # module Strings

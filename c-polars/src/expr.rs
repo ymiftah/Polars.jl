@@ -673,6 +673,8 @@ macro_rules! gen_rolling_var {
 gen_rolling_var!(polars_expr_rolling_var, rolling_var);
 gen_rolling_var!(polars_expr_rolling_std, rolling_std);
 
+gen_rolling!(polars_expr_rolling_median, rolling_median);
+
 #[repr(C)]
 #[allow(dead_code)]
 pub enum polars_quantile_method_t {
@@ -696,6 +698,20 @@ impl polars_quantile_method_t {
             polars_quantile_method_t::PolarsQuantileMethodEquiprobable => Equiprobable,
         }
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_rolling_quantile(
+    expr: *const polars_expr_t,
+    window_size: usize,
+    min_periods: usize,
+    center: bool,
+    quantile: f64,
+    method: polars_quantile_method_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let options = read_rolling_options(window_size, min_periods, center);
+    make_expr(expr.rolling_quantile(method.to_quantile_method(), quantile, options))
 }
 
 #[no_mangle]
@@ -813,6 +829,8 @@ gen_impl_expr!(polars_expr_cosh, Expr::cosh);
 gen_impl_expr!(polars_expr_sinh, Expr::sinh);
 gen_impl_expr!(polars_expr_tanh, Expr::tanh);
 gen_impl_expr!(polars_expr_arccos, Expr::arccos);
+gen_impl_expr!(polars_expr_arcsin, Expr::arcsin);
+gen_impl_expr!(polars_expr_arctan, Expr::arctan);
 gen_impl_expr!(polars_expr_degrees, Expr::degrees);
 gen_impl_expr!(polars_expr_radians, Expr::radians);
 
@@ -987,6 +1005,10 @@ gen_impl_expr_binary!(polars_expr_add, core::ops::Add::add);
 gen_impl_expr_binary!(polars_expr_sub, core::ops::Sub::sub);
 gen_impl_expr_binary!(polars_expr_mul, core::ops::Mul::mul);
 gen_impl_expr_binary!(polars_expr_div, core::ops::Div::div);
+// Floors toward negative infinity; for float operands this differs from `polars_expr_div`'s
+// `RustDivide` (the exact quotient) -- needed by `Dt.epoch`'s `:s`/`:d` units, which must match
+// Python polars' `//` for pre-1970 (negative) timestamps.
+gen_impl_expr_binary!(polars_expr_floor_div, Expr::floor_div);
 
 gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null);
 gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan);
@@ -1202,8 +1224,54 @@ pub unsafe extern "C" fn polars_expr_list_unique_stable(
     let expr = (*a).inner.clone().list().eval(element().unique_stable());
     make_expr(expr)
 }
+
+// `n_unique`/`any`/`all` have no native `ListNameSpace` method (unlike `reverse`/`unique` above)
+// -- built the same way python-polars itself builds them, as a per-list `agg` of the plain
+// (non-list) `Expr` reducer. `agg` (not `eval`, unlike `reverse`/`unique` above) is required
+// specifically because these reduce each list to one scalar: `eval` always re-wraps its result
+// in a length-1 list per row, while `agg` unwraps it back down to a flat scalar column.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_n_unique(
+    a: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().agg(element().n_unique());
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_any(
+    a: *const polars_expr_t,
+    ignore_nulls: bool,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().agg(element().any(ignore_nulls));
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_all(
+    a: *const polars_expr_t,
+    ignore_nulls: bool,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().agg(element().all(ignore_nulls));
+    make_expr(expr)
+}
+
 gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first);
 gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last);
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_sort(
+    a: *const polars_expr_t,
+    descending: bool,
+    nulls_last: bool,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().sort(SortOptions {
+        descending,
+        nulls_last,
+        ..Default::default()
+    });
+    make_expr(expr)
+}
 
 macro_rules! gen_impl_expr_binary_list {
     ($n: ident, $t: expr) => {
@@ -1245,6 +1313,48 @@ pub unsafe extern "C" fn polars_expr_list_contains(
         .clone()
         .list()
         .contains((*other).inner.clone(), nulls_equal);
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_join(
+    a: *const polars_expr_t,
+    separator: *const polars_expr_t,
+    ignore_nulls: bool,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .join((*separator).inner.clone(), ignore_nulls);
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_slice(
+    a: *const polars_expr_t,
+    offset: *const polars_expr_t,
+    length: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .slice((*offset).inner.clone(), (*length).inner.clone());
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_diff(
+    a: *const polars_expr_t,
+    n: i64,
+    null_behavior: polars_null_behavior_t,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .diff(n, null_behavior.to_null_behavior());
     make_expr(expr)
 }
 
@@ -1320,6 +1430,59 @@ pub unsafe extern "C" fn polars_expr_str_slice(
         .str()
         .slice((*offset).inner.clone(), (*length).inner.clone());
     make_expr(expr)
+}
+
+/// Position (not just presence, unlike `contains`) of the first regex match.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_find(
+    a: *const polars_expr_t,
+    pat: *const polars_expr_t,
+    strict: bool,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().str().find((*pat).inner.clone(), strict);
+    make_expr(expr)
+}
+
+/// `fill_char` crosses the FFI boundary as a `u32` codepoint (there is no C `char32_t` binding on
+/// the Julia side) and is fallible since not every `u32` is a valid Unicode scalar value.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_pad_start(
+    a: *const polars_expr_t,
+    length: *const polars_expr_t,
+    fill_char: u32,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let fill_char = match char::from_u32(fill_char) {
+        Some(c) => c,
+        None => return make_error(format!("{fill_char} is not a valid Unicode scalar value")),
+    };
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .pad_start((*length).inner.clone(), fill_char);
+    *out = make_expr(expr);
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_pad_end(
+    a: *const polars_expr_t,
+    length: *const polars_expr_t,
+    fill_char: u32,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let fill_char = match char::from_u32(fill_char) {
+        Some(c) => c,
+        None => return make_error(format!("{fill_char} is not a valid Unicode scalar value")),
+    };
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .pad_end((*length).inner.clone(), fill_char);
+    *out = make_expr(expr);
+    std::ptr::null()
 }
 
 #[no_mangle]
@@ -1454,6 +1617,8 @@ gen_impl_expr_dt!(polars_expr_dt_minute, DateLikeNameSpace::minute);
 gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second);
 gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday);
 gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day);
+gen_impl_expr_dt!(polars_expr_dt_week, DateLikeNameSpace::week);
+gen_impl_expr_dt!(polars_expr_dt_quarter, DateLikeNameSpace::quarter);
 // Both ungated in polars-plan (no `#[cfg]`) -- unlike the `total_*` family below, no
 // `dtype-duration` feature is needed for these two.
 gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date);
@@ -1533,6 +1698,20 @@ pub unsafe extern "C" fn polars_expr_dt_replace_time_zone(
         (*ambiguous).inner.clone(),
         non_existent.to_non_existent(),
     );
+    *out = make_expr(result);
+    std::ptr::null()
+}
+
+/// Fallible since `polars_time_unit_t` mirrors a Julia-side `@cenum` and must reject an
+/// out-of-range value rather than let `to_time_unit` panic across the FFI boundary.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_dt_timestamp(
+    expr: *const polars_expr_t,
+    unit: polars_time_unit_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let unit = tri!(unit.to_time_unit());
+    let result = (*expr).inner.clone().dt().timestamp(unit);
     *out = make_expr(result);
     std::ptr::null()
 }

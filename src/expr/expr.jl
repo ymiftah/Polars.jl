@@ -586,6 +586,8 @@ end
     gen_impl_expr!(polars_expr_sinh, Expr::sinh, "Hyperbolic sine of each value of `expr`.")
     gen_impl_expr!(polars_expr_tanh, Expr::tanh, "Hyperbolic tangent of each value of `expr`.")
     gen_impl_expr!(polars_expr_arccos, Expr::arccos, "Inverse cosine of each value of `expr`, in radians.")
+    gen_impl_expr!(polars_expr_arcsin, Expr::arcsin, "Inverse sine of each value of `expr`, in radians.")
+    gen_impl_expr!(polars_expr_arctan, Expr::arctan, "Inverse tangent of each value of `expr`, in radians.")
     gen_impl_expr!(polars_expr_degrees, Expr::degrees, "Converts each value of `expr` from radians to degrees.")
     gen_impl_expr!(polars_expr_radians, Expr::radians, "Converts each value of `expr` from degrees to radians.")
 
@@ -631,6 +633,7 @@ end
     gen_impl_expr_binary!(polars_expr_sub, Expr::sub, "Elementwise `a - b` -- the named-function form of the `-` operator.")
     gen_impl_expr_binary!(polars_expr_mul, Expr::mul, "Elementwise `a * b` -- the named-function form of the `*` operator.")
     gen_impl_expr_binary!(polars_expr_div, Expr::div, "Elementwise `a / b` -- the named-function form of the `/` operator.")
+    gen_impl_expr_binary!(polars_expr_floor_div, Expr::floor_div, "Elementwise `a` divided by `b`, rounded down towards negative infinity. For integer operands this agrees with [`div`](@ref)/`/`; for float operands `div`/`/` gives the exact (unrounded) quotient instead. Has no operator equivalent in this package -- must be called by name.")
 
     gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression). Has a curried form `fill_null(value)` for `|>` pipelines -- see [Curried forms for pipe-based composition](@ref).")
     gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`. Has a curried form `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref).")
@@ -736,6 +739,31 @@ function fill_null(expr::Expr; strategy::Symbol, limit::Union{Nothing, Integer} 
 end
 fill_null(; strategy::Symbol, limit::Union{Nothing, Integer} = nothing) =
     expr -> fill_null(expr; strategy, limit)
+
+"""
+    forward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
+    forward_fill(; limit::Union{Nothing,Integer}=nothing)
+
+Fills every `null` value in `expr` with the last non-null value seen before it. `limit` caps
+how many consecutive nulls a single value may fill (`nothing` for unlimited). Shorthand for
+`fill_null(expr; strategy=:forward, limit)`. Has a curried form (2nd method) for `|>` pipelines.
+"""
+forward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :forward, limit)
+forward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> forward_fill(expr; limit)
+
+"""
+    backward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
+    backward_fill(; limit::Union{Nothing,Integer}=nothing)
+
+Fills every `null` value in `expr` with the next non-null value found after it. `limit` caps
+how many consecutive nulls a single value may fill (`nothing` for unlimited). Shorthand for
+`fill_null(expr; strategy=:backward, limit)`. Has a curried form (2nd method) for `|>` pipelines.
+"""
+backward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :backward, limit)
+backward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> backward_fill(expr; limit)
+
+export forward_fill, backward_fill
+
 shift(n) = Base.Fix2(shift, convert(Expr, n))
 pct_change(n) = Base.Fix2(pct_change, convert(Expr, n))
 
@@ -1637,6 +1665,56 @@ function rolling_var(
 end
 
 """
+    rolling_median(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
+                   center::Bool=false)::Polars.Expr
+
+Apply a rolling median. See [`rolling_mean`](@ref) for the meaning of `window_size`,
+`min_samples`, and `center`.
+"""
+function rolling_median(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+    out = API.polars_expr_rolling_median(expr, Csize_t(window_size), Csize_t(min_samples), center)
+    return Expr(out)
+end
+
+"""
+    rolling_quantile(expr::Polars.Expr, window_size::Integer, quantile::Real;
+                     min_samples::Integer=window_size, center::Bool=false,
+                     method::Symbol=:nearest)::Polars.Expr
+
+Apply a rolling quantile. See [`rolling_mean`](@ref) for the meaning of `window_size`,
+`min_samples`, and `center`. `method` controls how a quantile that falls between two values is
+resolved -- one of `:nearest` (default), `:lower`, `:higher`, `:midpoint`, `:linear`,
+`:equiprobable` (see [`quantile`](@ref) for details).
+"""
+function rolling_quantile(
+        expr::Expr, window_size::Integer, quantile::Real;
+        min_samples::Integer = window_size, center::Bool = false, method::Symbol = :nearest
+    )
+    method_enum = if method == :nearest
+        API.PolarsQuantileMethodNearest
+    elseif method == :lower
+        API.PolarsQuantileMethodLower
+    elseif method == :higher
+        API.PolarsQuantileMethodHigher
+    elseif method == :midpoint
+        API.PolarsQuantileMethodMidpoint
+    elseif method == :linear
+        API.PolarsQuantileMethodLinear
+    elseif method == :equiprobable
+        API.PolarsQuantileMethodEquiprobable
+    else
+        error(
+            "unknown quantile method $method, expected one of " *
+                "(:nearest, :lower, :higher, :midpoint, :linear, :equiprobable)"
+        )
+    end
+    out = API.polars_expr_rolling_quantile(
+        expr, Csize_t(window_size), Csize_t(min_samples), center, Float64(quantile), method_enum
+    )
+    return Expr(out)
+end
+
+"""
     rolling_mean(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
 
 Curried form of [`rolling_mean`](@ref) for use with `|>`.
@@ -1684,7 +1762,27 @@ Curried form of [`rolling_var`](@ref) for use with `|>`.
 rolling_var(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1) =
     expr -> rolling_var(expr, window_size; min_samples, center, ddof)
 
-export rolling_mean, rolling_sum, rolling_min, rolling_max, rolling_std, rolling_var
+"""
+    rolling_median(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_median`](@ref) for use with `|>`.
+"""
+rolling_median(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_median(expr, window_size; min_samples, center)
+
+"""
+    rolling_quantile(window_size::Integer, quantile::Real; min_samples::Integer=window_size,
+                     center::Bool=false, method::Symbol=:nearest)
+
+Curried form of [`rolling_quantile`](@ref) for use with `|>`.
+"""
+rolling_quantile(
+    window_size::Integer, quantile::Real; min_samples::Integer = window_size, center::Bool = false,
+    method::Symbol = :nearest,
+) = expr -> rolling_quantile(expr, window_size, quantile; min_samples, center, method)
+
+export rolling_mean, rolling_sum, rolling_min, rolling_max, rolling_std, rolling_var,
+    rolling_median, rolling_quantile
 
 """
     diff(expr::Polars.Expr, n=1; null_behavior::Symbol=:ignore)::Polars.Expr

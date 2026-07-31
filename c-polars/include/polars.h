@@ -868,6 +868,18 @@ const struct polars_expr_t *polars_expr_rolling_std(const struct polars_expr_t *
                                                     bool center,
                                                     uint8_t ddof);
 
+const struct polars_expr_t *polars_expr_rolling_median(const struct polars_expr_t *expr,
+                                                       uintptr_t window_size,
+                                                       uintptr_t min_periods,
+                                                       bool center);
+
+const struct polars_expr_t *polars_expr_rolling_quantile(const struct polars_expr_t *expr,
+                                                         uintptr_t window_size,
+                                                         uintptr_t min_periods,
+                                                         bool center,
+                                                         double quantile,
+                                                         enum polars_quantile_method_t method);
+
 const struct polars_expr_t *polars_expr_when_then_otherwise(const struct polars_expr_t *cond,
                                                             const struct polars_expr_t *then,
                                                             const struct polars_expr_t *otherwise);
@@ -924,6 +936,10 @@ const struct polars_expr_t *polars_expr_sinh(const struct polars_expr_t *expr);
 const struct polars_expr_t *polars_expr_tanh(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_arccos(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_arcsin(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_arctan(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_degrees(const struct polars_expr_t *expr);
 
@@ -1041,6 +1057,9 @@ const struct polars_expr_t *polars_expr_mul(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_div(const struct polars_expr_t *a,
                                             const struct polars_expr_t *b);
 
+const struct polars_expr_t *polars_expr_floor_div(const struct polars_expr_t *a,
+                                                  const struct polars_expr_t *b);
+
 const struct polars_expr_t *polars_expr_fill_null(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *b);
 
@@ -1132,9 +1151,19 @@ const struct polars_expr_t *polars_expr_list_unique(const struct polars_expr_t *
 
 const struct polars_expr_t *polars_expr_list_unique_stable(const struct polars_expr_t *a);
 
+const struct polars_expr_t *polars_expr_list_n_unique(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_list_any(const struct polars_expr_t *a, bool ignore_nulls);
+
+const struct polars_expr_t *polars_expr_list_all(const struct polars_expr_t *a, bool ignore_nulls);
+
 const struct polars_expr_t *polars_expr_list_first(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_list_last(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_list_sort(const struct polars_expr_t *a,
+                                                  bool descending,
+                                                  bool nulls_last);
 
 const struct polars_expr_t *polars_expr_list_get(const struct polars_expr_t *a,
                                                  const struct polars_expr_t *index,
@@ -1146,6 +1175,18 @@ const struct polars_expr_t *polars_expr_list_head(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_list_contains(const struct polars_expr_t *a,
                                                       const struct polars_expr_t *other,
                                                       bool nulls_equal);
+
+const struct polars_expr_t *polars_expr_list_join(const struct polars_expr_t *a,
+                                                  const struct polars_expr_t *separator,
+                                                  bool ignore_nulls);
+
+const struct polars_expr_t *polars_expr_list_slice(const struct polars_expr_t *a,
+                                                   const struct polars_expr_t *offset,
+                                                   const struct polars_expr_t *length);
+
+const struct polars_expr_t *polars_expr_list_diff(const struct polars_expr_t *a,
+                                                  int64_t n,
+                                                  enum polars_null_behavior_t null_behavior);
 
 const struct polars_expr_t *polars_expr_str_to_uppercase(const struct polars_expr_t *a);
 
@@ -1196,6 +1237,27 @@ const struct polars_expr_t *polars_expr_str_slice(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *offset,
                                                   const struct polars_expr_t *length);
 
+/**
+ * Position (not just presence, unlike `contains`) of the first regex match.
+ */
+const struct polars_expr_t *polars_expr_str_find(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *pat,
+                                                 bool strict);
+
+/**
+ * `fill_char` crosses the FFI boundary as a `u32` codepoint (there is no C `char32_t` binding on
+ * the Julia side) and is fallible since not every `u32` is a valid Unicode scalar value.
+ */
+const struct polars_error_t *polars_expr_str_pad_start(const struct polars_expr_t *a,
+                                                       const struct polars_expr_t *length,
+                                                       uint32_t fill_char,
+                                                       const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_str_pad_end(const struct polars_expr_t *a,
+                                                     const struct polars_expr_t *length,
+                                                     uint32_t fill_char,
+                                                     const struct polars_expr_t **out);
+
 const struct polars_expr_t *polars_expr_str_replace(const struct polars_expr_t *a,
                                                     const struct polars_expr_t *pat,
                                                     const struct polars_expr_t *value,
@@ -1245,6 +1307,10 @@ const struct polars_expr_t *polars_expr_dt_weekday(const struct polars_expr_t *a
 
 const struct polars_expr_t *polars_expr_dt_ordinal_day(const struct polars_expr_t *a);
 
+const struct polars_expr_t *polars_expr_dt_week(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_quarter(const struct polars_expr_t *a);
+
 const struct polars_expr_t *polars_expr_dt_date(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_dt_time(const struct polars_expr_t *a);
@@ -1279,6 +1345,14 @@ const struct polars_error_t *polars_expr_dt_replace_time_zone(
     const struct polars_expr_t *ambiguous,
     enum polars_non_existent_t non_existent,
     const struct polars_expr_t **out);
+
+/**
+ * Fallible since `polars_time_unit_t` mirrors a Julia-side `@cenum` and must reject an
+ * out-of-range value rather than let `to_time_unit` panic across the FFI boundary.
+ */
+const struct polars_error_t *polars_expr_dt_timestamp(const struct polars_expr_t *expr,
+                                                      enum polars_time_unit_t unit,
+                                                      const struct polars_expr_t **out);
 
 const struct polars_error_t *polars_expr_dt_strftime(const struct polars_expr_t *expr,
                                                      const uint8_t *format,

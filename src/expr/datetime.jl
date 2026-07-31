@@ -1,5 +1,5 @@
 module Dt
-using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
+using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error, cast, floor_div
 
 @generate_expr_fns begin
     gen_impl_expr_dt!(polars_expr_dt_year, DateLikeNameSpace::year, "Extracts the year component of each Date/Datetime value in `expr`.")
@@ -10,6 +10,8 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
     gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second, "Extracts the second component (0-59) of each Datetime value in `expr`.")
     gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday, "Day of the week for each Date/Datetime value in `expr`: `1` (Monday) through `7` (Sunday), ISO 8601 numbering.")
     gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day, "Day of the year (1-366) for each Date/Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_week, DateLikeNameSpace::week, "ISO week number (1-53) for each Date/Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_quarter, DateLikeNameSpace::quarter, "Quarter of the year (1-4) for each Date/Datetime value in `expr`.")
     gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date, "Extracts the `Date` component of each Datetime value in `expr` (drops the time-of-day).")
     gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time, "Extracts the `Dates.Time` component of each Datetime value in `expr` (drops the date). Not exported (would clobber `Base.time`) -- use qualified, `Dt.time(...)`.")
 
@@ -44,6 +46,104 @@ Curried form of [`strftime`](@ref) for use with `|>`.
 strftime(format::AbstractString) = Base.Fix2(strftime, format)
 
 export strftime
+
+"""
+    timestamp(expr::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr
+
+Number of `time_unit`s (one of `:ns`, `:us` (default), `:ms`) since the Unix epoch
+(1970-01-01) for each Date/Datetime value in `expr`.
+"""
+function timestamp(expr::Expr; time_unit::Symbol = :us)
+    time_unit_enum = if time_unit == :ns
+        API.PolarsTimeUnitNanosecond
+    elseif time_unit == :us
+        API.PolarsTimeUnitMicrosecond
+    elseif time_unit == :ms
+        API.PolarsTimeUnitMillisecond
+    else
+        error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms)")
+    end
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_dt_timestamp(expr, time_unit_enum, out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+"""
+    timestamp(; time_unit::Symbol=:us)::Base.Callable
+
+Curried form of [`timestamp`](@ref) for use with `|>`.
+"""
+timestamp(; time_unit::Symbol = :us) = expr -> timestamp(expr; time_unit)
+
+export timestamp
+
+"""
+    epoch(expr::Polars.Expr, time_unit::Symbol=:us)::Polars.Expr
+
+Number of `time_unit`s since the Unix epoch (1970-01-01) for each Date/Datetime value in
+`expr`. `time_unit` is one of `:ns`, `:us` (default), `:ms`, `:s`, or `:d` (whole days).
+
+For `:ns`/`:us`/`:ms` this is exactly [`timestamp`](@ref); `:s` and `:d` are derived from the
+millisecond timestamp by (floored) integer division, matching whole seconds/days since the
+epoch.
+"""
+function epoch(expr::Expr, time_unit::Symbol = :us)
+    if time_unit in (:ns, :us, :ms)
+        return timestamp(expr; time_unit)
+    elseif time_unit == :s
+        return floor_div(timestamp(expr; time_unit = :ms), convert(Expr, 1_000))
+    elseif time_unit == :d
+        days = floor_div(timestamp(expr; time_unit = :ms), convert(Expr, 1_000 * 3600 * 24))
+        return cast(days, Int32)
+    else
+        error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms, :s, :d)")
+    end
+end
+
+export epoch
+
+"""
+    month_start(expr::Polars.Expr)::Polars.Expr
+
+!!! warning "Unavailable in this build"
+    Upstream `DateLikeNameSpace::month_start` sits behind polars' own `month_start` Cargo
+    feature, which is not enabled in this build. To enable it, add `"month_start"` to
+    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
+    bindings.
+
+This method exists only to fail with that explanation: without it, calling `Dt.month_start`
+raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
+"""
+function month_start(::Expr)
+    return error(
+        "Dt.month_start is unavailable in this build: polars' `month_start` requires " *
+            "the `month_start` Cargo feature, which c-polars does not currently enable " *
+            "(see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list and " *
+            "rebuild to enable it."
+    )
+end
+
+"""
+    month_end(expr::Polars.Expr)::Polars.Expr
+
+!!! warning "Unavailable in this build"
+    Upstream `DateLikeNameSpace::month_end` sits behind polars' own `month_end` Cargo
+    feature, which is not enabled in this build. To enable it, add `"month_end"` to
+    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
+    bindings.
+
+This method exists only to fail with that explanation: without it, calling `Dt.month_end`
+raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
+"""
+function month_end(::Expr)
+    return error(
+        "Dt.month_end is unavailable in this build: polars' `month_end` requires " *
+            "the `month_end` Cargo feature, which c-polars does not currently enable " *
+            "(see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list and " *
+            "rebuild to enable it."
+    )
+end
 
 """
     total_days(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr

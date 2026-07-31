@@ -155,6 +155,20 @@ end
     @test collect(r_or[:or]) == [true, false, false]
 end
 
+@testset "floor_div" begin
+    # float operands: floor_div rounds down towards negative infinity, unlike div/`/` (the exact
+    # quotient) -- this is the behavior Dt.epoch relies on for pre-1970 (negative) timestamps.
+    df = DataFrame((; a = [-1.0, 7.5, -7.5], b = [2.0, 2.0, 2.0]))
+    r = select(df, alias(floor_div(col("a"), col("b")), "fd"), alias(div(col("a"), col("b")), "d"))
+    @test collect(r[:fd]) == [-1.0, 3.0, -4.0]
+    @test collect(r[:d]) == [-0.5, 3.75, -3.75]
+
+    # integer operands: div/`/` already floors here, so floor_div agrees with it exactly
+    df_int = DataFrame((; a = Int64[-1, 1, -1, 1, 7, -7], b = Int64[2, 2, -2, -2, 2, 2]))
+    r_int = select(df_int, alias(floor_div(col("a"), col("b")), "fd"), alias(div(col("a"), col("b")), "d"))
+    @test collect(r_int[:fd]) == collect(r_int[:d]) == [-1, 0, 0, -1, 3, -4]
+end
+
 @testset "derived comparison operators: <=, >=, != (Julia-side P2.1)" begin
     # polars' C ABI only wraps `eq`/`lt`/`gt` directly; `<=`/`>=`/`!=` are composed from those via
     # `not` (see `_le`/`_ge`/`_neq` in expr/expr.jl). Must agree with `eq`/`lt`/`gt` themselves,
@@ -203,6 +217,31 @@ end
     # deliberately not asserted on, only that it raises cleanly.
     dfstr = DataFrame((; s = ["1", "2", "3"]))
     @test_throws PolarsError select(dfstr, arccos(col("s")))
+end
+
+@testset "arcsin / arctan (py-polars test_trigonometric fixture)" begin
+    # Same fixture/shape as the `arccos` testset above: null propagates, NaN propagates,
+    # `arcsin(π)` is NaN (π > 1, out of arcsin's [-1, 1] domain) while `arctan` has no domain
+    # restriction at all.
+    dftrig = DataFrame((; a = Union{Float64, Missing}[0.0, π, missing, NaN]))
+
+    r = select(dftrig, alias(arcsin(col("a")), "asin"), alias(arctan(col("a")), "atan"))
+    asin_out = collect(r[:asin])
+    atan_out = collect(r[:atan])
+
+    @test asin_out[1] ≈ asin(0.0)
+    @test isnan(asin_out[2]) # out-of-domain (π > 1), not an error
+    @test ismissing(asin_out[3])
+    @test isnan(asin_out[4])
+
+    @test atan_out[1] ≈ atan(0.0)
+    @test atan_out[2] ≈ atan(π) # no domain restriction
+    @test ismissing(atan_out[3])
+    @test isnan(atan_out[4])
+
+    dfstr = DataFrame((; s = ["1", "2", "3"]))
+    @test_throws PolarsError select(dfstr, arcsin(col("s")))
+    @test_throws PolarsError select(dfstr, arctan(col("s")))
 end
 
 @testset "log1p / log10 (API gap batch four, Phase 1; domain edges per py-polars' test_exp_log1p)" begin
