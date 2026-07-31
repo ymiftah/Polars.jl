@@ -47,7 +47,18 @@ polars-ops = { version = "0.54.4", features = ["round_series", "dtype-time"] }
 # back in later -- they are already active, and re-adding them here would be dead weight, not a fix.
 # `rle` used now; `rolling_window`/`moment`/`is_between` pre-added so a later wave
 # doesn't pay a second full rebuild.
-polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration", "aws", "gcp", "azure", "rolling_window", "moment", "is_between", "rle", "cov"] }
+# Gap-closure batch (parity-gap-closure): the eleven features below unlock every remaining
+# `ListNameSpace`/`StringNameSpace`/dedup function the nine-batch py-polars test-parity sweep
+# flagged as missing. Grouped into one addition deliberately -- per CLAUDE.md, any Cargo feature
+# change forces a full optimized rebuild of every vendored crate (real memory pressure, needs
+# `-j 1` the first time), so batching avoids paying that cost once per function.
+# `list_sets`: list.set_union/set_intersection/set_difference/set_symmetric_difference (Batch 9).
+# `list_count`: list.count_matches. `list_gather`: list.gather/gather_every. `list_drop_nulls`:
+# list.drop_nulls. `list_sample`: list.sample_n/sample_fraction. `list_to_struct`: list.to_struct.
+# `dtype-array`: list.to_array (fixed-size Array dtype). `concat_str`: str.join (Batch 7).
+# `extract_groups`: str.extract_groups, named-capture regex into a Struct (Batch 7). `json`:
+# struct.json_encode (Batch 9). `is_first_distinct`/`is_last_distinct`: Batch 5's dedicated file.
+polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration", "aws", "gcp", "azure", "rolling_window", "moment", "is_between", "rle", "cov", "list_sets", "list_count", "list_gather", "list_drop_nulls", "list_sample", "list_to_struct", "dtype-array", "concat_str", "extract_groups", "json", "is_first_distinct", "is_last_distinct"] }
 
 # Without this, `cargo build`'s default dev profile (opt-level 0 for every crate, including every
 # vendored polars kernel) is what every dev/test/CI run actually executes -- for a performance

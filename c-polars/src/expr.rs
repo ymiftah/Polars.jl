@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use std::io::Write;
+use std::ops::Neg;
 use std::sync::Arc;
 
 use polars::{lazy::dsl::string::StringNameSpace, lazy::dsl::ListNameSpace, prelude::*};
@@ -287,6 +288,22 @@ pub unsafe extern "C" fn polars_expr_cast(
     // producing a cast to `Unknown` (see `polars_value_type_t::to_dtype`).
     let dtype = tri!(dtype.to_dtype());
     *out = make_expr(cast((*expr).inner.clone(), dtype));
+    std::ptr::null()
+}
+
+/// Strict cast: raises on overflow/loss instead of `polars_expr_cast`'s non-strict "overflow
+/// becomes null" behavior (our `cast()` was hardwired non-strict; upstream `Expr.cast(dtype,
+/// strict=True)` defaults to strict -- this exposes the other branch as an explicit function
+/// rather than a mode switch on `cast` itself, matching `Expr::strict_cast`/`Expr::cast`'s own
+/// split upstream).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_strict_cast(
+    expr: *const polars_expr_t,
+    dtype: polars_value_type_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let dtype = tri!(dtype.to_dtype());
+    *out = make_expr((*expr).inner.clone().strict_cast(dtype));
     std::ptr::null()
 }
 
@@ -594,13 +611,19 @@ pub unsafe extern "C" fn polars_expr_over(
     mapping: polars_window_mapping_t,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let partition_by = read_exprs(partition_by, n_partition_by);
-    // Always `Some(..)`, even when empty -- matches the plain `Expr::over`'s own behavior
-    // (`self.over_with_options(Some(partition_by), None, ..)`, upstream `dsl/mod.rs`), which
-    // this function used to delegate to before gaining order_by/mapping support. An empty
-    // partition list is a real, meaningful window spec (the whole frame as one group); making
-    // it `None` here would incorrectly trip `over_with_options`'s "at least one of partition_by/
-    // order_by" check for the zero-partition-columns case that used to succeed.
+    let mut partition_by = read_exprs(partition_by, n_partition_by);
+    // An empty partition list is a real, meaningful window spec (the whole frame as one group),
+    // but `over_with_options` does not treat `Some(vec![])` that way -- only its own `None` branch
+    // substitutes the whole-frame sentinel `vec![lit(1)]` (upstream `dsl/mod.rs`); `Some(vec![])`
+    // is passed straight through as zero actual group-by keys, which polars-core's group-by
+    // execution then rejects at *run* time ("at least one key is required in a group_by
+    // operation") even though building the `Expr` itself succeeds. Passing `None` outright doesn't
+    // work either -- `over_with_options`'s own `polars_ensure!` then requires `order_by` to be set.
+    // So: replicate upstream's `None`-branch substitution ourselves whenever the caller passed an
+    // empty list, keeping `Some(..)` (which upstream's ensure is satisfied by) either way.
+    if partition_by.is_empty() {
+        partition_by.push(lit(1));
+    }
     let partition_by = Some(partition_by);
     let order_by = if order_by.is_null() {
         None
@@ -717,6 +740,12 @@ pub unsafe extern "C" fn polars_expr_clip(
     make_expr(expr.clip(min, max))
 }
 
+/// Unary negation (`-expr`). Not reachable by composing `0 .- expr` from the existing binary
+/// `sub` -- that silently wraps on an unsigned column (e.g. `UInt8` `0-1` -> `255`) where
+/// `Expr::neg` (via `FunctionExpr::Negate`) has its own per-dtype validation and correctly raises
+/// instead (upstream `test_neg_unsigned_int`, live-verified both directions before writing this).
+gen_impl_expr!(polars_expr_neg, Neg::neg);
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_replace(
     expr: *const polars_expr_t,
@@ -751,9 +780,24 @@ gen_impl_expr!(polars_expr_n_unique, Expr::n_unique);
 gen_impl_expr!(polars_expr_unique, Expr::unique);
 gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated);
 gen_impl_expr!(polars_expr_is_unique, Expr::is_unique);
+gen_impl_expr!(polars_expr_is_first_distinct, Expr::is_first_distinct);
+gen_impl_expr!(polars_expr_is_last_distinct, Expr::is_last_distinct);
 gen_impl_expr!(polars_expr_count, Expr::count);
 gen_impl_expr!(polars_expr_first, Expr::first);
 gen_impl_expr!(polars_expr_last, Expr::last);
+
+/// The aggregation form of `item()`: errors if the expression evaluates to `!= 1` values, unless
+/// `allow_empty` is set, in which case zero values also succeeds (producing `null`). Distinct from
+/// `DataFrame`/`Series` `item()`, which is a `(1,1)`-shape accessor, not an aggregation -- the two
+/// share a name upstream but are different functions (see `plans/parity/batch-2-aggregation-
+/// statistics.md`'s Step-9 finding).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_item(
+    expr: *const polars_expr_t,
+    allow_empty: bool,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().item(allow_empty))
+}
 
 gen_impl_expr!(polars_expr_not, Expr::not);
 gen_impl_expr!(polars_expr_is_finite, Expr::is_finite);
@@ -803,11 +847,15 @@ pub unsafe extern "C" fn polars_expr_implode(expr: *const polars_expr_t) -> *con
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_expr_flatten(expr: *const polars_expr_t) -> *const polars_expr_t {
+pub unsafe extern "C" fn polars_expr_flatten(
+    expr: *const polars_expr_t,
+    empty_as_null: bool,
+    keep_nulls: bool,
+) -> *const polars_expr_t {
     let expr = &(*expr).inner;
     make_expr(expr.clone().explode(ExplodeOptions {
-        empty_as_null: true,
-        keep_nulls: true,
+        empty_as_null,
+        keep_nulls,
     }))
 }
 
@@ -840,6 +888,14 @@ gen_impl_expr_binary!(polars_expr_add, core::ops::Add::add);
 gen_impl_expr_binary!(polars_expr_sub, core::ops::Sub::sub);
 gen_impl_expr_binary!(polars_expr_mul, core::ops::Mul::mul);
 gen_impl_expr_binary!(polars_expr_div, core::ops::Div::div);
+gen_impl_expr_binary!(polars_expr_floor_div, Expr::floor_div);
+
+// Single-sided clip -- the existing `polars_expr_clip` above only wraps the two-sided form.
+gen_impl_expr_binary!(polars_expr_clip_min, Expr::clip_min);
+gen_impl_expr_binary!(polars_expr_clip_max, Expr::clip_max);
+
+gen_impl_expr_binary!(polars_expr_bottom_k, Expr::bottom_k);
+gen_impl_expr_binary!(polars_expr_shift_and_fill, Expr::shift_and_fill);
 
 gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null);
 gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan);
@@ -1057,6 +1113,35 @@ pub unsafe extern "C" fn polars_expr_list_unique_stable(
 }
 gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first);
 gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last);
+gen_impl_expr_list!(polars_expr_list_median, ListNameSpace::median);
+gen_impl_expr_list!(polars_expr_list_drop_nulls, ListNameSpace::drop_nulls);
+
+/// `Lists.eval`: runs `evaluation` once per row, with `element()` bound to that row's list values
+/// -- the same primitive the crate already uses internally for `reverse`/`unique`/`unique_stable`
+/// above, exposed directly. This is the multiplier for the "most of the list namespace is
+/// missing" finding (`plans/parity/batch-9-lists-structs.md`): `all`/`any` have no dedicated
+/// `ListNameSpace` method in this polars version at all and are *only* reachable this way
+/// (`eval(element().all(ignore_nulls))`), and `n_unique`/`filter` compose the same way.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_eval(
+    a: *const polars_expr_t,
+    evaluation: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().eval((*evaluation).inner.clone());
+    make_expr(expr)
+}
+
+/// `Lists.agg`: like `eval`, but the per-row expression is expected to reduce to a single scalar
+/// (`EvalVariant::ListAgg` instead of `::List`) -- needed for e.g. `n_unique` per row, which
+/// `eval` alone cannot express (it stays list-shaped).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_agg(
+    a: *const polars_expr_t,
+    evaluation: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().agg((*evaluation).inner.clone());
+    make_expr(expr)
+}
 
 macro_rules! gen_impl_expr_binary_list {
     ($n: ident, $t: expr) => {
@@ -1086,6 +1171,178 @@ pub unsafe extern "C" fn polars_expr_list_get(
 }
 
 gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head);
+gen_impl_expr_binary_list!(polars_expr_list_tail, ListNameSpace::tail);
+gen_impl_expr_binary_list!(polars_expr_list_shift, ListNameSpace::shift);
+gen_impl_expr_binary_list!(polars_expr_list_count_matches, ListNameSpace::count_matches);
+gen_impl_expr_binary_list!(polars_expr_list_union, ListNameSpace::union);
+gen_impl_expr_binary_list!(polars_expr_list_set_difference, ListNameSpace::set_difference);
+gen_impl_expr_binary_list!(
+    polars_expr_list_set_intersection,
+    ListNameSpace::set_intersection
+);
+gen_impl_expr_binary_list!(
+    polars_expr_list_set_symmetric_difference,
+    ListNameSpace::set_symmetric_difference
+);
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_std(
+    a: *const polars_expr_t,
+    ddof: u8,
+) -> *const polars_expr_t {
+    make_expr((*a).inner.clone().list().std(ddof))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_var(
+    a: *const polars_expr_t,
+    ddof: u8,
+) -> *const polars_expr_t {
+    make_expr((*a).inner.clone().list().var(ddof))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_sort(
+    a: *const polars_expr_t,
+    descending: bool,
+    nulls_last: bool,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().list().sort(SortOptions {
+        descending,
+        nulls_last,
+        ..Default::default()
+    });
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_join(
+    a: *const polars_expr_t,
+    separator: *const polars_expr_t,
+    ignore_nulls: bool,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .join((*separator).inner.clone(), ignore_nulls);
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_slice(
+    a: *const polars_expr_t,
+    offset: *const polars_expr_t,
+    length: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .slice((*offset).inner.clone(), (*length).inner.clone());
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_gather(
+    a: *const polars_expr_t,
+    index: *const polars_expr_t,
+    null_on_oob: bool,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .gather((*index).inner.clone(), null_on_oob);
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_gather_every(
+    a: *const polars_expr_t,
+    n: *const polars_expr_t,
+    offset: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .gather_every((*n).inner.clone(), (*offset).inner.clone());
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_diff(
+    a: *const polars_expr_t,
+    n: i64,
+    null_behavior: polars_null_behavior_t,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .diff(n, null_behavior.to_null_behavior());
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_sample_n(
+    a: *const polars_expr_t,
+    n: *const polars_expr_t,
+    with_replacement: bool,
+    shuffle: bool,
+    seed: *const u64,
+) -> *const polars_expr_t {
+    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let expr = (*a)
+        .inner
+        .clone()
+        .list()
+        .sample_n((*n).inner.clone(), with_replacement, shuffle, seed);
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_sample_fraction(
+    a: *const polars_expr_t,
+    fraction: *const polars_expr_t,
+    with_replacement: bool,
+    shuffle: bool,
+    seed: *const u64,
+) -> *const polars_expr_t {
+    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let expr = (*a).inner.clone().list().sample_fraction(
+        (*fraction).inner.clone(),
+        with_replacement,
+        shuffle,
+        seed,
+    );
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_to_array(
+    a: *const polars_expr_t,
+    width: usize,
+) -> *const polars_expr_t {
+    make_expr((*a).inner.clone().list().to_array(width))
+}
+
+/// Converts a `List` column to a `Struct` column, one field per list position, named `names[i]`.
+/// `names.len()` fixes the field count (and so the schema) -- a row whose list is shorter gets
+/// `null` for the missing trailing fields; longer is a runtime error (upstream's own behavior).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_list_to_struct(
+    a: *const polars_expr_t,
+    names: *const *const u8,
+    lens: *const usize,
+    num_names: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let names: Arc<[PlSmallStr]> = tri!(read_names(names, lens, num_names)).into();
+    *out = make_expr((*a).inner.clone().list().to_struct(names));
+    std::ptr::null()
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_list_contains(
@@ -1146,6 +1403,150 @@ gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_
 gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill);
 gen_impl_expr_binary_str!(polars_expr_str_head, StringNameSpace::head);
 gen_impl_expr_binary_str!(polars_expr_str_tail, StringNameSpace::tail);
+gen_impl_expr_binary_str!(
+    polars_expr_str_strip_chars_start,
+    StringNameSpace::strip_chars_start
+);
+gen_impl_expr_binary_str!(
+    polars_expr_str_strip_chars_end,
+    StringNameSpace::strip_chars_end
+);
+
+/// `fill_char` crosses the boundary as a `u32` Unicode scalar value (not the usual ptr/len string
+/// pair) since it is always exactly one character -- validated the same way `char::from_u32`
+/// always validates, via the fallible out-param convention rather than a panic on a bad codepoint.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_pad_start(
+    a: *const polars_expr_t,
+    length: *const polars_expr_t,
+    fill_char: u32,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let fill_char = tri!(
+        char::from_u32(fill_char).ok_or_else(|| PolarsError::ComputeError(
+            "invalid fill_char codepoint".into()
+        ))
+    );
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .pad_start((*length).inner.clone(), fill_char);
+    *out = make_expr(expr);
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_pad_end(
+    a: *const polars_expr_t,
+    length: *const polars_expr_t,
+    fill_char: u32,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let fill_char = tri!(
+        char::from_u32(fill_char).ok_or_else(|| PolarsError::ComputeError(
+            "invalid fill_char codepoint".into()
+        ))
+    );
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .pad_end((*length).inner.clone(), fill_char);
+    *out = make_expr(expr);
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_find(
+    a: *const polars_expr_t,
+    pat: *const polars_expr_t,
+    strict: bool,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .find((*pat).inner.clone(), strict);
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_replace_n(
+    a: *const polars_expr_t,
+    pat: *const polars_expr_t,
+    value: *const polars_expr_t,
+    literal: bool,
+    n: i64,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().str().replace_n(
+        (*pat).inner.clone(),
+        (*value).inner.clone(),
+        literal,
+        n,
+    );
+    make_expr(expr)
+}
+
+/// Struct-typed split: exactly `n` fields, the remainder (if any) folded into the last one.
+/// Distinct from `polars_expr_str_split` above, which produces a variable-length `List<String>`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_splitn(
+    a: *const polars_expr_t,
+    by: *const polars_expr_t,
+    n: usize,
+) -> *const polars_expr_t {
+    let expr = (*a).inner.clone().str().splitn((*by).inner.clone(), n);
+    make_expr(expr)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_split_exact(
+    a: *const polars_expr_t,
+    by: *const polars_expr_t,
+    n: usize,
+) -> *const polars_expr_t {
+    let expr = (*a)
+        .inner
+        .clone()
+        .str()
+        .split_exact((*by).inner.clone(), n);
+    make_expr(expr)
+}
+
+/// Aggregating join-with-separator across *all* rows into a single value (upstream `str.join`,
+/// the replacement for the deprecated `str.concat`) -- distinct from `Lists.join` above, which
+/// joins each row's own list independently. `delimiter` is a plain string (not an `Expr`) because
+/// the aggregation itself has no per-row context to evaluate a column expression against.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_join(
+    a: *const polars_expr_t,
+    delimiter: *const u8,
+    delimiter_len: usize,
+    ignore_nulls: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let delimiter = tri!(read_str(delimiter, delimiter_len));
+    let expr = (*a).inner.clone().str().join(delimiter, ignore_nulls);
+    *out = make_expr(expr);
+    std::ptr::null()
+}
+
+/// Named-capture-group regex extraction into a `Struct` column (one field per named group).
+/// `pat` is a plain string, not an `Expr` -- upstream compiles the regex at plan time to
+/// determine the output `Struct`'s schema (field names/count), so it cannot vary per row.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_str_extract_groups(
+    a: *const polars_expr_t,
+    pat: *const u8,
+    pat_len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let pat = tri!(read_str(pat, pat_len));
+    let expr = tri!((*a).inner.clone().str().extract_groups(pat));
+    *out = make_expr(expr);
+    std::ptr::null()
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_str_contains(
@@ -1482,6 +1883,20 @@ pub unsafe extern "C" fn polars_expr_struct_rename_fields(
     let names = tri!(read_names(names, lens, num_names));
     *out = make_expr((*a).inner.clone().struct_().rename_fields(names));
     std::ptr::null()
+}
+
+gen_impl_expr!(polars_expr_struct_json_encode, |e: Expr| e.struct_().json_encode());
+
+/// Applies each of `fields` to the struct's selected field(s) in place (via `pl.field("x")...`
+/// inside each expression), leaving other fields untouched -- upstream `struct.with_fields`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_struct_with_fields(
+    a: *const polars_expr_t,
+    fields: *const *const polars_expr_t,
+    n_fields: usize,
+) -> *const polars_expr_t {
+    let fields = read_exprs(fields, n_fields);
+    make_expr((*a).inner.clone().struct_().with_fields(fields))
 }
 
 // ------------------------------------------------------------------------------------------
