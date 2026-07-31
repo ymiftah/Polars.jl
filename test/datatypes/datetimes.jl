@@ -42,6 +42,24 @@
     @test isequal(r3[:d], [1, 2, 3, missing])
 end
 
+@testset "Dt.offset_by month-end clamps rather than overflows (py-polars test_date_offset_by)" begin
+    df = DataFrame((; d = [Date(2020, 1, 31), Date(2020, 1, 1), Date(2020, 1, 2)]))
+    r = select(df, alias(Dt.offset_by(col("d"), lit("1mo")), "o"))
+    @test collect(r[:o]) == [Date(2020, 2, 29), Date(2020, 2, 1), Date(2020, 2, 2)]
+end
+
+@testset "Dt.truncate / Dt.round / Dt.offset_by null propagation" begin
+    df = DataFrame((; t = Union{Missing, DateTime}[DateTime(2024, 1, 1, 5, 30), missing]))
+    r = select(
+        df, alias(Dt.truncate(col("t"), lit("1h")), "trunc"),
+        alias(Dt.round(col("t"), lit("1h")), "round"),
+        alias(Dt.offset_by(col("t"), lit("1d")), "off"),
+    )
+    @test isequal(collect(r[:trunc]), [DateTime(2024, 1, 1, 5), missing])
+    @test isequal(collect(r[:round]), [DateTime(2024, 1, 1, 6), missing])
+    @test isequal(collect(r[:off]), [DateTime(2024, 1, 2, 5, 30), missing])
+end
+
 @testset "Dt.truncate / Dt.round with different duration strings" begin
     df = DataFrame((; dt = [DateTime(2024, 1, 1, 5, 30, 45), DateTime(2024, 1, 1, 14, 45, 30)]))
 
