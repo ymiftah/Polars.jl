@@ -842,6 +842,14 @@ function polars_expr_rolling_std(expr, window_size, min_periods, center, ddof)
     return @ccall libpolars.polars_expr_rolling_std(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool, ddof::UInt8)::Ptr{polars_expr_t}
 end
 
+function polars_expr_rolling_median(expr, window_size, min_periods, center)
+    return @ccall libpolars.polars_expr_rolling_median(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rolling_quantile(expr, window_size, min_periods, center, quantile, method)
+    return @ccall libpolars.polars_expr_rolling_quantile(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool, quantile::Cdouble, method::polars_quantile_method_t)::Ptr{polars_expr_t}
+end
+
 function polars_expr_when_then_otherwise(cond, then, otherwise)
     return @ccall libpolars.polars_expr_when_then_otherwise(cond::Ptr{polars_expr_t}, then::Ptr{polars_expr_t}, otherwise::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -910,6 +918,14 @@ end
 
 function polars_expr_arccos(expr)
     return @ccall libpolars.polars_expr_arccos(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_arcsin(expr)
+    return @ccall libpolars.polars_expr_arcsin(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_arctan(expr)
+    return @ccall libpolars.polars_expr_arctan(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_degrees(expr)
@@ -1088,6 +1104,10 @@ function polars_expr_div(a, b)
     return @ccall libpolars.polars_expr_div(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_floor_div(a, b)
+    return @ccall libpolars.polars_expr_floor_div(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_fill_null(a, b)
     return @ccall libpolars.polars_expr_fill_null(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1213,12 +1233,28 @@ function polars_expr_list_unique_stable(a)
     return @ccall libpolars.polars_expr_list_unique_stable(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_list_n_unique(a)
+    return @ccall libpolars.polars_expr_list_n_unique(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_any(a, ignore_nulls)
+    return @ccall libpolars.polars_expr_list_any(a::Ptr{polars_expr_t}, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_all(a, ignore_nulls)
+    return @ccall libpolars.polars_expr_list_all(a::Ptr{polars_expr_t}, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
 function polars_expr_list_first(a)
     return @ccall libpolars.polars_expr_list_first(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_last(a)
     return @ccall libpolars.polars_expr_list_last(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_sort(a, descending, nulls_last)
+    return @ccall libpolars.polars_expr_list_sort(a::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool)::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_get(a, index, null_on_oob)
@@ -1231,6 +1267,18 @@ end
 
 function polars_expr_list_contains(a, other, nulls_equal)
     return @ccall libpolars.polars_expr_list_contains(a::Ptr{polars_expr_t}, other::Ptr{polars_expr_t}, nulls_equal::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_join(a, separator, ignore_nulls)
+    return @ccall libpolars.polars_expr_list_join(a::Ptr{polars_expr_t}, separator::Ptr{polars_expr_t}, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_slice(a, offset, length)
+    return @ccall libpolars.polars_expr_list_slice(a::Ptr{polars_expr_t}, offset::Ptr{polars_expr_t}, length::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_diff(a, n, null_behavior)
+    return @ccall libpolars.polars_expr_list_diff(a::Ptr{polars_expr_t}, n::Int64, null_behavior::polars_null_behavior_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_str_to_uppercase(a)
@@ -1301,6 +1349,28 @@ function polars_expr_str_slice(a, offset, length)
     return @ccall libpolars.polars_expr_str_slice(a::Ptr{polars_expr_t}, offset::Ptr{polars_expr_t}, length::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_str_find(a, pat, strict)
+
+Position (not just presence, unlike `contains`) of the first regex match.
+"""
+function polars_expr_str_find(a, pat, strict)
+    return @ccall libpolars.polars_expr_str_find(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, strict::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_str_pad_start(a, length, fill_char, out)
+
+`fill_char` crosses the FFI boundary as a `u32` codepoint (there is no C `char32_t` binding on the Julia side) and is fallible since not every `u32` is a valid Unicode scalar value.
+"""
+function polars_expr_str_pad_start(a, length, fill_char, out)
+    return @ccall libpolars.polars_expr_str_pad_start(a::Ptr{polars_expr_t}, length::Ptr{polars_expr_t}, fill_char::UInt32, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_str_pad_end(a, length, fill_char, out)
+    return @ccall libpolars.polars_expr_str_pad_end(a::Ptr{polars_expr_t}, length::Ptr{polars_expr_t}, fill_char::UInt32, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
 function polars_expr_str_replace(a, pat, value, literal)
     return @ccall libpolars.polars_expr_str_replace(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, value::Ptr{polars_expr_t}, literal::Bool)::Ptr{polars_expr_t}
 end
@@ -1357,6 +1427,14 @@ function polars_expr_dt_ordinal_day(a)
     return @ccall libpolars.polars_expr_dt_ordinal_day(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_dt_week(a)
+    return @ccall libpolars.polars_expr_dt_week(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_quarter(a)
+    return @ccall libpolars.polars_expr_dt_quarter(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_dt_date(a)
     return @ccall libpolars.polars_expr_dt_date(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1393,6 +1471,19 @@ end
 """
 function polars_expr_dt_replace_time_zone(expr, tz, tz_len, ambiguous, non_existent, out)
     return @ccall libpolars.polars_expr_dt_replace_time_zone(expr::Ptr{polars_expr_t}, tz::Ptr{UInt8}, tz_len::Csize_t, ambiguous::Ptr{polars_expr_t}, non_existent::polars_non_existent_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_timestamp(expr, unit, out)
+
+Fallible since [`polars_time_unit_t`](@ref) mirrors a Julia-side `
+
+`` and must reject an`
+
+out-of-range value rather than let `to_time_unit` panic across the FFI boundary.
+"""
+function polars_expr_dt_timestamp(expr, unit, out)
+    return @ccall libpolars.polars_expr_dt_timestamp(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_dt_strftime(expr, format, len, out)

@@ -297,8 +297,12 @@ mapped in; re-running `using Polars` is a no-op. Restart the session (Kaimon: `m
 `command="restart"`) after every `c-polars` rebuild before testing the change.
 
 **Running the test suite needs a scratch environment, not `--project=test` or `Pkg.test()`.**
-Create one with `Pkg.develop(path=".")` plus `Pkg.add(["Aqua", "Test", "Tables", "TimeZones"])`
-(TimeZones is needed to exercise the `PolarsTimeZonesExt` extension — see above), then
+Create one with `Pkg.develop(path=".")` plus
+`Pkg.add(["Aqua", "Test", "Tables", "TimeZones", "StatsBase", "CategoricalArrays"])` (TimeZones is
+needed to exercise the `PolarsTimeZonesExt` extension — see above; StatsBase/CategoricalArrays back
+`PolarsStatsBaseExt`/`PolarsCategoricalArraysExt`, exercised by `test/expr/statsbase_ext.jl`/
+`test/expr/categoricalarrays_ext.jl` — omitting either pair means `runtests.jl` errors out on the
+corresponding file's `using` before any of the rest of the suite runs), then
 `JULIA_PROJECT=<scratch env> julia -e 'include("test/runtests.jl")'`.
 
 ## Known sharp edges

@@ -125,6 +125,137 @@ end
     @test isequal(collect(r_mm[:mx]), [missing, 3])
 end
 
+@testset "Lists.sort (py-polars test_list_ordering)" begin
+    df = DataFrame((; a = [[2, 1], [1, 3, 2]]))
+    r = select(df, alias(Lists.sort(col("a")), "s"))
+    @test collect(r[:s]) == [[1, 2], [1, 2, 3]]
+
+    df_nulls = DataFrame((; a = [Union{Missing, Int64}[missing, 1, 2], Union{Missing, Int64}[-1, missing, 9]]))
+    r_last = select(df_nulls, alias(Lists.sort(col("a"); nulls_last = true), "s"))
+    @test isequal(collect(r_last[:s]), [[1, 2, missing], [-1, 9, missing]])
+
+    r_first = select(df_nulls, alias(Lists.sort(col("a"); nulls_last = false), "s"))
+    @test isequal(collect(r_first[:s]), [[missing, 1, 2], [missing, -1, 9]])
+
+    r_desc = select(df, alias(Lists.sort(col("a"); descending = true), "s"))
+    @test collect(r_desc[:s]) == [[2, 1], [3, 2, 1]]
+
+    # curried form for |> pipelines
+    r_curried = select(df, alias(col("a") |> Lists.sort(), "s"))
+    @test collect(r_curried[:s]) == collect(r[:s])
+end
+
+@testset "Lists.join (py-polars test_list_join)" begin
+    df = DataFrame(
+        (;
+            a = Union{Missing, Vector{Union{Missing, String}}}[["ab", "c", "d"], ["e", "f"], ["g"], String[], missing],
+            separator = Union{Missing, String}["&", missing, "*", "_", "*"],
+        )
+    )
+    r_lit = select(df, alias(Lists.join(col("a"), lit("-")), "j"))
+    @test isequal(collect(r_lit[:j]), ["ab-c-d", "e-f", "g", "", missing])
+
+    r_col = select(df, alias(Lists.join(col("a"), col("separator")), "j"))
+    @test isequal(collect(r_col[:j]), ["ab&c&d", missing, "g", "", missing])
+
+    # ignore_nulls
+    df2 = DataFrame(
+        (;
+            a = Union{Missing, Vector{Union{Missing, String}}}[
+                ["a", missing, "b", missing], missing, [missing, missing], ["c", "d"], String[],
+            ],
+            separator = ["-", "&", " ", "@", "/"],
+        )
+    )
+    # the default is ignore_nulls=true (py-polars: `join(separator, *, ignore_nulls=True)`) --
+    # pinned here with no keyword at all, since df's own default-vs-explicit calls above happen
+    # to agree (no *inner* nulls in that fixture) and so can't catch a wrong default
+    r_default = select(df2, alias(Lists.join(col("a"), lit("-")), "j"))
+    @test isequal(collect(r_default[:j]), ["a-b", missing, "", "c-d", ""])
+
+    r_ignore = select(df2, alias(Lists.join(col("a"), lit("-"); ignore_nulls = true), "j"))
+    @test isequal(collect(r_ignore[:j]), ["a-b", missing, "", "c-d", ""])
+
+    r_ignore_col = select(df2, alias(Lists.join(col("a"), col("separator"); ignore_nulls = true), "j"))
+    @test isequal(collect(r_ignore_col[:j]), ["a-b", missing, "", "c@d", ""])
+
+    r_propagate = select(df2, alias(Lists.join(col("a"), lit("-"); ignore_nulls = false), "j"))
+    @test isequal(collect(r_propagate[:j]), [missing, missing, missing, "c-d", ""])
+
+    # curried form for |> pipelines
+    r_curried = select(df, alias(col("a") |> Lists.join("-"), "j"))
+    @test isequal(collect(r_curried[:j]), collect(r_lit[:j]))
+end
+
+@testset "Lists.slice (py-polars test_list_slice)" begin
+    df = DataFrame((; lst = [[1, 2, 3, 4], [10, 2, 1]], offset = [1, 2], len = [3, 2]))
+
+    r = select(df, alias(Lists.slice(col("lst"), col("offset"), col("len")), "s"))
+    @test collect(r[:s]) == [[2, 3, 4], [1]]
+
+    r_len1 = select(df, alias(Lists.slice(col("lst"), col("offset"), lit(1)), "s"))
+    @test collect(r_len1[:s]) == [[2], [1]]
+
+    r_negoff = select(df, alias(Lists.slice(col("lst"), lit(-2), col("len")), "s"))
+    @test collect(r_negoff[:s]) == [[3, 4], [2, 1]]
+
+    # null length extends to the end of the list
+    r_toend = select(df, alias(Lists.slice(col("lst"), lit(1), lit(missing)), "s"))
+    @test collect(r_toend[:s]) == [[2, 3, 4], [2, 1]]
+
+    # curried form for |> pipelines
+    r_curried = select(df, alias(col("lst") |> Lists.slice(1, 2), "s"))
+    @test collect(r_curried[:s]) == [[2, 3], [2, 1]]
+end
+
+@testset "Lists.diff (py-polars test_list_diff)" begin
+    df = DataFrame((; a = [[1, 2], [10, 2, 1]]))
+    r = select(df, alias(Lists.diff(col("a")), "d"))
+    @test isequal(collect(r[:d]), [[missing, 1], [missing, -8, -1]])
+
+    df2 = DataFrame((; a = [[1, 3, 6, 10]]))
+    r_drop = select(df2, alias(Lists.diff(col("a"), 2; null_behavior = :drop), "d"))
+    @test collect(r_drop[:d]) == [[5, 7]]
+
+    @test_throws ErrorException Lists.diff(col("a"); null_behavior = :bogus)
+end
+
+@testset "Lists.n_unique (py-polars test_list_n_unique)" begin
+    df = DataFrame(
+        (;
+            a = Union{Missing, Vector{Union{Missing, Int64}}}[[1, 1, 2], [3, 3], [missing], missing, Int64[]],
+        )
+    )
+    r = select(df, alias(Lists.n_unique(col("a")), "nu"))
+    @test isequal(collect(r[:nu]), [2, 1, 1, missing, 0])
+end
+
+@testset "Lists.any / Lists.all (py-polars test_list_any / test_list_all)" begin
+    a = Vector{Union{Bool, Missing}}[
+        [true], [false], [true, true], [true, false], [false, false], [missing], Bool[],
+    ]
+    df = DataFrame((; a = a))
+
+    r_any = select(df, alias(Lists.any(col("a")), "any"))
+    @test collect(r_any[:any]) == [true, false, true, true, false, false, false]
+
+    r_all = select(df, alias(Lists.all(col("a")), "all"))
+    @test collect(r_all[:all]) == [true, false, true, false, false, true, true]
+
+    # ignore_nulls=false switches to three-valued (Kleene) logic: a null with no True (any) / no
+    # False (all) makes the whole list's result null instead of false/true
+    r_any_kleene = select(df, alias(Lists.any(col("a"); ignore_nulls = false), "any"))
+    @test isequal(collect(r_any_kleene[:any]), [true, false, true, true, false, missing, false])
+
+    r_all_kleene = select(df, alias(Lists.all(col("a"); ignore_nulls = false), "all"))
+    @test isequal(collect(r_all_kleene[:all]), [true, false, true, false, false, missing, true])
+end
+
+@testset "Lists.to_struct unavailable in this build (needs the list_to_struct Cargo feature)" begin
+    df = DataFrame((; a = [[1, 2], [3, 4]]))
+    @test_throws ErrorException Lists.to_struct(col("a"), ["x", "y"])
+end
+
 @testset "Lists.unique on Boolean lists collapses repeated nulls to one (py-polars test_list_unique_boolean_22753)" begin
     df = DataFrame(
         (;
