@@ -298,13 +298,9 @@ pub unsafe extern "C" fn polars_dataframe_upsample(
     })
 }
 
-/// Attaches loose `Series` as new columns (unlike `concat`'s `:horizontal` mode, which joins two
-/// full `DataFrame`s side by side -- this is the real value-add: no second `DataFrame` needed).
-/// `hstack(&self, ...)` only reads `df`, so no clone/mutation is needed here. A length mismatch
-/// between `series` and `df`'s existing height, or a name collision with an existing column (or
-/// between two of the given `series` themselves), surfaces as a clean `PolarsError` from
-/// `DataFrame::new`'s own validation (`validate_columns_slice`) -- not a panic (verified live, see
-/// `plans/definitive_guide_gap_closure.md`).
+/// Attaches loose `Series` as new columns. A length mismatch between `series` and `df`'s existing
+/// height, or a name collision with an existing column (or between two of the given `series`
+/// themselves), raises a `PolarsError`.
 #[no_mangle]
 pub unsafe extern "C" fn polars_dataframe_hstack(
     df: *mut polars_dataframe_t,
@@ -320,10 +316,8 @@ pub unsafe extern "C" fn polars_dataframe_hstack(
     })
 }
 
-/// Stacks `other`'s rows beneath `df`'s. `vstack(&self, other: &DataFrame)` only reads both
-/// inputs, so no clone/mutation is needed here. Unlike `concat`'s `:vertical_relaxed` mode,
-/// `vstack` does no supertype casting -- a genuine column-count/dtype mismatch between `df` and
-/// `other` surfaces as a clean `PolarsError`, not a panic (verified live).
+/// Stacks `other`'s rows beneath `df`'s. Does no supertype casting: a column-count/dtype mismatch
+/// between `df` and `other` raises a `PolarsError`.
 #[no_mangle]
 pub unsafe extern "C" fn polars_dataframe_vstack(
     df: *mut polars_dataframe_t,
@@ -337,26 +331,12 @@ pub unsafe extern "C" fn polars_dataframe_vstack(
     })
 }
 
-/// Transposes rows and columns. Upstream `transpose(&mut self, ...)` needs `&mut self` (it
-/// rechunks/materializes `self` in place before transposing) -- unlike `hstack`/`vstack` above,
-/// this repo's "no caller observes the mutation" convention means we operate on a clone
-/// (`.inner.clone()`, a cheap Arc-level clone) rather than `&mut (*df).inner` directly.
-///
-/// Only two of upstream's three `new_col_names` modes are supported here: omitted (`None`,
-/// auto-generated `"column_N"` names) and an explicit `Vec<String>` (`Either::Right`) -- a
-/// zero-length `new_col_names` array is treated as "omitted", the same "empty means None"
-/// convention `selector_by_name_opt` already uses elsewhere in this file. py-polars' third mode
-/// (`Either::Left`: an existing column's *values* become the new names) is a deliberate scope cut
-/// for this first pass, not an oversight.
-///
-/// A `new_col_names` of the wrong length (relative to the transposed frame's row count, i.e.
-/// `df`'s original *column* count) surfaces as a clean `ShapeMismatch` `PolarsError` from
-/// `transpose_impl`'s own `polars_ensure!` check, not an index-out-of-bounds panic (verified
-/// live, despite looking like a real risk on paper -- see `plans/definitive_guide_gap_closure.md`).
-/// The upstream `Object`-dtype `polars_bail!` arm is a non-issue here (the `object` Cargo feature
-/// isn't enabled anywhere in this crate, so no `Object`-dtype column can ever exist to hit it);
-/// Struct/List columns instead fall through to the generic supertype-cast path and surface a
-/// clean `PolarsError` there (verified live).
+/// Transposes rows and columns. `keep_names_as`, if given, names a new first column holding the
+/// original column names. `new_col_names`, if given (a zero-length array counts as omitted), sets
+/// the transposed frame's column names explicitly; otherwise they are auto-generated
+/// (`"column_N"`). Setting an existing column's *values* as the new names is not supported. A
+/// `new_col_names` of the wrong length (relative to `df`'s original column count) raises a
+/// `ShapeMismatch` `PolarsError`.
 #[no_mangle]
 pub unsafe extern "C" fn polars_dataframe_transpose(
     df: *mut polars_dataframe_t,
@@ -458,12 +438,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sort(
     );
 }
 
-/// `how` selects the concat mode. Vertical/relaxed/diagonal/relaxed-diagonal all go through the
-/// already-used `concat` (upstream's `concat_lf_diagonal` convenience wrapper is just `concat`
-/// with `diagonal: true` set -- reusing `concat` directly needs no extra Cargo feature, unlike
-/// that wrapper, which is gated behind `diagonal_concat`). `Horizontal` goes through the
-/// ungated `concat_lf_horizontal` instead -- a structurally different join, not a `UnionArgs`
-/// variant, so it can't share the `concat` call.
+/// `how` selects the concat mode.
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_concat(
     lfs: *const *mut polars_lazy_frame_t,

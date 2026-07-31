@@ -80,3 +80,42 @@ end
     df_abs_str = DataFrame((; a = ["p", "q", "r"]))
     @test_throws PolarsError select(df_abs_str, alias(abs(col("a")), "a"))
 end
+
+@testset "is_between (py-polars test_is_between / test_is_between_data_types)" begin
+    # upstream fixture is fruits_cars_df()'s A column, [1, 2, 3, 4, 5]
+    df = fruits_cars_df()
+
+    r = select(df, alias(is_between(col("A"), 2, 4), "b"))
+    @test r[:b] == [false, true, true, true, false]
+
+    r = select(df, alias(is_between(col("A"), 2, 4; closed = :both), "b"))
+    @test r[:b] == [false, true, true, true, false]
+
+    r = select(df, alias(is_between(col("A"), 2, 4; closed = :none), "b"))
+    @test r[:b] == [false, false, true, false, false]
+
+    r = select(df, alias(is_between(col("A"), 2, 4; closed = :left), "b"))
+    @test r[:b] == [false, true, true, false, false]
+
+    r = select(df, alias(is_between(col("A"), 2, 4; closed = :right), "b"))
+    @test r[:b] == [false, false, true, true, false]
+
+    @test_throws ErrorException is_between(col("A"), 2, 4; closed = :bogus)
+
+    # non-numeric bounds: strings and dates must not be silently numeric-only
+    df_types = DataFrame(
+        (;
+            flt = [1.4, 1.2, 2.5],
+            str = ["xyz", "str", "abc"],
+            dt = [Date(2020, 1, 1), Date(2020, 2, 2), Date(2020, 3, 3)],
+        )
+    )
+    r_flt = select(df_types, alias(is_between(col("flt"), 1, 2.3), "b"))
+    @test r_flt[:b] == [true, true, false]
+
+    r_str = select(df_types, alias(is_between(col("str"), "aaa", "s"), "b"))
+    @test r_str[:b] == [false, false, true]
+
+    r_dt = select(df_types, alias(is_between(col("dt"), Date(2020, 1, 15), Date(2020, 3, 1)), "b"))
+    @test r_dt[:b] == [false, true, false]
+end

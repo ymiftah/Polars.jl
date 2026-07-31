@@ -2,8 +2,8 @@ name: Release libpolars
 
 # Builds the native library for every supported platform, publishes the tarballs as GitHub Release
 # assets, and rewrites the root Artifacts.toml to point at them. This repo does NOT use the
-# registered libpolars_jll: that JLL is built from the original upstream repo and exports ~153
-# symbols against the 298 this fork needs, so it fails at ccall time for anyone installing from git.
+# registered libpolars_jll: that JLL is built from the original upstream repo and exports far
+# fewer symbols than this fork needs, so it fails at ccall time for anyone installing from git.
 #
 # Manual trigger only. The version comes from c-polars/Cargo.toml -- bump it in the PR that changes
 # the C ABI, merge, then run this workflow. Release procedure in docs/src/developer.md.
@@ -83,24 +83,15 @@ jobs:
           fi
 
       - name: Symbol parity check
-        # The dynamic symbol table IS the product. `strip = "symbols"` should only drop debug and
-        # local symbols, and `#[no_mangle] extern "C"` should survive thin LTO -- but neither has
-        # ever been verified for this crate, and a silent shortfall here is exactly the failure
-        # that makes the stale registered libpolars_jll useless (153 symbols vs the 298 needed).
-        run: |
-          set -euo pipefail
-          lib=$(ls staging/lib/libpolars.*)
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            # Mach-O prefixes exported C symbols with an underscore.
-            count=$(nm -gU "$lib" | grep -c ' T _polars_' || true)
-          else
-            count=$(nm -D --defined-only "$lib" | grep -c ' T polars_' || true)
-          fi
-          echo "exported polars_* symbols: $count (expected 298)"
-          if [ "$count" -ne 298 ]; then
-            echo "::error::symbol count $count != 298 -- the release profile is dropping exports"
-            exit 1
-          fi
+        # The dynamic symbol table IS the product: `strip = "symbols"` must drop only debug and
+        # local symbols, and `#[no_mangle] extern "C"` must survive thin LTO. A silent shortfall
+        # here is the failure that made the stale registered libpolars_jll useless.
+        #
+        # Delegates to check_header_drift.py rather than counting symbols inline -- it derives the
+        # expected set from include/polars.h, handles the macOS underscore prefix, and exempts
+        # #[cfg]-gated symbols. An inline count has to be edited every time the ABI grows, and
+        # silently blocks a release when it isn't.
+        run: python3 c-polars/check_header_drift.py --lib "$(ls staging/lib/libpolars.*)"
 
       - name: Package
         run: |

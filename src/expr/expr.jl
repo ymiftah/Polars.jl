@@ -784,6 +784,46 @@ clip(min, max) = expr -> clip(expr, min, max)
 export clip
 
 """
+    is_between(expr::Polars.Expr, lower_bound, upper_bound; closed::Symbol=:both)::Polars.Expr
+
+Check if the values are between `lower_bound` and `upper_bound` (accepted as expressions or
+literals). Returns a `Boolean` expression.
+
+`closed` controls which sides of the interval are inclusive: `:both` (default), `:left`, `:right`,
+or `:none`.
+
+If `lower_bound` is greater than `upper_bound`, the result is `false` everywhere, since no value
+can satisfy the condition.
+"""
+function is_between(expr::Expr, lower_bound, upper_bound; closed::Symbol = :both)
+    lower_bound = convert(Expr, lower_bound)
+    upper_bound = convert(Expr, upper_bound)
+    closed_enum = if closed == :both
+        API.PolarsClosedIntervalBoth
+    elseif closed == :left
+        API.PolarsClosedIntervalLeft
+    elseif closed == :right
+        API.PolarsClosedIntervalRight
+    elseif closed == :none
+        API.PolarsClosedIntervalNone
+    else
+        error("unknown closed=$closed, expected one of (:both, :left, :right, :none)")
+    end
+    out = API.polars_expr_is_between(expr, lower_bound, upper_bound, closed_enum)
+    return Expr(out)
+end
+
+"""
+    is_between(lower_bound, upper_bound; closed::Symbol=:both)
+
+Curried form of [`is_between`](@ref) for use with `|>`.
+"""
+is_between(lower_bound, upper_bound; closed::Symbol = :both) =
+    expr -> is_between(expr, lower_bound, upper_bound; closed)
+
+export is_between
+
+"""
     replace(expr::Polars.Expr, old, new)::Polars.Expr
 
 Replaces values equal to `old` with the corresponding `new` value (`old`/`new` are typically
@@ -958,6 +998,70 @@ function spearman_rank_corr(a::Expr, b::Expr; propagate_nans::Bool = false)
 end
 
 export spearman_rank_corr
+
+"""
+    skew(expr::Polars.Expr; bias::Bool=true)::Polars.Expr
+
+Compute the sample skewness of the values.
+
+For normally distributed data, the skewness should be about zero. For unimodal continuous
+distributions, a skewness value greater than zero means that there is more weight in the right
+tail of the distribution.
+
+The sample skewness is computed as the Fisher-Pearson coefficient of skewness. If `bias` is
+`false`, the calculation is corrected for statistical bias.
+"""
+function skew(expr::Expr; bias::Bool = true)
+    out = API.polars_expr_skew(expr, bias)
+    return Expr(out)
+end
+
+"""
+    skew(; bias::Bool=true)
+
+Curried form of [`skew`](@ref) for use with `|>`.
+"""
+skew(; bias::Bool = true) = expr -> skew(expr; bias)
+
+export skew
+
+"""
+    kurtosis(expr::Polars.Expr; fisher::Bool=true, bias::Bool=true)::Polars.Expr
+
+Compute the kurtosis (Fisher or Pearson) of the values.
+
+Kurtosis is the fourth central moment divided by the square of the variance. If `fisher` is
+`true` (default), `3.0` is subtracted from the result so that a normal distribution gives `0.0`;
+if `false`, Pearson's definition is used (`3.0` for a normal distribution). If `bias` is `false`,
+the calculation is corrected for statistical bias.
+
+A constant (zero-variance) input gives `NaN`, not an error.
+
+!!! note "Not exported -- call it qualified, or load StatsBase"
+    StatsBase.jl exports its own `kurtosis`. If this package exported one too, neither would be
+    usable unqualified when both are loaded, so this one is deliberately not exported.
+
+    Write `Polars.kurtosis(expr)`, or load StatsBase and write `kurtosis(expr)` -- with StatsBase
+    present the bare name is its generic, and this package adds the `Expr` method to it.
+
+    `skew` is exported normally; StatsBase spells it `skewness`, and `StatsBase.skewness(expr)`
+    also works when StatsBase is loaded.
+
+"""
+function kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true)
+    out = API.polars_expr_kurtosis(expr, fisher, bias)
+    return Expr(out)
+end
+
+"""
+    Polars.kurtosis(; fisher::Bool=true, bias::Bool=true)
+
+Curried form of [`kurtosis`](@ref) for use with `|>`. Only available qualified, as
+`Polars.kurtosis(; ...)` -- the curried form takes no positional argument, so it cannot be added
+to StatsBase's generic without claiming a signature that mentions no type from this package.
+"""
+kurtosis(; fisher::Bool = true, bias::Bool = true) = expr -> kurtosis(expr; fisher, bias)
+
 
 """
     over(expr::Polars.Expr, partition_by...; mapping_strategy::Symbol=:group_to_rows,
@@ -1451,6 +1555,141 @@ cum_max(; reverse::Bool = false) = expr -> cum_max(expr; reverse)
 cum_count(; reverse::Bool = false) = expr -> cum_count(expr; reverse)
 
 export cum_sum, cum_prod, cum_min, cum_max, cum_count
+
+"""
+    rolling_mean(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
+                 center::Bool=false)::Polars.Expr
+
+Apply a rolling mean (moving average) over the values.
+
+A window of length `window_size` traverses the values; the window at a given row includes the
+row itself and the `window_size - 1` elements before it. `min_samples` is the number of non-null
+values required in the window before a result is computed (defaults to `window_size`, so the
+leading `min_samples - 1` rows are `null`). `center` labels each window's result at its middle
+row instead of its last.
+"""
+function rolling_mean(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+    out = API.polars_expr_rolling_mean(expr, Csize_t(window_size), Csize_t(min_samples), center)
+    return Expr(out)
+end
+
+"""
+    rolling_sum(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
+                center::Bool=false)::Polars.Expr
+
+Apply a rolling sum over the values. See [`rolling_mean`](@ref) for the meaning of `window_size`,
+`min_samples`, and `center`.
+"""
+function rolling_sum(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+    out = API.polars_expr_rolling_sum(expr, Csize_t(window_size), Csize_t(min_samples), center)
+    return Expr(out)
+end
+
+"""
+    rolling_min(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
+                center::Bool=false)::Polars.Expr
+
+Apply a rolling minimum over the values. See [`rolling_mean`](@ref) for the meaning of
+`window_size`, `min_samples`, and `center`.
+"""
+function rolling_min(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+    out = API.polars_expr_rolling_min(expr, Csize_t(window_size), Csize_t(min_samples), center)
+    return Expr(out)
+end
+
+"""
+    rolling_max(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
+                center::Bool=false)::Polars.Expr
+
+Apply a rolling maximum over the values. See [`rolling_mean`](@ref) for the meaning of
+`window_size`, `min_samples`, and `center`.
+"""
+function rolling_max(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+    out = API.polars_expr_rolling_max(expr, Csize_t(window_size), Csize_t(min_samples), center)
+    return Expr(out)
+end
+
+"""
+    rolling_std(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
+                center::Bool=false, ddof::Integer=1)::Polars.Expr
+
+Compute a rolling standard deviation. See [`rolling_mean`](@ref) for the meaning of
+`window_size`, `min_samples`, and `center`. `ddof` is the "delta degrees of freedom": the divisor
+used for a window of length `N` is `N - ddof`.
+"""
+function rolling_std(
+        expr::Expr, window_size::Integer;
+        min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1
+    )
+    out = API.polars_expr_rolling_std(expr, Csize_t(window_size), Csize_t(min_samples), center, UInt8(ddof))
+    return Expr(out)
+end
+
+"""
+    rolling_var(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
+                center::Bool=false, ddof::Integer=1)::Polars.Expr
+
+Compute a rolling variance. See [`rolling_mean`](@ref) for the meaning of `window_size`,
+`min_samples`, and `center`. `ddof` is the "delta degrees of freedom": the divisor used for a
+window of length `N` is `N - ddof`.
+"""
+function rolling_var(
+        expr::Expr, window_size::Integer;
+        min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1
+    )
+    out = API.polars_expr_rolling_var(expr, Csize_t(window_size), Csize_t(min_samples), center, UInt8(ddof))
+    return Expr(out)
+end
+
+"""
+    rolling_mean(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_mean`](@ref) for use with `|>`.
+"""
+rolling_mean(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_mean(expr, window_size; min_samples, center)
+
+"""
+    rolling_sum(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_sum`](@ref) for use with `|>`.
+"""
+rolling_sum(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_sum(expr, window_size; min_samples, center)
+
+"""
+    rolling_min(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_min`](@ref) for use with `|>`.
+"""
+rolling_min(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_min(expr, window_size; min_samples, center)
+
+"""
+    rolling_max(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_max`](@ref) for use with `|>`.
+"""
+rolling_max(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_max(expr, window_size; min_samples, center)
+
+"""
+    rolling_std(window_size::Integer; min_samples::Integer=window_size, center::Bool=false, ddof::Integer=1)
+
+Curried form of [`rolling_std`](@ref) for use with `|>`.
+"""
+rolling_std(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1) =
+    expr -> rolling_std(expr, window_size; min_samples, center, ddof)
+
+"""
+    rolling_var(window_size::Integer; min_samples::Integer=window_size, center::Bool=false, ddof::Integer=1)
+
+Curried form of [`rolling_var`](@ref) for use with `|>`.
+"""
+rolling_var(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1) =
+    expr -> rolling_var(expr, window_size; min_samples, center, ddof)
+
+export rolling_mean, rolling_sum, rolling_min, rolling_max, rolling_std, rolling_var
 
 """
     diff(expr::Polars.Expr, n=1; null_behavior::Symbol=:ignore)::Polars.Expr

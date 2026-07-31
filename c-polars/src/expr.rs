@@ -290,9 +290,7 @@ pub unsafe extern "C" fn polars_expr_cast(
     std::ptr::null()
 }
 
-/// Targeted cast to `Datetime(unit, tz)` -- `polars_value_type_t::to_dtype` deliberately rejects
-/// this (it needs parameters a plain type code can't carry). `tz_len == 0` casts to a naive
-/// (timezone-less) Datetime, matching `read_opt_str`'s null-means-None convention.
+/// Casts to `Datetime(unit, tz)`. `tz_len == 0` casts to a naive (timezone-less) Datetime.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_cast_datetime(
     expr: *const polars_expr_t,
@@ -309,8 +307,7 @@ pub unsafe extern "C" fn polars_expr_cast_datetime(
     std::ptr::null()
 }
 
-/// Targeted cast to `Duration(unit)` -- see `polars_expr_cast_datetime`'s doc for why this needs
-/// its own entry point rather than going through the plain type-code `cast`.
+/// Casts to `Duration(unit)`.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_cast_duration(
     expr: *const polars_expr_t,
@@ -336,10 +333,8 @@ pub unsafe extern "C" fn polars_expr_cast_decimal(
     make_expr(cast((*expr).inner.clone(), dtype))
 }
 
-/// Targeted cast to `Categorical`, using the global category registry (`Categories::global()`,
-/// the same one every other Categorical column in a session shares -- matching py-polars'
-/// default). Reading a Categorical column back already materializes it as `String` (see
-/// `polars_value_type_t::from_dtype`), so no new read path is needed for the round trip.
+/// Casts to `Categorical`, using the global category registry shared by every Categorical column
+/// in the session.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_cast_categorical(
     expr: *const polars_expr_t,
@@ -420,6 +415,117 @@ pub unsafe extern "C" fn polars_expr_spearman_rank_corr(
     make_expr(spearman_rank_corr(a, b, propagate_nans))
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_skew(
+    expr: *const polars_expr_t,
+    bias: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.skew(bias))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_kurtosis(
+    expr: *const polars_expr_t,
+    fisher: bool,
+    bias: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.kurtosis(fisher, bias))
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_closed_interval_t {
+    PolarsClosedIntervalBoth,
+    PolarsClosedIntervalLeft,
+    PolarsClosedIntervalRight,
+    PolarsClosedIntervalNone,
+}
+
+impl polars_closed_interval_t {
+    fn to_closed_interval(&self) -> ClosedInterval {
+        match self {
+            polars_closed_interval_t::PolarsClosedIntervalBoth => ClosedInterval::Both,
+            polars_closed_interval_t::PolarsClosedIntervalLeft => ClosedInterval::Left,
+            polars_closed_interval_t::PolarsClosedIntervalRight => ClosedInterval::Right,
+            polars_closed_interval_t::PolarsClosedIntervalNone => ClosedInterval::None,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_is_between(
+    expr: *const polars_expr_t,
+    lower: *const polars_expr_t,
+    upper: *const polars_expr_t,
+    closed: polars_closed_interval_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let lower = (*lower).inner.clone();
+    let upper = (*upper).inner.clone();
+    make_expr(expr.is_between(lower, upper, closed.to_closed_interval()))
+}
+
+/// Builds the shared fixed-window options for `rolling_mean`/`rolling_sum`/`rolling_min`/
+/// `rolling_max`. `rolling_var`/`rolling_std` build their own (see below) to additionally set
+/// `fn_params` for `ddof`.
+fn read_rolling_options(
+    window_size: usize,
+    min_periods: usize,
+    center: bool,
+) -> RollingOptionsFixedWindow {
+    RollingOptionsFixedWindow {
+        window_size,
+        min_periods,
+        weights: None,
+        center,
+        fn_params: None,
+    }
+}
+
+macro_rules! gen_rolling {
+    ($n: ident, $f: ident) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            expr: *const polars_expr_t,
+            window_size: usize,
+            min_periods: usize,
+            center: bool,
+        ) -> *const polars_expr_t {
+            let expr = (*expr).inner.clone();
+            let options = read_rolling_options(window_size, min_periods, center);
+            make_expr(expr.$f(options))
+        }
+    };
+}
+
+gen_rolling!(polars_expr_rolling_mean, rolling_mean);
+gen_rolling!(polars_expr_rolling_sum, rolling_sum);
+gen_rolling!(polars_expr_rolling_min, rolling_min);
+gen_rolling!(polars_expr_rolling_max, rolling_max);
+
+macro_rules! gen_rolling_var {
+    ($n: ident, $f: ident) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            expr: *const polars_expr_t,
+            window_size: usize,
+            min_periods: usize,
+            center: bool,
+            ddof: u8,
+        ) -> *const polars_expr_t {
+            let expr = (*expr).inner.clone();
+            let mut options = read_rolling_options(window_size, min_periods, center);
+            options.fn_params = Some(RollingFnParams::Var(RollingVarParams { ddof }));
+            make_expr(expr.$f(options))
+        }
+    };
+}
+
+gen_rolling_var!(polars_expr_rolling_var, rolling_var);
+gen_rolling_var!(polars_expr_rolling_std, rolling_std);
+
 #[repr(C)]
 #[allow(dead_code)]
 pub enum polars_quantile_method_t {
@@ -457,12 +563,8 @@ pub unsafe extern "C" fn polars_expr_when_then_otherwise(
     make_expr(when(cond).then(then).otherwise(otherwise))
 }
 
-/// Chained `when(c1).then(v1).when(c2).then(v2)....otherwise(otherwise)`, flattened into two
-/// parallel expr-slices (`conds`/`vals`) + a final `otherwise` -- no new builder-type FFI handle
-/// is needed since `When`/`Then`/`ChainedWhen`/`ChainedThen` all fold to a single right-nested
-/// `Expr::Ternary` chain, buildable directly with the existing `when`/`Then::otherwise` free
-/// functions already used by `polars_expr_when_then_otherwise` above. `n == 0` degenerates to
-/// `otherwise` unchanged.
+/// Chained `when(c1).then(v1).when(c2).then(v2)....otherwise(otherwise)`, given as two parallel
+/// expr-slices (`conds`/`vals`) plus a final `otherwise`. `n == 0` returns `otherwise` unchanged.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_when_then(
     conds: *const *const polars_expr_t,
@@ -479,10 +581,8 @@ pub unsafe extern "C" fn polars_expr_when_then(
     make_expr(acc)
 }
 
-/// `order_by` is a single optional expr (null = none); `over_with_options` itself supports a
-/// `Vec` of order-by columns (folding >1 into a struct key), but a single column covers the
-/// common case and avoids pulling in that extra marshalling for now. `partition_by` and
-/// `order_by` can't both be empty/null (upstream requires at least one).
+/// `order_by` is a single optional expr (null = none). `partition_by` and `order_by` cannot both
+/// be empty/null -- at least one is required.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_over(
     expr: *const polars_expr_t,
@@ -744,9 +844,8 @@ gen_impl_expr_binary!(polars_expr_div, core::ops::Div::div);
 gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null);
 gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan);
 
-/// `limit` (Backward/Forward only, ignored otherwise -- see
-/// `polars_fill_null_strategy_t::to_fill_null_strategy`) is the optional-scalar null-means-None
-/// convention used elsewhere (e.g. `sample_n`'s `seed`).
+/// `limit` applies only to the `Backward`/`Forward` strategies and is ignored otherwise; a null
+/// `limit` means unlimited.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_fill_null_with_strategy(
     expr: *const polars_expr_t,
@@ -1249,8 +1348,7 @@ impl polars_non_existent_t {
 }
 
 /// `convert_time_zone`: re-labels the same instant into a different (mandatory) time zone,
-/// e.g. UTC -> "America/New_York". Fails (via the out-param error convention) if `tz` is not a
-/// valid IANA time zone name.
+/// e.g. UTC -> "America/New_York". Fails if `tz` is not a valid IANA time zone name.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_dt_convert_time_zone(
     expr: *const polars_expr_t,
@@ -1418,9 +1516,8 @@ pub unsafe extern "C" fn polars_expr_meta_undo_aliases(
     make_expr((*expr).inner.clone().meta().undo_aliases())
 }
 
-/// `output_name()` is fallible (`PolarsResult<PlSmallStr>`) -- e.g. a wildcard or a
-/// selector-expanded expression has no single well-defined output name. Written back through the
-/// shared `IOCallback` machinery, same convention as `polars_value_string_get`.
+/// Fails if the expression has no single well-defined output name (e.g. a wildcard or a
+/// selector-expanded expression).
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_meta_output_name(
     expr: *const polars_expr_t,
@@ -1442,10 +1539,8 @@ pub unsafe extern "C" fn polars_expr_meta_output_name(
     })
 }
 
-/// Backs both `tree_format` (`display_as_dot = false`) and `show_graph` (`true`) via the single
-/// upstream `into_tree_formatter` code path. No schema is threaded through (`None`) -- unresolved
-/// column types show as untyped; a schema-aware overload is a plausible future enhancement, not
-/// blocking here.
+/// Backs both `tree_format` (`display_as_dot = false`) and `show_graph` (`true`). No schema is
+/// threaded through, so unresolved column types show as untyped.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_meta_tree_format(
     expr: *const polars_expr_t,
@@ -1470,10 +1565,6 @@ pub unsafe extern "C" fn polars_expr_meta_tree_format(
     })
 }
 
-/// `root_names()` count + per-index `IOCallback` loop below. `root_names()` itself recomputes a
-/// fresh `Vec<PlSmallStr>` on every call (cheap, and the count is always small), so this pair
-/// recomputes it N+1 times across a full `_len` + N x `_get` loop -- an accepted, documented
-/// non-blocking perf micro-note from the gap-closure plan, not an oversight.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_meta_root_names_len(expr: *const polars_expr_t) -> usize {
     (*expr).inner.clone().meta().root_names().len()
@@ -1519,10 +1610,7 @@ pub unsafe extern "C" fn polars_expr_selector_all() -> *const polars_expr_t {
     make_expr(Expr::Selector(Selector::Wildcard))
 }
 
-/// `Selector::Empty` -- the identity element for the combinators below (`empty() | s == s`,
-/// `empty() & s == empty()`). Not reachable from the public `Selectors` surface on the Julia side
-/// in this first cut (see the gap-closure plan's Phase 2 scope note); kept here as a primitive
-/// since it is the natural base case underlying `Selector`'s own algebra.
+/// The identity element for selector combinators (`empty() | s == s`, `empty() & s == empty()`).
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_selector_empty() -> *const polars_expr_t {
     make_expr(Expr::Selector(Selector::Empty))
@@ -1541,10 +1629,7 @@ pub unsafe extern "C" fn polars_expr_selector_by_name(
     std::ptr::null()
 }
 
-/// `Selector::ByIndex` -- 0-based upstream (negative indices already count back from the end via
-/// `negative_to_usize` inside `into_columns`, so no extra Rust-side handling is needed here). The
-/// Julia-facing `Selectors.by_index` is 1-based (matching this package's own `nth`) and converts
-/// down to this 0-based primitive before calling in -- see that function's docstring.
+/// Selects columns by 0-based index; negative indices count back from the end.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_selector_by_index(
     indices: *const i64,
@@ -1634,10 +1719,8 @@ pub unsafe extern "C" fn polars_expr_selector_matches(
     std::ptr::null()
 }
 
-/// Zero-Julia-arg `DataTypeSelector` leaves. Includes four variants that are parametrized in Rust
-/// but exposed "any unit/any tz"-only from Julia (`Datetime`/`Duration`/`List`/`Array`) -- see the
-/// gap-closure plan's Phase 2 first-cut scope exclusions: no specific time-unit/zone matching, no
-/// recursive List/Array inner-selector composition in this cut.
+/// Zero-argument `DataTypeSelector` leaves. `Datetime`/`Duration`/`List`/`Array` match any
+/// unit/timezone rather than a specific one; List/Array do not support inner-selector composition.
 #[repr(C)]
 #[allow(dead_code)]
 pub enum polars_dtype_selector_kind_t {

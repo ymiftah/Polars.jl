@@ -119,8 +119,7 @@ where
     }
 }
 
-/// Borrowed pointer into the error's message, valid only as long as `err` is alive (same
-/// convention as `polars_series_name`).
+/// Borrowed pointer into the error's message, valid only as long as `err` is alive.
 #[no_mangle]
 pub unsafe extern "C" fn polars_error_message(
     err: *const polars_error_t,
