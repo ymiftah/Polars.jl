@@ -24,6 +24,13 @@ end
     @test r_rev[:cs_rev] == [37, 36, 34, 30, 20]
 end
 
+@testset "cum_count with nulls: nulls don't increment the running count (py-polars test_cum_count_single_arg)" begin
+    df = DataFrame((; a = Union{Missing, Int}[5, 5, missing]))
+    r = select(df, alias(cum_count(col("a")), "c"), alias(cum_count(col("a"); reverse = true), "cr"))
+    @test collect(r[:c]) == [1, 2, 2]
+    @test collect(r[:cr]) == [2, 1, 0]
+end
+
 @testset "diff" begin
     df = DataFrame((; x = [1, 2, 4, 10, 20]))
 
@@ -54,6 +61,16 @@ end
     @test r[:descending] == [3, 4, 2, 4, 1]
 
     @test_throws ErrorException rank(col("x"); method = :bogus)
+end
+
+@testset "rank on empty/all-null input: nulls stay null, aren't ranked (py-polars test_rank_nulls)" begin
+    @test isempty(collect(select(DataFrame((; x = Int[])), alias(rank(col("x")), "r"))[:r]))
+
+    r1 = select(DataFrame((; x = Union{Missing, Int}[missing])), alias(rank(col("x")), "r"))
+    @test isequal(collect(r1[:r]), [missing])
+
+    r2 = select(DataFrame((; x = Union{Missing, Int}[missing, missing])), alias(rank(col("x")), "r"))
+    @test isequal(collect(r2[:r]), [missing, missing])
 end
 
 @testset "order/window ops compose with over()" begin
