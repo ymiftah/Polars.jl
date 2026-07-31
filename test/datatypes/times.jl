@@ -54,6 +54,19 @@ end
     # ...and back out to the physical integer
     tdf = DataFrame((; t = [Time(1, 2, 3)]))
     @test collect(select(tdf, cast(col("t"), Int64) |> alias("n"))[:n]) == [3_723_000_000_000]
+
+    # out-of-range nanoseconds (negative, or >= 24h) -> missing, not an error. Upstream py-polars'
+    # test_invalid_casts expects this to raise (its plain `.cast()` defaults to strict=True) --
+    # our cast() always uses CastOptions::NonStrict (see plans/parity/batch-6-replace-whenthen-
+    # cast.md's already-flagged "no strict cast option exposed" gap; this is the same root cause,
+    # not a new one, so it's captured here as our own actual behavior rather than re-flagged).
+    df_bad = DataFrame((; a = Int64[-1, 24 * 60 * 60 * 1_000_000_000]))
+    r_bad = select(df_bad, alias(cast(col("a"), Time), "t"))
+    @test all(ismissing, collect(r_bad[:t]))
+
+    # the largest in-range value casts cleanly
+    df_max = DataFrame((; a = Int64[24 * 60 * 60 * 1_000_000_000 - 1]))
+    @test only(collect(select(df_max, alias(cast(col("a"), Time), "t"))[:t])) == Time(23, 59, 59, 999, 999, 999)
 end
 
 @testset "Dt.date / Dt.time: component extraction from Datetime" begin
