@@ -17,3 +17,6 @@ docs/build/
 # Python bytecode from c-polars/check_header_drift.py
 __pycache__/
 *.pyc
+
+# Stray build logs
+*.log

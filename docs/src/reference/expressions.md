@@ -95,10 +95,8 @@ select(counts, Structs.field_by_name(col("vc"), "g"), Structs.field_by_name(col(
 `skew` and `Polars.kurtosis` measure the shape of a column's distribution; a constant
 (zero-variance) column gives `NaN` for kurtosis rather than an error.
 
-`kurtosis` is not exported, because StatsBase.jl exports a `kurtosis` of its own and two packages
-exporting one name leaves neither usable unqualified. Call it as `Polars.kurtosis(expr)`, or load
-StatsBase and call `kurtosis(expr)` — with StatsBase present the bare name is its generic, to which
-this package adds the `Expr` method:
+`kurtosis` is not exported: call it as `Polars.kurtosis(expr)`, or load StatsBase.jl and call
+`kurtosis(expr)`. `skew` is exported; `skewness(expr)` also works with StatsBase loaded.
 
 ```@example expressions
 df_shape = DataFrame((; x = [1, 2, 3, 2, 2, 3, 0]))
@@ -223,6 +221,9 @@ rolling_min
 rolling_max
 rolling_std
 rolling_var
+ewm_mean
+ewm_std
+ewm_var
 rank
 null_count
 has_nulls
@@ -362,6 +363,24 @@ defaulting to `1`):
 select(dfroll, rolling_std(col("x"), 3) |> alias("std"), rolling_var(col("x"), 3; ddof = 0) |> alias("var_pop"))
 ```
 
+`ewm_mean`/`ewm_std`/`ewm_var` compute an exponentially-weighted moving statistic instead of a
+fixed window: each value's weight decays geometrically the further back it is. Exactly one of
+`com`, `span`, `half_life`, `alpha` selects the decay rate:
+
+```@example expressions
+dfewm = DataFrame((; x = [2.0, 5.0, 3.0]))
+select(
+    dfewm,
+    col("x"),
+    ewm_mean(col("x"); alpha = 0.5) |> alias("ewm_mean"),
+    ewm_std(col("x"); alpha = 0.5) |> alias("ewm_std"),
+)
+```
+
+`adjust` (default `true`) picks between the two weighting schemes -- see [`ewm_mean`](@ref)'s
+docstring for the exact recurrence used when `adjust = false`. `ewm_mean_by` (a separate,
+time-column-based decay) is not implemented.
+
 ## Manipulation/selection
 
 ```@docs
@@ -458,6 +477,40 @@ select(df5, rle(col("x")))
 ```@example expressions
 select(df5, col("x"), rle_id(col("x")) |> alias("run_id"))
 ```
+
+## Binning
+
+```@docs
+Polars.cut
+qcut
+qcut_uniform
+```
+
+`cut`/`qcut`/`qcut_uniform` bin continuous values into discrete, labelled categories -- a
+labelled Enum/Categorical column that [`cast_categorical`](@ref) columns already materialize as
+(plain `String`), so no extra step is needed to read the result back:
+
+```@example expressions
+dfcut = DataFrame((; x = [-2, -1, 0, 1, 2]))
+select(dfcut, col("x"), Polars.cut(col("x"), [-1.0, 1.0]) |> alias("cut"))
+```
+
+`qcut` bins by quantile probability instead of an explicit breakpoint; `qcut_uniform` is the
+uniform-bin-count shorthand:
+
+```@example expressions
+select(dfcut, col("x"), qcut(col("x"), [0.25, 0.50]) |> alias("qcut"))
+```
+
+```@example expressions
+select(dfcut, col("x"), qcut_uniform(col("x"), 2; labels = ["low", "high"]) |> alias("qcut_uniform"))
+```
+
+`cut` is not exported: call it as `Polars.cut(expr, breaks)`, or load CategoricalArrays.jl and
+call `cut(expr, breaks)`. `qcut` and `qcut_uniform` are exported.
+
+`include_breaks` (returning a `Struct` of breakpoint and category together, instead of just the
+category) is not implemented for any of the three.
 
 ## Name
 
@@ -565,6 +618,10 @@ Python polars' fluent `.method(...)` chaining style.
 | `sample_n(expr, n; ...)` | `sample_n(n; ...)` |
 | `sample_frac(expr, frac; ...)` | `sample_frac(frac; ...)` |
 | `rolling_mean(expr, window_size; ...)` | `rolling_mean(window_size; ...)` — same for `rolling_sum`/`rolling_min`/`rolling_max`/`rolling_std`/`rolling_var` |
+| `ewm_mean(expr; com, span, half_life, alpha, adjust, min_samples, ignore_nulls)` | `ewm_mean(; com, span, half_life, alpha, adjust, min_samples, ignore_nulls)` — same for `ewm_std`/`ewm_var` (plus `bias`) |
+| `Polars.cut(expr, breaks; labels, left_closed)` | `Polars.cut(breaks; labels, left_closed)` |
+| `qcut(expr, probs; labels, left_closed, allow_duplicates)` | `qcut(probs; labels, left_closed, allow_duplicates)` |
+| `qcut_uniform(expr, n_bins; labels, left_closed, allow_duplicates)` | `qcut_uniform(n_bins; labels, left_closed, allow_duplicates)` |
 | `is_between(expr, lower, upper; closed)` | `is_between(lower, upper; closed)` |
 | `skew(expr; bias)` | `skew(; bias)` |
 | `Polars.kurtosis(expr; fisher, bias)` | `Polars.kurtosis(; fisher, bias)` |

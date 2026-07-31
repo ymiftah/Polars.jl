@@ -85,6 +85,16 @@ pub(crate) unsafe fn read_i64_array(ptr: *const i64, n: usize) -> Vec<i64> {
     std::slice::from_raw_parts(ptr, n).to_vec()
 }
 
+/// Reads an `n`-element `f64` array supplied by the caller (e.g. `cut`/`qcut`'s `breaks`/`probs`,
+/// passed by value rather than as `Expr`s). Modeled on `read_i64_array`; `n == 0` short-circuits
+/// (see `read_names` for why).
+pub(crate) unsafe fn read_f64_array(ptr: *const f64, n: usize) -> Vec<f64> {
+    if n == 0 {
+        return Vec::new();
+    }
+    std::slice::from_raw_parts(ptr, n).to_vec()
+}
+
 /// Reads a required `(ptr, len)` UTF-8 string. `len == 0` yields `""` without dereferencing `ptr`
 /// (see `read_names` for why). Unlike `unwrap_or_default()`, invalid UTF-8 surfaces as an error
 /// rather than being silently coerced to `""`.

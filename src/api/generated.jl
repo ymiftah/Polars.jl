@@ -760,6 +760,60 @@ function polars_expr_kurtosis(expr, fisher, bias)
     return @ccall libpolars.polars_expr_kurtosis(expr::Ptr{polars_expr_t}, fisher::Bool, bias::Bool)::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_ewm_mean(expr, alpha, adjust, min_samples, ignore_nulls)
+
+Exponentially-weighted moving average. `alpha` must already be resolved to a concrete decay factor in `(0, 1]` by the caller (the `com`/`span`/`half_life`/`alpha` parameterizations all reduce to this single value client-side).
+"""
+function polars_expr_ewm_mean(expr, alpha, adjust, min_samples, ignore_nulls)
+    return @ccall libpolars.polars_expr_ewm_mean(expr::Ptr{polars_expr_t}, alpha::Cdouble, adjust::Bool, min_samples::Csize_t, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_ewm_std(expr, alpha, adjust, bias, min_samples, ignore_nulls)
+
+Exponentially-weighted moving standard deviation. See [`polars_expr_ewm_mean`](@ref) for `alpha`.
+"""
+function polars_expr_ewm_std(expr, alpha, adjust, bias, min_samples, ignore_nulls)
+    return @ccall libpolars.polars_expr_ewm_std(expr::Ptr{polars_expr_t}, alpha::Cdouble, adjust::Bool, bias::Bool, min_samples::Csize_t, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_ewm_var(expr, alpha, adjust, bias, min_samples, ignore_nulls)
+
+Exponentially-weighted moving variance. See [`polars_expr_ewm_mean`](@ref) for `alpha`.
+"""
+function polars_expr_ewm_var(expr, alpha, adjust, bias, min_samples, ignore_nulls)
+    return @ccall libpolars.polars_expr_ewm_var(expr::Ptr{polars_expr_t}, alpha::Cdouble, adjust::Bool, bias::Bool, min_samples::Csize_t, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_cut(expr, breaks, n_breaks, labels, label_lens, n_labels, left_closed, out)
+
+Bins continuous values into discrete categories given explicit breakpoints. `breaks` is a plain array of cut points (not including the implicit `-inf`/`inf` ends); the result is a labelled Enum column with one more category than there are breaks. `labels`, if given (`n\\_labels > 0`), must have `breaks.len() + 1` entries; otherwise labels are generated as interval strings, `"(-inf, b] "`/`"(b1, b2]"`/`"(bn, inf]"` (or `[...)"`-style if `left_closed`). Raises if `breaks` contains `NaN`/duplicates/`inf`, or if `labels`' length doesn't match.
+"""
+function polars_expr_cut(expr, breaks, n_breaks, labels, label_lens, n_labels, left_closed, out)
+    return @ccall libpolars.polars_expr_cut(expr::Ptr{polars_expr_t}, breaks::Ptr{Cdouble}, n_breaks::Csize_t, labels::Ptr{Ptr{UInt8}}, label_lens::Ptr{Csize_t}, n_labels::Csize_t, left_closed::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_qcut(expr, probs, n_probs, labels, label_lens, n_labels, left_closed, allow_duplicates, out)
+
+Bins continuous values into discrete categories based on their quantiles. `probs` are the quantile cut points in `[0, 1]`; the result is a `Categorical` column. `allow_duplicates` controls whether repeated quantile breakpoints (common with few distinct values) are silently collapsed instead of raising. See [`polars_expr_cut`](@ref) for `labels`/error conditions.
+"""
+function polars_expr_qcut(expr, probs, n_probs, labels, label_lens, n_labels, left_closed, allow_duplicates, out)
+    return @ccall libpolars.polars_expr_qcut(expr::Ptr{polars_expr_t}, probs::Ptr{Cdouble}, n_probs::Csize_t, labels::Ptr{Ptr{UInt8}}, label_lens::Ptr{Csize_t}, n_labels::Csize_t, left_closed::Bool, allow_duplicates::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_qcut_uniform(expr, n_bins, labels, label_lens, n_labels, left_closed, allow_duplicates, out)
+
+Like [`polars_expr_qcut`](@ref), but with `n_bins` uniformly-spaced quantile probabilities instead of an explicit `probs` array.
+"""
+function polars_expr_qcut_uniform(expr, n_bins, labels, label_lens, n_labels, left_closed, allow_duplicates, out)
+    return @ccall libpolars.polars_expr_qcut_uniform(expr::Ptr{polars_expr_t}, n_bins::Csize_t, labels::Ptr{Ptr{UInt8}}, label_lens::Ptr{Csize_t}, n_labels::Csize_t, left_closed::Bool, allow_duplicates::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
 function polars_expr_is_between(expr, lower, upper, closed)
     return @ccall libpolars.polars_expr_is_between(expr::Ptr{polars_expr_t}, lower::Ptr{polars_expr_t}, upper::Ptr{polars_expr_t}, closed::polars_closed_interval_t)::Ptr{polars_expr_t}
 end
