@@ -57,7 +57,7 @@ end
 @testset "qcut: happy path (py-polars test_qcut)" begin
     df = DataFrame((; a = [-2, -1, 0, 1, 2]))
 
-    r = select(df, alias(qcut(col("a"), [0.25, 0.50]), "a"))
+    r = select(df, alias(qcut(col("a"), [0.25, 0.5]), "a"))
     @test collect(r[:a]) == ["(-inf, -1]", "(-inf, -1]", "(-1, 0]", "(0, inf]", "(0, inf]"]
 end
 
@@ -80,20 +80,20 @@ end
 
     # all-null short-circuits: no breakpoints are computed, so every row is simply null. This is
     # distinct from all-NaN below, which reaches the breakpoint computation and raises.
-    r = select(df, alias(qcut(col("a"), [0.25, 0.50]), "a"))
+    r = select(df, alias(qcut(col("a"), [0.25, 0.5]), "a"))
     @test all(ismissing, collect(r[:a]))
 
     # the all-null short-circuit bypasses label-count validation entirely
-    r_labelled = select(df, alias(qcut(col("a"), [0.25, 0.50]; labels = ["1", "2", "3"]), "a"))
+    r_labelled = select(df, alias(qcut(col("a"), [0.25, 0.5]; labels = ["1", "2", "3"]), "a"))
     @test all(ismissing, collect(r_labelled[:a]))
 end
 
 @testset "qcut: allow_duplicates (py-polars test_qcut_allow_duplicates)" begin
     df = DataFrame((; x = [1, 2, 2, 3]))
 
-    @test_throws PolarsError select(df, qcut(col("x"), [0.50, 0.51]))
+    @test_throws PolarsError select(df, qcut(col("x"), [0.5, 0.51]))
 
-    r = select(df, alias(qcut(col("x"), [0.50, 0.51]; allow_duplicates = true), "x"))
+    r = select(df, alias(qcut(col("x"), [0.5, 0.51]; allow_duplicates = true), "x"))
     @test collect(r[:x]) == ["(-inf, 2]", "(-inf, 2]", "(-inf, 2]", "(2, inf]"]
 end
 
@@ -111,7 +111,7 @@ end
     df = DataFrame((; a = [NaN, NaN]))
 
     # same divergence as the NaN-mixed case above: raises rather than returning all-null
-    @test_throws PolarsError collect(select(df, alias(qcut(col("a"), [0.25, 0.50]), "a")))
+    @test_throws PolarsError collect(select(df, alias(qcut(col("a"), [0.25, 0.5]), "a")))
 end
 
 @testset "qcut: infinite input gives a NaN breakpoint, raises cleanly (py-polars test_qcut_inf_breakpoint_raises)" begin

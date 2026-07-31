@@ -95,10 +95,8 @@ select(counts, Structs.field_by_name(col("vc"), "g"), Structs.field_by_name(col(
 `skew` and `Polars.kurtosis` measure the shape of a column's distribution; a constant
 (zero-variance) column gives `NaN` for kurtosis rather than an error.
 
-`kurtosis` is not exported, because StatsBase.jl exports a `kurtosis` of its own and two packages
-exporting one name leaves neither usable unqualified. Call it as `Polars.kurtosis(expr)`, or load
-StatsBase and call `kurtosis(expr)` — with StatsBase present the bare name is its generic, to which
-this package adds the `Expr` method:
+`kurtosis` is not exported: call it as `Polars.kurtosis(expr)`, or load StatsBase.jl and call
+`kurtosis(expr)`. `skew` is exported; `skewness(expr)` also works with StatsBase loaded.
 
 ```@example expressions
 df_shape = DataFrame((; x = [1, 2, 3, 2, 2, 3, 0]))
@@ -508,11 +506,8 @@ select(dfcut, col("x"), qcut(col("x"), [0.25, 0.50]) |> alias("qcut"))
 select(dfcut, col("x"), qcut_uniform(col("x"), 2; labels = ["low", "high"]) |> alias("qcut_uniform"))
 ```
 
-`cut` is not exported, because CategoricalArrays.jl exports a `cut` of its own and two packages
-exporting one name leaves neither usable unqualified. Call it as `Polars.cut(expr, breaks)`, or
-load CategoricalArrays.jl and call `cut(expr, breaks)` -- with it present, the bare name is its
-generic, to which this package adds the `Expr` method. `qcut`/`qcut_uniform` have no such
-collision and are plain exports.
+`cut` is not exported: call it as `Polars.cut(expr, breaks)`, or load CategoricalArrays.jl and
+call `cut(expr, breaks)`. `qcut` and `qcut_uniform` are exported.
 
 `include_breaks` (returning a `Struct` of breakpoint and category together, instead of just the
 category) is not implemented for any of the three.

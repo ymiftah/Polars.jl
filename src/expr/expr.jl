@@ -1037,15 +1037,10 @@ the calculation is corrected for statistical bias.
 
 A constant (zero-variance) input gives `NaN`, not an error.
 
-!!! note "Not exported -- call it qualified, or load StatsBase"
-    StatsBase.jl exports its own `kurtosis`. If this package exported one too, neither would be
-    usable unqualified when both are loaded, so this one is deliberately not exported.
+!!! note "Not exported"
+    Call it as `Polars.kurtosis(expr)`. With StatsBase.jl loaded, `kurtosis(expr)` works too.
 
-    Write `Polars.kurtosis(expr)`, or load StatsBase and write `kurtosis(expr)` -- with StatsBase
-    present the bare name is its generic, and this package adds the `Expr` method to it.
-
-    `skew` is exported normally; StatsBase spells it `skewness`, and `StatsBase.skewness(expr)`
-    also works when StatsBase is loaded.
+    `skew` is exported; with StatsBase loaded, `skewness(expr)` also works.
 
 """
 function kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true)
@@ -1902,13 +1897,9 @@ interval strings (`"(-inf, b]"`, `"(b1, b2]"`, ..., `"(bn, inf]"`, or the `"[...
 
 Returns a labelled Enum column, which materializes as `String` (see [`cast_categorical`](@ref)).
 
-!!! note "Not exported -- call it qualified, or load CategoricalArrays"
-    CategoricalArrays.jl exports its own `cut`, and is the common way to work with categorical data
-    in Julia. If this package exported one too, neither would be usable unqualified when both are
-    loaded, so this one is deliberately not exported.
-
-    Write `Polars.cut(expr, breaks)`, or load CategoricalArrays.jl and write `cut(expr, breaks)` --
-    with it present the bare name is its generic, to which this package adds the `Expr` method.
+!!! note "Not exported"
+    Call it as `Polars.cut(expr, breaks)`. With CategoricalArrays.jl loaded, `cut(expr, breaks)`
+    works too.
 
 !!! note
     `include_breaks` (returning a `Struct` of breakpoint and category together) is not
