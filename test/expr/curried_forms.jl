@@ -234,3 +234,105 @@ end
     r_curried4 = select(df, alias(col("d") |> Dt.strftime("%Y-%m"), "r"))
     @test r_direct4[:r] == r_curried4[:r] == ["2024-01", "2024-06"]
 end
+
+@testset "curried rolling / is_between / skew / kurtosis" begin
+    df = DataFrame((; x = collect(1.0:6.0), a = [1, 2, 3, 4, 5, 6], g = ["p", "p", "p", "q", "q", "q"]))
+    # `x` is symmetric, so its skew is exactly 0.0 and bias correction (a scale factor) cannot
+    # change it -- asymmetric data is required to show `bias` having any effect
+    df_skewed = DataFrame((; x = [1.0, 2.0, 3.0, 2.0, 2.0, 3.0, 0.0]))
+    one_skewed(e) = only(select(df_skewed, alias(e, "r"))[:r])
+    vec(e) = collect(select(df, alias(e, "r"))[:r])
+    one(e) = only(select(df, alias(e, "r"))[:r])
+
+    @testset "currying yields a callable, not an eagerly-built Expr" begin
+        # the whole point of the curried form: calling with only the extra arguments must defer,
+        # returning something applicable to an Expr later
+        for f in (
+                rolling_mean(3), rolling_sum(3), rolling_min(3), rolling_max(3),
+                rolling_std(3), rolling_var(3), is_between(2, 4), skew(), Polars.kurtosis(),
+            )
+            @test !(f isa Polars.Expr)
+            @test f(col("x")) isa Polars.Expr
+        end
+    end
+
+    @testset "rolling: curried == direct, for every op and every keyword" begin
+        # results carry `missing`, so compare with isequal -- `==` against a missing-bearing
+        # vector evaluates to `missing`, which @test reports as non-boolean rather than failing
+        for (c, d) in (
+                (col("x") |> rolling_mean(3), rolling_mean(col("x"), 3)),
+                (col("x") |> rolling_sum(3), rolling_sum(col("x"), 3)),
+                (col("x") |> rolling_min(3), rolling_min(col("x"), 3)),
+                (col("x") |> rolling_max(3), rolling_max(col("x"), 3)),
+                (col("x") |> rolling_std(3), rolling_std(col("x"), 3)),
+                (col("x") |> rolling_var(3), rolling_var(col("x"), 3)),
+                # min_samples
+                (col("x") |> rolling_mean(3; min_samples = 1), rolling_mean(col("x"), 3; min_samples = 1)),
+                (col("x") |> rolling_sum(3; min_samples = 2), rolling_sum(col("x"), 3; min_samples = 2)),
+                # center
+                (col("x") |> rolling_mean(3; center = true), rolling_mean(col("x"), 3; center = true)),
+                (col("x") |> rolling_max(3; center = true), rolling_max(col("x"), 3; center = true)),
+                # ddof, std/var only
+                (col("x") |> rolling_std(3; ddof = 0), rolling_std(col("x"), 3; ddof = 0)),
+                (col("x") |> rolling_var(3; ddof = 0), rolling_var(col("x"), 3; ddof = 0)),
+                # several keywords at once
+                (
+                    col("x") |> rolling_var(4; min_samples = 2, center = true, ddof = 0),
+                    rolling_var(col("x"), 4; min_samples = 2, center = true, ddof = 0),
+                ),
+            )
+            @test isequal(vec(c), vec(d))
+        end
+
+        # a curried keyword must actually take effect, not silently fall back to the default
+        @test !isequal(vec(col("x") |> rolling_mean(3)), vec(col("x") |> rolling_mean(3; min_samples = 1)))
+        @test !isequal(vec(col("x") |> rolling_mean(3)), vec(col("x") |> rolling_mean(3; center = true)))
+        @test !isequal(vec(col("x") |> rolling_var(3)), vec(col("x") |> rolling_var(3; ddof = 0)))
+    end
+
+    @testset "is_between: curried == direct, all four closed modes" begin
+        for closed in (:both, :none, :left, :right)
+            @test vec(col("a") |> is_between(2, 4; closed)) == vec(is_between(col("a"), 2, 4; closed))
+        end
+        # pin the semantics, not just curried/direct agreement (a = [1,2,3,4,5,6], bounds 2..4)
+        @test vec(col("a") |> is_between(2, 4)) == [false, true, true, true, false, false]
+        @test vec(col("a") |> is_between(2, 4; closed = :none)) == [false, false, true, false, false, false]
+        @test vec(col("a") |> is_between(2, 4; closed = :left)) == [false, true, true, false, false, false]
+        @test vec(col("a") |> is_between(2, 4; closed = :right)) == [false, false, true, true, false, false]
+    end
+
+    @testset "skew / kurtosis: curried == direct, including keywords" begin
+        @test one(col("x") |> skew()) == one(skew(col("x")))
+        @test one(col("x") |> skew(; bias = false)) == one(skew(col("x"); bias = false))
+
+        # on skewed data the curried keyword must actually change the result, and match upstream
+        @test one_skewed(col("x") |> skew()) ≈ -0.5953924651018018
+        @test one_skewed(col("x") |> skew(; bias = false)) ≈ -0.7717168360221258
+        @test one_skewed(col("x") |> skew()) != one_skewed(col("x") |> skew(; bias = false))
+
+        @test one(col("x") |> Polars.kurtosis()) == one(Polars.kurtosis(col("x")))
+        @test one(col("x") |> Polars.kurtosis(; fisher = false)) ==
+            one(Polars.kurtosis(col("x"); fisher = false))
+        @test one(col("x") |> Polars.kurtosis(; bias = false)) ==
+            one(Polars.kurtosis(col("x"); bias = false))
+        # fisher = false is Pearson's definition, exactly 3.0 higher
+        @test one(col("x") |> Polars.kurtosis(; fisher = false)) ≈
+            one(col("x") |> Polars.kurtosis()) + 3.0
+    end
+
+    @testset "curried forms compose in pipelines and group_by" begin
+        # chained through alias, the shape the curried forms exist for
+        @test isequal(
+            collect(select(df, col("x") |> rolling_mean(3) |> alias("rm"))[:rm]),
+            vec(rolling_mean(col("x"), 3)),
+        )
+        # and inside with_columns
+        wc = with_columns(df, col("x") |> rolling_sum(2) |> alias("rs"))
+        @test isequal(collect(wc[:rs]), vec(rolling_sum(col("x"), 2)))
+
+        # aggregations curry usefully inside agg
+        g = collect(sort(agg(group_by(lazy(df), "g"), col("x") |> skew() |> alias("s")), "g"))
+        direct = collect(sort(agg(group_by(lazy(df), "g"), alias(skew(col("x")), "s")), "g"))
+        @test isequal(collect(g[:s]), collect(direct[:s]))
+    end
+end
