@@ -3,14 +3,11 @@ module PolarsStatsBaseExt
 using Polars, StatsBase
 
 # StatsBase owns `kurtosis` and `skewness` -- they are its own generics, not re-exports of
-# Statistics' (unlike `mean`/`std`/`var`/`cov`/`cor`, which are). Adding methods here lets a
-# StatsBase user write `kurtosis(col("x"))` with the name they already have in scope, instead of
-# reaching for `Polars.kurtosis`.
+# Statistics' (unlike `mean`/`std`/`var`/`cov`/`cor`, which are).
 #
-# This does not remove the ambiguity on the bare name when both packages are loaded: `Polars`
-# exports its own `kurtosis` so that it works without StatsBase at all, and two packages exporting
-# one name means neither binding is available unqualified. `StatsBase.kurtosis(expr)` and
-# `Polars.kurtosis(expr)` both work; the bare name still needs a qualifier.
+# `Polars.kurtosis` is deliberately not exported so the bare name stays usable: with this extension
+# loaded it resolves to StatsBase's generic, and the method below dispatches an `Expr` argument back
+# to this package. `Polars.kurtosis(expr)` works either way, including with no extension loaded.
 
 StatsBase.kurtosis(expr::Polars.Expr; fisher::Bool = true, bias::Bool = true) =
     Polars.kurtosis(expr; fisher, bias)

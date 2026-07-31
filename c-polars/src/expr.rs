@@ -3,6 +3,7 @@ use std::io::Write;
 use std::sync::Arc;
 
 use polars::{lazy::dsl::string::StringNameSpace, lazy::dsl::ListNameSpace, prelude::*};
+use polars_compute::ewm::EWMOptions;
 use polars_core::series::ops::NullBehavior;
 use polars_ops::series::round::RoundMode;
 use polars_ops::series::InterpolationMethod;
@@ -16,8 +17,8 @@ use polars_plan::prelude::Literal;
 
 use crate::{
     ffi_util::{
-        read_bool_mask, read_exprs, read_i64_array, read_names, read_opt_str, read_str,
-        selector_by_name, IOCallback, UserIOCallback,
+        read_bool_mask, read_exprs, read_f64_array, read_i64_array, read_names, read_opt_str,
+        read_str, selector_by_name, IOCallback, UserIOCallback,
     },
     guard_error, make_error, polars_error_t,
     types::*,
@@ -432,6 +433,152 @@ pub unsafe extern "C" fn polars_expr_kurtosis(
 ) -> *const polars_expr_t {
     let expr = (*expr).inner.clone();
     make_expr(expr.kurtosis(fisher, bias))
+}
+
+/// Exponentially-weighted moving average. `alpha` must already be resolved to a concrete decay
+/// factor in `(0, 1]` by the caller (the `com`/`span`/`half_life`/`alpha` parameterizations all
+/// reduce to this single value client-side).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_ewm_mean(
+    expr: *const polars_expr_t,
+    alpha: f64,
+    adjust: bool,
+    min_samples: usize,
+    ignore_nulls: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let options = EWMOptions {
+        alpha,
+        adjust,
+        bias: false,
+        min_periods: min_samples,
+        ignore_nulls,
+    };
+    make_expr(expr.ewm_mean(options))
+}
+
+/// Exponentially-weighted moving standard deviation. See `polars_expr_ewm_mean` for `alpha`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_ewm_std(
+    expr: *const polars_expr_t,
+    alpha: f64,
+    adjust: bool,
+    bias: bool,
+    min_samples: usize,
+    ignore_nulls: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let options = EWMOptions {
+        alpha,
+        adjust,
+        bias,
+        min_periods: min_samples,
+        ignore_nulls,
+    };
+    make_expr(expr.ewm_std(options))
+}
+
+/// Exponentially-weighted moving variance. See `polars_expr_ewm_mean` for `alpha`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_ewm_var(
+    expr: *const polars_expr_t,
+    alpha: f64,
+    adjust: bool,
+    bias: bool,
+    min_samples: usize,
+    ignore_nulls: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let options = EWMOptions {
+        alpha,
+        adjust,
+        bias,
+        min_periods: min_samples,
+        ignore_nulls,
+    };
+    make_expr(expr.ewm_var(options))
+}
+
+/// Reads an optional label list: `n == 0` means `None` (the caller lets the engine generate
+/// interval-string labels), matching the `read_names`-style `(ptrs, lens, n)` convention used
+/// elsewhere for plain name lists.
+unsafe fn read_opt_labels(
+    labels: *const *const u8,
+    label_lens: *const usize,
+    n_labels: usize,
+) -> Result<Option<Vec<PlSmallStr>>, std::str::Utf8Error> {
+    if n_labels == 0 {
+        Ok(None)
+    } else {
+        Ok(Some(read_names(labels, label_lens, n_labels)?))
+    }
+}
+
+/// Bins continuous values into discrete categories given explicit breakpoints. `breaks` is a
+/// plain array of cut points (not including the implicit `-inf`/`inf` ends); the result is a
+/// labelled Enum column with one more category than there are breaks. `labels`, if given
+/// (`n_labels > 0`), must have `breaks.len() + 1` entries; otherwise labels are generated as
+/// interval strings, `"(-inf, b] "`/`"(b1, b2]"`/`"(bn, inf]"` (or `[...)"`-style if
+/// `left_closed`). Raises if `breaks` contains `NaN`/duplicates/`inf`, or if `labels`' length
+/// doesn't match.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_cut(
+    expr: *const polars_expr_t,
+    breaks: *const f64,
+    n_breaks: usize,
+    labels: *const *const u8,
+    label_lens: *const usize,
+    n_labels: usize,
+    left_closed: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let expr = (*expr).inner.clone();
+    let breaks = read_f64_array(breaks, n_breaks);
+    let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
+    *out = make_expr(expr.cut(breaks, labels, left_closed, false));
+    std::ptr::null()
+}
+
+/// Bins continuous values into discrete categories based on their quantiles. `probs` are the
+/// quantile cut points in `[0, 1]`; the result is a `Categorical` column. `allow_duplicates`
+/// controls whether repeated quantile breakpoints (common with few distinct values) are silently
+/// collapsed instead of raising. See `polars_expr_cut` for `labels`/error conditions.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_qcut(
+    expr: *const polars_expr_t,
+    probs: *const f64,
+    n_probs: usize,
+    labels: *const *const u8,
+    label_lens: *const usize,
+    n_labels: usize,
+    left_closed: bool,
+    allow_duplicates: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let expr = (*expr).inner.clone();
+    let probs = read_f64_array(probs, n_probs);
+    let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
+    *out = make_expr(expr.qcut(probs, labels, left_closed, allow_duplicates, false));
+    std::ptr::null()
+}
+
+/// Like `polars_expr_qcut`, but with `n_bins` uniformly-spaced quantile probabilities instead of
+/// an explicit `probs` array.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_qcut_uniform(
+    expr: *const polars_expr_t,
+    n_bins: usize,
+    labels: *const *const u8,
+    label_lens: *const usize,
+    n_labels: usize,
+    left_closed: bool,
+    allow_duplicates: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let expr = (*expr).inner.clone();
+    let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
+    *out = make_expr(expr.qcut_uniform(n_bins, labels, left_closed, allow_duplicates, false));
+    std::ptr::null()
 }
 
 #[repr(C)]

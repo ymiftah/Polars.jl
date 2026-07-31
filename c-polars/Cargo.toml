@@ -47,7 +47,14 @@ polars-ops = { version = "0.54.4", features = ["round_series", "dtype-time"] }
 # back in later -- they are already active, and re-adding them here would be dead weight, not a fix.
 # `rle` used now; `rolling_window`/`moment`/`is_between` pre-added so a later wave
 # doesn't pay a second full rebuild.
-polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration", "aws", "gcp", "azure", "rolling_window", "moment", "is_between", "rle", "cov"] }
+# `ewma`: EWM mean/std/var (`Expr::ewm_mean`/`ewm_std`/`ewm_var`, gated in polars-plan, cascaded
+# via polars-lazy's own `ewma` -> `polars-expr/ewma` -> `polars-plan/ewma`). `cutqcut`: `cut`/
+# `qcut`/`qcut_uniform`, same cascade shape via `polars-expr/cutqcut`. Both confirmed by
+# `cargo tree -e features`, not just this declared list (see CLAUDE.md). `cut`'s Enum/Categorical
+# output dtype needs `dtype-categorical`, which is *not* in this list but confirmed active
+# transitively on both polars-ops and polars-plan via the same `cargo tree` check -- not re-added,
+# per the `dtype-time` precedent of not "helpfully" re-adding an already-active feature.
+polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration", "aws", "gcp", "azure", "rolling_window", "moment", "is_between", "rle", "cov", "ewma", "cutqcut"] }
 
 # Without this, `cargo build`'s default dev profile (opt-level 0 for every crate, including every
 # vendored polars kernel) is what every dev/test/CI run actually executes -- for a performance
