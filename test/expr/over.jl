@@ -73,3 +73,17 @@ end
 
     @test_throws ErrorException over(col("x"); mapping_strategy = :bogus)
 end
+
+@testset "over() with zero partition_by fails at execution time (confirmed live regression, see plans/parity/batch-4-order-window-over.md; not fixed -- needs Rust-side investigation)" begin
+    # Constructing the Expr alone succeeds (see "over curried form" above, `r_bare = over(col("x"))`)
+    # -- c-polars/src/expr.rs's own comment on polars_expr_over claims an empty partition_by list
+    # is "a real, meaningful window spec (the whole frame as one group)" that "used to succeed".
+    # Live-verified this is no longer true once the expression is actually *run*: it fails
+    # regardless of order_by, and regardless of whether the Expr alone builds successfully.
+    # One-or-more partition_by columns (with or without order_by) is unaffected -- verified
+    # separately, not broken.
+    df = DataFrame((; a = [1, 1, 2], i = [2, 1, 3]))
+
+    @test_broken (collect(with_columns(lazy(df), alias(over(cum_sum(col("a"))), "b"))); true)
+    @test_broken (collect(with_columns(lazy(df), alias(over(cum_sum(col("a")); order_by = "i"), "b"))); true)
+end

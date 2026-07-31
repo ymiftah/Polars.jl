@@ -45,6 +45,18 @@ end
     @test_throws PolarsError select(r, Structs.rename_fields(col("s"), ["same", "same", "c"]))
 end
 
+@testset "Structs.field_by_index: negative index and out-of-range (py-polars test_field_by_index_18732)" begin
+    df = DataFrame((; s = [(a = 1, b = 2), (a = 2, b = 1)]))
+    r = read_parquet(write_temp_parquet(df))
+
+    # negative index counts from the end, matching Python's struct[-1]
+    r_neg = select(r, Structs.field_by_index(col("s"), -1))
+    @test r_neg[:b] == [2, 1]
+
+    # out-of-range index -- a clean PolarsError (not found), not a process abort
+    @test_throws PolarsError select(r, Structs.field_by_index(col("s"), 5))
+end
+
 @testset "Struct field holding a null temporal value (Julia-side P0.9)" begin
     # `load_value(::Value{<:Period})`/`(::Value{DateTime})`/`(::Value{Date})`/`(::Value{Time})`
     # used to lack the `PolarsValueTypeNull` guard every other `load_value` method has. A

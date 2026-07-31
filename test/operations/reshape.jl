@@ -13,6 +13,26 @@
     @test size(exploded_lazy) == size(exploded)
 end
 
+@testset "explode: empty list rows, whole-row-null lists, and mismatched element counts (py-polars test_explode_params, test_explode_invalid_element_count)" begin
+    # upstream's current explode() requires an explicit empty_as_null kwarg we don't expose (see
+    # plans/parity/batch-9-lists-structs.md) -- our fixed behavior matches its empty_as_null=true
+    # branch: an empty list row explodes to one `missing` row rather than disappearing.
+    df = DataFrame((; a = Union{Missing, Vector{Int}}[[1, 2, 3], missing, [4, 5, 6], Int[]], b = [1, 2, 3, 4]))
+    r = explode(df, ["a"])
+    @test isequal(collect(r[:a]), [1, 2, 3, missing, 4, 5, 6, missing])
+    @test r[:b] == [1, 1, 1, 2, 3, 3, 3, 4]
+
+    # exploding columns whose per-row element counts don't match is a clean PolarsError, not a
+    # process abort or silently-wrong zip
+    mismatched = DataFrame(
+        (;
+            col1 = [["X", "Y", "Z"], ["F", "G"], ["P"]],
+            col2 = [["A", "B", "C"], ["C"], ["D", "E"]],
+        )
+    )
+    @test_throws PolarsError explode(mismatched, ["col1", "col2"])
+end
+
 @testset "unpivot" begin
     wide = DataFrame((; id = [1, 2], a = [10, 20], b = [100, 200]))
 
