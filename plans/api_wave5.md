@@ -2,17 +2,20 @@
 
 ## Status
 
-**Done.** Implemented on branch `api-wave5-fill-dt-list-str` (stacked on `api-wave4-ewm-cutqcut`).
-No Cargo feature was added — every item below was implemented with the currently-active feature
-set, or explicitly deferred (with a working "unavailable in this build" stub, matching the existing
-`Strings.titlecase` precedent) when it genuinely needed one that isn't active. Test suite:
-**2258 pass, 4 broken, 0 fail (2262 total)**, up from the stated 2168/4/0 (2172 total) baseline --
-net +90 new passing assertions, the same 4 pre-existing `broken` (unrelated `cut`/`qcut` panics,
-see `test/expr/cut_qcut.jl`), zero failures. Scratch-env note: the CLAUDE.md recipe's package list
-(`Aqua`, `Test`, `Tables`, `TimeZones`) is incomplete for a full `runtests.jl` run -- it also needs
-`StatsBase` and `CategoricalArrays` (both are `[weakdeps]`/`[extensions]` in `Project.toml`, backing
+**Done, including a review-fix pass.** Implemented on branch `api-wave5-fill-dt-list-str` (stacked
+on `api-wave4-ewm-cutqcut`). No Cargo feature was added — every item below was implemented with the
+currently-active feature set, or explicitly deferred (with a working "unavailable in this build"
+stub, matching the existing `Strings.titlecase` precedent) when it genuinely needed one that isn't
+active. A first review round caught a wrong default (`Lists.join`'s `ignore_nulls`) and two
+docstring/error-text issues repeated across all 8 "unavailable" stubs; see "Review round" below for
+the full audit and fixes. Test suite after the fix pass: **2258 pass, 4 broken, 0 fail (2262
+total)**, up from the stated 2168/4/0 (2172 total) baseline -- net +90 new passing assertions, the
+same 4 pre-existing `broken` (unrelated `cut`/`qcut` panics, see `test/expr/cut_qcut.jl`), zero
+failures. Scratch-env note: the CLAUDE.md recipe's package list (`Aqua`, `Test`, `Tables`,
+`TimeZones`) is incomplete for a full `runtests.jl` run -- it also needs `StatsBase` and
+`CategoricalArrays` (both are `[weakdeps]`/`[extensions]` in `Project.toml`, backing
 `test/expr/statsbase_ext.jl`/`test/expr/categoricalarrays_ext.jl`), or those two files error out
-before the rest of the suite runs.
+before the rest of the suite runs; added to CLAUDE.md's own recipe section directly.
 
 ## Scope and disposition
 
@@ -59,6 +62,11 @@ before the rest of the suite runs.
   (joining the *string elements of a list* into one string) is a wholly separate, ungated method
   from `StringNameSpace::join` (concatenating a whole *String column*), which really is
   `concat_str`-gated. Conflating the two would have wrongly skipped a working capability.
+  **Review correction:** `Lists.join`'s `ignore_nulls` default was originally implemented as
+  `false`; upstream `list.join(separator, *, ignore_nulls: bool = True)` defaults to `true`.
+  Fixed in both the direct and curried forms. The bug wasn't visible in the original test because
+  the only default-exercising fixture had no *inner* nulls (both settings agree there); a new
+  assertion pins the no-keyword call against the fixture that does have inner nulls.
 - `Lists.n_unique`, `Lists.any`, `Lists.all` -- **DONE**, but not the way the task brief guessed.
   There is no `list_any_all` Cargo feature in polars 0.54.4 at all (searched the whole vendored
   `polars`/`polars-plan` source tree; no such feature, no such `ListFunction`/`BooleanFunction`
@@ -111,6 +119,65 @@ non-feature-gated operator) as a small new top-level binary op, mirroring the ex
 than relying on `div`'s currently-accidental integer-flooring behavior. Verified live: `epoch(dt,
 :s)` on `1969-12-31T23:59:59` (one second before the epoch) correctly gives `-1`, not `0` --
 confirms the floor (not truncating) semantics this depended on.
+
+## Review round: default-vs-upstream audit
+
+A reviewer caught the `Lists.join` default bug above. Every other new function's defaults were then
+re-checked one by one against the actual py-polars Python source (`py-polars/src/polars/expr/{list,
+string,expr,datetime}.py`, fetched fresh from `pola-rs/polars`'s GitHub tree, not recalled from
+memory):
+
+| Function | Default(s) checked | Result |
+|---|---|---|
+| `Lists.join` | `ignore_nulls` | **was wrong (`false`), fixed to `true`** -- see above |
+| `Lists.sort` | `descending`, `nulls_last` | matches (`false`, `false`) |
+| `Lists.diff` | `n`, `null_behavior` | matches (`1`, `:ignore`) |
+| `Lists.any`/`Lists.all` | `ignore_nulls` | matches (`true`) |
+| `Strings.pad_start`/`pad_end` | `fill_char` | matches (`' '`) |
+| `Strings.find` | `strict` | matches (`true`) |
+| `rolling_quantile` | `method` | matches (`:nearest`, upstream's `interpolation="nearest"`) |
+| `Dt.timestamp` | `time_unit` | matches (`:us`) |
+| `Dt.epoch` | `time_unit` | matches (`:us`) |
+| `forward_fill`/`backward_fill` | `limit` | matches (`nothing`/`None`); upstream's own docstring
+  confirms these are literally `.fill_null(strategy=...)` aliases, exactly this implementation |
+
+Two additional findings from the same pass, both fixed (not just noted, since both were cheap):
+
+- **`Strings.pad_start`/`pad_end`'s `length` was narrower than upstream.** Upstream's signature is
+  `length: int | IntoExprColumn` -- a plain integer *or* a column expression (giving a per-row
+  target length). This implementation had typed the parameter as `length::Integer`, so
+  `Strings.pad_start(col("a"), col("b"))` would have been a `MethodError`. Widened to accept any
+  `length` (converted via the existing `convert(Expr, length)` call already in the body), verified
+  live against upstream's `test_str_pad_start_expr` fixture (a `col("b")`-valued length column,
+  including a `missing` length propagating to a `missing` result) -- exact match. New test case
+  added.
+- **The 8 "unavailable in this build" stub functions** (`Dt.month_start`/`month_end`,
+  `Lists.to_struct`, `Strings.join`/`to_integer`/`extract_groups`/`reverse`, plus the pre-existing
+  `Strings.titlecase` this pattern was copied from) **all had two problems, caught in review:** a
+  trailing docstring sentence explaining the stub's own implementation rationale to a maintainer
+  (rejected in review before, on this same repo, for exactly this reason -- dev notes belong in
+  code comments/plans, not docstrings), and a `(see CLAUDE.md)` parenthetical inside the *runtime*
+  `error(...)` message, which is meaningless to an actual package user (`CLAUDE.md` is a file in
+  this repo, not something installed alongside the package). Removed both from all 8, including the
+  pre-existing `titlecase` one -- the `!!! warning` admonition and the actionable "add feature X and
+  rebuild" instructions are kept as-is.
+
+Legitimate, deliberate deviations from upstream (not bugs, noted here per the review request rather
+than left implicit):
+
+- **`Lists.slice`/`Strings.slice` take `offset`/`length` as mandatory `Expr` arguments with no
+  default**, unlike upstream's `length: ... | None = None` (`None` meaning "to the end of the
+  list/string"). This matches the pre-existing `Strings.slice` convention already in this codebase
+  before this wave (not something introduced here) -- the caller passes `lit(missing)` explicitly
+  for "to the end" rather than omitting the argument. Not changed, for consistency with the sibling
+  function.
+- **`Strings.find` doesn't expose upstream's `literal: bool = False` keyword.** Only the regex path
+  (`StringNameSpace::find`) is wrapped; the literal-substring variant (`StringNameSpace::find_literal`,
+  a separate Rust method) isn't wrapped in this wave. Same shape as the pre-existing
+  `contains`/`contains_literal` split in this file.
+- **`Strings.join`'s stub signature** (`ignore_nulls::Bool = true`) was also corrected to match
+  upstream's real default while fixing its docstring/error text above, even though the function
+  always errors regardless of arguments -- for accuracy if/when the feature is ever enabled.
 
 ## Symbol counts
 

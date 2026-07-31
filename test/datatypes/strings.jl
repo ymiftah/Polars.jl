@@ -184,6 +184,12 @@ end
     @test collect(r_curried_start[:p]) == collect(r_start[:padded])
     r_curried_end = select(df, alias(col("a") |> Strings.pad_end(10), "p"))
     @test collect(r_curried_end[:p]) == collect(r_end[:padded])
+
+    # `length` also accepts a column expression, not just an integer literal (py-polars
+    # test_str_pad_start_expr: `int | IntoExprColumn`) -- a per-row target length
+    df4 = DataFrame((; a = Union{Missing, String}["a", "bbbbbb", "cc", "d", missing], b = Union{Missing, Int64}[1, 2, missing, 4, 4]))
+    r4 = select(df4, alias(Strings.pad_start(col("a"), col("b")), "p"))
+    @test isequal(collect(r4[:p]), ["a", "bbbbbb", missing, "   d", missing])
 end
 
 @testset "Strings.find (py-polars test_str_find)" begin

@@ -95,23 +95,23 @@ Curried form of [`sort`](@ref) for use with `|>`.
 sort(; descending::Bool = false, nulls_last::Bool = false) = expr -> sort(expr; descending, nulls_last)
 
 """
-    join(expr::Polars.Expr, separator::Polars.Expr; ignore_nulls::Bool=false)::Polars.Expr
+    join(expr::Polars.Expr, separator::Polars.Expr; ignore_nulls::Bool=true)::Polars.Expr
 
 Joins the string elements of each list in `expr` into a single string, separated by
-`separator`. If `ignore_nulls` is `false` (default), a `null` element makes that list's whole
-result `null`; if `true`, `null` elements are skipped instead.
+`separator`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, a
+`null` element makes that list's whole result `null` instead.
 """
-function join(expr::Expr, separator::Expr; ignore_nulls::Bool = false)
+function join(expr::Expr, separator::Expr; ignore_nulls::Bool = true)
     out = API.polars_expr_list_join(expr, separator, ignore_nulls)
     return Expr(out)
 end
 
 """
-    join(separator; ignore_nulls::Bool=false)::Base.Callable
+    join(separator; ignore_nulls::Bool=true)::Base.Callable
 
 Curried form of [`join`](@ref) for use with `|>`.
 """
-join(separator; ignore_nulls::Bool = false) = expr -> join(expr, convert(Expr, separator); ignore_nulls)
+join(separator; ignore_nulls::Bool = true) = expr -> join(expr, convert(Expr, separator); ignore_nulls)
 
 """
     slice(expr::Polars.Expr, offset::Polars.Expr, length::Polars.Expr)::Polars.Expr
@@ -197,16 +197,12 @@ end
     feature, which is not enabled in this build. To enable it, add `"list_to_struct"` to
     `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
     bindings.
-
-This method exists only to fail with that explanation: without it, calling `Lists.to_struct`
-raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
 """
 function to_struct(::Expr, ::AbstractVector)
     return error(
         "Lists.to_struct is unavailable in this build: polars' `to_struct` requires " *
-            "the `list_to_struct` Cargo feature, which c-polars does not currently enable " *
-            "(see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list and " *
-            "rebuild to enable it."
+            "the `list_to_struct` Cargo feature, which c-polars does not currently enable. " *
+            "Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to enable it."
     )
 end
 

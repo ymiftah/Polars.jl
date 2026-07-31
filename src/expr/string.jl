@@ -60,15 +60,12 @@ end
     stable toolchain deliberately -- so `c-polars` does not compile the symbol and no binding for
     it is generated. To enable it, build `c-polars` with a nightly toolchain and
     `cargo build --features nightly`, then regenerate the bindings.
-
-This method exists only to fail with that explanation: without it, calling `Strings.titlecase`
-raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
 """
 function titlecase(::Expr)
     return error(
         "Strings.titlecase is unavailable in this build: polars' `to_titlecase` requires " *
             "polars' `nightly` Cargo feature and a nightly rustc, while c-polars pins a stable " *
-            "toolchain (see CLAUDE.md). Rebuild with `cargo build --features nightly` to enable it."
+            "toolchain. Rebuild with `cargo build --features nightly` to enable it."
     )
 end
 
@@ -144,12 +141,13 @@ Curried form of [`slice`](@ref) for use with `|>`.
 slice(offset, length) = expr -> slice(expr, convert(Expr, offset), convert(Expr, length))
 
 """
-    pad_start(expr::Polars.Expr, length::Integer; fill_char::Char=' ')::Polars.Expr
+    pad_start(expr::Polars.Expr, length; fill_char::Char=' ')::Polars.Expr
 
 Pads each string of `expr` on the left with `fill_char` until it reaches `length` characters
-(no-op for a string already at least that long).
+(no-op for a string already at least that long). `length` is an integer literal or an
+expression (e.g. another column), giving a per-row target length.
 """
-function pad_start(expr::Expr, length::Integer; fill_char::Char = ' ')
+function pad_start(expr::Expr, length; fill_char::Char = ' ')
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_str_pad_start(expr, convert(Expr, length), codepoint(fill_char), out)
     polars_error(err)
@@ -157,19 +155,20 @@ function pad_start(expr::Expr, length::Integer; fill_char::Char = ' ')
 end
 
 """
-    pad_start(length::Integer; fill_char::Char=' ')::Base.Callable
+    pad_start(length; fill_char::Char=' ')::Base.Callable
 
 Curried form of [`pad_start`](@ref) for use with `|>`.
 """
-pad_start(length::Integer; fill_char::Char = ' ') = expr -> pad_start(expr, length; fill_char)
+pad_start(length; fill_char::Char = ' ') = expr -> pad_start(expr, length; fill_char)
 
 """
-    pad_end(expr::Polars.Expr, length::Integer; fill_char::Char=' ')::Polars.Expr
+    pad_end(expr::Polars.Expr, length; fill_char::Char=' ')::Polars.Expr
 
 Pads each string of `expr` on the right with `fill_char` until it reaches `length` characters
-(no-op for a string already at least that long).
+(no-op for a string already at least that long). `length` is an integer literal or an
+expression (e.g. another column), giving a per-row target length.
 """
-function pad_end(expr::Expr, length::Integer; fill_char::Char = ' ')
+function pad_end(expr::Expr, length; fill_char::Char = ' ')
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_str_pad_end(expr, convert(Expr, length), codepoint(fill_char), out)
     polars_error(err)
@@ -177,11 +176,11 @@ function pad_end(expr::Expr, length::Integer; fill_char::Char = ' ')
 end
 
 """
-    pad_end(length::Integer; fill_char::Char=' ')::Base.Callable
+    pad_end(length; fill_char::Char=' ')::Base.Callable
 
 Curried form of [`pad_end`](@ref) for use with `|>`.
 """
-pad_end(length::Integer; fill_char::Char = ' ') = expr -> pad_end(expr, length; fill_char)
+pad_end(length; fill_char::Char = ' ') = expr -> pad_end(expr, length; fill_char)
 
 """
     replace(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr; literal::Bool=false)::Polars.Expr
@@ -328,23 +327,19 @@ function to_datetime(
 end
 
 """
-    join(expr::Polars.Expr; ignore_nulls::Bool=false)::Polars.Expr
+    join(expr::Polars.Expr; ignore_nulls::Bool=true)::Polars.Expr
 
 !!! warning "Unavailable in this build"
     Upstream `StringNameSpace::join` (concatenating a whole String column into one value) sits
     behind polars' own `concat_str` Cargo feature, which is not enabled in this build. To
     enable it, add `"concat_str"` to `c-polars/Cargo.toml`'s `polars` feature list, rebuild
     `c-polars`, and regenerate the bindings.
-
-This method exists only to fail with that explanation: without it, calling `Strings.join`
-raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
 """
-function join(::Expr; ignore_nulls::Bool = false)
+function join(::Expr; ignore_nulls::Bool = true)
     return error(
         "Strings.join is unavailable in this build: polars' string `join` requires " *
-            "the `concat_str` Cargo feature, which c-polars does not currently enable " *
-            "(see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list and " *
-            "rebuild to enable it."
+            "the `concat_str` Cargo feature, which c-polars does not currently enable. " *
+            "Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to enable it."
     )
 end
 
@@ -356,17 +351,13 @@ end
     feature, which is not enabled in this build. To enable it, add `"string_to_integer"` to
     `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
     bindings.
-
-This method exists only to fail with that explanation: without it, calling
-`Strings.to_integer` raises a bare `UndefVarError` for a missing `ccall` symbol, which says
-nothing about why.
 """
 function to_integer(::Expr; base::Integer = 10, strict::Bool = true)
     return error(
         "Strings.to_integer is unavailable in this build: polars' `to_integer` requires " *
             "the `string_to_integer` Cargo feature, which c-polars does not currently " *
-            "enable (see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list " *
-            "and rebuild to enable it."
+            "enable. Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to " *
+            "enable it."
     )
 end
 
@@ -378,17 +369,13 @@ end
     feature, which is not enabled in this build. To enable it, add `"extract_groups"` to
     `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
     bindings.
-
-This method exists only to fail with that explanation: without it, calling
-`Strings.extract_groups` raises a bare `UndefVarError` for a missing `ccall` symbol, which
-says nothing about why.
 """
 function extract_groups(::Expr, ::AbstractString)
     return error(
         "Strings.extract_groups is unavailable in this build: polars' `extract_groups` " *
             "requires the `extract_groups` Cargo feature, which c-polars does not currently " *
-            "enable (see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list " *
-            "and rebuild to enable it."
+            "enable. Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to " *
+            "enable it."
     )
 end
 
@@ -400,16 +387,12 @@ end
     feature, which is not enabled in this build. To enable it, add `"string_reverse"` to
     `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
     bindings.
-
-This method exists only to fail with that explanation: without it, calling `Strings.reverse`
-raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
 """
 function reverse(::Expr)
     return error(
         "Strings.reverse is unavailable in this build: polars' string `reverse` requires " *
-            "the `string_reverse` Cargo feature, which c-polars does not currently enable " *
-            "(see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list and " *
-            "rebuild to enable it."
+            "the `string_reverse` Cargo feature, which c-polars does not currently enable. " *
+            "Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to enable it."
     )
 end
 

@@ -111,16 +111,12 @@ export epoch
     feature, which is not enabled in this build. To enable it, add `"month_start"` to
     `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
     bindings.
-
-This method exists only to fail with that explanation: without it, calling `Dt.month_start`
-raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
 """
 function month_start(::Expr)
     return error(
         "Dt.month_start is unavailable in this build: polars' `month_start` requires " *
-            "the `month_start` Cargo feature, which c-polars does not currently enable " *
-            "(see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list and " *
-            "rebuild to enable it."
+            "the `month_start` Cargo feature, which c-polars does not currently enable. " *
+            "Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to enable it."
     )
 end
 
@@ -132,16 +128,12 @@ end
     feature, which is not enabled in this build. To enable it, add `"month_end"` to
     `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
     bindings.
-
-This method exists only to fail with that explanation: without it, calling `Dt.month_end`
-raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
 """
 function month_end(::Expr)
     return error(
         "Dt.month_end is unavailable in this build: polars' `month_end` requires " *
-            "the `month_end` Cargo feature, which c-polars does not currently enable " *
-            "(see CLAUDE.md). Add it to c-polars/Cargo.toml's `polars` feature list and " *
-            "rebuild to enable it."
+            "the `month_end` Cargo feature, which c-polars does not currently enable. " *
+            "Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to enable it."
     )
 end
 

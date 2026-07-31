@@ -167,6 +167,12 @@ end
             separator = ["-", "&", " ", "@", "/"],
         )
     )
+    # the default is ignore_nulls=true (py-polars: `join(separator, *, ignore_nulls=True)`) --
+    # pinned here with no keyword at all, since df's own default-vs-explicit calls above happen
+    # to agree (no *inner* nulls in that fixture) and so can't catch a wrong default
+    r_default = select(df2, alias(Lists.join(col("a"), lit("-")), "j"))
+    @test isequal(collect(r_default[:j]), ["a-b", missing, "", "c-d", ""])
+
     r_ignore = select(df2, alias(Lists.join(col("a"), lit("-"); ignore_nulls = true), "j"))
     @test isequal(collect(r_ignore[:j]), ["a-b", missing, "", "c-d", ""])
 
