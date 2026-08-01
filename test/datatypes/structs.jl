@@ -57,6 +57,32 @@ end
     @test_throws PolarsError select(r, Structs.field_by_index(col("s"), 5))
 end
 
+@testset "Structs.with_fields: overwrite in place, or append a genuinely new field (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; s = [(a = 1, b = 2), (a = 2, b = 1)]))
+    r = read_parquet(write_temp_parquet(df))
+
+    # overwriting an existing field (by matching alias name) keeps the same field count/order
+    r_overwrite = select(r, Structs.with_fields(col("s"), alias(Structs.field_by_name(col("s"), "a") + 100, "a")))
+    out = collect(r_overwrite[:s])
+    @test propertynames(out[1]) == (:a, :b)
+    @test out[1] == (a = 101, b = 2)
+    @test out[2] == (a = 102, b = 1)
+
+    # an alias with no matching existing field is appended as a new field instead
+    r_add = select(r, Structs.with_fields(col("s"), alias(Structs.field_by_name(col("s"), "a") + Structs.field_by_name(col("s"), "b"), "sum")))
+    out_add = collect(r_add[:s])
+    @test propertynames(out_add[1]) == (:a, :b, :sum)
+    @test out_add[1] == (a = 1, b = 2, sum = 3)
+    @test out_add[2] == (a = 2, b = 1, sum = 3)
+end
+
+@testset "Structs.json_encode (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; s = [(a = 1, b = 2), (a = 2, b = 1)]))
+    r = read_parquet(write_temp_parquet(df))
+    out = collect(select(r, alias(Structs.json_encode(col("s")), "j"))[:j])
+    @test out == ["{\"a\":1,\"b\":2}", "{\"a\":2,\"b\":1}"]
+end
+
 @testset "Struct field holding a null temporal value (Julia-side P0.9)" begin
     # `load_value(::Value{<:Period})`/`(::Value{DateTime})`/`(::Value{Date})`/`(::Value{Time})`
     # used to lack the `PolarsValueTypeNull` guard every other `load_value` method has. A

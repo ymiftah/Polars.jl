@@ -48,9 +48,11 @@ rename_fields(new_names) = Base.Fix2(rename_fields, new_names)
 """
     with_fields(expr::Polars.Expr, fields::Polars.Expr...)::Polars.Expr
 
-Applies each expression in `fields` to the struct's selected field(s) in place (referencing
-fields inside `fields` via `field_by_name`/`field_by_index` on the struct itself), leaving any
-other fields untouched. The result keeps the same field count/order as `expr`.
+Adds or overwrites fields of the struct in `expr` with each (aliased) expression in `fields`
+(referencing existing fields via `field_by_name`/`field_by_index` on the struct itself), leaving
+any other fields untouched. If an entry's alias matches an existing field name, that field is
+overwritten in place (count/order unchanged); an alias with no matching field is appended as a
+new field instead.
 """
 function with_fields(expr::Expr, fields::Expr...)
     fields = collect(Expr, fields)

@@ -124,16 +124,26 @@ end
 end
 
 @testset "cast: non-strict overflow returns missing, not an error or silent wraparound (py-polars test_cast_int)" begin
-    # cast() always uses CastOptions::NonStrict (the free `cast()` fn in the vendored polars-plan
-    # crate, as opposed to Expr::cast()/Expr::strict_cast()'s own distinction -- there is no
-    # `strict` option exposed here at all, a genuine gap flagged in
-    # plans/parity/batch-6-replace-whenthen-cast.md, not fixed). Upstream's exact fixture: Int8(-1)
-    # overflows UInt8's range -> missing; an in-range value round-trips unaffected.
+    # cast() defaults to `strict=false` (CastOptions::NonStrict). Upstream's exact fixture:
+    # Int8(-1) overflows UInt8's range -> missing; an in-range value round-trips unaffected.
     df = DataFrame((; x = Int8[-1, 5]))
     r = select(df, alias(cast(col("x"), UInt8), "c"))
     out = collect(r[:c])
     @test ismissing(out[1])
     @test out[2] == 0x05
+end
+
+@testset "cast: strict=true raises on overflow instead of returning missing (see plans/parity/gap_closure_scope.md)" begin
+    # the `strict` kwarg dispatches to `Expr::strict_cast` rather than `Expr::cast` -- the same
+    # overflow that silently becomes `missing` above must instead raise a catchable PolarsError
+    # (the whole select raises, since strict casting fails the column as a whole).
+    df = DataFrame((; x = Int8[-1, 5]))
+    @test_throws PolarsError collect(select(df, alias(cast(col("x"), UInt8; strict = true), "c")))
+
+    # an in-range-only column round-trips fine under strict=true
+    df_ok = DataFrame((; x = Int8[5, 6]))
+    r = select(df_ok, alias(cast(col("x"), UInt8; strict = true), "c"))
+    @test collect(r[:c]) == 0x05:0x06
 end
 
 @testset "cast to every remaining supported dtype" begin

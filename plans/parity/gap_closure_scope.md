@@ -2,7 +2,19 @@
 
 ## Status
 
-**Scoping only — nothing implemented yet.** Derived by re-reading all nine batch notes
+**Done.** Groups A, B, C, and D below are implemented on the `parity-gap-closure` branch (PR #29):
+Group A's two behavioural bugs fixed (`over()` zero-partition, all-missing-column `DataFrame`
+construction), Groups B/C's ~45 new `Expr`/`Lists`/`Strings`/`Structs` functions added with a Rust
+FFI symbol each, and Group D (batches 10-14) is tracked separately as still-unswept in
+`LEDGER.md` rather than folded into this branch. The branch also had to reconcile with a large
+concurrently-merged Wave 5 PR (#30) that independently closed some of the same gaps (`Lists.sort`/
+`join`/`slice`/`diff`/`n_unique`/`any`/`all`, `Strings.find`/`pad_start`/`pad_end`) — where both
+sides implemented the same function, the more complete implementation was kept and the other's
+tests were superseded. See the branch's commit history for the full list; every new function has
+live-verified, `@testset`-covered behavior, not just a passing build. Group E (this file, plus
+`LEDGER.md`'s batch-order table) is addressed by this same status update.
+
+Derived by re-reading all nine batch notes
 (`plans/parity/batch-{1..9}-*.md`) plus `LEDGER.md`, then verifying every flagged gap against the
 *current* `main` (post-Wave-1/2/3, post-libpolars-v0.3.0) rather than trusting the notes, since
 Waves 2/3 silently closed several of them after they were written.
