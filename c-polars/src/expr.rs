@@ -740,10 +740,10 @@ pub unsafe extern "C" fn polars_expr_clip(
     make_expr(expr.clip(min, max))
 }
 
-/// Unary negation (`-expr`). Not reachable by composing `0 .- expr` from the existing binary
-/// `sub` -- that silently wraps on an unsigned column (e.g. `UInt8` `0-1` -> `255`) where
-/// `Expr::neg` (via `FunctionExpr::Negate`) has its own per-dtype validation and correctly raises
-/// instead (upstream `test_neg_unsigned_int`, live-verified both directions before writing this).
+// Unary negation (`-expr`). Not reachable by composing `0 .- expr` from the existing binary
+// `sub` -- that silently wraps on an unsigned column (e.g. `UInt8` `0-1` -> `255`) where
+// `Expr::neg` (via `FunctionExpr::Negate`) has its own per-dtype validation and correctly raises
+// instead (upstream `test_neg_unsigned_int`, live-verified both directions before writing this).
 gen_impl_expr!(polars_expr_neg, Neg::neg);
 
 #[no_mangle]
@@ -800,6 +800,23 @@ pub unsafe extern "C" fn polars_expr_item(
 }
 
 gen_impl_expr!(polars_expr_not, Expr::not);
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_all(
+    expr: *const polars_expr_t,
+    ignore_nulls: bool,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().all(ignore_nulls))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_any(
+    expr: *const polars_expr_t,
+    ignore_nulls: bool,
+) -> *const polars_expr_t {
+    make_expr((*expr).inner.clone().any(ignore_nulls))
+}
+
 gen_impl_expr!(polars_expr_is_finite, Expr::is_finite);
 gen_impl_expr!(polars_expr_is_infinite, Expr::is_infinite);
 gen_impl_expr!(polars_expr_is_nan, Expr::is_nan);
@@ -895,7 +912,20 @@ gen_impl_expr_binary!(polars_expr_clip_min, Expr::clip_min);
 gen_impl_expr_binary!(polars_expr_clip_max, Expr::clip_max);
 
 gen_impl_expr_binary!(polars_expr_bottom_k, Expr::bottom_k);
-gen_impl_expr_binary!(polars_expr_shift_and_fill, Expr::shift_and_fill);
+
+/// `shift(n, fill_value)` -- unlike the existing binary `shift(n)` (no fill), out-of-range rows
+/// get `fill_value` instead of `null`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_shift_and_fill(
+    expr: *const polars_expr_t,
+    n: *const polars_expr_t,
+    fill_value: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let n = (*n).inner.clone();
+    let fill_value = (*fill_value).inner.clone();
+    make_expr(expr.shift_and_fill(n, fill_value))
+}
 
 gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null);
 gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan);

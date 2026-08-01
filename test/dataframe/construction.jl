@@ -79,6 +79,34 @@ end
     @test Polars.schema(df_null).types == (Union{Missing, Int64},)
 end
 
+@testset "bare all-missing column (Vector{Missing}) builds a genuine Null-dtype column, not a crash (see plans/parity/gap_closure_scope.md A2)" begin
+    # `DataFrame((; x = [missing, missing]))` used to raise `UndefVarError: T not defined in
+    # static parameter matching` from deep inside Arrow-schema resolution -- Missing's own
+    # `MaybeMissing{Missing}` == `Union{Missing,Missing}` collapse hit the same hazard already
+    # guarded for `Any` (src/arrow/array.jl), but without an equivalent guard. Fixed with a
+    # concrete `format(::Type{Missing})` method; live-verified end-to-end (not just that
+    # construction no longer crashes) across schema, group_by, filter, and a parquet round-trip.
+    df = DataFrame((; x = Vector{Missing}(missing, 2)))
+    @test size(df) == (2, 1)
+    @test isequal(collect(df[:x]), [missing, missing])
+    @test Polars.schema(df).types == (Union{Missing, Nothing},)
+
+    # bare untyped literal (the exact form from the original crash report) works the same way
+    df_lit = DataFrame((; x = [missing, missing]))
+    @test isequal(collect(df_lit[:x]), [missing, missing])
+
+    # survives a group_by/agg and a filter, not just construction+readback
+    df_g = DataFrame((; g = ["a", "a", "b"], x = Vector{Missing}(missing, 3)))
+    r = collect(agg(group_by(lazy(df_g), "g"), count(col("x"))))
+    by_group = Dict(zip(r[:g], r[:x]))
+    @test by_group == Dict("a" => UInt32(0), "b" => UInt32(0)) # count excludes nulls
+    @test size(filter(df_g, is_null(col("x")))) == (3, 2)
+
+    # round-trips through parquet
+    path = write_temp_parquet(df)
+    @test isequal(collect(read_parquet(path)[:x]), [missing, missing])
+end
+
 @testset "Base.names/Tables.columnnames read only the schema, no query (P1.3)" begin
     # `Tables.columnnames`/`Tables.getcolumn(df, ::Int)` used to call `schema(df)`, which runs a
     # null-count `select` over every column just to answer "what are the names" -- cheap on tiny

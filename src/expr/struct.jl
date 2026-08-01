@@ -45,6 +45,29 @@ function rename_fields(expr, new_names)
 end
 rename_fields(new_names) = Base.Fix2(rename_fields, new_names)
 
-export field_by_name, field_by_index, rename_fields
+"""
+    with_fields(expr::Polars.Expr, fields::Polars.Expr...)::Polars.Expr
+
+Applies each expression in `fields` to the struct's selected field(s) in place (referencing
+fields inside `fields` via `field_by_name`/`field_by_index` on the struct itself), leaving any
+other fields untouched. The result keeps the same field count/order as `expr`.
+"""
+function with_fields(expr::Expr, fields::Expr...)
+    fields = collect(Expr, fields)
+    GC.@preserve fields begin
+        ptrs = Ptr{polars_expr_t}[f.ptr for f in fields]
+        out = API.polars_expr_struct_with_fields(expr, ptrs, length(ptrs))
+    end
+    return Expr(out)
+end
+
+"""
+    json_encode(expr::Polars.Expr)::Polars.Expr
+
+Encodes each struct value of `expr` as a JSON string.
+"""
+json_encode(expr::Expr) = Expr(API.polars_expr_struct_json_encode(expr))
+
+export field_by_name, field_by_index, rename_fields, with_fields, json_encode
 
 end # module Structs

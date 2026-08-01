@@ -924,6 +924,10 @@ const struct polars_expr_t *polars_expr_item(const struct polars_expr_t *expr, b
 
 const struct polars_expr_t *polars_expr_not(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_all(const struct polars_expr_t *expr, bool ignore_nulls);
+
+const struct polars_expr_t *polars_expr_any(const struct polars_expr_t *expr, bool ignore_nulls);
+
 const struct polars_expr_t *polars_expr_is_finite(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_is_infinite(const struct polars_expr_t *expr);
@@ -1005,8 +1009,13 @@ const struct polars_expr_t *polars_expr_clip_max(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_bottom_k(const struct polars_expr_t *a,
                                                  const struct polars_expr_t *b);
 
-const struct polars_expr_t *polars_expr_shift_and_fill(const struct polars_expr_t *a,
-                                                       const struct polars_expr_t *b);
+/**
+ * `shift(n, fill_value)` -- unlike the existing binary `shift(n)` (no fill), out-of-range rows
+ * get `fill_value` instead of `null`.
+ */
+const struct polars_expr_t *polars_expr_shift_and_fill(const struct polars_expr_t *expr,
+                                                       const struct polars_expr_t *n,
+                                                       const struct polars_expr_t *fill_value);
 
 const struct polars_expr_t *polars_expr_fill_null(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *b);

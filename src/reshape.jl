@@ -1,16 +1,21 @@
 """
-    explode(lf::LazyFrame, columns::Vector{String})::LazyFrame
-    explode(df::DataFrame, columns::Vector{String})::DataFrame
+    explode(lf::LazyFrame, columns::Vector{String}; empty_as_null::Bool=true, keep_nulls::Bool=true)::LazyFrame
+    explode(df::DataFrame, columns::Vector{String}; empty_as_null::Bool=true, keep_nulls::Bool=true)::DataFrame
 
 Explodes list-typed `columns`, turning each list element into its own row (other columns are
-repeated to match).
+repeated to match). `empty_as_null`: an empty list produces one `null` row when `true` (default),
+rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true`
+(default), rather than disappearing.
 """
-explode(df::DataFrame, columns::Vector{String}) = explode(lazy(df), columns) |> collect
-function explode(lf::LazyFrame, columns::Vector{String})
+explode(df::DataFrame, columns::Vector{String}; kwargs...) = explode(lazy(df), columns; kwargs...) |> collect
+function explode(
+        lf::LazyFrame, columns::Vector{String};
+        empty_as_null::Bool = true, keep_nulls::Bool = true
+    )
     GC.@preserve columns begin
         ptrs, lens = _name_ptrs(columns)
         out = Ref{Ptr{polars_lazy_frame_t}}()
-        err = polars_lazy_frame_explode(lf, ptrs, lens, length(ptrs), out)
+        err = polars_lazy_frame_explode(lf, ptrs, lens, length(ptrs), empty_as_null, keep_nulls, out)
         polars_error(err)
     end
     return LazyFrame(out[])
