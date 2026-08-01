@@ -92,6 +92,10 @@ Gathers each list's elements at the (per-list) positions in `index`. Distinct fr
 [`gather`](@ref) (row-level gather across the whole column) -- this indexes *within* each row's
 own list. Not exported -- collides with that top-level `Polars.gather`; call as
 `Lists.gather(...)`.
+
+`index` should be a genuinely List-typed expression (e.g. `implode(lit([...]))`, or another
+`Lists`-namespace result) -- passing a bare, non-list literal like `lit([0, -1])` still works but
+prints an upstream deprecation warning (`list.gather with a flat datatype is deprecated`).
 """
 function gather(expr::Expr, index::Expr; null_on_oob::Bool = false)
     out = API.polars_expr_list_gather(expr, index, null_on_oob)

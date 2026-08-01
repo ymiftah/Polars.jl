@@ -294,10 +294,12 @@ end
 @testset "Lists.gather / Lists.gather_every (not exported -- collide with the top-level row-level gather/gather_every; see plans/parity/gap_closure_scope.md)" begin
     df = DataFrame((; a = [[10, 20, 30, 40]]))
 
-    r_gather = select(df, alias(Lists.gather(col("a"), lit([0, -1])), "g"))
+    # index must be a genuinely List-typed expression (implode(...)) to avoid triggering upstream's
+    # `list.gather with a flat datatype is deprecated` warning -- see Lists.gather's docstring
+    r_gather = select(df, alias(Lists.gather(col("a"), implode(lit([0, -1]))), "g"))
     @test collect(only(r_gather[:g])) == [10, 40]
 
-    r_oob = select(df, alias(Lists.gather(col("a"), lit([0, 99]); null_on_oob = true), "g"))
+    r_oob = select(df, alias(Lists.gather(col("a"), implode(lit([0, 99])); null_on_oob = true), "g"))
     @test isequal(collect(only(r_oob[:g])), [10, missing])
 
     r_ge = select(df, alias(Lists.gather_every(col("a"), 2), "g"))
