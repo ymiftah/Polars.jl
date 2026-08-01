@@ -621,6 +621,8 @@ end
     gen_impl_expr!(polars_expr_sinh, Expr::sinh, "Hyperbolic sine of each value of `expr`.")
     gen_impl_expr!(polars_expr_tanh, Expr::tanh, "Hyperbolic tangent of each value of `expr`.")
     gen_impl_expr!(polars_expr_arccos, Expr::arccos, "Inverse cosine of each value of `expr`, in radians.")
+    gen_impl_expr!(polars_expr_arcsin, Expr::arcsin, "Inverse sine of each value of `expr`, in radians.")
+    gen_impl_expr!(polars_expr_arctan, Expr::arctan, "Inverse tangent of each value of `expr`, in radians.")
     gen_impl_expr!(polars_expr_degrees, Expr::degrees, "Converts each value of `expr` from radians to degrees.")
     gen_impl_expr!(polars_expr_radians, Expr::radians, "Converts each value of `expr` from degrees to radians.")
 
@@ -667,6 +669,9 @@ end
     gen_impl_expr_binary!(polars_expr_sub, Expr::sub, "Elementwise `a - b` -- the named-function form of the `-` operator.")
     gen_impl_expr_binary!(polars_expr_mul, Expr::mul, "Elementwise `a * b` -- the named-function form of the `*` operator.")
     gen_impl_expr_binary!(polars_expr_div, Expr::div, "Elementwise `a / b` -- the named-function form of the `/` operator.")
+    # `floor_div` is hand-written below (near the operator overload loop), not generated here --
+    # it needs literal-argument `convert` overloads the macro's plain `(Expr, Expr)` shape can't
+    # express (mirroring `is_in`/`fill_null`'s own curried forms further down).
 
     gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression). Has a curried form `fill_null(value)` for `|>` pipelines -- see [Curried forms for pipe-based composition](@ref).")
     gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`. Has a curried form `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref).")
@@ -807,6 +812,31 @@ function fill_null(expr::Expr; strategy::Symbol, limit::Union{Nothing, Integer} 
 end
 fill_null(; strategy::Symbol, limit::Union{Nothing, Integer} = nothing) =
     expr -> fill_null(expr; strategy, limit)
+
+"""
+    forward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
+    forward_fill(; limit::Union{Nothing,Integer}=nothing)
+
+Fills every `null` value in `expr` with the last non-null value seen before it. `limit` caps
+how many consecutive nulls a single value may fill (`nothing` for unlimited). Shorthand for
+`fill_null(expr; strategy=:forward, limit)`. Has a curried form (2nd method) for `|>` pipelines.
+"""
+forward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :forward, limit)
+forward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> forward_fill(expr; limit)
+
+"""
+    backward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
+    backward_fill(; limit::Union{Nothing,Integer}=nothing)
+
+Fills every `null` value in `expr` with the next non-null value found after it. `limit` caps
+how many consecutive nulls a single value may fill (`nothing` for unlimited). Shorthand for
+`fill_null(expr; strategy=:backward, limit)`. Has a curried form (2nd method) for `|>` pipelines.
+"""
+backward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :backward, limit)
+backward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> backward_fill(expr; limit)
+
+export forward_fill, backward_fill
+
 shift(n) = Base.Fix2(shift, convert(Expr, n))
 pct_change(n) = Base.Fix2(pct_change, convert(Expr, n))
 
@@ -1154,15 +1184,10 @@ the calculation is corrected for statistical bias.
 
 A constant (zero-variance) input gives `NaN`, not an error.
 
-!!! note "Not exported -- call it qualified, or load StatsBase"
-    StatsBase.jl exports its own `kurtosis`. If this package exported one too, neither would be
-    usable unqualified when both are loaded, so this one is deliberately not exported.
+!!! note "Not exported"
+    Call it as `Polars.kurtosis(expr)`. With StatsBase.jl loaded, `kurtosis(expr)` works too.
 
-    Write `Polars.kurtosis(expr)`, or load StatsBase and write `kurtosis(expr)` -- with StatsBase
-    present the bare name is its generic, and this package adds the `Expr` method to it.
-
-    `skew` is exported normally; StatsBase spells it `skewness`, and `StatsBase.skewness(expr)`
-    also works when StatsBase is loaded.
+    `skew` is exported; with StatsBase loaded, `skewness(expr)` also works.
 
 """
 function kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true)
@@ -1792,6 +1817,56 @@ function rolling_var(
 end
 
 """
+    rolling_median(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
+                   center::Bool=false)::Polars.Expr
+
+Apply a rolling median. See [`rolling_mean`](@ref) for the meaning of `window_size`,
+`min_samples`, and `center`.
+"""
+function rolling_median(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+    out = API.polars_expr_rolling_median(expr, Csize_t(window_size), Csize_t(min_samples), center)
+    return Expr(out)
+end
+
+"""
+    rolling_quantile(expr::Polars.Expr, window_size::Integer, quantile::Real;
+                     min_samples::Integer=window_size, center::Bool=false,
+                     method::Symbol=:nearest)::Polars.Expr
+
+Apply a rolling quantile. See [`rolling_mean`](@ref) for the meaning of `window_size`,
+`min_samples`, and `center`. `method` controls how a quantile that falls between two values is
+resolved -- one of `:nearest` (default), `:lower`, `:higher`, `:midpoint`, `:linear`,
+`:equiprobable` (see [`quantile`](@ref) for details).
+"""
+function rolling_quantile(
+        expr::Expr, window_size::Integer, quantile::Real;
+        min_samples::Integer = window_size, center::Bool = false, method::Symbol = :nearest
+    )
+    method_enum = if method == :nearest
+        API.PolarsQuantileMethodNearest
+    elseif method == :lower
+        API.PolarsQuantileMethodLower
+    elseif method == :higher
+        API.PolarsQuantileMethodHigher
+    elseif method == :midpoint
+        API.PolarsQuantileMethodMidpoint
+    elseif method == :linear
+        API.PolarsQuantileMethodLinear
+    elseif method == :equiprobable
+        API.PolarsQuantileMethodEquiprobable
+    else
+        error(
+            "unknown quantile method $method, expected one of " *
+                "(:nearest, :lower, :higher, :midpoint, :linear, :equiprobable)"
+        )
+    end
+    out = API.polars_expr_rolling_quantile(
+        expr, Csize_t(window_size), Csize_t(min_samples), center, Float64(quantile), method_enum
+    )
+    return Expr(out)
+end
+
+"""
     rolling_mean(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
 
 Curried form of [`rolling_mean`](@ref) for use with `|>`.
@@ -1839,7 +1914,27 @@ Curried form of [`rolling_var`](@ref) for use with `|>`.
 rolling_var(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1) =
     expr -> rolling_var(expr, window_size; min_samples, center, ddof)
 
-export rolling_mean, rolling_sum, rolling_min, rolling_max, rolling_std, rolling_var
+"""
+    rolling_median(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
+
+Curried form of [`rolling_median`](@ref) for use with `|>`.
+"""
+rolling_median(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
+    expr -> rolling_median(expr, window_size; min_samples, center)
+
+"""
+    rolling_quantile(window_size::Integer, quantile::Real; min_samples::Integer=window_size,
+                     center::Bool=false, method::Symbol=:nearest)
+
+Curried form of [`rolling_quantile`](@ref) for use with `|>`.
+"""
+rolling_quantile(
+    window_size::Integer, quantile::Real; min_samples::Integer = window_size, center::Bool = false,
+    method::Symbol = :nearest,
+) = expr -> rolling_quantile(expr, window_size, quantile; min_samples, center, method)
+
+export rolling_mean, rolling_sum, rolling_min, rolling_max, rolling_std, rolling_var,
+    rolling_median, rolling_quantile
 
 """
     diff(expr::Polars.Expr, n=1; null_behavior::Symbol=:ignore)::Polars.Expr
@@ -1893,6 +1988,280 @@ Curried form of [`rank`](@ref) for use with `|>`.
 rank(; method::Symbol = :dense, descending::Bool = false) = expr -> rank(expr; method, descending)
 
 export rank
+
+"""Resolves exactly one of `com`/`span`/`half_life`/`alpha` to a concrete decay factor in
+`(0, 1]`, matching the one-liner conversions `EWMOptions`'s Rust-side builder methods use.
+Errors if zero or more than one is given, or if the given one is out of its valid domain."""
+function _resolve_ewm_alpha(; com = nothing, span = nothing, half_life = nothing, alpha = nothing)
+    given = count(!isnothing, (com, span, half_life, alpha))
+    given == 1 ||
+        error("specify exactly one of `com`, `span`, `half_life`, `alpha` (got $given)")
+    if alpha !== nothing
+        0 < alpha <= 1 || error("require 0 < `alpha` <= 1, got $alpha")
+        return Float64(alpha)
+    elseif com !== nothing
+        com >= 0 || error("require `com` >= 0, got $com")
+        return 1.0 / (1.0 + com)
+    elseif span !== nothing
+        span >= 1 || error("require `span` >= 1, got $span")
+        return 2.0 / (span + 1.0)
+    else
+        half_life > 0 || error("require `half_life` > 0, got $half_life")
+        return 1.0 - exp(-log(2.0) / half_life)
+    end
+end
+
+"""
+    ewm_mean(expr::Polars.Expr; com=nothing, span=nothing, half_life=nothing, alpha=nothing,
+             adjust::Bool=true, min_samples::Integer=1, ignore_nulls::Bool=true)::Polars.Expr
+
+Compute the exponentially-weighted moving average.
+
+Exactly one of `com`, `span`, `half_life`, `alpha` must be given, specifying the decay in terms
+of center of mass (`alpha = 1 / (1 + com)`, `com >= 0`), span (`alpha = 2 / (span + 1)`,
+`span >= 1`), half-life (`alpha = 1 - exp(-ln(2) / half_life)`, `half_life > 0`), or the smoothing
+factor directly (`0 < alpha <= 1`).
+
+`adjust` selects between the two weighting schemes: when `true` (default), weights are
+`(1 - alpha)^i`; when `false`, the average is computed recursively,
+`y[0] = x[0]; y[t] = (1 - alpha) * y[t - 1] + alpha * x[t]`.
+
+`min_samples` is the minimum number of observations in a window required to produce a value
+(otherwise `missing`). `ignore_nulls` controls whether weights are based on relative (`true`) or
+absolute (`false`) positions when nulls are present.
+
+!!! note
+    Time-based EWM (`ewm_mean_by`) is not implemented.
+"""
+function ewm_mean(
+        expr::Expr; com = nothing, span = nothing, half_life = nothing, alpha = nothing,
+        adjust::Bool = true, min_samples::Integer = 1, ignore_nulls::Bool = true
+    )
+    a = _resolve_ewm_alpha(; com, span, half_life, alpha)
+    out = API.polars_expr_ewm_mean(expr, a, adjust, Csize_t(min_samples), ignore_nulls)
+    return Expr(out)
+end
+
+"""
+    ewm_mean(; com=nothing, span=nothing, half_life=nothing, alpha=nothing, adjust::Bool=true,
+             min_samples::Integer=1, ignore_nulls::Bool=true)
+
+Curried form of [`ewm_mean`](@ref) for use with `|>`.
+"""
+function ewm_mean(;
+        com = nothing, span = nothing, half_life = nothing, alpha = nothing,
+        adjust::Bool = true, min_samples::Integer = 1, ignore_nulls::Bool = true
+    )
+    return expr -> ewm_mean(expr; com, span, half_life, alpha, adjust, min_samples, ignore_nulls)
+end
+
+export ewm_mean
+
+"""
+    ewm_std(expr::Polars.Expr; com=nothing, span=nothing, half_life=nothing, alpha=nothing,
+            adjust::Bool=true, bias::Bool=false, min_samples::Integer=1,
+            ignore_nulls::Bool=true)::Polars.Expr
+
+Compute the exponentially-weighted moving standard deviation. See [`ewm_mean`](@ref) for
+`com`/`span`/`half_life`/`alpha`, `adjust`, `min_samples`, and `ignore_nulls`.
+
+If `bias` is `false` (default), the calculation is corrected for statistical bias.
+"""
+function ewm_std(
+        expr::Expr; com = nothing, span = nothing, half_life = nothing, alpha = nothing,
+        adjust::Bool = true, bias::Bool = false, min_samples::Integer = 1, ignore_nulls::Bool = true
+    )
+    a = _resolve_ewm_alpha(; com, span, half_life, alpha)
+    out = API.polars_expr_ewm_std(expr, a, adjust, bias, Csize_t(min_samples), ignore_nulls)
+    return Expr(out)
+end
+
+"""
+    ewm_std(; com=nothing, span=nothing, half_life=nothing, alpha=nothing, adjust::Bool=true,
+            bias::Bool=false, min_samples::Integer=1, ignore_nulls::Bool=true)
+
+Curried form of [`ewm_std`](@ref) for use with `|>`.
+"""
+function ewm_std(;
+        com = nothing, span = nothing, half_life = nothing, alpha = nothing,
+        adjust::Bool = true, bias::Bool = false, min_samples::Integer = 1, ignore_nulls::Bool = true
+    )
+    return expr -> ewm_std(expr; com, span, half_life, alpha, adjust, bias, min_samples, ignore_nulls)
+end
+
+export ewm_std
+
+"""
+    ewm_var(expr::Polars.Expr; com=nothing, span=nothing, half_life=nothing, alpha=nothing,
+            adjust::Bool=true, bias::Bool=false, min_samples::Integer=1,
+            ignore_nulls::Bool=true)::Polars.Expr
+
+Compute the exponentially-weighted moving variance. See [`ewm_mean`](@ref) for
+`com`/`span`/`half_life`/`alpha`, `adjust`, `min_samples`, and `ignore_nulls`, and [`ewm_std`](@ref)
+for `bias`.
+"""
+function ewm_var(
+        expr::Expr; com = nothing, span = nothing, half_life = nothing, alpha = nothing,
+        adjust::Bool = true, bias::Bool = false, min_samples::Integer = 1, ignore_nulls::Bool = true
+    )
+    a = _resolve_ewm_alpha(; com, span, half_life, alpha)
+    out = API.polars_expr_ewm_var(expr, a, adjust, bias, Csize_t(min_samples), ignore_nulls)
+    return Expr(out)
+end
+
+"""
+    ewm_var(; com=nothing, span=nothing, half_life=nothing, alpha=nothing, adjust::Bool=true,
+            bias::Bool=false, min_samples::Integer=1, ignore_nulls::Bool=true)
+
+Curried form of [`ewm_var`](@ref) for use with `|>`.
+"""
+function ewm_var(;
+        com = nothing, span = nothing, half_life = nothing, alpha = nothing,
+        adjust::Bool = true, bias::Bool = false, min_samples::Integer = 1, ignore_nulls::Bool = true
+    )
+    return expr -> ewm_var(expr; com, span, half_life, alpha, adjust, bias, min_samples, ignore_nulls)
+end
+
+export ewm_var
+
+"""Builds the `(breaks_ptr, n_breaks, label_ptrs, label_lens, n_labels)` argument tuple shared by
+`cut`/`qcut`/`qcut_uniform`, under the caller's own `GC.@preserve`. `labels === nothing` becomes
+`n_labels = 0`, the FFI convention for "generate interval-string labels"."""
+function _cut_labels(labels::Union{Nothing, Vector{String}})
+    labels_v = labels === nothing ? String[] : labels
+    ptrs, lens = _name_ptrs(labels_v)
+    return labels_v, ptrs, lens
+end
+
+"""
+    cut(expr::Polars.Expr, breaks::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,
+        left_closed::Bool=false)::Polars.Expr
+
+Bin continuous values into discrete categories, given explicit cut points. `breaks` are the
+interior cut points (not including the implicit `-inf`/`inf` ends), so the result has
+`length(breaks) + 1` categories.
+
+`labels`, if given, must have `length(breaks) + 1` entries; otherwise labels are generated as
+interval strings (`"(-inf, b]"`, `"(b1, b2]"`, ..., `"(bn, inf]"`, or the `"[...)"` form if
+`left_closed` is `true`).
+
+Returns a labelled Enum column, which materializes as `String` (see [`cast_categorical`](@ref)).
+
+!!! note "Not exported"
+    Call it as `Polars.cut(expr, breaks)`. With CategoricalArrays.jl loaded, `cut(expr, breaks)`
+    works too.
+
+!!! note
+    `include_breaks` (returning a `Struct` of breakpoint and category together) is not
+    implemented.
+
+See also [`qcut`](@ref)/[`qcut_uniform`](@ref) for quantile-based binning.
+"""
+function cut(
+        expr::Expr, breaks::AbstractVector{<:Real};
+        labels::Union{Nothing, Vector{String}} = nothing, left_closed::Bool = false
+    )
+    breaks_f64 = Vector{Float64}(breaks)
+    labels_v, ptrs, lens = _cut_labels(labels)
+    GC.@preserve breaks_f64 labels_v begin
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_cut(
+            expr, pointer(breaks_f64), length(breaks_f64), ptrs, lens, length(ptrs), left_closed, out
+        )
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+"""
+    cut(breaks::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,
+        left_closed::Bool=false)
+
+Curried form of [`cut`](@ref) for use with `|>`. Only available qualified, as
+`Polars.cut(breaks; ...)` -- see [`cut`](@ref)'s docstring.
+"""
+cut(breaks::AbstractVector{<:Real}; labels::Union{Nothing, Vector{String}} = nothing, left_closed::Bool = false) =
+    expr -> cut(expr, breaks; labels, left_closed)
+
+"""
+    qcut(expr::Polars.Expr, probs::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,
+         left_closed::Bool=false, allow_duplicates::Bool=false)::Polars.Expr
+
+Bin continuous values into discrete categories based on their quantiles. `probs` are quantile
+probabilities in `[0, 1]`; the result has `length(probs) + 1` categories.
+
+`allow_duplicates`, if `true`, silently collapses repeated quantile breakpoints (which can occur
+even with distinct probabilities, depending on the data) instead of raising.
+
+Returns a `Categorical` column, which materializes as `String`. See [`cut`](@ref) for `labels`,
+and [`qcut_uniform`](@ref) for uniformly-spaced probabilities given as a bin count.
+"""
+function qcut(
+        expr::Expr, probs::AbstractVector{<:Real};
+        labels::Union{Nothing, Vector{String}} = nothing, left_closed::Bool = false,
+        allow_duplicates::Bool = false
+    )
+    probs_f64 = Vector{Float64}(probs)
+    labels_v, ptrs, lens = _cut_labels(labels)
+    GC.@preserve probs_f64 labels_v begin
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_qcut(
+            expr, pointer(probs_f64), length(probs_f64), ptrs, lens, length(ptrs),
+            left_closed, allow_duplicates, out
+        )
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+"""
+    qcut(probs::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,
+         left_closed::Bool=false, allow_duplicates::Bool=false)
+
+Curried form of [`qcut`](@ref) for use with `|>`.
+"""
+qcut(
+    probs::AbstractVector{<:Real}; labels::Union{Nothing, Vector{String}} = nothing,
+    left_closed::Bool = false, allow_duplicates::Bool = false
+) = expr -> qcut(expr, probs; labels, left_closed, allow_duplicates)
+
+export qcut
+
+"""
+    qcut_uniform(expr::Polars.Expr, n_bins::Integer; labels::Union{Nothing,Vector{String}}=nothing,
+                 left_closed::Bool=false, allow_duplicates::Bool=false)::Polars.Expr
+
+Like [`qcut`](@ref), but with `n_bins` uniformly-spaced quantile probabilities instead of an
+explicit `probs` list.
+"""
+function qcut_uniform(
+        expr::Expr, n_bins::Integer;
+        labels::Union{Nothing, Vector{String}} = nothing, left_closed::Bool = false,
+        allow_duplicates::Bool = false
+    )
+    labels_v, ptrs, lens = _cut_labels(labels)
+    GC.@preserve labels_v begin
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_qcut_uniform(
+            expr, Csize_t(n_bins), ptrs, lens, length(ptrs), left_closed, allow_duplicates, out
+        )
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+"""
+    qcut_uniform(n_bins::Integer; labels::Union{Nothing,Vector{String}}=nothing,
+                 left_closed::Bool=false, allow_duplicates::Bool=false)
+
+Curried form of [`qcut_uniform`](@ref) for use with `|>`.
+"""
+qcut_uniform(
+    n_bins::Integer; labels::Union{Nothing, Vector{String}} = nothing,
+    left_closed::Bool = false, allow_duplicates::Bool = false
+) = expr -> qcut_uniform(expr, n_bins; labels, left_closed, allow_duplicates)
+
+export qcut_uniform
 
 export col, alias, prefix, suffix, to_lowercase, to_uppercase, lit, cast, when, element,
     cast_datetime, cast_duration, cast_decimal, cast_categorical,

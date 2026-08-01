@@ -153,3 +153,113 @@ end
     r_strict_false = select(df, alias(Strings.contains(col("s"), lit("[invalid"); strict = false), "match"))
     @test all(ismissing, collect(r_strict_false[:match]))
 end
+
+@testset "Strings.pad_start / Strings.pad_end (py-polars test_str_pad_start / test_str_pad_end)" begin
+    df = DataFrame((; a = ["foo", "longer_foo", "longest_fooooooo", "hi"]))
+
+    r_start = select(df, alias(Strings.pad_start(col("a"), 10), "padded"))
+    @test collect(r_start[:padded]) == ["       foo", "longer_foo", "longest_fooooooo", "        hi"]
+
+    r_end = select(df, alias(Strings.pad_end(col("a"), 10), "padded"))
+    @test collect(r_end[:padded]) == ["foo       ", "longer_foo", "longest_fooooooo", "hi        "]
+
+    # a custom fill_char, and null passthrough
+    df2 = DataFrame((; a = Union{Missing, String}["a", "bbbbbb", "cc", "d", missing]))
+    r2_start = select(df2, alias(Strings.pad_start(col("a"), 4), "p"))
+    @test isequal(collect(r2_start[:p]), ["   a", "bbbbbb", "  cc", "   d", missing])
+    r2_end = select(df2, alias(Strings.pad_end(col("a"), 4), "p"))
+    @test isequal(collect(r2_end[:p]), ["a   ", "bbbbbb", "cc  ", "d   ", missing])
+
+    # non-ASCII fill_char, char-count (not byte-count) width -- py-polars test_pad_end_unicode /
+    # test_pad_start_unicode (this repo has a documented history of non-ASCII string bugs, see
+    # CLAUDE.md's ncodeunits note, so this matters more here than it looks upstream)
+    df3 = DataFrame((; a = Union{Missing, String}["Café", "345", "東京", missing]))
+    r3_end = select(df3, alias(Strings.pad_end(col("a"), 6; fill_char = '日'), "p"))
+    @test isequal(collect(r3_end[:p]), ["Café日日", "345日日日", "東京日日日日", missing])
+    r3_start = select(df3, alias(Strings.pad_start(col("a"), 6; fill_char = '日'), "p"))
+    @test isequal(collect(r3_start[:p]), ["日日Café", "日日日345", "日日日日東京", missing])
+
+    # curried forms for |> pipelines
+    r_curried_start = select(df, alias(col("a") |> Strings.pad_start(10), "p"))
+    @test collect(r_curried_start[:p]) == collect(r_start[:padded])
+    r_curried_end = select(df, alias(col("a") |> Strings.pad_end(10), "p"))
+    @test collect(r_curried_end[:p]) == collect(r_end[:padded])
+
+    # `length` also accepts a column expression, not just an integer literal (py-polars
+    # test_str_pad_start_expr: `int | IntoExprColumn`) -- a per-row target length
+    df4 = DataFrame((; a = Union{Missing, String}["a", "bbbbbb", "cc", "d", missing], b = Union{Missing, Int64}[1, 2, missing, 4, 4]))
+    r4 = select(df4, alias(Strings.pad_start(col("a"), col("b")), "p"))
+    @test isequal(collect(r4[:p]), ["a", "bbbbbb", missing, "   d", missing])
+end
+
+@testset "Strings.find (py-polars test_str_find)" begin
+    city = Union{Missing, String}[
+        "Dubai", "Abu Dhabi", "Sharjah", "Al Ain", "Ajman", "Ras Al Khaimah", "Fujairah",
+        "Umm Al Quwain", missing,
+    ]
+    pat = Union{Missing, String}["b[ai]", "b[ai]", "[ai]n", "[ai]n", "[ai]n", "a.+a", "a.+a", "a.+a", missing]
+    df = DataFrame((; city = city, pat = pat))
+
+    r_regex = select(df, alias(Strings.find(col("city"), lit("(?i)a")), "f"))
+    @test isequal(collect(r_regex[:f]), Union{Missing, UInt32}[3, 0, 2, 0, 0, 1, 3, 4, missing])
+
+    r_col_pat = select(df, alias(Strings.find(col("city"), col("pat")), "f"))
+    @test isequal(collect(r_col_pat[:f]), [2, 7, missing, 4, 3, 1, 3, missing, missing])
+
+    # invalid regex: strict=true raises, strict=false returns null (py-polars
+    # test_str_find_invalid_regex)
+    df2 = DataFrame((; txt = ["AbCdEfG"]))
+    rx_invalid = "(?i)AB.))"
+    @test_throws PolarsError select(df2, alias(Strings.find(col("txt"), lit(rx_invalid); strict = true), "f"))
+    r_lenient = select(df2, alias(Strings.find(col("txt"), lit(rx_invalid); strict = false), "f"))
+    @test ismissing(only(r_lenient[:f]))
+
+    # curried form for |> pipelines
+    r_curried = select(df, alias(col("city") |> Strings.find("(?i)a"), "f"))
+    @test isequal(collect(r_curried[:f]), collect(r_regex[:f]))
+end
+
+@testset "Strings.to_integer / Strings.reverse unavailable in this build (each needs its own Cargo feature)" begin
+    df = DataFrame((; s = ["ab", "cd"]))
+    @test_throws "string_to_integer" Strings.to_integer(col("s"))
+    @test_throws "string_reverse" Strings.reverse(col("s"))
+end
+
+@testset "Strings.join: aggregating join-with-separator across all rows (see plans/parity/gap_closure_scope.md Group C, batch-7-strings.md)" begin
+    df = DataFrame((; s = ["a", "b", "c"]))
+    r = select(df, alias(Strings.join(col("s"), "-"), "j"))
+    @test only(r[:j]) == "a-b-c"
+
+    # ignore_nulls=true (default): nulls are skipped
+    df_null = DataFrame((; s = Union{Missing, String}["a", missing, "c"]))
+    r_ignore = select(df_null, alias(Strings.join(col("s"), "-"), "j"))
+    @test only(r_ignore[:j]) == "a-c"
+
+    # ignore_nulls=false: any null poisons the whole result
+    r_poison = select(df_null, alias(Strings.join(col("s"), "-"; ignore_nulls = false), "j"))
+    @test ismissing(only(r_poison[:j]))
+
+    # empty input -> empty string, not missing/error
+    r_empty = select(DataFrame((; s = String[])), alias(Strings.join(col("s"), "-"), "j"))
+    @test only(r_empty[:j]) == ""
+
+    # per-group aggregation, not just whole-column
+    df_g = DataFrame((; g = ["x", "x", "y"], s = ["a", "b", "c"]))
+    r_g = collect(agg(group_by(lazy(df_g), "g"), alias(Strings.join(col("s"), "-"), "j")))
+    by_group = Dict(zip(r_g[:g], r_g[:j]))
+    @test by_group == Dict("x" => "a-b", "y" => "c")
+end
+
+@testset "Strings.extract_groups: named-capture regex into a Struct (see plans/parity/gap_closure_scope.md Group C, batch-7-strings.md)" begin
+    df = DataFrame((; s = ["2024-01-15"]))
+    r = select(df, alias(Strings.extract_groups(col("s"), raw"(?<year>\d+)-(?<month>\d+)-(?<day>\d+)"), "g"))
+    val = only(r[:g])
+    @test val.year == "2024"
+    @test val.month == "01"
+    @test val.day == "15"
+
+    # no match -> every field missing, not an error
+    df_nomatch = DataFrame((; s = ["not-a-date"]))
+    r_nomatch = select(df_nomatch, alias(Strings.extract_groups(col("s"), raw"(?<year>\d{4})"), "g"))
+    @test ismissing(only(r_nomatch[:g]).year)
+end

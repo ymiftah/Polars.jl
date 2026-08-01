@@ -766,6 +766,84 @@ const struct polars_expr_t *polars_expr_kurtosis(const struct polars_expr_t *exp
                                                  bool fisher,
                                                  bool bias);
 
+/**
+ * Exponentially-weighted moving average. `alpha` must already be resolved to a concrete decay
+ * factor in `(0, 1]` by the caller (the `com`/`span`/`half_life`/`alpha` parameterizations all
+ * reduce to this single value client-side).
+ */
+const struct polars_expr_t *polars_expr_ewm_mean(const struct polars_expr_t *expr,
+                                                 double alpha,
+                                                 bool adjust,
+                                                 uintptr_t min_samples,
+                                                 bool ignore_nulls);
+
+/**
+ * Exponentially-weighted moving standard deviation. See `polars_expr_ewm_mean` for `alpha`.
+ */
+const struct polars_expr_t *polars_expr_ewm_std(const struct polars_expr_t *expr,
+                                                double alpha,
+                                                bool adjust,
+                                                bool bias,
+                                                uintptr_t min_samples,
+                                                bool ignore_nulls);
+
+/**
+ * Exponentially-weighted moving variance. See `polars_expr_ewm_mean` for `alpha`.
+ */
+const struct polars_expr_t *polars_expr_ewm_var(const struct polars_expr_t *expr,
+                                                double alpha,
+                                                bool adjust,
+                                                bool bias,
+                                                uintptr_t min_samples,
+                                                bool ignore_nulls);
+
+/**
+ * Bins continuous values into discrete categories given explicit breakpoints. `breaks` is a
+ * plain array of cut points (not including the implicit `-inf`/`inf` ends); the result is a
+ * labelled Enum column with one more category than there are breaks. `labels`, if given
+ * (`n_labels > 0`), must have `breaks.len() + 1` entries; otherwise labels are generated as
+ * interval strings, `"(-inf, b] "`/`"(b1, b2]"`/`"(bn, inf]"` (or `[...)"`-style if
+ * `left_closed`). Raises if `breaks` contains `NaN`/duplicates/`inf`, or if `labels`' length
+ * doesn't match.
+ */
+const struct polars_error_t *polars_expr_cut(const struct polars_expr_t *expr,
+                                             const double *breaks,
+                                             uintptr_t n_breaks,
+                                             const uint8_t *const *labels,
+                                             const uintptr_t *label_lens,
+                                             uintptr_t n_labels,
+                                             bool left_closed,
+                                             const struct polars_expr_t **out);
+
+/**
+ * Bins continuous values into discrete categories based on their quantiles. `probs` are the
+ * quantile cut points in `[0, 1]`; the result is a `Categorical` column. `allow_duplicates`
+ * controls whether repeated quantile breakpoints (common with few distinct values) are silently
+ * collapsed instead of raising. See `polars_expr_cut` for `labels`/error conditions.
+ */
+const struct polars_error_t *polars_expr_qcut(const struct polars_expr_t *expr,
+                                              const double *probs,
+                                              uintptr_t n_probs,
+                                              const uint8_t *const *labels,
+                                              const uintptr_t *label_lens,
+                                              uintptr_t n_labels,
+                                              bool left_closed,
+                                              bool allow_duplicates,
+                                              const struct polars_expr_t **out);
+
+/**
+ * Like `polars_expr_qcut`, but with `n_bins` uniformly-spaced quantile probabilities instead of
+ * an explicit `probs` array.
+ */
+const struct polars_error_t *polars_expr_qcut_uniform(const struct polars_expr_t *expr,
+                                                      uintptr_t n_bins,
+                                                      const uint8_t *const *labels,
+                                                      const uintptr_t *label_lens,
+                                                      uintptr_t n_labels,
+                                                      bool left_closed,
+                                                      bool allow_duplicates,
+                                                      const struct polars_expr_t **out);
+
 const struct polars_expr_t *polars_expr_is_between(const struct polars_expr_t *expr,
                                                    const struct polars_expr_t *lower,
                                                    const struct polars_expr_t *upper,
@@ -802,6 +880,18 @@ const struct polars_expr_t *polars_expr_rolling_std(const struct polars_expr_t *
                                                     uintptr_t min_periods,
                                                     bool center,
                                                     uint8_t ddof);
+
+const struct polars_expr_t *polars_expr_rolling_median(const struct polars_expr_t *expr,
+                                                       uintptr_t window_size,
+                                                       uintptr_t min_periods,
+                                                       bool center);
+
+const struct polars_expr_t *polars_expr_rolling_quantile(const struct polars_expr_t *expr,
+                                                         uintptr_t window_size,
+                                                         uintptr_t min_periods,
+                                                         bool center,
+                                                         double quantile,
+                                                         enum polars_quantile_method_t method);
 
 const struct polars_expr_t *polars_expr_when_then_otherwise(const struct polars_expr_t *cond,
                                                             const struct polars_expr_t *then,
@@ -859,6 +949,10 @@ const struct polars_expr_t *polars_expr_sinh(const struct polars_expr_t *expr);
 const struct polars_expr_t *polars_expr_tanh(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_arccos(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_arcsin(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_arctan(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_degrees(const struct polars_expr_t *expr);
 
@@ -1108,6 +1202,12 @@ const struct polars_expr_t *polars_expr_list_unique(const struct polars_expr_t *
 
 const struct polars_expr_t *polars_expr_list_unique_stable(const struct polars_expr_t *a);
 
+const struct polars_expr_t *polars_expr_list_n_unique(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_list_any(const struct polars_expr_t *a, bool ignore_nulls);
+
+const struct polars_expr_t *polars_expr_list_all(const struct polars_expr_t *a, bool ignore_nulls);
+
 const struct polars_expr_t *polars_expr_list_first(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_list_last(const struct polars_expr_t *a);
@@ -1134,6 +1234,10 @@ const struct polars_expr_t *polars_expr_list_eval(const struct polars_expr_t *a,
  */
 const struct polars_expr_t *polars_expr_list_agg(const struct polars_expr_t *a,
                                                  const struct polars_expr_t *evaluation);
+
+const struct polars_expr_t *polars_expr_list_sort(const struct polars_expr_t *a,
+                                                  bool descending,
+                                                  bool nulls_last);
 
 const struct polars_expr_t *polars_expr_list_get(const struct polars_expr_t *a,
                                                  const struct polars_expr_t *index,
@@ -1166,10 +1270,6 @@ const struct polars_expr_t *polars_expr_list_set_symmetric_difference(
 const struct polars_expr_t *polars_expr_list_std(const struct polars_expr_t *a, uint8_t ddof);
 
 const struct polars_expr_t *polars_expr_list_var(const struct polars_expr_t *a, uint8_t ddof);
-
-const struct polars_expr_t *polars_expr_list_sort(const struct polars_expr_t *a,
-                                                  bool descending,
-                                                  bool nulls_last);
 
 const struct polars_expr_t *polars_expr_list_join(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *separator,
@@ -1268,25 +1368,6 @@ const struct polars_expr_t *polars_expr_str_strip_chars_start(const struct polar
 const struct polars_expr_t *polars_expr_str_strip_chars_end(const struct polars_expr_t *a,
                                                             const struct polars_expr_t *b);
 
-/**
- * `fill_char` crosses the boundary as a `u32` Unicode scalar value (not the usual ptr/len string
- * pair) since it is always exactly one character -- validated the same way `char::from_u32`
- * always validates, via the fallible out-param convention rather than a panic on a bad codepoint.
- */
-const struct polars_error_t *polars_expr_str_pad_start(const struct polars_expr_t *a,
-                                                       const struct polars_expr_t *length,
-                                                       uint32_t fill_char,
-                                                       const struct polars_expr_t **out);
-
-const struct polars_error_t *polars_expr_str_pad_end(const struct polars_expr_t *a,
-                                                     const struct polars_expr_t *length,
-                                                     uint32_t fill_char,
-                                                     const struct polars_expr_t **out);
-
-const struct polars_expr_t *polars_expr_str_find(const struct polars_expr_t *a,
-                                                 const struct polars_expr_t *pat,
-                                                 bool strict);
-
 const struct polars_expr_t *polars_expr_str_replace_n(const struct polars_expr_t *a,
                                                       const struct polars_expr_t *pat,
                                                       const struct polars_expr_t *value,
@@ -1334,6 +1415,27 @@ const struct polars_expr_t *polars_expr_str_contains(const struct polars_expr_t 
 const struct polars_expr_t *polars_expr_str_slice(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *offset,
                                                   const struct polars_expr_t *length);
+
+/**
+ * Position (not just presence, unlike `contains`) of the first regex match.
+ */
+const struct polars_expr_t *polars_expr_str_find(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *pat,
+                                                 bool strict);
+
+/**
+ * `fill_char` crosses the FFI boundary as a `u32` codepoint (there is no C `char32_t` binding on
+ * the Julia side) and is fallible since not every `u32` is a valid Unicode scalar value.
+ */
+const struct polars_error_t *polars_expr_str_pad_start(const struct polars_expr_t *a,
+                                                       const struct polars_expr_t *length,
+                                                       uint32_t fill_char,
+                                                       const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_str_pad_end(const struct polars_expr_t *a,
+                                                     const struct polars_expr_t *length,
+                                                     uint32_t fill_char,
+                                                     const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_str_replace(const struct polars_expr_t *a,
                                                     const struct polars_expr_t *pat,
@@ -1384,6 +1486,10 @@ const struct polars_expr_t *polars_expr_dt_weekday(const struct polars_expr_t *a
 
 const struct polars_expr_t *polars_expr_dt_ordinal_day(const struct polars_expr_t *a);
 
+const struct polars_expr_t *polars_expr_dt_week(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_quarter(const struct polars_expr_t *a);
+
 const struct polars_expr_t *polars_expr_dt_date(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_dt_time(const struct polars_expr_t *a);
@@ -1418,6 +1524,14 @@ const struct polars_error_t *polars_expr_dt_replace_time_zone(
     const struct polars_expr_t *ambiguous,
     enum polars_non_existent_t non_existent,
     const struct polars_expr_t **out);
+
+/**
+ * Fallible since `polars_time_unit_t` mirrors a Julia-side `@cenum` and must reject an
+ * out-of-range value rather than let `to_time_unit` panic across the FFI boundary.
+ */
+const struct polars_error_t *polars_expr_dt_timestamp(const struct polars_expr_t *expr,
+                                                      enum polars_time_unit_t unit,
+                                                      const struct polars_expr_t **out);
 
 const struct polars_error_t *polars_expr_dt_strftime(const struct polars_expr_t *expr,
                                                      const uint8_t *format,

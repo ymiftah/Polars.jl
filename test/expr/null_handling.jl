@@ -82,6 +82,33 @@ end
     @test_throws ErrorException fill_null(col("x"); strategy = :bogus)
 end
 
+@testset "forward_fill / backward_fill (shorthand for fill_null with a :forward/:backward strategy)" begin
+    df = DataFrame((; x = [1, missing, missing, 4, missing]))
+
+    r_fwd = select(df, alias(forward_fill(col("x")), "f"))
+    @test isequal(collect(r_fwd[:f]), [1, 1, 1, 4, 4])
+
+    r_bwd = select(df, alias(backward_fill(col("x")), "f"))
+    @test isequal(collect(r_bwd[:f]), [1, 4, 4, 4, missing])
+
+    r_fwd_limited = select(df, alias(forward_fill(col("x"); limit = 1), "f"))
+    @test isequal(collect(r_fwd_limited[:f]), [1, 1, missing, 4, 4])
+
+    # curried forms for |> pipelines
+    r_curried_fwd = select(df, alias(col("x") |> forward_fill(), "f"))
+    @test isequal(collect(r_curried_fwd[:f]), [1, 1, 1, 4, 4])
+
+    r_curried_bwd = select(df, alias(col("x") |> backward_fill(limit = 1), "f"))
+    @test isequal(collect(r_curried_bwd[:f]), [1, missing, 4, 4, missing])
+
+    # py-polars test_forward_fill_is_length_preserving: forward_fill inside an agg over a
+    # single-element group still produces one row per group (values collected into a List, per
+    # `agg`'s usual non-reducing convention -- see [`unique`](@ref)'s docstring)
+    df_single = DataFrame((; g = ["a"], v = [1]))
+    r_agg = collect(agg(group_by(lazy(df_single), "g"), alias(forward_fill(col("v")), "v")))
+    @test collect(r_agg[:v]) == [[1]]
+end
+
 @testset "coalesce" begin
     df = DataFrame((; a = [missing, 2, missing], b = [1, missing, missing], c = [9, 9, 9]))
 

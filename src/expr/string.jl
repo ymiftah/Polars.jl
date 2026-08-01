@@ -62,15 +62,12 @@ end
     stable toolchain deliberately -- so `c-polars` does not compile the symbol and no binding for
     it is generated. To enable it, build `c-polars` with a nightly toolchain and
     `cargo build --features nightly`, then regenerate the bindings.
-
-This method exists only to fail with that explanation: without it, calling `Strings.titlecase`
-raises a bare `UndefVarError` for a missing `ccall` symbol, which says nothing about why.
 """
 function titlecase(::Expr)
     return error(
         "Strings.titlecase is unavailable in this build: polars' `to_titlecase` requires " *
             "polars' `nightly` Cargo feature and a nightly rustc, while c-polars pins a stable " *
-            "toolchain (see CLAUDE.md). Rebuild with `cargo build --features nightly` to enable it."
+            "toolchain. Rebuild with `cargo build --features nightly` to enable it."
     )
 end
 
@@ -110,6 +107,26 @@ Curried form of [`contains`](@ref) for use with `|>`.
 contains(pat; strict::Bool = true) = expr -> contains(expr, convert(Expr, pat); strict)
 
 """
+    find(expr::Polars.Expr, pat::Polars.Expr; strict::Bool=true)::Polars.Expr
+
+Index of the start of the first match of the regex `pat` in each string of `expr` (`null` if
+there is no match). If `strict` is `true` (default), an invalid regex raises an error; if
+`false`, it returns `null` instead. For a plain substring (non-regex) search, build the
+literal-search equivalent via [`contains_literal`](@ref) instead.
+"""
+function find(expr::Expr, pat::Expr; strict::Bool = true)
+    out = API.polars_expr_str_find(expr, pat, strict)
+    return Expr(out)
+end
+
+"""
+    find(pat; strict::Bool=true)::Base.Callable
+
+Curried form of [`find`](@ref) for use with `|>`.
+"""
+find(pat; strict::Bool = true) = expr -> find(expr, convert(Expr, pat); strict)
+
+"""
     slice(expr::Polars.Expr, offset::Polars.Expr, length::Polars.Expr)::Polars.Expr
 
 Extracts a substring starting at `offset` (0-indexed; negative indexes from the end) with
@@ -126,6 +143,48 @@ end
 Curried form of [`slice`](@ref) for use with `|>`.
 """
 slice(offset, length) = expr -> slice(expr, convert(Expr, offset), convert(Expr, length))
+
+"""
+    pad_start(expr::Polars.Expr, length; fill_char::Char=' ')::Polars.Expr
+
+Pads each string of `expr` on the left with `fill_char` until it reaches `length` characters
+(no-op for a string already at least that long). `length` is an integer literal or an
+expression (e.g. another column), giving a per-row target length.
+"""
+function pad_start(expr::Expr, length; fill_char::Char = ' ')
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_str_pad_start(expr, convert(Expr, length), codepoint(fill_char), out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+"""
+    pad_start(length; fill_char::Char=' ')::Base.Callable
+
+Curried form of [`pad_start`](@ref) for use with `|>`.
+"""
+pad_start(length; fill_char::Char = ' ') = expr -> pad_start(expr, length; fill_char)
+
+"""
+    pad_end(expr::Polars.Expr, length; fill_char::Char=' ')::Polars.Expr
+
+Pads each string of `expr` on the right with `fill_char` until it reaches `length` characters
+(no-op for a string already at least that long). `length` is an integer literal or an
+expression (e.g. another column), giving a per-row target length.
+"""
+function pad_end(expr::Expr, length; fill_char::Char = ' ')
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_str_pad_end(expr, convert(Expr, length), codepoint(fill_char), out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+"""
+    pad_end(length; fill_char::Char=' ')::Base.Callable
+
+Curried form of [`pad_end`](@ref) for use with `|>`.
+"""
+pad_end(length; fill_char::Char = ' ') = expr -> pad_end(expr, length; fill_char)
 
 """
     replace(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr; literal::Bool=false)::Polars.Expr
@@ -272,65 +331,6 @@ function to_datetime(
 end
 
 """
-    pad_start(expr::Polars.Expr, length, fill_char::AbstractChar='0')::Polars.Expr
-
-Pads the start of each string of `expr` with `fill_char` until it reaches `length` (a no-op for
-strings already at or above `length`).
-"""
-function pad_start(expr::Expr, length, fill_char::AbstractChar = '0')
-    out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_str_pad_start(expr, convert(Expr, length), UInt32(fill_char), out)
-    polars_error(err)
-    return Expr(out[])
-end
-
-"""
-    pad_start(length, fill_char::AbstractChar='0')::Base.Callable
-
-Curried form of [`pad_start`](@ref) for use with `|>`.
-"""
-pad_start(length, fill_char::AbstractChar = '0') = expr -> pad_start(expr, length, fill_char)
-
-"""
-    pad_end(expr::Polars.Expr, length, fill_char::AbstractChar='0')::Polars.Expr
-
-Pads the end of each string of `expr` with `fill_char` until it reaches `length` (a no-op for
-strings already at or above `length`).
-"""
-function pad_end(expr::Expr, length, fill_char::AbstractChar = '0')
-    out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_str_pad_end(expr, convert(Expr, length), UInt32(fill_char), out)
-    polars_error(err)
-    return Expr(out[])
-end
-
-"""
-    pad_end(length, fill_char::AbstractChar='0')::Base.Callable
-
-Curried form of [`pad_end`](@ref) for use with `|>`.
-"""
-pad_end(length, fill_char::AbstractChar = '0') = expr -> pad_end(expr, length, fill_char)
-
-"""
-    find(expr::Polars.Expr, pat::Polars.Expr; strict::Bool=true)::Polars.Expr
-
-Finds the (byte) index of the first match of the regex `pat` within each string of `expr`
-(`missing` if no match). If `strict` is `true` (default), an invalid regex raises; if `false`, it
-returns `missing` instead.
-"""
-function find(expr::Expr, pat::Expr; strict::Bool = true)
-    out = API.polars_expr_str_find(expr, pat, strict)
-    return Expr(out)
-end
-
-"""
-    find(pat; strict::Bool=true)::Base.Callable
-
-Curried form of [`find`](@ref) for use with `|>`.
-"""
-find(pat; strict::Bool = true) = expr -> find(expr, convert(Expr, pat); strict)
-
-"""
     replace_n(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr, n::Integer; literal::Bool=false)::Polars.Expr
 
 Replaces the first `n` matches of `pat` with `value` (a negative `n` behaves like
@@ -410,6 +410,24 @@ function join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true)
 end
 
 """
+    to_integer(expr::Polars.Expr; base::Integer=10, strict::Bool=true)::Polars.Expr
+
+!!! warning "Unavailable in this build"
+    Upstream `StringNameSpace::to_integer` sits behind polars' own `string_to_integer` Cargo
+    feature, which is not enabled in this build. To enable it, add `"string_to_integer"` to
+    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
+    bindings.
+"""
+function to_integer(::Expr; base::Integer = 10, strict::Bool = true)
+    return error(
+        "Strings.to_integer is unavailable in this build: polars' `to_integer` requires " *
+            "the `string_to_integer` Cargo feature, which c-polars does not currently " *
+            "enable. Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to " *
+            "enable it."
+    )
+end
+
+"""
     extract_groups(expr::Polars.Expr, pat::AbstractString)::Polars.Expr
 
 Extracts every named capture group of the regex `pat` from the first match within each string of
@@ -425,9 +443,27 @@ function extract_groups(expr::Expr, pat::AbstractString)
     return Expr(out[])
 end
 
-# `contains`/`replace`/`join` are intentionally not exported -- they collide with
-# `Base.contains`/`Base.replace`/`Base.join` and are designed for qualified use
+"""
+    reverse(expr::Polars.Expr)::Polars.Expr
+
+!!! warning "Unavailable in this build"
+    Upstream `StringNameSpace::reverse` sits behind polars' own `string_reverse` Cargo
+    feature, which is not enabled in this build. To enable it, add `"string_reverse"` to
+    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
+    bindings.
+"""
+function reverse(::Expr)
+    return error(
+        "Strings.reverse is unavailable in this build: polars' string `reverse` requires " *
+            "the `string_reverse` Cargo feature, which c-polars does not currently enable. " *
+            "Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to enable it."
+    )
+end
+
+# `contains`/`replace`/`join`/`reverse` are intentionally not exported -- they collide with
+# `Base.contains`/`Base.replace`/`Base.join`/`Base.reverse` and are designed for qualified use
 # (`Strings.contains`, etc.); `using Polars.Strings` would otherwise clash with those.
+# `to_integer` is unavailable in this build (see above), so is left unexported too.
 export slice, replace_all, extract, count_matches, to_date, to_datetime,
     pad_start, pad_end, find, replace_n, splitn, split_exact, extract_groups
 end # module Strings

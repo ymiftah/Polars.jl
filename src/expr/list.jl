@@ -14,6 +14,8 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
     gen_impl_expr_list!(polars_expr_list_unique_stable, ListNameSpace::unique_stable, "Like [`unique`](@ref), but preserves each element's first-occurrence order within the list (more expensive).")
     gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first, "First element of each list in `expr`.")
     gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last, "Last element of each list in `expr`.")
+    gen_impl_expr_list!(polars_expr_list_median, ListNameSpace::median, "Median of the values within each list of `expr`.")
+    gen_impl_expr_list!(polars_expr_list_drop_nulls, ListNameSpace::drop_nulls, "Removes `null` elements from each list of `expr`, shortening the lists.")
 end
 
 # `head` is pulled out of the `@generate_expr_fns` block (rather than generated via
@@ -39,101 +41,11 @@ Curried form of `head` for use with `|>` -- e.g. `col("x") |> Lists.head(2)`.
 head(n) = Base.Fix2(head, convert(Expr, n))
 
 """
-    get(expr::Polars.Expr, index::Polars.Expr; null_on_oob::Bool=false)::Polars.Expr
-
-Get items in every sublist by index. If `null_on_oob` is `false` (default), an
-out-of-bounds index raises an error; if `true`, it returns `null` instead (more
-expensive, per the polars documentation).
-"""
-function get(expr::Expr, index::Expr; null_on_oob::Bool = false)
-    out = API.polars_expr_list_get(expr, index, null_on_oob)
-    return Expr(out)
-end
-
-"""
-    get(index; null_on_oob::Bool=false)::Base.Callable
-
-Curried form of [`get`](@ref) for use with `|>` -- e.g. `col("x") |> Lists.get(0)`.
-"""
-get(index; null_on_oob::Bool = false) = expr -> get(expr, convert(Expr, index); null_on_oob)
-
-"""
-    contains(expr::Polars.Expr, other::Polars.Expr; nulls_equal::Bool=true)::Polars.Expr
-
-Check if the list array contains an element. If `nulls_equal` is `true` (default),
-`null` values are considered equal for the containment check.
-"""
-function contains(expr::Expr, other::Expr; nulls_equal::Bool = true)
-    out = API.polars_expr_list_contains(expr, other, nulls_equal)
-    return Expr(out)
-end
-
-"""
-    contains(other; nulls_equal::Bool=true)::Base.Callable
-
-Curried form of [`contains`](@ref) for use with `|>`.
-"""
-contains(other; nulls_equal::Bool = true) = expr -> contains(expr, convert(Expr, other); nulls_equal)
-
-# `get`/`contains`/`head` are intentionally not exported -- they collide with
-# `Base.get`/`Base.contains`/`Polars.head` respectively, and are designed for qualified use
-# (`Lists.get`, etc.); `using Polars.Lists` would otherwise clash with those.
-
-"""
-    apply(expr::Polars.Expr, evaluation::Polars.Expr)::Polars.Expr
-
-Runs `evaluation` once per row, with [`element`](@ref) bound to that row's list values, staying
-list-shaped -- e.g. `Lists.apply(col("x"), unique(element()))`. Named `apply` rather than
-upstream's `eval` -- `eval`/`include` are reserved per-module names in Julia and cannot be
-redefined. The primitive `reverse`/`unique`/`unique_stable` above are built from this internally;
-`filter` has no dedicated `Lists` function and is only reachable this way. For a per-row
-*reduction* to a single scalar (`all`/`any`/`n_unique`/...), use [`agg`](@ref Polars.Lists.agg)
-instead -- `apply` always keeps the list shape even when `evaluation` itself produces one value
-per row (e.g. `Lists.apply(x, all(element()))` gives a length-1 list per row, not a bare `Bool`).
-Not exported, matching the rest of this file's convention for qualified-use-only namespace
-members; call as `Lists.apply(...)`.
-"""
-function apply(expr::Expr, evaluation::Expr)
-    out = API.polars_expr_list_eval(expr, evaluation)
-    return Expr(out)
-end
-
-"""
-    agg(expr::Polars.Expr, evaluation::Polars.Expr)::Polars.Expr
-
-Like [`apply`](@ref Polars.Lists.apply), but `evaluation` is expected to reduce to a single scalar
-per row and the result is unwrapped to that scalar (e.g. `Lists.agg(col("x"), all(element()))` for
-a per-row `all`/`any` -- neither has a dedicated `ListNameSpace` method upstream, so `agg`/`apply`
-composing over [`element`](@ref) is the only way to reach them). Not exported -- collides with the
-top-level `Polars.agg` (`LazyGroupBy` aggregation); call as `Lists.agg(...)`.
-"""
-function agg(expr::Expr, evaluation::Expr)
-    out = API.polars_expr_list_agg(expr, evaluation)
-    return Expr(out)
-end
-
-"""
-    median(expr::Polars.Expr)::Polars.Expr
-
-Median of the values within each list of `expr`. Not exported -- collides with the top-level
-`Polars.median`; call as `Lists.median(...)`.
-"""
-median(expr::Expr) = Expr(API.polars_expr_list_median(expr))
-
-"""
-    drop_nulls(expr::Polars.Expr)::Polars.Expr
-
-Removes `null` elements from each list of `expr`, shortening the lists. Not exported -- collides
-with the top-level `Polars.drop_nulls`; call as `Lists.drop_nulls(...)`.
-"""
-drop_nulls(expr::Expr) = Expr(API.polars_expr_list_drop_nulls(expr))
-
-"""
     tail(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
 
 Last `n` elements of each list in `expr` (fewer if the list is shorter than `n`). Complements
-[`head`](@ref Polars.Lists.head). Not exported -- collides with the top-level `Polars.tail`; call
-as `Lists.tail(...)`.
+[`head`](@ref). Not exported -- collides with the top-level `Polars.tail`; call as
+`Lists.tail(...)`.
 """
 function tail(a::Expr, b::Expr)
     out = API.polars_expr_list_tail(a, b)
@@ -155,6 +67,104 @@ end
 shift(n) = Base.Fix2(shift, convert(Expr, n))
 
 """
+    get(expr::Polars.Expr, index::Polars.Expr; null_on_oob::Bool=false)::Polars.Expr
+
+Get items in every sublist by index. If `null_on_oob` is `false` (default), an
+out-of-bounds index raises an error; if `true`, it returns `null` instead (more
+expensive, per the polars documentation).
+"""
+function get(expr::Expr, index::Expr; null_on_oob::Bool = false)
+    out = API.polars_expr_list_get(expr, index, null_on_oob)
+    return Expr(out)
+end
+
+"""
+    get(index; null_on_oob::Bool=false)::Base.Callable
+
+Curried form of [`get`](@ref) for use with `|>` -- e.g. `col("x") |> Lists.get(0)`.
+"""
+get(index; null_on_oob::Bool = false) = expr -> get(expr, convert(Expr, index); null_on_oob)
+
+"""
+    gather(expr::Polars.Expr, index::Polars.Expr; null_on_oob::Bool=false)::Polars.Expr
+
+Gathers each list's elements at the (per-list) positions in `index`. Distinct from the top-level
+[`gather`](@ref) (row-level gather across the whole column) -- this indexes *within* each row's
+own list. Not exported -- collides with that top-level `Polars.gather`; call as
+`Lists.gather(...)`.
+"""
+function gather(expr::Expr, index::Expr; null_on_oob::Bool = false)
+    out = API.polars_expr_list_gather(expr, index, null_on_oob)
+    return Expr(out)
+end
+
+"""
+    gather_every(expr::Polars.Expr, n; offset=0)::Polars.Expr
+
+Within each list of `expr`, keeps every `n`-th element starting at `offset`. Distinct from the
+top-level [`gather_every`](@ref) (row-level, across the whole column). Not exported -- collides
+with that top-level `Polars.gather_every`; call as `Lists.gather_every(...)`.
+"""
+function gather_every(expr::Expr, n; offset = 0)
+    out = API.polars_expr_list_gather_every(expr, convert(Expr, n), convert(Expr, offset))
+    return Expr(out)
+end
+
+"""
+    sample_n(expr::Polars.Expr, n; with_replacement::Bool=false, shuffle::Bool=false,
+              seed::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Randomly samples `n` elements from each list of `expr`. Not exported -- collides with the
+top-level `Polars.sample_n`; call as `Lists.sample_n(...)`.
+"""
+function sample_n(
+        expr::Expr, n; with_replacement::Bool = false, shuffle::Bool = false,
+        seed::Union{Nothing, Integer} = nothing
+    )
+    n = convert(Expr, n)
+    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    out = GC.@preserve seed_ref API.polars_expr_list_sample_n(expr, n, with_replacement, shuffle, seed_ref)
+    return Expr(out)
+end
+
+"""
+    sample_fraction(expr::Polars.Expr, fraction; with_replacement::Bool=false, shuffle::Bool=false,
+                     seed::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Randomly samples a `fraction` of each list's elements from `expr`.
+"""
+function sample_fraction(
+        expr::Expr, fraction; with_replacement::Bool = false, shuffle::Bool = false,
+        seed::Union{Nothing, Integer} = nothing
+    )
+    fraction = convert(Expr, fraction)
+    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    out = GC.@preserve seed_ref API.polars_expr_list_sample_fraction(
+        expr, fraction, with_replacement, shuffle, seed_ref
+    )
+    return Expr(out)
+end
+export sample_fraction
+
+"""
+    contains(expr::Polars.Expr, other::Polars.Expr; nulls_equal::Bool=true)::Polars.Expr
+
+Check if the list array contains an element. If `nulls_equal` is `true` (default),
+`null` values are considered equal for the containment check.
+"""
+function contains(expr::Expr, other::Expr; nulls_equal::Bool = true)
+    out = API.polars_expr_list_contains(expr, other, nulls_equal)
+    return Expr(out)
+end
+
+"""
+    contains(other; nulls_equal::Bool=true)::Base.Callable
+
+Curried form of [`contains`](@ref) for use with `|>`.
+"""
+contains(other; nulls_equal::Bool = true) = expr -> contains(expr, convert(Expr, other); nulls_equal)
+
+"""
     count_matches(expr::Polars.Expr, element)::Polars.Expr
 
 Counts occurrences of `element` within each list of `expr`.
@@ -165,6 +175,122 @@ function count_matches(a::Expr, element)
 end
 count_matches(element) = Base.Fix2(count_matches, convert(Expr, element))
 export count_matches
+
+"""
+    sort(expr::Polars.Expr; descending::Bool=false, nulls_last::Bool=false)::Polars.Expr
+
+Sorts the elements within each list of `expr` independently (list order/row count is
+unchanged -- compare the top-level `sort` (see [DataFrame](@ref)/[LazyFrame](@ref)), which
+reorders whole rows instead).
+"""
+function sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false)
+    out = API.polars_expr_list_sort(expr, descending, nulls_last)
+    return Expr(out)
+end
+
+"""
+    sort(; descending::Bool=false, nulls_last::Bool=false)::Base.Callable
+
+Curried form of [`sort`](@ref) for use with `|>`.
+"""
+sort(; descending::Bool = false, nulls_last::Bool = false) = expr -> sort(expr; descending, nulls_last)
+
+"""
+    join(expr::Polars.Expr, separator::Polars.Expr; ignore_nulls::Bool=true)::Polars.Expr
+
+Joins the string elements of each list in `expr` into a single string, separated by
+`separator`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, a
+`null` element makes that list's whole result `null` instead. Distinct from [`Strings.join`](@ref)
+(an aggregation across *all* rows into one value) -- this joins each row's own list independently.
+"""
+function join(expr::Expr, separator::Expr; ignore_nulls::Bool = true)
+    out = API.polars_expr_list_join(expr, separator, ignore_nulls)
+    return Expr(out)
+end
+
+"""
+    join(separator; ignore_nulls::Bool=true)::Base.Callable
+
+Curried form of [`join`](@ref) for use with `|>`.
+"""
+join(separator; ignore_nulls::Bool = true) = expr -> join(expr, convert(Expr, separator); ignore_nulls)
+
+"""
+    slice(expr::Polars.Expr, offset::Polars.Expr, length::Polars.Expr)::Polars.Expr
+
+Extracts a sublist of each list in `expr`, starting at `offset` (0-indexed; negative indexes
+from the end of the list) with the given `length` (extends to the end of the list if `length`
+is `null`). See [`head`](@ref)/[`tail`](@ref) for the fixed-endpoint special cases.
+"""
+function slice(expr::Expr, offset::Expr, length::Expr)
+    out = API.polars_expr_list_slice(expr, offset, length)
+    return Expr(out)
+end
+
+"""
+    slice(offset, length)::Base.Callable
+
+Curried form of [`slice`](@ref) for use with `|>`.
+"""
+slice(offset, length) = expr -> slice(expr, convert(Expr, offset), convert(Expr, length))
+export slice
+
+"""
+    diff(expr::Polars.Expr, n=1; null_behavior::Symbol=:ignore)::Polars.Expr
+
+Computes the first discrete difference between shifted elements within each list of `expr`
+(`expr[i] - expr[i - n]`, per list). `null_behavior` is one of `:ignore` (default, pads the
+first `n` elements of each list with `null`) or `:drop` (drops the first `n` elements instead,
+shortening each list).
+"""
+function diff(expr::Expr, n::Integer = 1; null_behavior::Symbol = :ignore)
+    behavior = if null_behavior == :ignore
+        API.PolarsNullBehaviorIgnore
+    elseif null_behavior == :drop
+        API.PolarsNullBehaviorDrop
+    else
+        error("unknown null_behavior $null_behavior, expected one of (:ignore, :drop)")
+    end
+    out = API.polars_expr_list_diff(expr, Int64(n), behavior)
+    return Expr(out)
+end
+
+"""
+    n_unique(expr::Polars.Expr)::Polars.Expr
+
+Counts the number of distinct elements within each list of `expr` (`null` counts as one
+distinct value).
+"""
+function n_unique(expr::Expr)
+    out = API.polars_expr_list_n_unique(expr)
+    return Expr(out)
+end
+
+export slice, n_unique
+
+"""
+    any(expr::Polars.Expr; ignore_nulls::Bool=true)::Polars.Expr
+
+Whether any element within each list of `expr` is `true`. If `ignore_nulls` is `true`
+(default), `null` elements are skipped; if `false`, three-valued (Kleene) logic applies: a
+list with no `true` element but at least one `null` gives `null` instead of `false`.
+"""
+function any(expr::Expr; ignore_nulls::Bool = true)
+    out = API.polars_expr_list_any(expr, ignore_nulls)
+    return Expr(out)
+end
+
+"""
+    all(expr::Polars.Expr; ignore_nulls::Bool=true)::Polars.Expr
+
+Whether every element within each list of `expr` is `true`. If `ignore_nulls` is `true`
+(default), `null` elements are skipped; if `false`, three-valued (Kleene) logic applies: a
+list with no `false` element but at least one `null` gives `null` instead of `true`.
+"""
+function all(expr::Expr; ignore_nulls::Bool = true)
+    out = API.polars_expr_list_all(expr, ignore_nulls)
+    return Expr(out)
+end
 
 """
     union(expr::Polars.Expr, other::Polars.Expr)::Polars.Expr
@@ -231,120 +357,38 @@ exported -- collides with the top-level `Polars.var`; call as `Lists.var(...)`.
 var(expr::Expr; ddof::Integer = 1) = Expr(API.polars_expr_list_var(expr, UInt8(ddof)))
 
 """
-    sort(expr::Polars.Expr; descending::Bool=false, nulls_last::Bool=false)::Polars.Expr
+    apply(expr::Polars.Expr, evaluation::Polars.Expr)::Polars.Expr
 
-Sorts the elements within each list of `expr` independently (row order/count is unchanged). Not
-exported -- collides with `Base.sort`/the top-level `Polars.sort`; call as `Lists.sort(...)`.
+Runs `evaluation` once per row, with [`element`](@ref) bound to that row's list values, staying
+list-shaped -- e.g. `Lists.apply(col("x"), unique(element()))`. Named `apply` rather than
+upstream's `eval` -- `eval`/`include` are reserved per-module names in Julia and cannot be
+redefined. The primitive `reverse`/`unique`/`unique_stable` above are built from this internally;
+`filter` has no dedicated `Lists` function and is only reachable this way. For a per-row
+*reduction* to a single scalar, prefer a dedicated function ([`any`](@ref)/[`all`](@ref)/
+[`n_unique`](@ref)) or [`agg`](@ref Polars.Lists.agg) instead -- `apply` always keeps the list
+shape even when `evaluation` itself produces one value per row (e.g. `Lists.apply(x,
+all(element()))` gives a length-1 list per row, not a bare `Bool`). Not exported, matching the
+rest of this file's convention for qualified-use-only namespace members; call as
+`Lists.apply(...)`.
 """
-sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false) =
-    Expr(API.polars_expr_list_sort(expr, descending, nulls_last))
-
-"""
-    join(expr::Polars.Expr, separator; ignore_nulls::Bool=true)::Polars.Expr
-
-Joins each row's list elements into a single string, separated by `separator` (a literal or
-another expression). Distinct from [`Strings.join`](@ref) (an aggregation across *all* rows into
-one value) -- this joins each row's own list independently. Not exported -- collides with
-`Base.join`; call as `Lists.join(...)`.
-"""
-function join(expr::Expr, separator; ignore_nulls::Bool = true)
-    out = API.polars_expr_list_join(expr, convert(Expr, separator), ignore_nulls)
-    return Expr(out)
-end
-join(separator; ignore_nulls::Bool = true) = expr -> join(expr, separator; ignore_nulls)
-
-"""
-    slice(expr::Polars.Expr, offset, length)::Polars.Expr
-
-Slices each list of `expr` to `length` elements starting at `offset` (0-indexed; a negative
-`offset` counts from the end of each list, matching upstream). See [`head`](@ref
-Polars.Lists.head)/[`tail`](@ref Polars.Lists.tail) for the fixed-endpoint special cases.
-"""
-function slice(expr::Expr, offset, length)
-    out = API.polars_expr_list_slice(expr, convert(Expr, offset), convert(Expr, length))
-    return Expr(out)
-end
-export slice
-
-"""
-    gather(expr::Polars.Expr, index::Polars.Expr; null_on_oob::Bool=false)::Polars.Expr
-
-Gathers each list's elements at the (per-list) positions in `index`. Distinct from the top-level
-[`gather`](@ref) (row-level gather across the whole column) -- this indexes *within* each row's
-own list. Not exported -- collides with that top-level `Polars.gather`; call as
-`Lists.gather(...)`.
-"""
-function gather(expr::Expr, index::Expr; null_on_oob::Bool = false)
-    out = API.polars_expr_list_gather(expr, index, null_on_oob)
+function apply(expr::Expr, evaluation::Expr)
+    out = API.polars_expr_list_eval(expr, evaluation)
     return Expr(out)
 end
 
 """
-    gather_every(expr::Polars.Expr, n; offset=0)::Polars.Expr
+    agg(expr::Polars.Expr, evaluation::Polars.Expr)::Polars.Expr
 
-Within each list of `expr`, keeps every `n`-th element starting at `offset`. Distinct from the
-top-level [`gather_every`](@ref) (row-level, across the whole column). Not exported -- collides
-with that top-level `Polars.gather_every`; call as `Lists.gather_every(...)`.
+Like [`apply`](@ref Polars.Lists.apply), but `evaluation` is expected to reduce to a single scalar
+per row and the result is unwrapped to that scalar. `any`/`all`/`n_unique` above are the dedicated
+form of this for their own reducers; `agg` is for anything else that doesn't have one. Not
+exported -- collides with the top-level `Polars.agg` (`LazyGroupBy` aggregation); call as
+`Lists.agg(...)`.
 """
-function gather_every(expr::Expr, n; offset = 0)
-    out = API.polars_expr_list_gather_every(expr, convert(Expr, n), convert(Expr, offset))
+function agg(expr::Expr, evaluation::Expr)
+    out = API.polars_expr_list_agg(expr, evaluation)
     return Expr(out)
 end
-
-"""
-    diff(expr::Polars.Expr, n::Integer=1; null_behavior::Symbol=:ignore)::Polars.Expr
-
-Within each list of `expr`, computes the discrete difference between elements `n` apart.
-`null_behavior` is one of `:ignore` (default, pads with `null`) or `:drop`. Not exported --
-collides with the top-level `Polars.diff` (`Base.diff`); call as `Lists.diff(...)`.
-"""
-function diff(expr::Expr, n::Integer = 1; null_behavior::Symbol = :ignore)
-    behavior = if null_behavior == :ignore
-        API.PolarsNullBehaviorIgnore
-    elseif null_behavior == :drop
-        API.PolarsNullBehaviorDrop
-    else
-        error("unknown null_behavior $null_behavior, expected one of (:ignore, :drop)")
-    end
-    out = API.polars_expr_list_diff(expr, Int64(n), behavior)
-    return Expr(out)
-end
-
-"""
-    sample_n(expr::Polars.Expr, n; with_replacement::Bool=false, shuffle::Bool=false,
-              seed::Union{Nothing,Integer}=nothing)::Polars.Expr
-
-Randomly samples `n` elements from each list of `expr`. Not exported -- collides with the
-top-level `Polars.sample_n`; call as `Lists.sample_n(...)`.
-"""
-function sample_n(
-        expr::Expr, n; with_replacement::Bool = false, shuffle::Bool = false,
-        seed::Union{Nothing, Integer} = nothing
-    )
-    n = convert(Expr, n)
-    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
-    out = GC.@preserve seed_ref API.polars_expr_list_sample_n(expr, n, with_replacement, shuffle, seed_ref)
-    return Expr(out)
-end
-
-"""
-    sample_fraction(expr::Polars.Expr, fraction; with_replacement::Bool=false, shuffle::Bool=false,
-                     seed::Union{Nothing,Integer}=nothing)::Polars.Expr
-
-Randomly samples a `fraction` of each list's elements from `expr`.
-"""
-function sample_fraction(
-        expr::Expr, fraction; with_replacement::Bool = false, shuffle::Bool = false,
-        seed::Union{Nothing, Integer} = nothing
-    )
-    fraction = convert(Expr, fraction)
-    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
-    out = GC.@preserve seed_ref API.polars_expr_list_sample_fraction(
-        expr, fraction, with_replacement, shuffle, seed_ref
-    )
-    return Expr(out)
-end
-export sample_fraction
 
 """
     to_array(expr::Polars.Expr, width::Integer)::Polars.Expr
@@ -381,4 +425,9 @@ function to_struct(expr::Expr, names::Vector{String})
 end
 export to_struct
 
+# `get`/`contains`/`head` are intentionally not exported -- they collide with
+# `Base.get`/`Base.contains`/`Polars.head` respectively, and are designed for qualified use
+# (`Lists.get`, etc.); `using Polars.Lists` would otherwise clash with those. `tail`/`shift`/
+# `sample_n`/`sort`/`join`/`union`/`std`/`var`/`apply`/`agg`/`gather`/`gather_every` follow the
+# same rule (each collides with either `Base` or a top-level `Polars` export of the same name).
 end # module Lists

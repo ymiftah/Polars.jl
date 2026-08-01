@@ -769,6 +769,60 @@ function polars_expr_kurtosis(expr, fisher, bias)
     return @ccall libpolars.polars_expr_kurtosis(expr::Ptr{polars_expr_t}, fisher::Bool, bias::Bool)::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_ewm_mean(expr, alpha, adjust, min_samples, ignore_nulls)
+
+Exponentially-weighted moving average. `alpha` must already be resolved to a concrete decay factor in `(0, 1]` by the caller (the `com`/`span`/`half_life`/`alpha` parameterizations all reduce to this single value client-side).
+"""
+function polars_expr_ewm_mean(expr, alpha, adjust, min_samples, ignore_nulls)
+    return @ccall libpolars.polars_expr_ewm_mean(expr::Ptr{polars_expr_t}, alpha::Cdouble, adjust::Bool, min_samples::Csize_t, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_ewm_std(expr, alpha, adjust, bias, min_samples, ignore_nulls)
+
+Exponentially-weighted moving standard deviation. See [`polars_expr_ewm_mean`](@ref) for `alpha`.
+"""
+function polars_expr_ewm_std(expr, alpha, adjust, bias, min_samples, ignore_nulls)
+    return @ccall libpolars.polars_expr_ewm_std(expr::Ptr{polars_expr_t}, alpha::Cdouble, adjust::Bool, bias::Bool, min_samples::Csize_t, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_ewm_var(expr, alpha, adjust, bias, min_samples, ignore_nulls)
+
+Exponentially-weighted moving variance. See [`polars_expr_ewm_mean`](@ref) for `alpha`.
+"""
+function polars_expr_ewm_var(expr, alpha, adjust, bias, min_samples, ignore_nulls)
+    return @ccall libpolars.polars_expr_ewm_var(expr::Ptr{polars_expr_t}, alpha::Cdouble, adjust::Bool, bias::Bool, min_samples::Csize_t, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_cut(expr, breaks, n_breaks, labels, label_lens, n_labels, left_closed, out)
+
+Bins continuous values into discrete categories given explicit breakpoints. `breaks` is a plain array of cut points (not including the implicit `-inf`/`inf` ends); the result is a labelled Enum column with one more category than there are breaks. `labels`, if given (`n\\_labels > 0`), must have `breaks.len() + 1` entries; otherwise labels are generated as interval strings, `"(-inf, b] "`/`"(b1, b2]"`/`"(bn, inf]"` (or `[...)"`-style if `left_closed`). Raises if `breaks` contains `NaN`/duplicates/`inf`, or if `labels`' length doesn't match.
+"""
+function polars_expr_cut(expr, breaks, n_breaks, labels, label_lens, n_labels, left_closed, out)
+    return @ccall libpolars.polars_expr_cut(expr::Ptr{polars_expr_t}, breaks::Ptr{Cdouble}, n_breaks::Csize_t, labels::Ptr{Ptr{UInt8}}, label_lens::Ptr{Csize_t}, n_labels::Csize_t, left_closed::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_qcut(expr, probs, n_probs, labels, label_lens, n_labels, left_closed, allow_duplicates, out)
+
+Bins continuous values into discrete categories based on their quantiles. `probs` are the quantile cut points in `[0, 1]`; the result is a `Categorical` column. `allow_duplicates` controls whether repeated quantile breakpoints (common with few distinct values) are silently collapsed instead of raising. See [`polars_expr_cut`](@ref) for `labels`/error conditions.
+"""
+function polars_expr_qcut(expr, probs, n_probs, labels, label_lens, n_labels, left_closed, allow_duplicates, out)
+    return @ccall libpolars.polars_expr_qcut(expr::Ptr{polars_expr_t}, probs::Ptr{Cdouble}, n_probs::Csize_t, labels::Ptr{Ptr{UInt8}}, label_lens::Ptr{Csize_t}, n_labels::Csize_t, left_closed::Bool, allow_duplicates::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_qcut_uniform(expr, n_bins, labels, label_lens, n_labels, left_closed, allow_duplicates, out)
+
+Like [`polars_expr_qcut`](@ref), but with `n_bins` uniformly-spaced quantile probabilities instead of an explicit `probs` array.
+"""
+function polars_expr_qcut_uniform(expr, n_bins, labels, label_lens, n_labels, left_closed, allow_duplicates, out)
+    return @ccall libpolars.polars_expr_qcut_uniform(expr::Ptr{polars_expr_t}, n_bins::Csize_t, labels::Ptr{Ptr{UInt8}}, label_lens::Ptr{Csize_t}, n_labels::Csize_t, left_closed::Bool, allow_duplicates::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
 function polars_expr_is_between(expr, lower, upper, closed)
     return @ccall libpolars.polars_expr_is_between(expr::Ptr{polars_expr_t}, lower::Ptr{polars_expr_t}, upper::Ptr{polars_expr_t}, closed::polars_closed_interval_t)::Ptr{polars_expr_t}
 end
@@ -795,6 +849,14 @@ end
 
 function polars_expr_rolling_std(expr, window_size, min_periods, center, ddof)
     return @ccall libpolars.polars_expr_rolling_std(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool, ddof::UInt8)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rolling_median(expr, window_size, min_periods, center)
+    return @ccall libpolars.polars_expr_rolling_median(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_rolling_quantile(expr, window_size, min_periods, center, quantile, method)
+    return @ccall libpolars.polars_expr_rolling_quantile(expr::Ptr{polars_expr_t}, window_size::Csize_t, min_periods::Csize_t, center::Bool, quantile::Cdouble, method::polars_quantile_method_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_when_then_otherwise(cond, then, otherwise)
@@ -865,6 +927,14 @@ end
 
 function polars_expr_arccos(expr)
     return @ccall libpolars.polars_expr_arccos(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_arcsin(expr)
+    return @ccall libpolars.polars_expr_arcsin(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_arctan(expr)
+    return @ccall libpolars.polars_expr_arctan(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_degrees(expr)
@@ -1222,6 +1292,18 @@ function polars_expr_list_unique_stable(a)
     return @ccall libpolars.polars_expr_list_unique_stable(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_list_n_unique(a)
+    return @ccall libpolars.polars_expr_list_n_unique(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_any(a, ignore_nulls)
+    return @ccall libpolars.polars_expr_list_any(a::Ptr{polars_expr_t}, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_all(a, ignore_nulls)
+    return @ccall libpolars.polars_expr_list_all(a::Ptr{polars_expr_t}, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
 function polars_expr_list_first(a)
     return @ccall libpolars.polars_expr_list_first(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1254,6 +1336,10 @@ end
 """
 function polars_expr_list_agg(a, evaluation)
     return @ccall libpolars.polars_expr_list_agg(a::Ptr{polars_expr_t}, evaluation::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_sort(a, descending, nulls_last)
+    return @ccall libpolars.polars_expr_list_sort(a::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool)::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_get(a, index, null_on_oob)
@@ -1298,10 +1384,6 @@ end
 
 function polars_expr_list_var(a, ddof)
     return @ccall libpolars.polars_expr_list_var(a::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
-end
-
-function polars_expr_list_sort(a, descending, nulls_last)
-    return @ccall libpolars.polars_expr_list_sort(a::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool)::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_join(a, separator, ignore_nulls)
@@ -1417,23 +1499,6 @@ function polars_expr_str_strip_chars_end(a, b)
     return @ccall libpolars.polars_expr_str_strip_chars_end(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-"""
-    polars_expr_str_pad_start(a, length, fill_char, out)
-
-`fill_char` crosses the boundary as a `u32` Unicode scalar value (not the usual ptr/len string pair) since it is always exactly one character -- validated the same way `char::from\\_u32` always validates, via the fallible out-param convention rather than a panic on a bad codepoint.
-"""
-function polars_expr_str_pad_start(a, length, fill_char, out)
-    return @ccall libpolars.polars_expr_str_pad_start(a::Ptr{polars_expr_t}, length::Ptr{polars_expr_t}, fill_char::UInt32, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
-end
-
-function polars_expr_str_pad_end(a, length, fill_char, out)
-    return @ccall libpolars.polars_expr_str_pad_end(a::Ptr{polars_expr_t}, length::Ptr{polars_expr_t}, fill_char::UInt32, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
-end
-
-function polars_expr_str_find(a, pat, strict)
-    return @ccall libpolars.polars_expr_str_find(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, strict::Bool)::Ptr{polars_expr_t}
-end
-
 function polars_expr_str_replace_n(a, pat, value, literal, n)
     return @ccall libpolars.polars_expr_str_replace_n(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, value::Ptr{polars_expr_t}, literal::Bool, n::Int64)::Ptr{polars_expr_t}
 end
@@ -1475,6 +1540,28 @@ end
 
 function polars_expr_str_slice(a, offset, length)
     return @ccall libpolars.polars_expr_str_slice(a::Ptr{polars_expr_t}, offset::Ptr{polars_expr_t}, length::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_str_find(a, pat, strict)
+
+Position (not just presence, unlike `contains`) of the first regex match.
+"""
+function polars_expr_str_find(a, pat, strict)
+    return @ccall libpolars.polars_expr_str_find(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, strict::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_str_pad_start(a, length, fill_char, out)
+
+`fill_char` crosses the FFI boundary as a `u32` codepoint (there is no C `char32_t` binding on the Julia side) and is fallible since not every `u32` is a valid Unicode scalar value.
+"""
+function polars_expr_str_pad_start(a, length, fill_char, out)
+    return @ccall libpolars.polars_expr_str_pad_start(a::Ptr{polars_expr_t}, length::Ptr{polars_expr_t}, fill_char::UInt32, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_str_pad_end(a, length, fill_char, out)
+    return @ccall libpolars.polars_expr_str_pad_end(a::Ptr{polars_expr_t}, length::Ptr{polars_expr_t}, fill_char::UInt32, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_str_replace(a, pat, value, literal)
@@ -1533,6 +1620,14 @@ function polars_expr_dt_ordinal_day(a)
     return @ccall libpolars.polars_expr_dt_ordinal_day(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_dt_week(a)
+    return @ccall libpolars.polars_expr_dt_week(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_quarter(a)
+    return @ccall libpolars.polars_expr_dt_quarter(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_dt_date(a)
     return @ccall libpolars.polars_expr_dt_date(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1569,6 +1664,19 @@ end
 """
 function polars_expr_dt_replace_time_zone(expr, tz, tz_len, ambiguous, non_existent, out)
     return @ccall libpolars.polars_expr_dt_replace_time_zone(expr::Ptr{polars_expr_t}, tz::Ptr{UInt8}, tz_len::Csize_t, ambiguous::Ptr{polars_expr_t}, non_existent::polars_non_existent_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_timestamp(expr, unit, out)
+
+Fallible since [`polars_time_unit_t`](@ref) mirrors a Julia-side `
+
+`` and must reject an`
+
+out-of-range value rather than let `to_time_unit` panic across the FFI boundary.
+"""
+function polars_expr_dt_timestamp(expr, unit, out)
+    return @ccall libpolars.polars_expr_dt_timestamp(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_dt_strftime(expr, format, len, out)
