@@ -4,7 +4,7 @@ use std::sync::Arc;
 use polars::io::cloud::CloudOptions;
 use polars::io::ipc::IpcScanOptions;
 use polars::prelude::*;
-use polars_plan::dsl::sink::{SinkDestination, SinkTarget, UnifiedSinkArgs};
+use polars_plan::dsl::sink::{PartitionStrategy, SinkDestination, SinkTarget, UnifiedSinkArgs};
 use polars_plan::dsl::{FileWriteFormat, MissingColumnsPolicy, UnifiedScanArgs};
 use polars_utils::compression::{BrotliLevel, GzipLevel, ZstdLevel};
 use polars_utils::pl_path::CloudScheme;
@@ -359,6 +359,83 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
         let file_format = FileWriteFormat::Parquet(Arc::new(options));
         let sink_args = UnifiedSinkArgs {
             mkdir,
+            maintain_order,
+            cloud_options: cloud_options.map(Arc::new),
+            ..Default::default()
+        };
+        let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
+        *out = make_lazy_frame(sunk);
+        std::ptr::null()
+    })
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn polars_lazy_frame_sink_parquet_partitioned(
+    lf: *mut polars_lazy_frame_t,
+    base_path: *const u8,
+    base_pathlen: usize,
+    keys: *const *const polars_expr_t,
+    n_keys: usize,
+    include_keys: bool,
+    max_rows_per_file: *const u64,
+    approximate_bytes_per_file: *const u64,
+    compression: polars_parquet_compression_t,
+    compression_level: *const i32,
+    statistics: bool,
+    row_group_size: *const usize,
+    data_page_size: *const usize,
+    maintain_order: bool,
+    cloud_options: *const polars_cloud_options_t,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let base_path = tri!(read_str(base_path, base_pathlen));
+        let keys = read_exprs(keys, n_keys);
+        if keys.is_empty() {
+            return make_error(PolarsError::InvalidOperation(
+                "sink_parquet partitioned by keys requires at least one key".into(),
+            ));
+        }
+        let options = tri!(build_parquet_write_options(
+            compression,
+            compression_level,
+            statistics,
+            row_group_size,
+            data_page_size,
+        ));
+        let cloud_options = tri!(resolve_cloud_options(base_path, cloud_options));
+
+        let max_rows_per_file = match max_rows_per_file.as_ref() {
+            Some(&n) => tri!(
+                IdxSize::try_from(n).map_err(|_| PolarsError::InvalidOperation(
+                    format!("max_rows_per_file {n} exceeds the maximum representable row count")
+                        .into()
+                ))
+            ),
+            None => 0,
+        };
+        let approximate_bytes_per_file = approximate_bytes_per_file.as_ref().copied().unwrap_or(0);
+
+        let lf = (*lf).inner.clone();
+        let sink_type = SinkDestination::Partitioned {
+            base_path: PlRefPath::new(base_path),
+            file_path_provider: None,
+            partition_strategy: PartitionStrategy::Keyed {
+                keys,
+                include_keys,
+                keys_pre_grouped: false,
+            },
+            max_rows_per_file,
+            approximate_bytes_per_file,
+        };
+        let file_format = FileWriteFormat::Parquet(Arc::new(options));
+        let sink_args = UnifiedSinkArgs {
+            // `mkdir` has no effect on partitioned sinks -- the partitioned file provider always
+            // recursively creates each partition's parent directory regardless of this flag
+            // (confirmed in polars-stream's `FileProvider::open_file`), so there is nothing
+            // meaningful to thread through here.
+            mkdir: false,
             maintain_order,
             cloud_options: cloud_options.map(Arc::new),
             ..Default::default()
