@@ -78,6 +78,88 @@ end
     end
 end
 
+@testset "sink_parquet partitioned by key" begin
+    df = DataFrame((; g = ["a", "a", "b", "b", "b"], x = [1, 2, 10, 20, 30]))
+
+    @testset "single key produces g=.../00000000.parquet layout" begin
+        dir = mktempdir()
+        sink_parquet(df, PartitionByKey(dir; by = "g"))
+
+        @test isfile(joinpath(dir, "g=a", "00000000.parquet"))
+        @test isfile(joinpath(dir, "g=b", "00000000.parquet"))
+
+        rt = collect(scan_parquet(dir; hive_partitioning = true))
+        @test size(rt) == size(df)
+        @test sort(collect(rt[:x])) == sort(collect(df[:x]))
+        @test sort(collect(rt[:g])) == sort(collect(df[:g]))
+    end
+
+    @testset "include_key=false omits the key column from file contents" begin
+        dir = mktempdir()
+        sink_parquet(df, PartitionByKey(dir; by = "g", include_key = false))
+
+        leaf = read_parquet(joinpath(dir, "g=a", "00000000.parquet"))
+        @test names(leaf) == ["x"]
+    end
+
+    @testset "multiple keys nest directories" begin
+        dfd = DataFrame((; d = [Date(2024, 1, 1), Date(2024, 2, 1), Date(2024, 2, 15)], v = [1, 2, 3]))
+        dir = mktempdir()
+        sink_parquet(
+            dfd,
+            PartitionByKey(dir; by = [Dt.year(col("d")) |> alias("year"), Dt.month(col("d")) |> alias("month")])
+        )
+
+        @test isfile(joinpath(dir, "year=2024", "month=1", "00000000.parquet"))
+        @test isfile(joinpath(dir, "year=2024", "month=2", "00000000.parquet"))
+    end
+
+    @testset "max_rows_per_file spills a partition across numbered files" begin
+        big = DataFrame((; g = fill("a", 100), x = collect(1:100)))
+        dir = mktempdir()
+        sink_parquet(big, PartitionByKey(dir; by = "g", max_rows_per_file = 30))
+
+        files = readdir(joinpath(dir, "g=a"))
+        @test length(files) == 4 # 30, 30, 30, 10
+
+        rt = collect(scan_parquet(dir; hive_partitioning = true))
+        @test sort(collect(rt[:x])) == sort(collect(big[:x]))
+    end
+
+    @testset "empty by errors" begin
+        @test_throws Exception PartitionByKey(mktempdir(); by = String[])
+    end
+
+    @testset "non-elementwise key expression errors catchably" begin
+        dir = mktempdir()
+        @test_throws Exception sink_parquet(df, PartitionByKey(dir; by = sum(col("x")) |> alias("s")))
+    end
+
+    @testset "mkdir keyword is not accepted (upstream ignores it for partitioned sinks)" begin
+        dir = mktempdir()
+        @test_throws Exception sink_parquet(df, PartitionByKey(dir; by = "g"); mkdir = true)
+    end
+
+    @testset "non-ASCII base path and key value round-trip" begin
+        dir = mktempdir()
+        target_dir = joinpath(dir, "café-dir")
+        mkpath(target_dir)
+        dfu = DataFrame((; g = ["café", "café", "naïve"], x = [1, 2, 3]))
+        sink_parquet(dfu, PartitionByKey(target_dir; by = "g"))
+
+        rt = collect(scan_parquet(target_dir; hive_partitioning = true))
+        @test size(rt) == size(dfu)
+        @test sort(collect(rt[:g])) == sort(collect(dfu[:g]))
+    end
+
+    @testset "DataFrame entry point agrees with LazyFrame" begin
+        dir = mktempdir()
+        sink_parquet(lazy(df), PartitionByKey(dir; by = "g"))
+        rt = collect(scan_parquet(dir; hive_partitioning = true))
+        @test sort(collect(rt[:x])) == sort(collect(df[:x]))
+    end
+end
+
 @testset "write_parquet routes cloud URIs to sink_parquet instead of a local file" begin
     df = DataFrame((; x = [1, 2, 3]))
     dir = mktempdir()

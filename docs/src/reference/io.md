@@ -99,6 +99,32 @@ compression option; `sink_ipc` takes `write_ipc`'s keywords), plus two extra key
 share: `mkdir` (create missing parent directories, default `false`) and `maintain_order` (preserve
 row order through the streaming pipeline, default `true`).
 
+## Partitioned parquet sinks
+
+```@docs
+PartitionByKey
+```
+
+`sink_parquet` also accepts a [`PartitionByKey`](@ref) in place of a path `String`, writing a
+Hive-style partitioned directory of parquet files instead of a single file:
+
+```julia
+df = DataFrame((; year = [2023, 2023, 2024], month = [1, 2, 1], value = [10, 20, 30]))
+sink_parquet(df, PartitionByKey("/tmp/out"; by = ["year", "month"]))
+# /tmp/out/year=2023/month=1/00000000.parquet
+# /tmp/out/year=2023/month=2/00000000.parquet
+# /tmp/out/year=2024/month=1/00000000.parquet
+```
+
+`by` accepts column name(s) or arbitrary elementwise [`Expr`](@ref)s (e.g. a derived key such as
+`Dt.year(col("date")) |> alias("year")`), not just plain columns. It accepts the same
+`compression`/`compression_level`/`statistics`/`row_group_size`/`data_page_size`/`storage_options`
+keywords as the single-file `sink_parquet` method, plus `maintain_order` — but **not `mkdir`**:
+upstream polars always recursively creates each partition's directory for a partitioned sink
+regardless of any such flag, so the keyword is omitted rather than accepted-and-ignored. The
+resulting directory can be read back with `scan_parquet`/`read_parquet`'s `hive_partitioning`
+option.
+
 ## Cloud object storage
 
 `scan_parquet`/`read_parquet`/`sink_parquet` (and the CSV/IPC equivalents) accept `s3://`,
