@@ -1572,6 +1572,24 @@ const struct polars_error_t *polars_lazy_frame_sink_parquet(
     const struct polars_cloud_options_t *cloud_options,
     struct polars_lazy_frame_t **out);
 
+const struct polars_error_t *polars_lazy_frame_sink_parquet_partitioned(
+    struct polars_lazy_frame_t *lf,
+    const uint8_t *base_path,
+    uintptr_t base_pathlen,
+    const struct polars_expr_t *const *keys,
+    uintptr_t n_keys,
+    bool include_keys,
+    const uint64_t *max_rows_per_file,
+    const uint64_t *approximate_bytes_per_file,
+    enum polars_parquet_compression_t compression,
+    const int32_t *compression_level,
+    bool statistics,
+    const uintptr_t *row_group_size,
+    const uintptr_t *data_page_size,
+    bool maintain_order,
+    const struct polars_cloud_options_t *cloud_options,
+    struct polars_lazy_frame_t **out);
+
 const struct polars_error_t *polars_lazy_frame_sink_csv(
     struct polars_lazy_frame_t *lf,
     const uint8_t *path,

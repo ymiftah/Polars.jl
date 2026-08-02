@@ -245,3 +245,61 @@ function sink_parquet(
     collect(LazyFrame(out[]); engine = :streaming)
     return nothing
 end
+
+"""
+    sink_parquet(lf::LazyFrame, target::PartitionByKey;
+                 compression::Symbol=:zstd,
+                 compression_level::Union{Nothing,Integer}=nothing,
+                 statistics::Bool=true,
+                 row_group_size::Union{Nothing,Integer}=nothing,
+                 data_page_size::Union{Nothing,Integer}=nothing,
+                 maintain_order::Bool=true)
+    sink_parquet(df::DataFrame, target::PartitionByKey; kwargs...)
+
+Executes the query and writes the result as a Hive-partitioned directory of parquet files (see
+[`PartitionByKey`](@ref)), via the streaming engine.
+
+Accepts the same `compression`/`compression_level`/`statistics`/`row_group_size`/`data_page_size`/
+`storage_options` keywords as the single-file [`sink_parquet`](@ref) method, plus `maintain_order`
+(default `true`). **There is no `mkdir` keyword here**: upstream polars always recursively creates
+each partition's parent directory for a partitioned sink regardless of any such flag, so accepting
+one would silently do nothing.
+"""
+sink_parquet(df::DataFrame, target::PartitionByKey; kwargs...) = sink_parquet(lazy(df), target; kwargs...)
+function sink_parquet(
+        lf::LazyFrame, target::PartitionByKey;
+        compression::Symbol = :zstd,
+        compression_level::Union{Nothing, Integer} = nothing,
+        statistics::Bool = true,
+        row_group_size::Union{Nothing, Integer} = nothing,
+        data_page_size::Union{Nothing, Integer} = nothing,
+        maintain_order::Bool = true,
+        storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
+    )
+    compression_enum = _parquet_compression_enum(compression)
+    compression_level_ref = compression_level === nothing ? Ptr{Int32}(C_NULL) :
+        Ref(Int32(compression_level))
+    row_group_size_ref = row_group_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(row_group_size))
+    data_page_size_ref = data_page_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(data_page_size))
+    max_rows_ref = target.max_rows_per_file === nothing ? Ptr{UInt64}(C_NULL) :
+        Ref(UInt64(target.max_rows_per_file))
+    approx_bytes_ref = target.approximate_bytes_per_file === nothing ? Ptr{UInt64}(C_NULL) :
+        Ref(UInt64(target.approximate_bytes_per_file))
+    keys = target.by
+
+    out = Ref{Ptr{polars_lazy_frame_t}}()
+    err = _with_cloud_options(storage_options) do cloud_options
+        GC.@preserve keys compression_level_ref row_group_size_ref data_page_size_ref max_rows_ref approx_bytes_ref begin
+            key_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in keys]
+            polars_lazy_frame_sink_parquet_partitioned(
+                lf, target.base_path, ncodeunits(target.base_path), key_ptrs, length(key_ptrs),
+                target.include_key, max_rows_ref, approx_bytes_ref, compression_enum,
+                compression_level_ref, statistics, row_group_size_ref, data_page_size_ref,
+                maintain_order, cloud_options, out
+            )
+        end
+    end
+    polars_error(err)
+    collect(LazyFrame(out[]); engine = :streaming)
+    return nothing
+end
