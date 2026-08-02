@@ -2,17 +2,27 @@
 
 ## Status
 
-**Sweep in progress.** Baseline (before this sweep): 1863 passed, 0 failed, 2 errored, 2 broken —
-the 2 errors were `UndefVarError`s from Batch 0's Wave-1 tests calling FFI symbols
+**Sweep in progress. Batches 0-9 are done; Batches 10-14 remain unswept** (see the batch order
+table below for per-batch PR/commit references). Alongside the sweep itself, a separate
+`parity-gap-closure` branch/PR (#29) closed real gaps this sweep's own batches flagged along the
+way (`over()`'s zero-partition crash, an all-missing-column `DataFrame` construction crash, and
+~45 new `Expr`/`Lists`/`Strings`/`Structs` functions the sweep had marked "unavailable in this
+build") — see `plans/parity/gap_closure_scope.md`. That branch also reconciled with a large
+concurrently-merged Wave 5 PR (#30) that independently added overlapping `Lists`/`Strings`/`Dt`
+functionality; where both sides implemented the same gap, the more complete implementation was
+kept and the other's placeholder/unavailable-stub tests were superseded with real assertions.
+
+Historical baseline (before this sweep started): 1863 passed, 0 failed, 2 errored, 2 broken — the
+2 errors were `UndefVarError`s from Batch 0's Wave-1 tests calling FFI symbols
 (`polars_expr_arccos`, `polars_expr_rle`) that existed in the built `.so` but not yet in
-`src/api/generated.jl`. **Batch 0 is now done**: the `api-wave1-unary-fns` branch finished
+`src/api/generated.jl`. **Batch 0 is done**: the `api-wave1-unary-fns` branch finished
 independently (commits `a763de6`..`446c320`) with the header/bindings regen, the `rle`/`arccos`
 upstream-fixture ports, `log`'s argument-order fix, and `get_column`'s `default` keyword all
 already landed — better than this sweep's own draft, which was discarded in favor of it (see
 `c50542b API gap batch four Wave 1: unary math/rle exprs, item/get_column, log arg order` and
-`dc8ac24`/`446c320`). This worktree was reset onto that branch as its new base; only Batch 1's
-work (below) is layered on top of it. The 2 broken are the pre-existing deliberate exclusions
-(Aqua ambiguities, `Strings.titlecase`) from `plans/test_porting.md`.
+`dc8ac24`/`446c320`). This worktree was reset onto that branch as its new base. The 2 broken are
+the pre-existing deliberate exclusions (Aqua ambiguities, `Strings.titlecase`) from
+`plans/test_porting.md`.
 
 This ledger is generated (one row per exported name, from `names(Polars)` /
 `names(Polars.Lists/.Strings/.Dt/.Structs/.Selectors)`, 200 names total) then refined per batch as
@@ -33,13 +43,13 @@ from the already-regenerated header before its 2 errors can even run):
 
 | # | Our test files | Upstream sources | Status |
 |---|---|---|---|
-| 1 | expr/math.jl, expr/arithmetic.jl | operations/arithmetic/test_arithmetic.py, test_pow.py, test_neg.py, operations/test_abs.py, test_clip.py | unswept — see separate Batch 1 PR |
-| 2 | expr/aggregation.jl, expr/statistics.jl | operations/aggregation/test_aggregations.py, test_vertical.py, operations/test_statistics.py | unswept |
-| 3 | expr/null_handling.jl | operations/test_fill_null.py, test_is_null.py, test_has_nulls.py, test_drop_nulls.py | unswept |
-| 4 | expr/order_window.jl, expr/over.jl | operations/test_over.py, test_window.py, test_shift.py, test_diff.py, test_pct_change.py, test_interpolate.py, test_rank.py, functions/test_cum_count.py | unswept |
-| 5 | expr/sort_top_k.jl, expr/is_unique_dup.jl, operations/sort.jl, operations/unique.jl | operations/test_sort.py, test_top_k.py, test_is_first_last_distinct.py, unique/test_unique.py, test_n_unique.py, test_is_unique.py | unswept |
-| 6 | expr/replace.jl, expr/when_then_otherwise.jl, expr/literals_cast.jl, expr/lit_vector.jl | operations/test_replace.py, test_replace_strict.py, operations/test_cast.py, functions/test_when_then.py, functions/test_lit.py, expr/test_literal.py | unswept |
-| 7 | datatypes/strings.jl | operations/namespaces/string/test_string.py, test_pad.py, test_concat.py, operations/namespaces/test_strptime.py | unswept |
+| 1 | expr/math.jl, expr/arithmetic.jl | operations/arithmetic/test_arithmetic.py, test_pow.py, test_neg.py, operations/test_abs.py, test_clip.py | **done** — see `plans/parity/batch-1-math-arithmetic.md` (commit `c48552e`) |
+| 2 | expr/aggregation.jl, expr/statistics.jl | operations/aggregation/test_aggregations.py, test_vertical.py, operations/test_statistics.py | **done** — see `plans/parity/batch-2-aggregation-statistics.md` (commit `8ebb3ea`, review fixes `32d059f`) |
+| 3 | expr/null_handling.jl | operations/test_fill_null.py, test_is_null.py, test_has_nulls.py, test_drop_nulls.py | **done** — see `plans/parity/batch-3-null-handling.md`; PR #16 (also carried the `has_nulls` docstring review fix) |
+| 4 | expr/order_window.jl, expr/over.jl | operations/test_over.py, test_window.py, test_shift.py, test_diff.py, test_pct_change.py, test_interpolate.py, test_rank.py, functions/test_cum_count.py | **done** — see `plans/parity/batch-4-order-window-over.md`; PR #18 |
+| 5 | expr/sort_top_k.jl, expr/is_unique_dup.jl, operations/sort.jl, operations/unique.jl | operations/test_sort.py, test_top_k.py, test_is_first_last_distinct.py, unique/test_unique.py, test_n_unique.py, test_is_unique.py | **done** — see `plans/parity/batch-5-sort-topk-unique.md`; PR #19 |
+| 6 | expr/replace.jl, expr/when_then_otherwise.jl, expr/literals_cast.jl, expr/lit_vector.jl | operations/test_replace.py, test_replace_strict.py, operations/test_cast.py, functions/test_when_then.py, functions/test_lit.py, expr/test_literal.py | **done** — see `plans/parity/batch-6-replace-whenthen-cast.md`; PR #20 |
+| 7 | datatypes/strings.jl | operations/namespaces/string/test_string.py, test_pad.py, test_concat.py, operations/namespaces/test_strptime.py | **done** — see `plans/parity/batch-7-strings.md`; PR #21 |
 | 8 | datatypes/datetimes.jl, times.jl, durations.jl, timezones.jl | operations/namespaces/temporal/test_datetime.py, test_offset_by.py, test_round.py, test_truncate.py, test_replace.py, datatypes/test_temporal.py, test_duration.py, test_time.py | **done** — see `plans/parity/batch-8-temporal.md` (commit `2f2467f`); two fixtures ported, one gap cross-referenced to Batch 6, durations.jl/timezones.jl already adequately covered |
 | 9 | datatypes/lists.jl, structs.jl, list_struct_write.jl, operations/reshape.jl (explode) | operations/namespaces/list/test_list.py, test_set_operations.py, test_unique.py, operations/namespaces/test_struct.py, datatypes/test_list.py, test_struct.py, operations/test_explode.py | **done** — see `plans/parity/batch-9-lists-structs.md`; 11 fixtures ported, 3 sizeable gaps flagged (most of `Lists` namespace missing incl. all set operations, `explode`'s `empty_as_null`/`keep_nulls` kwargs, `Structs.with_fields`/`json_encode`) |
 | 10 | operations/frame_verbs.jl, reshape.jl, concat.jl, select_with_columns.jl, filter.jl | operations/test_pivot.py, test_unpivot.py, test_transpose.py, test_drop.py, test_rename.py, test_select.py, test_with_columns.py, test_filter.py, functions/test_concat.py, dataframe/test_vstack.py, test_upsample.py | unswept |
@@ -54,6 +64,12 @@ Out of scope (no counterpart here): upstream `sql/`, `streaming/`, `interop/`, `
 
 ## Per-function skeleton
 
+**Stale, not maintained per-batch.** This table was generated once from `names(Polars)` and never
+refined afterwards — every row still says `unswept` regardless of what's actually landed, so it
+under-states coverage for every function touched by Batches 0-9 above. The batch order table
+above and the individual `plans/parity/batch-{0..9}-*.md`/`gap_closure_scope.md` notes are the
+accurate record of what's actually covered; treat the `our test file(s)` column below as still
+useful (which files to check for a given function) but ignore the `status` column entirely.
 
 ### Polars
 

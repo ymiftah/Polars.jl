@@ -35,6 +35,22 @@
     @test isequal(collect(r_clip_null[:clip]), [1, 1, 4, 4, 5, missing])
 end
 
+@testset "clip_min / clip_max: single-sided clip, missing passes through (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = Union{Missing, Int}[1, 5, 10, missing]))
+
+    r_min = select(df, alias(clip_min(col("a"), 3), "n"))
+    @test isequal(collect(r_min[:n]), [3, 5, 10, missing])
+
+    r_max = select(df, alias(clip_max(col("a"), 3), "n"))
+    @test isequal(collect(r_max[:n]), [1, 3, 3, missing])
+
+    # curried forms for |> pipelines
+    r_min_curried = select(df, alias(col("a") |> clip_min(3), "n"))
+    @test isequal(collect(r_min_curried[:n]), collect(r_min[:n]))
+    r_max_curried = select(df, alias(col("a") |> clip_max(3), "n"))
+    @test isequal(collect(r_max_curried[:n]), collect(r_max[:n]))
+end
+
 @testset "log / exp / sqrt / sign / %" begin
     df = DataFrame((; x = [1.0, 4.0, 9.0]))
 

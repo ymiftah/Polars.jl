@@ -847,18 +847,21 @@ pub unsafe extern "C" fn polars_lazy_frame_explode(
     names: *const *const u8,
     lens: *const usize,
     n: usize,
+    // `empty_as_null`: exploding an empty list produces one `null` row rather than disappearing
+    // (row-count-preserving) when true. `keep_nulls`: exploding a `null` list entry produces one
+    // `null` row rather than disappearing too, when true. Upstream's own default (and this
+    // wrapper's prior hardcoded behavior) is `true`/`true` -- the Julia side keeps that as its
+    // keyword default so existing callers are unaffected.
+    empty_as_null: bool,
+    keep_nulls: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     let names = tri!(read_names(names, lens, n));
     let result = (*lf).inner.clone().explode(
         selector_by_name(names, true),
-        // `empty_as_null`: exploding an empty list produces one `null` row rather than
-        // disappearing (row-count-preserving). `keep_nulls`: exploding a `null` list entry
-        // produces one `null` row rather than disappearing too. Neither is exposed as a
-        // parameter -- both default to this "never drop a row" behavior.
         ExplodeOptions {
-            empty_as_null: true,
-            keep_nulls: true,
+            empty_as_null,
+            keep_nulls,
         },
     );
     *out = make_lazy_frame(result);

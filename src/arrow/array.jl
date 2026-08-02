@@ -120,6 +120,19 @@ format(::Type{Any}) = error(
         "values and bare `missing` needs the column declared as `Union{T,Missing}`, not `Any`"
 )
 format(::Type{Nothing}) = "n"
+# `MaybeMissing{Missing}` (i.e. `Union{Missing,Missing}`) collapses to the literal type `Missing`
+# -- the same collapse hazard as the `Any` guard above, one level down: without this concrete
+# method, `format(Missing)` (reached from a bare `Vector{Missing}` column, e.g.
+# `DataFrame((; a = [missing, missing]))`) dispatches to the `MaybeMissing{T}` method with `T`
+# solved from that same collapse, which Julia cannot bind, raising `UndefVarError: T not defined
+# in static parameter matching` instead of working. With this method present, `arrowvector`
+# dispatches `Vector{Missing}` to one of the existing `Vector{Union{Missing,T}}` numeric methods
+# (Julia picks *some* concrete `T` satisfying that bound, arbitrarily) -- whichever placeholder
+# "data" bytes that method writes for the all-invalid slots are never read back, since every
+# position is marked invalid in the validity bitmap and this method's "n" format code is what the
+# receiving side actually keys off of. Live-verified end-to-end (construction, group_by/filter,
+# parquet round-trip) rather than assumed correct from the dispatch alone.
+format(::Type{Missing}) = "n"
 format(::Type{Bool}) = "b"
 format(::Type{Int8}) = "c"
 format(::Type{UInt8}) = "C"

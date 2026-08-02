@@ -499,8 +499,8 @@ function polars_lazy_frame_with_row_index(lf, name, name_len, offset, has_offset
     return @ccall libpolars.polars_lazy_frame_with_row_index(lf::Ptr{polars_lazy_frame_t}, name::Ptr{UInt8}, name_len::Csize_t, offset::Int64, has_offset::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_explode(lf, names, lens, n, out)
-    return @ccall libpolars.polars_lazy_frame_explode(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_explode(lf, names, lens, n, empty_as_null, keep_nulls, out)
+    return @ccall libpolars.polars_lazy_frame_explode(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, empty_as_null::Bool, keep_nulls::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_unpivot(lf, index_names, index_lens, n_index, on_names, on_lens, n_on, variable_name, variable_name_len, value_name, value_name_len, out)
@@ -654,6 +654,15 @@ end
 
 function polars_expr_cast(expr, dtype, out)
     return @ccall libpolars.polars_expr_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_strict_cast(expr, dtype, out)
+
+Strict cast: raises on overflow/loss instead of [`polars_expr_cast`](@ref)'s non-strict "overflow becomes null" behavior (our `cast()` was hardwired non-strict; upstream `Expr.cast(dtype, strict=True)` defaults to strict -- this exposes the other branch as an explicit function rather than a mode switch on `cast` itself, matching `Expr::strict\\_cast`/`Expr::cast`'s own split upstream).
+"""
+function polars_expr_strict_cast(expr, dtype, out)
+    return @ccall libpolars.polars_expr_strict_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 """
@@ -866,7 +875,7 @@ end
 """
     polars_expr_over(expr, partition_by, n_partition_by, order_by, descending, nulls_last, mapping, out)
 
-`order_by` is a single optional expr (null = none). `partition_by` and `order_by` cannot both be empty/null -- at least one is required.
+`order_by` is a single optional expr (null = none). An empty `partition_by` with a null `order_by` is valid -- the whole frame is treated as one group (see the whole-frame-sentinel substitution below).
 """
 function polars_expr_over(expr, partition_by, n_partition_by, order_by, descending, nulls_last, mapping, out)
     return @ccall libpolars.polars_expr_over(expr::Ptr{polars_expr_t}, partition_by::Ptr{Ptr{polars_expr_t}}, n_partition_by::Csize_t, order_by::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool, mapping::polars_window_mapping_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
@@ -968,6 +977,10 @@ function polars_expr_clip(expr, min, max)
     return @ccall libpolars.polars_expr_clip(expr::Ptr{polars_expr_t}, min::Ptr{polars_expr_t}, max::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_neg(expr)
+    return @ccall libpolars.polars_expr_neg(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_replace(expr, old, new_)
     return @ccall libpolars.polars_expr_replace(expr::Ptr{polars_expr_t}, old::Ptr{polars_expr_t}, new_::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -992,6 +1005,14 @@ function polars_expr_is_unique(expr)
     return @ccall libpolars.polars_expr_is_unique(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_is_first_distinct(expr)
+    return @ccall libpolars.polars_expr_is_first_distinct(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_is_last_distinct(expr)
+    return @ccall libpolars.polars_expr_is_last_distinct(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_count(expr)
     return @ccall libpolars.polars_expr_count(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1004,8 +1025,25 @@ function polars_expr_last(expr)
     return @ccall libpolars.polars_expr_last(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+"""
+    polars_expr_item(expr, allow_empty)
+
+The aggregation form of `item()`: errors if the expression evaluates to `!= 1` values, unless `allow_empty` is set, in which case zero values also succeeds (producing `null`). Distinct from `DataFrame`/`Series` `item()`, which is a `(1,1)`-shape accessor, not an aggregation -- the two share a name upstream but are different functions (see `plans/parity/batch-2-aggregation- statistics.md`'s Step-9 finding).
+"""
+function polars_expr_item(expr, allow_empty)
+    return @ccall libpolars.polars_expr_item(expr::Ptr{polars_expr_t}, allow_empty::Bool)::Ptr{polars_expr_t}
+end
+
 function polars_expr_not(expr)
     return @ccall libpolars.polars_expr_not(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_all(expr, ignore_nulls)
+    return @ccall libpolars.polars_expr_all(expr::Ptr{polars_expr_t}, ignore_nulls::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_any(expr, ignore_nulls)
+    return @ccall libpolars.polars_expr_any(expr::Ptr{polars_expr_t}, ignore_nulls::Bool)::Ptr{polars_expr_t}
 end
 
 function polars_expr_is_finite(expr)
@@ -1052,8 +1090,8 @@ function polars_expr_implode(expr)
     return @ccall libpolars.polars_expr_implode(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_flatten(expr)
-    return @ccall libpolars.polars_expr_flatten(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+function polars_expr_flatten(expr, empty_as_null, keep_nulls)
+    return @ccall libpolars.polars_expr_flatten(expr::Ptr{polars_expr_t}, empty_as_null::Bool, keep_nulls::Bool)::Ptr{polars_expr_t}
 end
 
 function polars_expr_reverse(expr)
@@ -1106,6 +1144,27 @@ end
 
 function polars_expr_floor_div(a, b)
     return @ccall libpolars.polars_expr_floor_div(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_clip_min(a, b)
+    return @ccall libpolars.polars_expr_clip_min(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_clip_max(a, b)
+    return @ccall libpolars.polars_expr_clip_max(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_bottom_k(a, b)
+    return @ccall libpolars.polars_expr_bottom_k(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_shift_and_fill(expr, n, fill_value)
+
+`shift(n, fill\\_value)` -- unlike the existing binary `shift(n)` (no fill), out-of-range rows get `fill_value` instead of `null`.
+"""
+function polars_expr_shift_and_fill(expr, n, fill_value)
+    return @ccall libpolars.polars_expr_shift_and_fill(expr::Ptr{polars_expr_t}, n::Ptr{polars_expr_t}, fill_value::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_fill_null(a, b)
@@ -1253,6 +1312,32 @@ function polars_expr_list_last(a)
     return @ccall libpolars.polars_expr_list_last(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_list_median(a)
+    return @ccall libpolars.polars_expr_list_median(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_drop_nulls(a)
+    return @ccall libpolars.polars_expr_list_drop_nulls(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_list_eval(a, evaluation)
+
+`Lists.eval`: runs `evaluation` once per row, with `element()` bound to that row's list values -- the same primitive the crate already uses internally for `reverse`/`unique`/`unique_stable` above, exposed directly. This is the multiplier for the "most of the list namespace is missing" finding (`plans/parity/batch-9-lists-structs.md`): `all`/`any` have no dedicated `ListNameSpace` method in this polars version at all and are *only* reachable this way (`eval(element().all(ignore\\_nulls))`), and `n_unique`/`filter` compose the same way.
+"""
+function polars_expr_list_eval(a, evaluation)
+    return @ccall libpolars.polars_expr_list_eval(a::Ptr{polars_expr_t}, evaluation::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_list_agg(a, evaluation)
+
+`Lists.agg`: like `eval`, but the per-row expression is expected to reduce to a single scalar (`EvalVariant::ListAgg` instead of `::List`) -- needed for e.g. `n_unique` per row, which `eval` alone cannot express (it stays list-shaped).
+"""
+function polars_expr_list_agg(a, evaluation)
+    return @ccall libpolars.polars_expr_list_agg(a::Ptr{polars_expr_t}, evaluation::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_list_sort(a, descending, nulls_last)
     return @ccall libpolars.polars_expr_list_sort(a::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool)::Ptr{polars_expr_t}
 end
@@ -1265,8 +1350,40 @@ function polars_expr_list_head(a, b)
     return @ccall libpolars.polars_expr_list_head(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_list_contains(a, other, nulls_equal)
-    return @ccall libpolars.polars_expr_list_contains(a::Ptr{polars_expr_t}, other::Ptr{polars_expr_t}, nulls_equal::Bool)::Ptr{polars_expr_t}
+function polars_expr_list_tail(a, b)
+    return @ccall libpolars.polars_expr_list_tail(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_shift(a, b)
+    return @ccall libpolars.polars_expr_list_shift(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_count_matches(a, b)
+    return @ccall libpolars.polars_expr_list_count_matches(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_union(a, b)
+    return @ccall libpolars.polars_expr_list_union(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_set_difference(a, b)
+    return @ccall libpolars.polars_expr_list_set_difference(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_set_intersection(a, b)
+    return @ccall libpolars.polars_expr_list_set_intersection(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_set_symmetric_difference(a, b)
+    return @ccall libpolars.polars_expr_list_set_symmetric_difference(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_std(a, ddof)
+    return @ccall libpolars.polars_expr_list_std(a::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_var(a, ddof)
+    return @ccall libpolars.polars_expr_list_var(a::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_join(a, separator, ignore_nulls)
@@ -1277,8 +1394,41 @@ function polars_expr_list_slice(a, offset, length)
     return @ccall libpolars.polars_expr_list_slice(a::Ptr{polars_expr_t}, offset::Ptr{polars_expr_t}, length::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_list_gather(a, index, null_on_oob)
+    return @ccall libpolars.polars_expr_list_gather(a::Ptr{polars_expr_t}, index::Ptr{polars_expr_t}, null_on_oob::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_gather_every(a, n, offset)
+    return @ccall libpolars.polars_expr_list_gather_every(a::Ptr{polars_expr_t}, n::Ptr{polars_expr_t}, offset::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_list_diff(a, n, null_behavior)
     return @ccall libpolars.polars_expr_list_diff(a::Ptr{polars_expr_t}, n::Int64, null_behavior::polars_null_behavior_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_sample_n(a, n, with_replacement, shuffle, seed)
+    return @ccall libpolars.polars_expr_list_sample_n(a::Ptr{polars_expr_t}, n::Ptr{polars_expr_t}, with_replacement::Bool, shuffle::Bool, seed::Ptr{UInt64})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_sample_fraction(a, fraction, with_replacement, shuffle, seed)
+    return @ccall libpolars.polars_expr_list_sample_fraction(a::Ptr{polars_expr_t}, fraction::Ptr{polars_expr_t}, with_replacement::Bool, shuffle::Bool, seed::Ptr{UInt64})::Ptr{polars_expr_t}
+end
+
+function polars_expr_list_to_array(a, width)
+    return @ccall libpolars.polars_expr_list_to_array(a::Ptr{polars_expr_t}, width::Csize_t)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_list_to_struct(a, names, lens, num_names, out)
+
+Converts a `List` column to a `Struct` column, one field per list position, named `names[i]`. `names.len()` fixes the field count (and so the schema) -- a row whose list is shorter gets `null` for the missing trailing fields; longer is a runtime error (upstream's own behavior).
+"""
+function polars_expr_list_to_struct(a, names, lens, num_names, out)
+    return @ccall libpolars.polars_expr_list_to_struct(a::Ptr{polars_expr_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, num_names::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_list_contains(a, other, nulls_equal)
+    return @ccall libpolars.polars_expr_list_contains(a::Ptr{polars_expr_t}, other::Ptr{polars_expr_t}, nulls_equal::Bool)::Ptr{polars_expr_t}
 end
 
 function polars_expr_str_to_uppercase(a)
@@ -1339,6 +1489,49 @@ end
 
 function polars_expr_str_tail(a, b)
     return @ccall libpolars.polars_expr_str_tail(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_strip_chars_start(a, b)
+    return @ccall libpolars.polars_expr_str_strip_chars_start(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_strip_chars_end(a, b)
+    return @ccall libpolars.polars_expr_str_strip_chars_end(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_replace_n(a, pat, value, literal, n)
+    return @ccall libpolars.polars_expr_str_replace_n(a::Ptr{polars_expr_t}, pat::Ptr{polars_expr_t}, value::Ptr{polars_expr_t}, literal::Bool, n::Int64)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_str_splitn(a, by, n)
+
+Struct-typed split: exactly `n` fields, the remainder (if any) folded into the last one. Distinct from [`polars_expr_str_split`](@ref) above, which produces a variable-length `List<String>`.
+"""
+function polars_expr_str_splitn(a, by, n)
+    return @ccall libpolars.polars_expr_str_splitn(a::Ptr{polars_expr_t}, by::Ptr{polars_expr_t}, n::Csize_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_split_exact(a, by, n)
+    return @ccall libpolars.polars_expr_str_split_exact(a::Ptr{polars_expr_t}, by::Ptr{polars_expr_t}, n::Csize_t)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_str_join(a, delimiter, delimiter_len, ignore_nulls, out)
+
+Aggregating join-with-separator across *all* rows into a single value (upstream `str.join`, the replacement for the deprecated `str.concat`) -- distinct from `Lists.join` above, which joins each row's own list independently. `delimiter` is a plain string (not an `Expr`) because the aggregation itself has no per-row context to evaluate a column expression against.
+"""
+function polars_expr_str_join(a, delimiter, delimiter_len, ignore_nulls, out)
+    return @ccall libpolars.polars_expr_str_join(a::Ptr{polars_expr_t}, delimiter::Ptr{UInt8}, delimiter_len::Csize_t, ignore_nulls::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_str_extract_groups(a, pat, pat_len, out)
+
+Named-capture-group regex extraction into a `Struct` column (one field per named group). `pat` is a plain string, not an `Expr` -- upstream compiles the regex at plan time to determine the output `Struct`'s schema (field names/count), so it cannot vary per row.
+"""
+function polars_expr_str_extract_groups(a, pat, pat_len, out)
+    return @ccall libpolars.polars_expr_str_extract_groups(a::Ptr{polars_expr_t}, pat::Ptr{UInt8}, pat_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_str_contains(a, pat, strict)
@@ -1528,6 +1721,19 @@ end
 
 function polars_expr_struct_rename_fields(a, names, lens, num_names, out)
     return @ccall libpolars.polars_expr_struct_rename_fields(a::Ptr{polars_expr_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, num_names::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_struct_json_encode(expr)
+    return @ccall libpolars.polars_expr_struct_json_encode(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_struct_with_fields(a, fields, n_fields)
+
+Applies each of `fields` to the struct's selected field(s) in place (via `pl.field("x")...` inside each expression), leaving other fields untouched -- upstream `struct.with\\_fields`.
+"""
+function polars_expr_struct_with_fields(a, fields, n_fields)
+    return @ccall libpolars.polars_expr_struct_with_fields(a::Ptr{polars_expr_t}, fields::Ptr{Ptr{polars_expr_t}}, n_fields::Csize_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_meta_is_column(expr)

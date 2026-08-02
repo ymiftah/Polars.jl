@@ -14,9 +14,9 @@
 end
 
 @testset "explode: empty list rows, whole-row-null lists, and mismatched element counts (py-polars test_explode_params, test_explode_invalid_element_count)" begin
-    # upstream's current explode() requires an explicit empty_as_null kwarg we don't expose (see
-    # plans/parity/batch-9-lists-structs.md) -- our fixed behavior matches its empty_as_null=true
-    # branch: an empty list row explodes to one `missing` row rather than disappearing.
+    # default kwargs (empty_as_null=true, keep_nulls=true) match upstream's own defaults: an
+    # empty list row and a whole-row-null list row each explode to one `missing` row, rather
+    # than disappearing.
     df = DataFrame((; a = Union{Missing, Vector{Int}}[[1, 2, 3], missing, [4, 5, 6], Int[]], b = [1, 2, 3, 4]))
     r = explode(df, ["a"])
     @test isequal(collect(r[:a]), [1, 2, 3, missing, 4, 5, 6, missing])
@@ -31,6 +31,27 @@ end
         )
     )
     @test_throws PolarsError explode(mismatched, ["col1", "col2"])
+end
+
+@testset "explode: empty_as_null / keep_nulls kwargs (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = Union{Missing, Vector{Int}}[[1, 2, 3], missing, [4, 5, 6], Int[]], b = [1, 2, 3, 4]))
+
+    # empty_as_null=false: an empty list row disappears entirely instead of becoming one
+    # `missing` row (the whole-row-null row still becomes `missing`, unaffected)
+    r_no_empty = explode(df, ["a"]; empty_as_null = false)
+    @test isequal(collect(r_no_empty[:a]), [1, 2, 3, missing, 4, 5, 6])
+    @test r_no_empty[:b] == [1, 1, 1, 2, 3, 3, 3]
+
+    # keep_nulls=false: a whole-row-null list row disappears instead of becoming one `missing`
+    # row (the empty-list row still becomes `missing`, unaffected)
+    r_no_nulls = explode(df, ["a"]; keep_nulls = false)
+    @test isequal(collect(r_no_nulls[:a]), [1, 2, 3, 4, 5, 6, missing])
+    @test r_no_nulls[:b] == [1, 1, 1, 3, 3, 3, 4]
+
+    # both false: both kinds of row disappear entirely
+    r_both = explode(df, ["a"]; empty_as_null = false, keep_nulls = false)
+    @test collect(r_both[:a]) == [1, 2, 3, 4, 5, 6]
+    @test r_both[:b] == [1, 1, 1, 3, 3, 3]
 end
 
 @testset "unpivot" begin

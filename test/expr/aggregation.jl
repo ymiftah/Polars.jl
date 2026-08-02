@@ -34,6 +34,36 @@
     @test sort(collect(select(df_dup, Polars.unique(col("x")))[:x])) == [1, 2, 3]
 end
 
+@testset "Polars.item: aggregation form, raises unless exactly one value (see plans/parity/gap_closure_scope.md)" begin
+    # not exported -- collides with the (1,1)-shape DataFrame/Series accessor of the same name
+    df = DataFrame((; a = [42]))
+    r = select(df, alias(Polars.item(col("a")), "n"))
+    @test only(collect(r[:n])) == 42
+
+    # more than one value always raises, regardless of allow_empty
+    df_multi = DataFrame((; a = [1, 2]))
+    @test_throws PolarsError collect(select(df_multi, alias(Polars.item(col("a")), "n")))
+    @test_throws PolarsError collect(select(df_multi, alias(Polars.item(col("a"); allow_empty = true), "n")))
+
+    # zero values: raises by default, becomes `missing` with allow_empty=true
+    df_empty = DataFrame((; a = Int[]))
+    @test_throws PolarsError collect(select(df_empty, alias(Polars.item(col("a")), "n")))
+    r_empty = select(df_empty, alias(Polars.item(col("a"); allow_empty = true), "n"))
+    @test ismissing(only(collect(r_empty[:n])))
+end
+
+@testset "Base.all / Base.any on Expr: whole-column aggregation with Kleene logic (distinct from Lists.all/any, see plans/parity/gap_closure_scope.md)" begin
+    df_all = DataFrame((; a = Union{Missing, Bool}[true, true, missing]))
+    # ignore_nulls=true (default): nulls skipped, remaining values are all true
+    @test only(collect(select(df_all, alias(all(col("a")), "n"))[:n])) == true
+    # ignore_nulls=false: no false value, but a null present -> null (three-valued logic)
+    @test ismissing(only(collect(select(df_all, alias(all(col("a"); ignore_nulls = false), "n"))[:n])))
+
+    df_any = DataFrame((; a = Union{Missing, Bool}[false, false, missing]))
+    @test only(collect(select(df_any, alias(any(col("a")), "n"))[:n])) == false
+    @test ismissing(only(collect(select(df_any, alias(any(col("a"); ignore_nulls = false), "n"))[:n])))
+end
+
 @testset "nan-propagating min/max" begin
     df = DataFrame((; x = [1.0, 2.0, NaN, 4.0]))
 
@@ -218,4 +248,24 @@ end
 
     rev = select(df, Polars.reverse(col("x")))
     @test collect(rev[:x]) == [3, 2, 1]
+end
+
+@testset "flatten: empty_as_null / keep_nulls kwargs (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = Union{Missing, Vector{Int}}[[1, 2], missing, Int[]]))
+
+    # defaults (both true): both a whole-row-null list and an empty list produce one `missing`
+    r_default = select(df, alias(flatten(col("a")), "f"))
+    @test isequal(collect(r_default[:f]), [1, 2, missing, missing])
+
+    # empty_as_null=false: the empty list row contributes nothing at all
+    r_no_empty = select(df, alias(flatten(col("a"); empty_as_null = false), "f"))
+    @test isequal(collect(r_no_empty[:f]), [1, 2, missing])
+
+    # keep_nulls=false: the whole-row-null list row contributes nothing at all
+    r_no_nulls = select(df, alias(flatten(col("a"); keep_nulls = false), "f"))
+    @test isequal(collect(r_no_nulls[:f]), [1, 2, missing])
+
+    # both false: neither special row contributes anything
+    r_both = select(df, alias(flatten(col("a"); empty_as_null = false, keep_nulls = false), "f"))
+    @test collect(r_both[:f]) == [1, 2]
 end
