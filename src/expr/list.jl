@@ -1,5 +1,5 @@
 module Lists
-using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
+using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
 
 @generate_expr_fns begin
     gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths, "Length of each list in `expr` (`null` list entries count, and a `null` list itself gives a `null` length -- an empty list gives `0`).")
@@ -14,6 +14,8 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
     gen_impl_expr_list!(polars_expr_list_unique_stable, ListNameSpace::unique_stable, "Like [`unique`](@ref), but preserves each element's first-occurrence order within the list (more expensive).")
     gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first, "First element of each list in `expr`.")
     gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last, "Last element of each list in `expr`.")
+    gen_impl_expr_list!(polars_expr_list_median, ListNameSpace::median, "Median of the values within each list of `expr`.")
+    gen_impl_expr_list!(polars_expr_list_drop_nulls, ListNameSpace::drop_nulls, "Removes `null` elements from each list of `expr`, shortening the lists.")
 end
 
 # `head` is pulled out of the `@generate_expr_fns` block (rather than generated via
@@ -39,6 +41,32 @@ Curried form of `head` for use with `|>` -- e.g. `col("x") |> Lists.head(2)`.
 head(n) = Base.Fix2(head, convert(Expr, n))
 
 """
+    tail(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
+
+Last `n` elements of each list in `expr` (fewer if the list is shorter than `n`). Complements
+[`head`](@ref). Not exported -- collides with the top-level `Polars.tail`; call as
+`Lists.tail(...)`.
+"""
+function tail(a::Expr, b::Expr)
+    out = API.polars_expr_list_tail(a, b)
+    return Expr(out)
+end
+tail(n) = Base.Fix2(tail, convert(Expr, n))
+
+"""
+    shift(expr::Polars.Expr, periods::Polars.Expr)::Polars.Expr
+
+Shifts each list's elements by `periods` (negative shifts up), filling vacated positions with
+`null` -- the per-list analogue of the top-level [`shift`](@ref). Not exported -- collides with
+that top-level `Polars.shift`; call as `Lists.shift(...)`.
+"""
+function shift(a::Expr, b::Expr)
+    out = API.polars_expr_list_shift(a, b)
+    return Expr(out)
+end
+shift(n) = Base.Fix2(shift, convert(Expr, n))
+
+"""
     get(expr::Polars.Expr, index::Polars.Expr; null_on_oob::Bool=false)::Polars.Expr
 
 Get items in every sublist by index. If `null_on_oob` is `false` (default), an
@@ -58,6 +86,71 @@ Curried form of [`get`](@ref) for use with `|>` -- e.g. `col("x") |> Lists.get(0
 get(index; null_on_oob::Bool = false) = expr -> get(expr, convert(Expr, index); null_on_oob)
 
 """
+    gather(expr::Polars.Expr, index::Polars.Expr; null_on_oob::Bool=false)::Polars.Expr
+
+Gathers each list's elements at the (per-list) positions in `index`. Distinct from the top-level
+[`gather`](@ref) (row-level gather across the whole column) -- this indexes *within* each row's
+own list. Not exported -- collides with that top-level `Polars.gather`; call as
+`Lists.gather(...)`.
+
+`index` should be a genuinely List-typed expression (e.g. `implode(lit([...]))`, or another
+`Lists`-namespace result) -- passing a bare, non-list literal like `lit([0, -1])` still works but
+prints an upstream deprecation warning (`list.gather with a flat datatype is deprecated`).
+"""
+function gather(expr::Expr, index::Expr; null_on_oob::Bool = false)
+    out = API.polars_expr_list_gather(expr, index, null_on_oob)
+    return Expr(out)
+end
+
+"""
+    gather_every(expr::Polars.Expr, n; offset=0)::Polars.Expr
+
+Within each list of `expr`, keeps every `n`-th element starting at `offset`. Distinct from the
+top-level [`gather_every`](@ref) (row-level, across the whole column). Not exported -- collides
+with that top-level `Polars.gather_every`; call as `Lists.gather_every(...)`.
+"""
+function gather_every(expr::Expr, n; offset = 0)
+    out = API.polars_expr_list_gather_every(expr, convert(Expr, n), convert(Expr, offset))
+    return Expr(out)
+end
+
+"""
+    sample_n(expr::Polars.Expr, n; with_replacement::Bool=false, shuffle::Bool=false,
+              seed::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Randomly samples `n` elements from each list of `expr`. Not exported -- collides with the
+top-level `Polars.sample_n`; call as `Lists.sample_n(...)`.
+"""
+function sample_n(
+        expr::Expr, n; with_replacement::Bool = false, shuffle::Bool = false,
+        seed::Union{Nothing, Integer} = nothing
+    )
+    n = convert(Expr, n)
+    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    out = GC.@preserve seed_ref API.polars_expr_list_sample_n(expr, n, with_replacement, shuffle, seed_ref)
+    return Expr(out)
+end
+
+"""
+    sample_fraction(expr::Polars.Expr, fraction; with_replacement::Bool=false, shuffle::Bool=false,
+                     seed::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Randomly samples a `fraction` of each list's elements from `expr`.
+"""
+function sample_fraction(
+        expr::Expr, fraction; with_replacement::Bool = false, shuffle::Bool = false,
+        seed::Union{Nothing, Integer} = nothing
+    )
+    fraction = convert(Expr, fraction)
+    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    out = GC.@preserve seed_ref API.polars_expr_list_sample_fraction(
+        expr, fraction, with_replacement, shuffle, seed_ref
+    )
+    return Expr(out)
+end
+export sample_fraction
+
+"""
     contains(expr::Polars.Expr, other::Polars.Expr; nulls_equal::Bool=true)::Polars.Expr
 
 Check if the list array contains an element. If `nulls_equal` is `true` (default),
@@ -74,6 +167,18 @@ end
 Curried form of [`contains`](@ref) for use with `|>`.
 """
 contains(other; nulls_equal::Bool = true) = expr -> contains(expr, convert(Expr, other); nulls_equal)
+
+"""
+    count_matches(expr::Polars.Expr, element)::Polars.Expr
+
+Counts occurrences of `element` within each list of `expr`.
+"""
+function count_matches(a::Expr, element)
+    out = API.polars_expr_list_count_matches(a, convert(Expr, element))
+    return Expr(out)
+end
+count_matches(element) = Base.Fix2(count_matches, convert(Expr, element))
+export count_matches
 
 """
     sort(expr::Polars.Expr; descending::Bool=false, nulls_last::Bool=false)::Polars.Expr
@@ -99,7 +204,8 @@ sort(; descending::Bool = false, nulls_last::Bool = false) = expr -> sort(expr; 
 
 Joins the string elements of each list in `expr` into a single string, separated by
 `separator`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, a
-`null` element makes that list's whole result `null` instead.
+`null` element makes that list's whole result `null` instead. Distinct from [`Strings.join`](@ref)
+(an aggregation across *all* rows into one value) -- this joins each row's own list independently.
 """
 function join(expr::Expr, separator::Expr; ignore_nulls::Bool = true)
     out = API.polars_expr_list_join(expr, separator, ignore_nulls)
@@ -118,7 +224,7 @@ join(separator; ignore_nulls::Bool = true) = expr -> join(expr, convert(Expr, se
 
 Extracts a sublist of each list in `expr`, starting at `offset` (0-indexed; negative indexes
 from the end of the list) with the given `length` (extends to the end of the list if `length`
-is `null`).
+is `null`). See [`head`](@ref)/[`tail`](@ref) for the fixed-endpoint special cases.
 """
 function slice(expr::Expr, offset::Expr, length::Expr)
     out = API.polars_expr_list_slice(expr, offset, length)
@@ -131,6 +237,7 @@ end
 Curried form of [`slice`](@ref) for use with `|>`.
 """
 slice(offset, length) = expr -> slice(expr, convert(Expr, offset), convert(Expr, length))
+export slice
 
 """
     diff(expr::Polars.Expr, n=1; null_behavior::Symbol=:ignore)::Polars.Expr
@@ -190,25 +297,141 @@ function all(expr::Expr; ignore_nulls::Bool = true)
 end
 
 """
-    to_struct(expr::Polars.Expr, names::AbstractVector{<:AbstractString})::Polars.Expr
+    union(expr::Polars.Expr, other::Polars.Expr)::Polars.Expr
 
-!!! warning "Unavailable in this build"
-    Upstream `ListNameSpace::to_struct` sits behind polars' own `list_to_struct` Cargo
-    feature, which is not enabled in this build. To enable it, add `"list_to_struct"` to
-    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
-    bindings.
+Set union between each row's list in `expr` and the corresponding list in `other`. Not exported --
+collides with `Base.union`; call as `Lists.union(...)`.
 """
-function to_struct(::Expr, ::AbstractVector)
-    return error(
-        "Lists.to_struct is unavailable in this build: polars' `to_struct` requires " *
-            "the `list_to_struct` Cargo feature, which c-polars does not currently enable. " *
-            "Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to enable it."
-    )
+function union(a::Expr, b::Expr)
+    out = API.polars_expr_list_union(a, b)
+    return Expr(out)
 end
+union(other) = Base.Fix2(union, convert(Expr, other))
+
+"""
+    set_difference(expr::Polars.Expr, other::Polars.Expr)::Polars.Expr
+
+Set difference (elements in `expr`'s list but not `other`'s) between each row's lists.
+"""
+function set_difference(a::Expr, b::Expr)
+    out = API.polars_expr_list_set_difference(a, b)
+    return Expr(out)
+end
+set_difference(other) = Base.Fix2(set_difference, convert(Expr, other))
+export set_difference
+
+"""
+    set_intersection(expr::Polars.Expr, other::Polars.Expr)::Polars.Expr
+
+Set intersection between each row's list in `expr` and the corresponding list in `other`.
+"""
+function set_intersection(a::Expr, b::Expr)
+    out = API.polars_expr_list_set_intersection(a, b)
+    return Expr(out)
+end
+set_intersection(other) = Base.Fix2(set_intersection, convert(Expr, other))
+export set_intersection
+
+"""
+    set_symmetric_difference(expr::Polars.Expr, other::Polars.Expr)::Polars.Expr
+
+Set symmetric difference (elements in exactly one of the two lists) between each row's lists.
+"""
+function set_symmetric_difference(a::Expr, b::Expr)
+    out = API.polars_expr_list_set_symmetric_difference(a, b)
+    return Expr(out)
+end
+set_symmetric_difference(other) = Base.Fix2(set_symmetric_difference, convert(Expr, other))
+export set_symmetric_difference
+
+"""
+    std(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
+
+Standard deviation of the values within each list of `expr`, with `ddof` degrees of freedom
+subtracted. Not exported -- collides with the top-level `Polars.std`; call as `Lists.std(...)`.
+"""
+std(expr::Expr; ddof::Integer = 1) = Expr(API.polars_expr_list_std(expr, UInt8(ddof)))
+
+"""
+    var(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
+
+Variance of the values within each list of `expr`, with `ddof` degrees of freedom subtracted. Not
+exported -- collides with the top-level `Polars.var`; call as `Lists.var(...)`.
+"""
+var(expr::Expr; ddof::Integer = 1) = Expr(API.polars_expr_list_var(expr, UInt8(ddof)))
+
+"""
+    apply(expr::Polars.Expr, evaluation::Polars.Expr)::Polars.Expr
+
+Runs `evaluation` once per row, with [`element`](@ref) bound to that row's list values, staying
+list-shaped -- e.g. `Lists.apply(col("x"), unique(element()))`. Named `apply` rather than
+upstream's `eval` -- `eval`/`include` are reserved per-module names in Julia and cannot be
+redefined. The primitive `reverse`/`unique`/`unique_stable` above are built from this internally;
+`filter` has no dedicated `Lists` function and is only reachable this way. For a per-row
+*reduction* to a single scalar, prefer a dedicated function ([`any`](@ref)/[`all`](@ref)/
+[`n_unique`](@ref)) or [`agg`](@ref Polars.Lists.agg) instead -- `apply` always keeps the list
+shape even when `evaluation` itself produces one value per row (e.g. `Lists.apply(x,
+all(element()))` gives a length-1 list per row, not a bare `Bool`). Not exported, matching the
+rest of this file's convention for qualified-use-only namespace members; call as
+`Lists.apply(...)`.
+"""
+function apply(expr::Expr, evaluation::Expr)
+    out = API.polars_expr_list_eval(expr, evaluation)
+    return Expr(out)
+end
+
+"""
+    agg(expr::Polars.Expr, evaluation::Polars.Expr)::Polars.Expr
+
+Like [`apply`](@ref Polars.Lists.apply), but `evaluation` is expected to reduce to a single scalar
+per row and the result is unwrapped to that scalar. `any`/`all`/`n_unique` above are the dedicated
+form of this for their own reducers; `agg` is for anything else that doesn't have one. Not
+exported -- collides with the top-level `Polars.agg` (`LazyGroupBy` aggregation); call as
+`Lists.agg(...)`.
+"""
+function agg(expr::Expr, evaluation::Expr)
+    out = API.polars_expr_list_agg(expr, evaluation)
+    return Expr(out)
+end
+
+"""
+    to_array(expr::Polars.Expr, width::Integer)::Polars.Expr
+
+Converts a `List`-typed `expr` to a fixed-width `Array` column of the given `width` (every row's
+list must have exactly `width` elements).
+
+!!! warning "Result cannot be materialized into Julia yet"
+    The `Array` dtype this produces cannot currently be read back into a Julia value (a
+    pre-existing gap, not specific to this function -- see `docs/src/limitations.md`
+    `Selectors.array()` entry for the same underlying cause). Usable in a lazy pipeline that
+    doesn't collect the column directly (e.g. writing straight to parquet), but
+    `collect(df)[:col]`/`getindex` on the result raises.
+"""
+to_array(expr::Expr, width::Integer) = Expr(API.polars_expr_list_to_array(expr, Csize_t(width)))
+export to_array
+
+"""
+    to_struct(expr::Polars.Expr, names::Vector{String})::Polars.Expr
+
+Converts a `List`-typed `expr` to a `Struct` column, one field per list position, named
+`names[i]`. `length(names)` fixes the field count (and so the schema) -- a row whose list is
+shorter gets `missing` for the missing trailing fields; longer raises at collect time.
+"""
+function to_struct(expr::Expr, names::Vector{String})
+    GC.@preserve names begin
+        ptrs = Ptr{UInt8}[pointer(s) for s in names]
+        lens = Csize_t[ncodeunits(s) for s in names]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_list_to_struct(expr, ptrs, lens, length(ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+export to_struct
 
 # `get`/`contains`/`head` are intentionally not exported -- they collide with
 # `Base.get`/`Base.contains`/`Polars.head` respectively, and are designed for qualified use
-# (`Lists.get`, etc.); `using Polars.Lists` would otherwise clash with those. `sort`/`join`/
-# `diff`/`any`/`all` follow the same rule (`Base.sort`/`Base.join`/`Base.diff`/`Base.any`/
-# `Base.all`); `to_struct` is unavailable in this build (see above) so is left unexported too.
+# (`Lists.get`, etc.); `using Polars.Lists` would otherwise clash with those. `tail`/`shift`/
+# `sample_n`/`sort`/`join`/`union`/`std`/`var`/`apply`/`agg`/`gather`/`gather_every` follow the
+# same rule (each collides with either `Base` or a top-level `Polars` export of the same name).
 end # module Lists

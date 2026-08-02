@@ -20,6 +20,12 @@
     @test r2[:scalaradd] == [2, 3, 4]
 end
 
+@testset "unary negation (-expr) (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = Union{Missing, Int}[1, -2, 3, missing]))
+    r = select(df, alias(-col("a"), "n"))
+    @test isequal(collect(r[:n]), [-1, 2, -3, missing])
+end
+
 @testset "comparison operators" begin
     df = DataFrame((; x = [1, 2, 3]))
 

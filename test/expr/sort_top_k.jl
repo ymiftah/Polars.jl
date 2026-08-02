@@ -84,6 +84,27 @@ end
     @test sort(filter(!ismissing, full)) == [1, 2, 3, 4]
 end
 
+@testset "bottom_k: the complement of top_k (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; x = [3, 1, 4, 1, 5]))
+
+    r = select(df, alias(bottom_k(col("x"), lit(2)), "b"))
+    @test sort(collect(r[:b])) == [1, 1]
+
+    r_int = select(df, alias(bottom_k(col("x"), 3), "b"))
+    @test sort(collect(r_int[:b])) == [1, 1, 3]
+
+    # curried form, matches the non-curried result
+    r_curried = select(df, alias(col("x") |> bottom_k(2), "b"))
+    @test sort(collect(r_curried[:b])) == sort(collect(r[:b]))
+
+    # nulls: same convention as top_k -- when k covers the whole column, nulls are included
+    df_null = DataFrame((; x = Union{Missing, Int}[3, missing, 1, missing]))
+    r_null = select(df_null, alias(bottom_k(col("x"), 4), "b"))
+    out = collect(r_null[:b])
+    @test count(ismissing, out) == 2
+    @test sort(filter(!ismissing, out)) == [1, 3]
+end
+
 @testset "gather" begin
     df = DataFrame((; a = [1, 2, 3, 4]))
 

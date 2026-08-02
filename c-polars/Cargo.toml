@@ -26,7 +26,12 @@ polars-ops = { version = "0.54.4", features = ["round_series", "dtype-time"] }
 # `http` are already active transitively via this crate's `lazy`/`streaming`, as is
 # `dtype-categorical`. Do not add them back -- they would be dead weight, not a fix. Check with
 # `cargo tree -e features -i <crate>`, which is the source of truth, not this list.
-polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration", "aws", "gcp", "azure", "rolling_window", "moment", "is_between", "rle", "cov", "ewma", "cutqcut"] }
+# `list_sets`/`list_count`/`list_gather`/`list_drop_nulls`/`list_sample`/`list_to_struct`:
+# `ListNameSpace` set ops/count_matches/gather(_every)/drop_nulls/sample_n(_fraction)/to_struct.
+# `dtype-array`: `list.to_array`. `concat_str`: string `join`. `extract_groups`: named-capture
+# regex into a Struct. `json`: `struct.json_encode`. `is_first_distinct`/`is_last_distinct`: the
+# dedicated dedup flags.
+polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration", "aws", "gcp", "azure", "rolling_window", "moment", "is_between", "rle", "cov", "ewma", "cutqcut", "list_sets", "list_count", "list_gather", "list_drop_nulls", "list_sample", "list_to_struct", "dtype-array", "concat_str", "extract_groups", "json", "is_first_distinct", "is_last_distinct"] }
 
 # Optimize the vendored polars kernels even in dev: at the default opt-level 0, every dev/test/CI
 # run executes unoptimized kernels, which invalidates any live timing impression. This crate's own

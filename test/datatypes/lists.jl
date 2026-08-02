@@ -251,9 +251,146 @@ end
     @test isequal(collect(r_all_kleene[:all]), [true, false, true, false, false, missing, true])
 end
 
-@testset "Lists.to_struct unavailable in this build (needs the list_to_struct Cargo feature)" begin
+@testset "Lists.to_struct: one field per list position (see plans/parity/gap_closure_scope.md Group C, batch-9-lists-structs.md)" begin
     df = DataFrame((; a = [[1, 2], [3, 4]]))
-    @test_throws ErrorException Lists.to_struct(col("a"), ["x", "y"])
+    r = select(df, alias(Lists.to_struct(col("a"), ["x", "y"]), "s"))
+    vals = collect(r[:s])
+    @test vals[1] == (x = 1, y = 2)
+    @test vals[2] == (x = 3, y = 4)
+
+    # a shorter list gets missing for the trailing fields, not an error
+    df_short = DataFrame((; a = [[1], [3, 4]]))
+    r_short = select(df_short, alias(Lists.to_struct(col("a"), ["x", "y"]), "s"))
+    vals_short = collect(r_short[:s])
+    @test vals_short[1].x == 1
+    @test ismissing(vals_short[1].y)
+    @test vals_short[2] == (x = 3, y = 4)
+end
+
+@testset "Lists.median / Lists.drop_nulls (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = [[1, 2, 3], [1, 2, 3, 4]]))
+    r_med = select(df, alias(Lists.median(col("a")), "m"))
+    @test collect(r_med[:m]) == [2.0, 2.5]
+
+    df_dn = DataFrame((; a = [Union{Missing, Int}[1, missing, 2], Union{Missing, Int}[missing, missing]]))
+    r_dn = select(df_dn, alias(Lists.drop_nulls(col("a")), "d"))
+    @test collect(r_dn[:d]) == [[1, 2], []]
+end
+
+@testset "Lists.tail / Lists.shift (not exported -- collide with the top-level Polars.tail/shift; see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = [[1, 2, 3, 4], [10, 20]]))
+
+    r_tail = select(df, alias(Lists.tail(col("a"), lit(2)), "t"))
+    @test collect(r_tail[:t]) == [[3, 4], [10, 20]]
+    r_tail_curried = select(df, alias(col("a") |> Lists.tail(2), "t"))
+    @test collect(r_tail_curried[:t]) == collect(r_tail[:t])
+
+    r_shift = select(df, alias(Lists.shift(col("a"), lit(1)), "s"))
+    @test isequal(collect(r_shift[:s]), [[missing, 1, 2, 3], [missing, 10]])
+    r_shift_curried = select(df, alias(col("a") |> Lists.shift(1), "s"))
+    @test isequal(collect(r_shift_curried[:s]), collect(r_shift[:s]))
+end
+
+@testset "Lists.gather / Lists.gather_every (not exported -- collide with the top-level row-level gather/gather_every; see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = [[10, 20, 30, 40]]))
+
+    # index must be a genuinely List-typed expression (implode(...)) to avoid triggering upstream's
+    # `list.gather with a flat datatype is deprecated` warning -- see Lists.gather's docstring
+    r_gather = select(df, alias(Lists.gather(col("a"), implode(lit([0, -1]))), "g"))
+    @test collect(only(r_gather[:g])) == [10, 40]
+
+    r_oob = select(df, alias(Lists.gather(col("a"), implode(lit([0, 99])); null_on_oob = true), "g"))
+    @test isequal(collect(only(r_oob[:g])), [10, missing])
+
+    r_ge = select(df, alias(Lists.gather_every(col("a"), 2), "g"))
+    @test collect(only(r_ge[:g])) == [10, 30]
+
+    r_ge_offset = select(df, alias(Lists.gather_every(col("a"), 2; offset = 1), "g"))
+    @test collect(only(r_ge_offset[:g])) == [20, 40]
+end
+
+@testset "Lists.sample_n / Lists.sample_fraction: correct output length and seed-reproducibility (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = [collect(1:10)]))
+
+    r_sn = select(df, alias(Lists.sample_n(col("a"), 3; seed = 42), "s"))
+    out_sn = collect(only(r_sn[:s]))
+    @test length(out_sn) == 3
+    @test all(in(1:10), out_sn)
+
+    r_sf = select(df, alias(Lists.sample_fraction(col("a"), 0.5; seed = 42), "s"))
+    out_sf = collect(only(r_sf[:s]))
+    @test length(out_sf) == 5
+
+    # same seed -> same sample
+    r_sn2 = select(df, alias(Lists.sample_n(col("a"), 3; seed = 42), "s"))
+    @test collect(only(r_sn2[:s])) == out_sn
+end
+
+@testset "Lists.count_matches (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = [[1, 2, 1, 3, 1]]))
+    r = select(df, alias(Lists.count_matches(col("a"), 1), "c"))
+    @test only(collect(r[:c])) == 3
+    r_curried = select(df, alias(col("a") |> Lists.count_matches(1), "c"))
+    @test collect(r_curried[:c]) == collect(r[:c])
+end
+
+@testset "Lists.union / set_difference / set_intersection / set_symmetric_difference (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = [[1, 2, 3]], b = [[2, 3, 4]]))
+
+    r_union = select(df, alias(Lists.union(col("a"), col("b")), "u"))
+    @test sort(collect(only(r_union[:u]))) == [1, 2, 3, 4]
+
+    r_diff = select(df, alias(Lists.set_difference(col("a"), col("b")), "d"))
+    @test sort(collect(only(r_diff[:d]))) == [1]
+
+    r_inter = select(df, alias(Lists.set_intersection(col("a"), col("b")), "i"))
+    @test sort(collect(only(r_inter[:i]))) == [2, 3]
+
+    r_symdiff = select(df, alias(Lists.set_symmetric_difference(col("a"), col("b")), "sd"))
+    @test sort(collect(only(r_symdiff[:sd]))) == [1, 4]
+
+    # curried form
+    r_union_curried = select(df, alias(col("a") |> Lists.union(col("b")), "u"))
+    @test sort(collect(only(r_union_curried[:u]))) == sort(collect(only(r_union[:u])))
+end
+
+@testset "Lists.std / Lists.var (not exported -- collide with top-level Polars.std/var; see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = [[1.0, 2.0, 3.0, 4.0]]))
+    r_std = select(df, alias(Lists.std(col("a")), "s"))
+    r_var = select(df, alias(Lists.var(col("a")), "v"))
+    @test only(collect(r_std[:s])) ≈ 1.2909944487358056
+    @test only(collect(r_var[:v])) ≈ 1.6666666666666667
+end
+
+@testset "Lists.apply / Lists.agg: per-row evaluation over element() (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = [[3, 1, 2, 1], [5, 4]]))
+
+    # apply stays list-shaped even though `unique` reduces duplicates within each row
+    r_apply = select(df, alias(Lists.apply(col("a"), unique(element())), "u"))
+    @test sort.(collect.(collect(r_apply[:u]))) == [[1, 2, 3], [4, 5]]
+
+    # agg unwraps a scalar-reducing evaluation to a bare value per row, unlike apply
+    r_agg = select(df, alias(Lists.agg(col("a"), Polars.sum(element())), "s"))
+    @test collect(r_agg[:s]) == [7, 9]
+end
+
+@testset "Lists.to_array: usable in a non-materializing pipeline despite the read-back gap (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; a = [[1, 2], [3, 4]]))
+    lf = select(lazy(df), alias(Lists.to_array(col("a"), 2), "arr"))
+
+    # collecting to a polars-side DataFrame and writing to parquet doesn't need Arrow
+    # materialization into Julia, so both work fine
+    dfr = collect(lf)
+    @test size(dfr) == (2, 1)
+    mktempdir() do dir
+        path = joinpath(dir, "arr.parquet")
+        write_parquet(path, dfr)
+        @test filesize(path) > 0
+    end
+
+    # both collect_schema and column materialization raise a clean error, not a process abort
+    @test_throws ErrorException collect_schema(lf)
+    @test_throws ErrorException dfr[:arr]
 end
 
 @testset "Lists.unique on Boolean lists collapses repeated nulls to one (py-polars test_list_unique_boolean_22753)" begin

@@ -530,6 +530,8 @@ const struct polars_error_t *polars_lazy_frame_explode(struct polars_lazy_frame_
                                                        const uint8_t *const *names,
                                                        const uintptr_t *lens,
                                                        uintptr_t n,
+                                                       bool empty_as_null,
+                                                       bool keep_nulls,
                                                        struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_unpivot(struct polars_lazy_frame_t *lf,
@@ -680,6 +682,17 @@ const struct polars_expr_t *polars_expr_to_uppercase(const struct polars_expr_t 
 const struct polars_error_t *polars_expr_cast(const struct polars_expr_t *expr,
                                               enum polars_value_type_t dtype,
                                               const struct polars_expr_t **out);
+
+/**
+ * Strict cast: raises on overflow/loss instead of `polars_expr_cast`'s non-strict "overflow
+ * becomes null" behavior (our `cast()` was hardwired non-strict; upstream `Expr.cast(dtype,
+ * strict=True)` defaults to strict -- this exposes the other branch as an explicit function
+ * rather than a mode switch on `cast` itself, matching `Expr::strict_cast`/`Expr::cast`'s own
+ * split upstream).
+ */
+const struct polars_error_t *polars_expr_strict_cast(const struct polars_expr_t *expr,
+                                                     enum polars_value_type_t dtype,
+                                                     const struct polars_expr_t **out);
 
 /**
  * Casts to `Datetime(unit, tz)`. `tz_len == 0` casts to a naive (timezone-less) Datetime.
@@ -894,8 +907,9 @@ const struct polars_expr_t *polars_expr_when_then(const struct polars_expr_t *co
                                                   const struct polars_expr_t *otherwise);
 
 /**
- * `order_by` is a single optional expr (null = none). `partition_by` and `order_by` cannot both
- * be empty/null -- at least one is required.
+ * `order_by` is a single optional expr (null = none). An empty `partition_by` with a null
+ * `order_by` is valid -- the whole frame is treated as one group (see the whole-frame-sentinel
+ * substitution below).
  */
 const struct polars_error_t *polars_expr_over(const struct polars_expr_t *expr,
                                               const struct polars_expr_t *const *partition_by,
@@ -965,6 +979,8 @@ const struct polars_expr_t *polars_expr_clip(const struct polars_expr_t *expr,
                                              const struct polars_expr_t *min,
                                              const struct polars_expr_t *max);
 
+const struct polars_expr_t *polars_expr_neg(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_replace(const struct polars_expr_t *expr,
                                                 const struct polars_expr_t *old,
                                                 const struct polars_expr_t *new_);
@@ -982,13 +998,30 @@ const struct polars_expr_t *polars_expr_is_duplicated(const struct polars_expr_t
 
 const struct polars_expr_t *polars_expr_is_unique(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_is_first_distinct(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_is_last_distinct(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_count(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_first(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_last(const struct polars_expr_t *expr);
 
+/**
+ * The aggregation form of `item()`: errors if the expression evaluates to `!= 1` values, unless
+ * `allow_empty` is set, in which case zero values also succeeds (producing `null`). Distinct from
+ * `DataFrame`/`Series` `item()`, which is a `(1,1)`-shape accessor, not an aggregation -- the two
+ * share a name upstream but are different functions (see `plans/parity/batch-2-aggregation-
+ * statistics.md`'s Step-9 finding).
+ */
+const struct polars_expr_t *polars_expr_item(const struct polars_expr_t *expr, bool allow_empty);
+
 const struct polars_expr_t *polars_expr_not(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_all(const struct polars_expr_t *expr, bool ignore_nulls);
+
+const struct polars_expr_t *polars_expr_any(const struct polars_expr_t *expr, bool ignore_nulls);
 
 const struct polars_expr_t *polars_expr_is_finite(const struct polars_expr_t *expr);
 
@@ -1020,7 +1053,9 @@ const struct polars_error_t *polars_expr_value_counts(const struct polars_expr_t
 
 const struct polars_expr_t *polars_expr_implode(const struct polars_expr_t *expr);
 
-const struct polars_expr_t *polars_expr_flatten(const struct polars_expr_t *expr);
+const struct polars_expr_t *polars_expr_flatten(const struct polars_expr_t *expr,
+                                                bool empty_as_null,
+                                                bool keep_nulls);
 
 const struct polars_expr_t *polars_expr_reverse(const struct polars_expr_t *expr);
 
@@ -1059,6 +1094,23 @@ const struct polars_expr_t *polars_expr_div(const struct polars_expr_t *a,
 
 const struct polars_expr_t *polars_expr_floor_div(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_clip_min(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_clip_max(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_bottom_k(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *b);
+
+/**
+ * `shift(n, fill_value)` -- unlike the existing binary `shift(n)` (no fill), out-of-range rows
+ * get `fill_value` instead of `null`.
+ */
+const struct polars_expr_t *polars_expr_shift_and_fill(const struct polars_expr_t *expr,
+                                                       const struct polars_expr_t *n,
+                                                       const struct polars_expr_t *fill_value);
 
 const struct polars_expr_t *polars_expr_fill_null(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *b);
@@ -1161,6 +1213,29 @@ const struct polars_expr_t *polars_expr_list_first(const struct polars_expr_t *a
 
 const struct polars_expr_t *polars_expr_list_last(const struct polars_expr_t *a);
 
+const struct polars_expr_t *polars_expr_list_median(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_list_drop_nulls(const struct polars_expr_t *a);
+
+/**
+ * `Lists.eval`: runs `evaluation` once per row, with `element()` bound to that row's list values
+ * -- the same primitive the crate already uses internally for `reverse`/`unique`/`unique_stable`
+ * above, exposed directly. This is the multiplier for the "most of the list namespace is
+ * missing" finding (`plans/parity/batch-9-lists-structs.md`): `all`/`any` have no dedicated
+ * `ListNameSpace` method in this polars version at all and are *only* reachable this way
+ * (`eval(element().all(ignore_nulls))`), and `n_unique`/`filter` compose the same way.
+ */
+const struct polars_expr_t *polars_expr_list_eval(const struct polars_expr_t *a,
+                                                  const struct polars_expr_t *evaluation);
+
+/**
+ * `Lists.agg`: like `eval`, but the per-row expression is expected to reduce to a single scalar
+ * (`EvalVariant::ListAgg` instead of `::List`) -- needed for e.g. `n_unique` per row, which
+ * `eval` alone cannot express (it stays list-shaped).
+ */
+const struct polars_expr_t *polars_expr_list_agg(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *evaluation);
+
 const struct polars_expr_t *polars_expr_list_sort(const struct polars_expr_t *a,
                                                   bool descending,
                                                   bool nulls_last);
@@ -1172,9 +1247,30 @@ const struct polars_expr_t *polars_expr_list_get(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_list_head(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *b);
 
-const struct polars_expr_t *polars_expr_list_contains(const struct polars_expr_t *a,
-                                                      const struct polars_expr_t *other,
-                                                      bool nulls_equal);
+const struct polars_expr_t *polars_expr_list_tail(const struct polars_expr_t *a,
+                                                  const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_list_shift(const struct polars_expr_t *a,
+                                                   const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_list_count_matches(const struct polars_expr_t *a,
+                                                           const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_list_union(const struct polars_expr_t *a,
+                                                   const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_list_set_difference(const struct polars_expr_t *a,
+                                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_list_set_intersection(const struct polars_expr_t *a,
+                                                              const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_list_set_symmetric_difference(
+    const struct polars_expr_t *a, const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_list_std(const struct polars_expr_t *a, uint8_t ddof);
+
+const struct polars_expr_t *polars_expr_list_var(const struct polars_expr_t *a, uint8_t ddof);
 
 const struct polars_expr_t *polars_expr_list_join(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *separator,
@@ -1184,9 +1280,47 @@ const struct polars_expr_t *polars_expr_list_slice(const struct polars_expr_t *a
                                                    const struct polars_expr_t *offset,
                                                    const struct polars_expr_t *length);
 
+const struct polars_expr_t *polars_expr_list_gather(const struct polars_expr_t *a,
+                                                    const struct polars_expr_t *index,
+                                                    bool null_on_oob);
+
+const struct polars_expr_t *polars_expr_list_gather_every(const struct polars_expr_t *a,
+                                                          const struct polars_expr_t *n,
+                                                          const struct polars_expr_t *offset);
+
 const struct polars_expr_t *polars_expr_list_diff(const struct polars_expr_t *a,
                                                   int64_t n,
                                                   enum polars_null_behavior_t null_behavior);
+
+const struct polars_expr_t *polars_expr_list_sample_n(const struct polars_expr_t *a,
+                                                      const struct polars_expr_t *n,
+                                                      bool with_replacement,
+                                                      bool shuffle,
+                                                      const uint64_t *seed);
+
+const struct polars_expr_t *polars_expr_list_sample_fraction(const struct polars_expr_t *a,
+                                                             const struct polars_expr_t *fraction,
+                                                             bool with_replacement,
+                                                             bool shuffle,
+                                                             const uint64_t *seed);
+
+const struct polars_expr_t *polars_expr_list_to_array(const struct polars_expr_t *a,
+                                                      uintptr_t width);
+
+/**
+ * Converts a `List` column to a `Struct` column, one field per list position, named `names[i]`.
+ * `names.len()` fixes the field count (and so the schema) -- a row whose list is shorter gets
+ * `null` for the missing trailing fields; longer is a runtime error (upstream's own behavior).
+ */
+const struct polars_error_t *polars_expr_list_to_struct(const struct polars_expr_t *a,
+                                                        const uint8_t *const *names,
+                                                        const uintptr_t *lens,
+                                                        uintptr_t num_names,
+                                                        const struct polars_expr_t **out);
+
+const struct polars_expr_t *polars_expr_list_contains(const struct polars_expr_t *a,
+                                                      const struct polars_expr_t *other,
+                                                      bool nulls_equal);
 
 const struct polars_expr_t *polars_expr_str_to_uppercase(const struct polars_expr_t *a);
 
@@ -1228,6 +1362,52 @@ const struct polars_expr_t *polars_expr_str_head(const struct polars_expr_t *a,
 
 const struct polars_expr_t *polars_expr_str_tail(const struct polars_expr_t *a,
                                                  const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_strip_chars_start(const struct polars_expr_t *a,
+                                                              const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_strip_chars_end(const struct polars_expr_t *a,
+                                                            const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_replace_n(const struct polars_expr_t *a,
+                                                      const struct polars_expr_t *pat,
+                                                      const struct polars_expr_t *value,
+                                                      bool literal,
+                                                      int64_t n);
+
+/**
+ * Struct-typed split: exactly `n` fields, the remainder (if any) folded into the last one.
+ * Distinct from `polars_expr_str_split` above, which produces a variable-length `List<String>`.
+ */
+const struct polars_expr_t *polars_expr_str_splitn(const struct polars_expr_t *a,
+                                                   const struct polars_expr_t *by,
+                                                   uintptr_t n);
+
+const struct polars_expr_t *polars_expr_str_split_exact(const struct polars_expr_t *a,
+                                                        const struct polars_expr_t *by,
+                                                        uintptr_t n);
+
+/**
+ * Aggregating join-with-separator across *all* rows into a single value (upstream `str.join`,
+ * the replacement for the deprecated `str.concat`) -- distinct from `Lists.join` above, which
+ * joins each row's own list independently. `delimiter` is a plain string (not an `Expr`) because
+ * the aggregation itself has no per-row context to evaluate a column expression against.
+ */
+const struct polars_error_t *polars_expr_str_join(const struct polars_expr_t *a,
+                                                  const uint8_t *delimiter,
+                                                  uintptr_t delimiter_len,
+                                                  bool ignore_nulls,
+                                                  const struct polars_expr_t **out);
+
+/**
+ * Named-capture-group regex extraction into a `Struct` column (one field per named group).
+ * `pat` is a plain string, not an `Expr` -- upstream compiles the regex at plan time to
+ * determine the output `Struct`'s schema (field names/count), so it cannot vary per row.
+ */
+const struct polars_error_t *polars_expr_str_extract_groups(const struct polars_expr_t *a,
+                                                            const uint8_t *pat,
+                                                            uintptr_t pat_len,
+                                                            const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_str_contains(const struct polars_expr_t *a,
                                                      const struct polars_expr_t *pat,
@@ -1393,6 +1573,15 @@ const struct polars_error_t *polars_expr_struct_rename_fields(const struct polar
                                                               const uintptr_t *lens,
                                                               uintptr_t num_names,
                                                               const struct polars_expr_t **out);
+
+const struct polars_expr_t *polars_expr_struct_json_encode(const struct polars_expr_t *expr);
+
+/**
+ * Applies each of `fields` to the struct's selected field(s) in place (via `pl.field("x")...`
+ * inside each expression), leaving other fields untouched -- upstream `struct.with_fields`.
+ */
+const struct polars_expr_t *polars_expr_struct_with_fields(
+    const struct polars_expr_t *a, const struct polars_expr_t *const *fields, uintptr_t n_fields);
 
 bool polars_expr_meta_is_column(const struct polars_expr_t *expr);
 

@@ -17,6 +17,8 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
     )
 
     gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars, "Removes any leading/trailing characters of `a` that appear in `b` (a string of characters to strip, not a substring to match). Has a curried form `strip_chars(chars)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_start, StringNameSpace::strip_chars_start, "Like [`strip_chars`](@ref), but only strips leading characters. Has a curried form `strip_chars_start(chars)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_end, StringNameSpace::strip_chars_end, "Like [`strip_chars`](@ref), but only strips trailing characters. Has a curried form `strip_chars_end(chars)` -- see [Curried forms for pipe-based composition](@ref).")
     gen_impl_expr_binary_str!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix, "Removes the literal prefix `b` from `a` if present (no-op otherwise). Has a curried form `strip_prefix(prefix)` -- see [Curried forms for pipe-based composition](@ref).")
     gen_impl_expr_binary_str!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix, "Removes the literal suffix `b` from `a` if present (no-op otherwise). Has a curried form `strip_suffix(suffix)` -- see [Curried forms for pipe-based composition](@ref).")
     gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split, "Splits each string of `a` on the literal (non-regex) substring `b`, returning a `List` of substrings (see [List](@ref expr-list)). Has a curried form `split(by)` -- see [Curried forms for pipe-based composition](@ref).")
@@ -75,6 +77,8 @@ starts_with(pat) = Base.Fix2(starts_with, convert(Expr, pat))
 ends_with(pat) = Base.Fix2(ends_with, convert(Expr, pat))
 contains_literal(pat) = Base.Fix2(contains_literal, convert(Expr, pat))
 strip_chars(matches) = Base.Fix2(strip_chars, convert(Expr, matches))
+strip_chars_start(matches) = Base.Fix2(strip_chars_start, convert(Expr, matches))
+strip_chars_end(matches) = Base.Fix2(strip_chars_end, convert(Expr, matches))
 strip_prefix(prefix) = Base.Fix2(strip_prefix, convert(Expr, prefix))
 strip_suffix(suffix) = Base.Fix2(strip_suffix, convert(Expr, suffix))
 split(by) = Base.Fix2(split, convert(Expr, by))
@@ -327,20 +331,82 @@ function to_datetime(
 end
 
 """
-    join(expr::Polars.Expr; ignore_nulls::Bool=true)::Polars.Expr
+    replace_n(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr, n::Integer; literal::Bool=false)::Polars.Expr
 
-!!! warning "Unavailable in this build"
-    Upstream `StringNameSpace::join` (concatenating a whole String column into one value) sits
-    behind polars' own `concat_str` Cargo feature, which is not enabled in this build. To
-    enable it, add `"concat_str"` to `c-polars/Cargo.toml`'s `polars` feature list, rebuild
-    `c-polars`, and regenerate the bindings.
+Replaces the first `n` matches of `pat` with `value` (a negative `n` behaves like
+[`replace_all`](@ref)). If `literal` is `true`, `pat` is treated as a plain substring rather than
+a regex.
 """
-function join(::Expr; ignore_nulls::Bool = true)
-    return error(
-        "Strings.join is unavailable in this build: polars' string `join` requires " *
-            "the `concat_str` Cargo feature, which c-polars does not currently enable. " *
-            "Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to enable it."
-    )
+function replace_n(expr::Expr, pat::Expr, value::Expr, n::Integer; literal::Bool = false)
+    out = API.polars_expr_str_replace_n(expr, pat, value, literal, Int64(n))
+    return Expr(out)
+end
+
+"""
+    replace_n(pat, value, n::Integer; literal::Bool=false)::Base.Callable
+
+Curried form of [`replace_n`](@ref) for use with `|>`.
+"""
+function replace_n(pat, value, n::Integer; literal::Bool = false)
+    return expr -> replace_n(expr, convert(Expr, pat), convert(Expr, value), n; literal)
+end
+
+"""
+    splitn(expr::Polars.Expr, by::Polars.Expr, n::Integer)::Polars.Expr
+
+Splits each string of `expr` on the literal substring `by` into a `Struct` (see
+[Struct](@ref expr-struct)) of exactly `n` fields -- if more than `n-1` splits are possible, the
+remainder of the string is kept intact in the final field. Distinct from the `List`-returning
+[`split`](@ref), which returns a variable number of pieces.
+"""
+function splitn(expr::Expr, by::Expr, n::Integer)
+    out = API.polars_expr_str_splitn(expr, by, Csize_t(n))
+    return Expr(out)
+end
+
+"""
+    splitn(by, n::Integer)::Base.Callable
+
+Curried form of [`splitn`](@ref) for use with `|>`.
+"""
+splitn(by, n::Integer) = expr -> splitn(expr, convert(Expr, by), n)
+
+"""
+    split_exact(expr::Polars.Expr, by::Polars.Expr, n::Integer)::Polars.Expr
+
+Splits each string of `expr` on the literal substring `by` into a `Struct` (see
+[Struct](@ref expr-struct)) of exactly `n + 1` fields, from exactly `n` split points -- if fewer
+than `n` splits are possible, the missing trailing fields get `missing` (unlike [`splitn`](@ref),
+which instead keeps the remainder intact in its final field and produces `n` fields total, not
+`n + 1`).
+"""
+function split_exact(expr::Expr, by::Expr, n::Integer)
+    out = API.polars_expr_str_split_exact(expr, by, Csize_t(n))
+    return Expr(out)
+end
+
+"""
+    split_exact(by, n::Integer)::Base.Callable
+
+Curried form of [`split_exact`](@ref) for use with `|>`.
+"""
+split_exact(by, n::Integer) = expr -> split_exact(expr, convert(Expr, by), n)
+
+"""
+    join(expr::Polars.Expr, delimiter::AbstractString; ignore_nulls::Bool=true)::Polars.Expr
+
+Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a
+single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are
+skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from
+[`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows).
+Not exported -- collides with `Base.join`; call as `Strings.join(...)`.
+"""
+function join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true)
+    delimiter = String(delimiter)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_str_join(expr, delimiter, ncodeunits(delimiter), ignore_nulls, out)
+    polars_error(err)
+    return Expr(out[])
 end
 
 """
@@ -364,19 +430,17 @@ end
 """
     extract_groups(expr::Polars.Expr, pat::AbstractString)::Polars.Expr
 
-!!! warning "Unavailable in this build"
-    Upstream `StringNameSpace::extract_groups` sits behind polars' own `extract_groups` Cargo
-    feature, which is not enabled in this build. To enable it, add `"extract_groups"` to
-    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
-    bindings.
+Extracts every named capture group of the regex `pat` from the first match within each string of
+`expr`, into a `Struct` (see [Struct](@ref expr-struct)) with one field per named group. `pat`
+must be a plain string (not an `Expr`): the regex is compiled once, at plan time, to determine the
+output `Struct`'s field names.
 """
-function extract_groups(::Expr, ::AbstractString)
-    return error(
-        "Strings.extract_groups is unavailable in this build: polars' `extract_groups` " *
-            "requires the `extract_groups` Cargo feature, which c-polars does not currently " *
-            "enable. Add it to c-polars/Cargo.toml's `polars` feature list and rebuild to " *
-            "enable it."
-    )
+function extract_groups(expr::Expr, pat::AbstractString)
+    pat = String(pat)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_str_extract_groups(expr, pat, ncodeunits(pat), out)
+    polars_error(err)
+    return Expr(out[])
 end
 
 """
@@ -399,7 +463,7 @@ end
 # `contains`/`replace`/`join`/`reverse` are intentionally not exported -- they collide with
 # `Base.contains`/`Base.replace`/`Base.join`/`Base.reverse` and are designed for qualified use
 # (`Strings.contains`, etc.); `using Polars.Strings` would otherwise clash with those.
-# `to_integer`/`extract_groups` are unavailable in this build (see above), so are left
-# unexported too.
-export slice, replace_all, extract, count_matches, to_date, to_datetime, find, pad_start, pad_end
+# `to_integer` is unavailable in this build (see above), so is left unexported too.
+export slice, replace_all, extract, count_matches, to_date, to_datetime,
+    pad_start, pad_end, find, replace_n, splitn, split_exact, extract_groups
 end # module Strings

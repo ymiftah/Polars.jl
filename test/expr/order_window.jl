@@ -6,6 +6,17 @@
     @test isequal(r[:pc], [missing, 1.0, 1.0, 1.5, 1.0])
 end
 
+@testset "shift_and_fill: like shift, but vacated positions get a value instead of missing (see plans/parity/gap_closure_scope.md)" begin
+    df = DataFrame((; x = [1, 2, 3]))
+
+    r = select(df, alias(shift_and_fill(col("x"), 1, 99), "sh"))
+    @test collect(r[:sh]) == [99, 1, 2]
+
+    # negative n shifts the other direction
+    r_neg = select(df, alias(shift_and_fill(col("x"), -1, 99), "sh"))
+    @test collect(r_neg[:sh]) == [2, 3, 99]
+end
+
 @testset "cumulative aggregates" begin
     df = DataFrame((; x = [1, 2, 4, 10, 20]))
 

@@ -219,10 +219,47 @@ end
     @test isequal(collect(r_curried[:f]), collect(r_regex[:f]))
 end
 
-@testset "Strings.join / Strings.to_integer / Strings.extract_groups / Strings.reverse unavailable in this build (each needs its own Cargo feature)" begin
+@testset "Strings.to_integer / Strings.reverse unavailable in this build (each needs its own Cargo feature)" begin
     df = DataFrame((; s = ["ab", "cd"]))
-    @test_throws "concat_str" Strings.join(col("s"))
     @test_throws "string_to_integer" Strings.to_integer(col("s"))
-    @test_throws "extract_groups" Strings.extract_groups(col("s"), raw"(\d+)")
     @test_throws "string_reverse" Strings.reverse(col("s"))
+end
+
+@testset "Strings.join: aggregating join-with-separator across all rows (see plans/parity/gap_closure_scope.md Group C, batch-7-strings.md)" begin
+    df = DataFrame((; s = ["a", "b", "c"]))
+    r = select(df, alias(Strings.join(col("s"), "-"), "j"))
+    @test only(r[:j]) == "a-b-c"
+
+    # ignore_nulls=true (default): nulls are skipped
+    df_null = DataFrame((; s = Union{Missing, String}["a", missing, "c"]))
+    r_ignore = select(df_null, alias(Strings.join(col("s"), "-"), "j"))
+    @test only(r_ignore[:j]) == "a-c"
+
+    # ignore_nulls=false: any null poisons the whole result
+    r_poison = select(df_null, alias(Strings.join(col("s"), "-"; ignore_nulls = false), "j"))
+    @test ismissing(only(r_poison[:j]))
+
+    # empty input -> empty string, not missing/error
+    r_empty = select(DataFrame((; s = String[])), alias(Strings.join(col("s"), "-"), "j"))
+    @test only(r_empty[:j]) == ""
+
+    # per-group aggregation, not just whole-column
+    df_g = DataFrame((; g = ["x", "x", "y"], s = ["a", "b", "c"]))
+    r_g = collect(agg(group_by(lazy(df_g), "g"), alias(Strings.join(col("s"), "-"), "j")))
+    by_group = Dict(zip(r_g[:g], r_g[:j]))
+    @test by_group == Dict("x" => "a-b", "y" => "c")
+end
+
+@testset "Strings.extract_groups: named-capture regex into a Struct (see plans/parity/gap_closure_scope.md Group C, batch-7-strings.md)" begin
+    df = DataFrame((; s = ["2024-01-15"]))
+    r = select(df, alias(Strings.extract_groups(col("s"), raw"(?<year>\d+)-(?<month>\d+)-(?<day>\d+)"), "g"))
+    val = only(r[:g])
+    @test val.year == "2024"
+    @test val.month == "01"
+    @test val.day == "15"
+
+    # no match -> every field missing, not an error
+    df_nomatch = DataFrame((; s = ["not-a-date"]))
+    r_nomatch = select(df_nomatch, alias(Strings.extract_groups(col("s"), raw"(?<year>\d{4})"), "g"))
+    @test ismissing(only(r_nomatch[:g]).year)
 end
