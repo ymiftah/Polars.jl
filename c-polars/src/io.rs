@@ -407,10 +407,12 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet_partitioned(
         let cloud_options = tri!(resolve_cloud_options(base_path, cloud_options));
 
         let max_rows_per_file = match max_rows_per_file.as_ref() {
-            Some(&n) => tri!(IdxSize::try_from(n).map_err(|_| PolarsError::InvalidOperation(
-                format!("max_rows_per_file {n} exceeds the maximum representable row count")
-                    .into()
-            ))),
+            Some(&n) => tri!(
+                IdxSize::try_from(n).map_err(|_| PolarsError::InvalidOperation(
+                    format!("max_rows_per_file {n} exceeds the maximum representable row count")
+                        .into()
+                ))
+            ),
             None => 0,
         };
         let approximate_bytes_per_file = approximate_bytes_per_file.as_ref().copied().unwrap_or(0);
