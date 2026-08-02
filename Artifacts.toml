@@ -1,6 +1,6 @@
 [[libpolars]]
 arch = "aarch64"
-git-tree-sha1 = "b3a6a55e91fc550442eb03550ae9c9d85c9c7468"
+git-tree-sha1 = "ebc699cbfdae771e04772914790906d3802b020e"
 os = "macos"
 
     [[libpolars.download]]
@@ -8,7 +8,7 @@ os = "macos"
     url = "https://github.com/ymiftah/Polars.jl/releases/download/libpolars-v0.4.0/libpolars.v0.4.0.aarch64-apple-darwin.tar.gz"
 [[libpolars]]
 arch = "x86_64"
-git-tree-sha1 = "a4f6f8e299a35297751bf9bc46817d0400d94822"
+git-tree-sha1 = "2beb9447883f8934d2bc5db1afd6eb88c4b9fb4b"
 libc = "glibc"
 os = "linux"
 
