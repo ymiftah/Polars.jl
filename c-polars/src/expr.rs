@@ -761,8 +761,9 @@ pub unsafe extern "C" fn polars_expr_when_then(
     make_expr(acc)
 }
 
-/// `order_by` is a single optional expr (null = none). `partition_by` and `order_by` cannot both
-/// be empty/null -- at least one is required.
+/// `order_by` is a single optional expr (null = none). An empty `partition_by` with a null
+/// `order_by` is valid -- the whole frame is treated as one group (see the whole-frame-sentinel
+/// substitution below).
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_over(
     expr: *const polars_expr_t,

@@ -875,7 +875,7 @@ end
 """
     polars_expr_over(expr, partition_by, n_partition_by, order_by, descending, nulls_last, mapping, out)
 
-`order_by` is a single optional expr (null = none). `partition_by` and `order_by` cannot both be empty/null -- at least one is required.
+`order_by` is a single optional expr (null = none). An empty `partition_by` with a null `order_by` is valid -- the whole frame is treated as one group (see the whole-frame-sentinel substitution below).
 """
 function polars_expr_over(expr, partition_by, n_partition_by, order_by, descending, nulls_last, mapping, out)
     return @ccall libpolars.polars_expr_over(expr::Ptr{polars_expr_t}, partition_by::Ptr{Ptr{polars_expr_t}}, n_partition_by::Csize_t, order_by::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool, mapping::polars_window_mapping_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}

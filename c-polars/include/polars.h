@@ -907,8 +907,9 @@ const struct polars_expr_t *polars_expr_when_then(const struct polars_expr_t *co
                                                   const struct polars_expr_t *otherwise);
 
 /**
- * `order_by` is a single optional expr (null = none). `partition_by` and `order_by` cannot both
- * be empty/null -- at least one is required.
+ * `order_by` is a single optional expr (null = none). An empty `partition_by` with a null
+ * `order_by` is valid -- the whole frame is treated as one group (see the whole-frame-sentinel
+ * substitution below).
  */
 const struct polars_error_t *polars_expr_over(const struct polars_expr_t *expr,
                                               const struct polars_expr_t *const *partition_by,
