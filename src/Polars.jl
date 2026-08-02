@@ -91,6 +91,7 @@ include("./lazyframe.jl")
 # `expr/*.jl` must precede `reshape.jl`: `pivot`'s `agg::Expr` keyword argument is itself an
 # eager type annotation needing `Expr` already defined.
 include("./expr/expr.jl")
+include("./expr/statistics.jl")
 include("./expr/list.jl")
 include("./expr/string.jl")
 include("./expr/datetime.jl")
