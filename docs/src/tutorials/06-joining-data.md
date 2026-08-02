@@ -7,7 +7,7 @@ include(joinpath(@__DIR__, "..", "assets", "sample_data.jl"))
 ```
 
 `innerjoin` combines rows from two frames that match on one or more key
-expressions, keeping only rows with a match on both sides — exactly like a SQL `INNER JOIN`.
+expressions, keeping only rows with a match on both sides.
 
 ## Joining a fact table to a dimension table
 

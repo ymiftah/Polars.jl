@@ -1,7 +1,6 @@
 # Time-Series Analytics
 
-This is the flagship analytics chapter: resampling orders into fixed time windows, computing
-rolling statistics, and pulling calendar fields out of timestamps.
+Polars provides useful methods to work with timeseries data.
 
 ```@setup time-series
 using Polars
@@ -12,7 +11,7 @@ include(joinpath(@__DIR__, "..", "assets", "sample_data.jl"))
 ## Resampling with `group_by_dynamic`
 
 `group_by_dynamic` buckets rows into fixed-size time windows based
-on a sorted timestamp column — the time-series equivalent of `group_by`. Daily revenue across all
+on a **sorted** timestamp column — the time-series equivalent of `group_by`. Daily revenue across all
 stores:
 
 ```@example time-series

@@ -4,19 +4,6 @@
 Internal structure representing a value in a Polars expression.
 This should not be constructed directly but rather use helper functions
 such as [`col`](@ref).
-
-!!! note "Not `<: Number`, not sortable/hashable as a DSL value"
-    Earlier versions of this package made `Expr <: Number` purely so that mixed arguments (e.g.
-    `col("x") + 1`) would reach the operators below via Julia's `Number`-specific promotion
-    fallbacks. That piggybacked correctness on a lie: an `Expr` is not a number, and the
-    supertype silently broke `isequal`/`isless`'s contracts (both must return `Bool`; both
-    returned another `Expr` instead, matching the DSL's `==`/`<` behavior) and let `Expr` values
-    leak into arbitrary generic `Number` code paths that assume real arithmetic semantics.
-    Every operator below is now defined explicitly instead (`Expr`-`Expr` and both mixed-argument
-    orders), so no promotion machinery is needed. `isless`/`isequal` are deliberately *not*
-    defined for `Expr`: `Expr`s are therefore not valid `sort`/`Dict`/`Set` keys. Both fail loudly
-    rather than silently misbehaving. This matches Python polars, where `Expr.__eq__` also builds
-    a new expression rather than comparing identity.
 """
 mutable struct Expr
     ptr::Ptr{polars_expr_t}
@@ -106,18 +93,16 @@ function Base.convert(::Type{Expr}, dt::DateTime)
     return cast_datetime(convert(Expr, ns); time_unit = :ns, time_zone = nothing)
 end
 
-"""Derived comparison DSL primitives -- polars' C ABI only wraps `eq`/`lt`/`gt` directly (see
-`@generate_expr_fns` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
-propagation correctly (`not` of a null is null, matching what `<=`/`>=`/`!=` must do when an
-operand is incomparable). Not exported -- these are an internal implementation detail of the
-operators below, unlike `eq`/`gt`/`lt`, which mirror real `polars::Expr` methods 1:1."""
+# Derived comparison DSL primitives -- polars' C ABI only wraps `eq`/`lt`/`gt` directly (see
+# `@generate_expr_fns` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
+# propagation correctly (`not` of a null is null, matching what `<=`/`>=`/`!=` must do when an
+# operand is incomparable). Not exported -- these are an internal implementation detail of the
+# operators below, unlike `eq`/`gt`/`lt`, which mirror real `polars::Expr` methods 1:1.
 _le(a::Expr, b::Expr) = not(gt(a, b))
 _ge(a::Expr, b::Expr) = not(Base.lt(a, b))
 _neq(a::Expr, b::Expr) = not(eq(a, b))
 
-# Since `Expr` isn't `<: Number` (see the struct docstring above), each operator needs its
-# argument combinations spelled out explicitly rather than relying on promotion. For each `op`,
-# this generates:
+# For each `op`, this generates:
 #   - `(Expr, Expr)`      -- the plain case, dispatches straight to `dsl`
 #   - `(Expr, Any)` / `(Any, Expr)`  -- `convert`s the literal side to an `Expr` first
 #   - `(Expr, Missing)` / `(Missing, Expr)`  -- strictly more specific than Base's own
@@ -147,25 +132,27 @@ end
 """
     -(expr::Polars.Expr)::Polars.Expr
 
-Unary negation. Not equivalent to `0 - expr`: on an unsigned-integer column, `0 - expr` silently
-wraps (e.g. `UInt8` `0-1` gives `0xff`) where this raises instead, matching upstream's own
-per-dtype overflow validation.
+Unary negation.
 """
 Base.:-(expr::Expr) = Expr(API.polars_expr_neg(expr))
+# Not equivalent to `0 - expr`: on an unsigned-integer column, `0 - expr` silently
+# wraps (e.g. `UInt8` `0-1` gives `0xff`) where this raises instead, matching upstream's own
+# per-dtype overflow validation.
 
 """
     floor_div(a::Polars.Expr, b::Polars.Expr)::Polars.Expr
     floor_div(a, b::Polars.Expr)::Polars.Expr
     floor_div(a::Polars.Expr, b)::Polars.Expr
 
-Elementwise floor division (`a` divided by `b`, rounded down) -- the named-function form of
-upstream's `//` operator (not spelled as a Julia operator here to avoid claiming `÷`/`div` for
-types this package doesn't own -- see the curried-forms note near `is_in`/`fill_null` above for
-the same piracy concern applied to operators).
+Elementwise floor division (`a` divided by `b`, rounded down).
 """
 floor_div(a::Expr, b::Expr) = Expr(API.polars_expr_floor_div(a, b))
 floor_div(a, b::Expr) = floor_div(convert(Expr, a), b)
 floor_div(a::Expr, b) = floor_div(a, convert(Expr, b))
+# the named-function form of
+# upstream's `//` operator (not spelled as a Julia operator here to avoid claiming `÷`/`div` for
+# types this package doesn't own -- see the curried-forms note near `is_in`/`fill_null` above for
+# the same piracy concern applied to operators)
 export floor_div
 
 """

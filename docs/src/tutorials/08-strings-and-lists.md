@@ -6,9 +6,6 @@ using Chain
 include(joinpath(@__DIR__, "..", "assets", "sample_data.jl"))
 ```
 
-!!! note
-    These two namespaces have thinner test coverage than the rest of the API (see
-    [Limitations](@ref)) — the examples below stick to the well-covered operations.
 
 ## The `Strings` namespace
 

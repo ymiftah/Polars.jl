@@ -14,9 +14,6 @@ Not yet registered in the General registry — install directly from the repo:
 pkg> add https://github.com/ymiftah/Polars.jl
 ```
 
-The native library is downloaded as a prebuilt artifact — no Rust toolchain needed — for `x86_64`
-Linux (glibc ≥ 2.34) and `aarch64` macOS. On other platforms, build it from a repo checkout with
-`cd c-polars && cargo build --release`.
 
 ## Eager vs. lazy
 
@@ -60,7 +57,7 @@ products
 Since every Polars.jl function takes the frame/group-by object as its *first* argument, multi-step
 queries read nicely with [Chain.jl](https://github.com/jkrumbiegel/Chain.jl)'s `@chain` macro:
 each bare line implicitly becomes a call with the previous line's result spliced in as the first
-argument. This tutorial series uses `@chain` throughout instead of nesting or nested `|>` pipes.
+argument. This tutorial series uses `@chain` throughout instead of nested `|>` pipes.
 
 Let's find the five largest orders by revenue (`quantity * unit_price`):
 
@@ -77,3 +74,9 @@ end
 This chains `with_columns` (add a computed column), `sort` (descending by revenue), and `head` (top
 5), then materializes the result with `collect`. The next chapters cover each of these operations —
 and several more — in depth.
+
+!!! tip "Standards in the docs"
+    The documentation does not enforce any specific convention, and will freely use `@chain` or `|>` nested 
+    pipe across the examples.
+    For users coming from python, the use of `@chain` and piping within expressions (as per the example above),
+    should provide an almost transparent experience.

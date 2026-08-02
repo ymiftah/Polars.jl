@@ -17,7 +17,7 @@ stores = DataFrame((; store = ["a", "b"], city = ["Springfield", "Shelbyville"])
 DataFrame
 ```
 
-Construct one from anything implementing the [Tables.jl](https://github.com/JuliaData/Tables.jl)
+Construct a `DataFrame` from anything implementing the [Tables.jl](https://github.com/JuliaData/Tables.jl)
 interface — most commonly a `NamedTuple` of vectors (column-oriented):
 
 ```@example dataframe
@@ -58,8 +58,10 @@ Polars.item
 
 `get_column(df, name)` is a named alias for `df[name]`, for callers who prefer the py-polars-shaped
 method name over indexing syntax. `Polars.item` extracts the sole value of a 1×1 frame (or, with a
-`row`/`col` pair, is a thin renamed wrapper around `df[row, col]`) — not exported under the bare
-name `item` (too generic/collision-prone), so it's always called qualified:
+`row`/`col` pair, is a thin renamed wrapper around `df[row, col]`)
+
+!!! details "Export"
+    Not exported under the bare name `item` (too generic/collision-prone), so it's always called qualified.
 
 ```@example dataframe
 Polars.item(DataFrame((; x = [42])))
@@ -77,8 +79,7 @@ describe(orders)
 ```
 
 `Base.summary(df::DataFrame)` returns a one-line summary (e.g. `"3×2 DataFrame"`); `Base.show`
-renders the full table with PrettyTables formatting. Both are automatic in the REPL/Pluto.jl — no
-explicit call needed.
+renders the full table with PrettyTables formatting. Both are automatic in the REPL/Pluto.jl.
 
 ## Manipulation/selection
 
