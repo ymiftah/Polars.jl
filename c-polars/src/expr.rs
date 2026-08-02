@@ -1419,7 +1419,10 @@ gen_impl_expr_binary_list!(polars_expr_list_tail, ListNameSpace::tail);
 gen_impl_expr_binary_list!(polars_expr_list_shift, ListNameSpace::shift);
 gen_impl_expr_binary_list!(polars_expr_list_count_matches, ListNameSpace::count_matches);
 gen_impl_expr_binary_list!(polars_expr_list_union, ListNameSpace::union);
-gen_impl_expr_binary_list!(polars_expr_list_set_difference, ListNameSpace::set_difference);
+gen_impl_expr_binary_list!(
+    polars_expr_list_set_difference,
+    ListNameSpace::set_difference
+);
 gen_impl_expr_binary_list!(
     polars_expr_list_set_intersection,
     ListNameSpace::set_intersection
@@ -1524,11 +1527,11 @@ pub unsafe extern "C" fn polars_expr_list_sample_n(
     seed: *const u64,
 ) -> *const polars_expr_t {
     let seed = if seed.is_null() { None } else { Some(*seed) };
-    let expr = (*a)
-        .inner
-        .clone()
-        .list()
-        .sample_n((*n).inner.clone(), with_replacement, shuffle, seed);
+    let expr =
+        (*a).inner
+            .clone()
+            .list()
+            .sample_n((*n).inner.clone(), with_replacement, shuffle, seed);
     make_expr(expr)
 }
 
@@ -1677,11 +1680,7 @@ pub unsafe extern "C" fn polars_expr_str_split_exact(
     by: *const polars_expr_t,
     n: usize,
 ) -> *const polars_expr_t {
-    let expr = (*a)
-        .inner
-        .clone()
-        .str()
-        .split_exact((*by).inner.clone(), n);
+    let expr = (*a).inner.clone().str().split_exact((*by).inner.clone(), n);
     make_expr(expr)
 }
 
@@ -2125,7 +2124,9 @@ pub unsafe extern "C" fn polars_expr_struct_rename_fields(
     std::ptr::null()
 }
 
-gen_impl_expr!(polars_expr_struct_json_encode, |e: Expr| e.struct_().json_encode());
+gen_impl_expr!(polars_expr_struct_json_encode, |e: Expr| e
+    .struct_()
+    .json_encode());
 
 /// Applies each of `fields` to the struct's selected field(s) in place (via `pl.field("x")...`
 /// inside each expression), leaving other fields untouched -- upstream `struct.with_fields`.
