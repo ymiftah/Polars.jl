@@ -2,7 +2,7 @@
 under `GC.@preserve names`."""
 _name_ptrs(names::Vector{String}) =
     (Ptr{UInt8}[pointer(s) for s in names], Csize_t[ncodeunits(s) for s in names])
-
+_name_ptrs(names::Vector{Symbol}) = _name_ptrs(String.(names))
 """
     unique(lf::LazyFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::LazyFrame
     unique(df::DataFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::DataFrame
@@ -11,9 +11,9 @@ Removes duplicate rows, considering only `subset` columns if provided (all colum
 `keep` selects which duplicate to retain: `:first`, `:last`, `:none` (drop all duplicates), or
 `:any` (default — no order guarantee, allows more optimization).
 """
-Base.unique(df::DataFrame, subset::Vector{String} = String[]; keep::Symbol = :any) =
+Base.unique(df::DataFrame, subset::Vector{T} = String[]; keep::Symbol = :any) where {T <: Union{String, Symbol}} =
     unique(lazy(df), subset; keep) |> collect
-function Base.unique(lf::LazyFrame, subset::Vector{String} = String[]; keep::Symbol = :any)
+function Base.unique(lf::LazyFrame, subset::Vector{T} = String[]; keep::Symbol = :any) where {T <: Union{String, Symbol}}
     keep_enum = if keep == :first
         API.PolarsUniqueKeepFirst
     elseif keep == :last
@@ -34,14 +34,20 @@ function Base.unique(lf::LazyFrame, subset::Vector{String} = String[]; keep::Sym
     return LazyFrame(out[])
 end
 
+function Base.unique(df::LazyFrame, subset::Vararg{T}; keep::Symbol = :any) where {T <: Union{String, Symbol}} 
+    return Base.unique(df, collect(subset); keep=keep)
+end
+Base.unique(df::DataFrame, subset::Vararg{T}; keep::Symbol = :any) where {T <: Union{String, Symbol}} =
+    Base.unique(lazy(df), subset...; keep=keep) |> collect
+
 """
     drop(lf::LazyFrame, columns::Vector{String})::LazyFrame
     drop(df::DataFrame, columns::Vector{String})::DataFrame
 
 Removes the given columns from the frame.
 """
-drop(df::DataFrame, columns::Vector{String}) = drop(lazy(df), columns) |> collect
-function drop(lf::LazyFrame, columns::Vector{String})
+drop(df::DataFrame, columns::Vector{T}) where {T <: Union{String, Symbol}} = drop(lazy(df), columns) |> collect
+function drop(lf::LazyFrame, columns::Vector{T}) where {T <: Union{String, Symbol}}
     GC.@preserve columns begin
         ptrs, lens = _name_ptrs(columns)
         out = Ref{Ptr{polars_lazy_frame_t}}()
@@ -60,16 +66,10 @@ import Base: rename
 Renames `existing` columns to the corresponding `new` names (same length, paired by position).
 If `strict` is `true` (default), every `existing` column must be present; otherwise, missing
 ones are silently ignored.
-
-Extends `Base.rename` (a `Base.Filesystem` path-renaming function). Like `tail` in `select.jl`,
-this is `isdefined(Base, :rename) == true` but **not exported**, so the explicit `import Base:
-rename` above is required for the `export rename` in `Polars.jl` to resolve to anything --
-without it, plain `rename(df, ...)` raises `UndefVarError` even though `Base.rename(df, ...)`
-works.
 """
-Base.rename(df::DataFrame, existing::Vector{String}, new::Vector{String}; strict::Bool = true) =
+Base.rename(df::DataFrame, existing::Vector{T}, new::Vector{T}; strict::Bool = true) where {T <: Union{String, Symbol}} =
     Base.rename(lazy(df), existing, new; strict) |> collect
-function Base.rename(lf::LazyFrame, existing::Vector{String}, new::Vector{String}; strict::Bool = true)
+function Base.rename(lf::LazyFrame, existing::Vector{T}, new::Vector{T}; strict::Bool = true) where {T <: Union{String, Symbol}}
     length(existing) == length(new) || error("existing and new must have the same length")
     GC.@preserve existing new begin
         existing_ptrs, existing_lens = _name_ptrs(existing)
@@ -83,14 +83,22 @@ function Base.rename(lf::LazyFrame, existing::Vector{String}, new::Vector{String
     return LazyFrame(out[])
 end
 
+Base.rename(df::DataFrame, pairs::Vararg{Pair{T, T}}; strict::Bool = true) where {T <: Union{String, Symbol}} =
+    Base.rename(lazy(df), pairs...; strict) |> collect
+function Base.rename(lf::LazyFrame, pairs::Vararg{Pair{T, T}}; strict::Bool = true) where {T <: Union{String, Symbol}}
+    existing = [k for (k, v) in pairs]
+    new = [v for (k, v) in pairs]
+    return Base.rename(lf, existing, new; strict = strict)
+end
+
 """
     drop_nulls(lf::LazyFrame, subset::Vector{String}=String[])::LazyFrame
     drop_nulls(df::DataFrame, subset::Vector{String}=String[])::DataFrame
 
 Removes rows containing a `null` in any of the `subset` columns (all columns if not provided).
 """
-drop_nulls(df::DataFrame, subset::Vector{String} = String[]) = drop_nulls(lazy(df), subset) |> collect
-function drop_nulls(lf::LazyFrame, subset::Vector{String} = String[])
+drop_nulls(df::DataFrame, subset::Vector{T} = String[]) where {T <: Union{String, Symbol}} = drop_nulls(lazy(df), subset) |> collect
+function drop_nulls(lf::LazyFrame, subset::Vector{T} = String[]) where {T <: Union{String, Symbol}}
     GC.@preserve subset begin
         ptrs, lens = _name_ptrs(subset)
         out = Ref{Ptr{polars_lazy_frame_t}}()
@@ -106,9 +114,9 @@ end
 
 Adds a row-index column named `name`, starting at `offset` (default `0`).
 """
-with_row_index(df::DataFrame, name::String = "index"; offset::Integer = 0) =
+with_row_index(df::DataFrame, name::T = "index"; offset::Integer = 0) where {T <: Union{String, Symbol}} =
     with_row_index(lazy(df), name; offset) |> collect
-function with_row_index(lf::LazyFrame, name::String = "index"; offset::Integer = 0)
+function with_row_index(lf::LazyFrame, name::T = "index"; offset::Integer = 0) where {T <: Union{String, Symbol}}
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = polars_lazy_frame_with_row_index(lf, name, ncodeunits(name), Int64(offset), true, out)
     polars_error(err)
@@ -156,15 +164,7 @@ end
 """
     hstack(df::DataFrame, columns::Vector{<:Series})::DataFrame
 
-Attaches loose `columns` (bare [`Series`](@ref), not another `DataFrame`) to `df` as new columns,
-side by side. This is the real value-add over [`concat`](@ref)'s `:horizontal` mode, which needs a
-second full `DataFrame` on the right-hand side — `hstack` accepts standalone `Series` directly.
-Eager-only (no `LazyFrame` method — bare `Series` have no lazy equivalent to attach to a plan).
-
-Every `Series` in `columns` must have the same length as `df`'s existing height (an empty `df`
-therefore requires length-0 `columns` too); a length mismatch, or a name collision with an
-existing `df` column or between two of the given `columns`, errors rather than silently
-truncating or overwriting.
+Return a new [`DataFrame`](@ref) grown horizontally by stacking multiple [`Series`](@ref) to it.
 """
 function hstack(df::DataFrame, columns::Vector{<:Series})
     GC.@preserve columns begin
@@ -179,10 +179,7 @@ end
 """
     vstack(df::DataFrame, other::DataFrame)::DataFrame
 
-Stacks `other`'s rows beneath `df`'s. Unlike [`concat`](@ref)'s `:vertical_relaxed` mode, `vstack`
-does no supertype casting: `df` and `other` must already share identical column names/dtypes, or
-this errors rather than casting. Eager-only (no `LazyFrame` method) — the lazy equivalent is
-`concat` with `how=:vertical`.
+Grow a [`DataFrame`](@ref) vertically by stacking a DataFrame to it.
 """
 function vstack(df::DataFrame, other::DataFrame)
     out = Ref{Ptr{polars_dataframe_t}}()

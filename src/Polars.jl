@@ -7,6 +7,7 @@ const PhysicalDType = Union{
     Bool, Int8, Int16, Int32, Int64, UInt8,
     UInt16, UInt32, UInt64, Float32, Float64,
 }
+const ColId = Union{String, Symbol}
 
 nomissing(::Type{MaybeMissing{T}}) where {T} = T
 nomissing(::Type{T}) where {T} = T
