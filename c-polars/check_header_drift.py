@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
 """Guard against drift between the Rust FFI surface, the C header, and a built library.
 
-`include/polars.h` is hand-edited (see CLAUDE.md), and `src/api/generated.jl` is generated *from*
-it -- so a symbol that exists in Rust but never makes it into the header is invisible to the Julia
-side and silently untested, while a header declaration with no Rust definition is a link error
-waiting to happen. CI already checks header -> generated.jl; this checks Rust -> header.
+`include/polars.h` is generated from the Rust source by cbindgen, and `src/api/generated.jl` is
+generated *from* it (see CLAUDE.md -- never hand-edit either end). Generation is not automatic
+though: it runs via `regen_header.sh`, and cbindgen can only see the ~143 macro-generated
+`#[no_mangle]` functions through `-Zunpretty=expanded`. So a symbol that exists in Rust but never
+makes it into the header -- because regeneration was skipped, or the expansion silently missed it
+-- is invisible to the Julia side and untested, while a header declaration with no Rust definition
+is a link error waiting to happen. CI already checks header -> generated.jl; this checks
+Rust -> header.
 
 This caught `polars_dataframe_new`, which was additionally declared `#[no_mangle] pub fn` (Rust
 ABI, not `extern "C"`) and referenced by nothing at all.
 
-Two modes:
+Three modes:
 
     python3 c-polars/check_header_drift.py
         Rust source -> include/polars.h. The default.
 
     python3 c-polars/check_header_drift.py --lib path/to/libpolars.so
         include/polars.h -> a built shared library's dynamic symbol table.
+
+    python3 c-polars/check_header_drift.py --arrow
+        include/arrow.h -> the ArrowSchema/ArrowArray mirrors in src/api/generated.jl.
 
 The second mode exists because the distributed binary and the bindings are versioned separately:
 `Artifacts.toml` pins a fixed release tag, so a change under `c-polars/` reaches nobody until a new
@@ -26,6 +33,13 @@ anything a clean build would catch.
 Header -> library is the right comparison rather than Rust -> library: `#[cfg]`-gated symbols
 (e.g. `polars_expr_str_to_titlecase`, behind the `nightly` feature) are legitimately absent from
 both a default build and the header, so they drop out on their own.
+
+The `--arrow` mode covers a gap the other two structurally cannot: they match *function* symbols,
+so nothing here ever looked at struct layout. `ArrowSchema`/`ArrowArray` are polars-arrow's types,
+mirrored by hand in both `include/arrow.h` and `src/api/generated.jl`; a mismatch between those two
+mirrors is silent memory corruption at the FFI boundary, not a link error. (Drift of *both* mirrors
+away from polars-arrow itself is caught separately, by the `size_of`/`align_of` const assertions in
+`src/types.rs`.)
 """
 
 from __future__ import annotations
@@ -39,6 +53,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
 HEADER = ROOT / "include" / "polars.h"
+ARROW_HEADER = ROOT / "include" / "arrow.h"
+GENERATED_JL = ROOT.parent / "src" / "api" / "generated.jl"
+
+# The Arrow C Data Interface structs mirrored on both sides, checked by `--arrow`.
+ARROW_STRUCTS = ("ArrowSchema", "ArrowArray")
+# A C struct *definition* (`struct Name {...};`), as opposed to the trailing `typedef struct Name
+# Name;` lines, which have no brace and so never match.
+C_STRUCT_BODY = r"struct\s+{name}\s*\{{(.*?)\}}\s*;"
+# A Julia `struct Name ... end` block.
+JL_STRUCT_BODY = r"^struct\s+{name}\s*$(.*?)^end\s*$"
+# A C function-pointer member: `void (*release)(struct ArrowSchema *)`. The member name sits inside
+# the parens, so the generic "last identifier wins" rule below would pick up the parameter instead.
+C_FN_PTR_MEMBER = re.compile(r"\(\s*\*\s*(\w+)\s*\)")
+C_MEMBER_NAME = re.compile(r"(\w+)\s*$")
+JL_FIELD = re.compile(r"^\s*(\w+)\s*::\s*(.+?)\s*$", re.MULTILINE)
 
 # `#[no_mangle]`, optional other attributes, then `pub [unsafe] extern "C" fn name(`
 NO_MANGLE_FN = re.compile(
@@ -123,6 +152,98 @@ def check_library(lib: Path) -> int:
     return 0
 
 
+def _struct_body(text: str, pattern: str, name: str, source: Path) -> str:
+    match = re.search(pattern.format(name=name), text, re.DOTALL | re.MULTILINE)
+    if match is None:
+        sys.exit(f"error: could not find `{name}` in {source}")
+    return match.group(1)
+
+
+def _show(field: tuple[str, str] | None) -> str:
+    return f"{field[0]}: {field[1]}" if field else "<missing>"
+
+
+def c_fields(name: str) -> list[tuple[str, str]]:
+    """`[(field_name, kind)]` for a struct in include/arrow.h, in declaration order.
+
+    `kind` is coarse on purpose -- "ptr" or "i64". Both structs are entirely pointer-width fields
+    on a 64-bit target, so this is enough to catch a field whose width changed, without dragging in
+    a full C type model that would be fragile for no added coverage.
+    """
+    body = _struct_body(ARROW_HEADER.read_text(), C_STRUCT_BODY, name, ARROW_HEADER)
+    body = re.sub(r"//[^\n]*", "", body)  # strip line comments
+
+    fields = []
+    for decl in body.split(";"):
+        decl = decl.strip()
+        if not decl:
+            continue
+        fn_ptr = C_FN_PTR_MEMBER.search(decl)
+        if fn_ptr:
+            fields.append((fn_ptr.group(1), "ptr"))
+            continue
+        member = C_MEMBER_NAME.search(decl)
+        if member is None:
+            sys.exit(f"error: could not parse member `{decl}` of {name} in {ARROW_HEADER}")
+        if "*" in decl:
+            kind = "ptr"
+        elif "int64_t" in decl:
+            kind = "i64"
+        else:
+            sys.exit(f"error: unrecognized member type `{decl}` of {name} in {ARROW_HEADER}")
+        fields.append((member.group(1), kind))
+    return fields
+
+
+def julia_fields(name: str) -> list[tuple[str, str]]:
+    """`[(field_name, kind)]` for a struct mirror in src/api/generated.jl, in declaration order."""
+    body = _struct_body(GENERATED_JL.read_text(), JL_STRUCT_BODY, name, GENERATED_JL)
+
+    fields = []
+    for field, ty in JL_FIELD.findall(body):
+        if ty.startswith("Ptr{") or ty == "Cstring":
+            kind = "ptr"
+        elif ty == "Int64":
+            kind = "i64"
+        else:
+            sys.exit(f"error: unrecognized field type `{field}::{ty}` of {name} in {GENERATED_JL}")
+        fields.append((field, kind))
+    return fields
+
+
+def check_arrow() -> int:
+    problems = False
+
+    for name in ARROW_STRUCTS:
+        c = c_fields(name)
+        jl = julia_fields(name)
+
+        if c == jl:
+            print(f"OK: {name} matches across include/arrow.h and src/api/generated.jl ({len(c)} fields)")
+            continue
+
+        problems = True
+        print(f"{name} differs between include/arrow.h and src/api/generated.jl:")
+        # Pad the shorter side so an added/removed field shows up as a positional mismatch rather
+        # than silently truncating the comparison.
+        for i in range(max(len(c), len(jl))):
+            lhs = c[i] if i < len(c) else None
+            rhs = jl[i] if i < len(jl) else None
+            if lhs != rhs:
+                print(f"  [{i}] arrow.h: {_show(lhs):<28} generated.jl: {_show(rhs)}")
+
+    if problems:
+        print(
+            "\nArrow struct drift detected. These two mirrors describe the same polars-arrow"
+            "\nstructs to C and to Julia; a mismatch is silent memory corruption at the FFI"
+            "\nboundary. Fix include/arrow.h, then regenerate the Julia side:"
+            "\n  julia --project=gen gen/generate.jl && runic -i src/api/generated.jl"
+        )
+        return 1
+
+    return 0
+
+
 def main() -> int:
     rust_symbols: set[str] = set()
     cfg_gated: set[str] = set()
@@ -161,7 +282,9 @@ def main() -> int:
             print(f"  - {name}")
 
     if problems:
-        print("\nHeader drift detected. Hand-edit include/polars.h to match, then regenerate:")
+        print("\nHeader drift detected. Both ends are generated -- never hand-edit them. Fix the")
+        print("Rust (or gen/generator.toml), then regenerate the whole pipeline:")
+        print("  c-polars/regen_header.sh")
         print("  julia --project=gen gen/generate.jl && runic -i src/api/generated.jl")
         return 1
 
@@ -178,12 +301,21 @@ def main() -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--lib",
         type=Path,
         metavar="PATH",
         help="check a built shared library's exports against include/polars.h instead of "
         "checking the Rust source against the header",
     )
+    mode.add_argument(
+        "--arrow",
+        action="store_true",
+        help="check the ArrowSchema/ArrowArray declarations in include/arrow.h against their "
+        "mirrors in src/api/generated.jl instead of checking function symbols",
+    )
     args = parser.parse_args()
-    sys.exit(check_library(args.lib) if args.lib else main())
+    if args.lib:
+        sys.exit(check_library(args.lib))
+    sys.exit(check_arrow() if args.arrow else main())

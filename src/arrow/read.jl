@@ -139,10 +139,16 @@ returns `nothing` if `fmt` isn't (yet) bulk-readable. Never called with a List/S
 `fmt` -- callers screen those out first (`_dispatch_read` handles List separately; `_read_list`
 pre-checks its child's format before ever reaching this function). A function barrier: `fmt` is
 dynamic (a runtime `String`), so keeping the big format-string comparison chain in its own small
-function lets each branch's body still compile fully type-stable once inlined. `keepalive` is
-only consulted by the zerocopy numeric fast path (kept alive via a finalizer closure) -- pass
-`nothing` for any call that never requests `zerocopy=true` (every `_read_list` child read)."""
-function _read_view_dispatch(fmt::String, ca::CArrowArray, bufs::Vector, zerocopy::Bool, keepalive)
+function lets each branch's body still compile fully type-stable once inlined. `keepalive` is only
+consulted by the zerocopy numeric fast path, which roots it in `LIVE_BORROWED_ARRAYS` for as long
+as the returned array aliases its buffers (a finalizer on that array does the *unrooting*; the
+table, not the closure, is what keeps it alive -- see `LIVE_BORROWED_ARRAYS`'s docstring). Pass
+`nothing` for any call that never requests `zerocopy=true` (every `_read_list` child read) -- with
+no owner to root, `zerocopy` is simply not honored and the safe copy is returned instead."""
+function _read_view_dispatch(
+        fmt::String, ca::CArrowArray, bufs::Vector, zerocopy::Bool,
+        keepalive::Union{ExportedArray, Nothing}
+    )
     if haskey(_NUMERIC_FORMATS, fmt)
         T = _NUMERIC_FORMATS[fmt]
         return _read_numeric(T, ca, bufs, zerocopy, keepalive)
@@ -180,7 +186,10 @@ function _read_view_dispatch(fmt::String, ca::CArrowArray, bufs::Vector, zerocop
     end
 end
 
-function _read_numeric(::Type{T}, ca::CArrowArray, bufs::Vector, zerocopy::Bool, keepalive) where {T}
+function _read_numeric(
+        ::Type{T}, ca::CArrowArray, bufs::Vector, zerocopy::Bool,
+        keepalive::Union{ExportedArray, Nothing}
+    ) where {T}
     n = Int(ca.length)
 
     n == 0 && return T[]
@@ -188,7 +197,11 @@ function _read_numeric(::Type{T}, ca::CArrowArray, bufs::Vector, zerocopy::Bool,
     data_ptr = Ptr{T}(bufs[2]) + Int(ca.offset) * sizeof(T)
 
     if ca.null_count == 0
-        if zerocopy
+        # `keepalive === nothing` means nobody owns the exported buffers on this path (the
+        # `_read_list` child read), so there is nothing to root and no way to defer the release --
+        # treat it like any other unmet zero-copy precondition and fall through to the copy below,
+        # rather than borrowing buffers that would be freed out from under the result.
+        if zerocopy && keepalive !== nothing
             keepalive.borrowed = true # tells `_dispatch_read` not to eagerly release `keepalive`
             arr = unsafe_wrap(Array, data_ptr, n; own = false)
             # Root only once `arr` -- the object whose finalizer is the *sole* thing that ever
