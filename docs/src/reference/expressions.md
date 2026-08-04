@@ -93,10 +93,8 @@ select(counts, Structs.field_by_name(col("vc"), "g"), Structs.field_by_name(col(
 ```
 
 `skew` and `Polars.kurtosis` measure the shape of a column's distribution; a constant
-(zero-variance) column gives `NaN` for kurtosis rather than an error.
-
-`kurtosis` is not exported: call it as `Polars.kurtosis(expr)`, or load StatsBase.jl and call
-`kurtosis(expr)`. `skew` is exported; `skewness(expr)` also works with StatsBase loaded.
+(zero-variance) column gives `NaN` for kurtosis rather than an error. With StatsBase.jl loaded,
+the bare `kurtosis(expr)`/`skewness(expr)` also work.
 
 ```@example expressions
 df_shape = DataFrame((; x = [1, 2, 3, 2, 2, 3, 0]))
@@ -506,8 +504,7 @@ select(dfcut, col("x"), qcut(col("x"), [0.25, 0.50]) |> alias("qcut"))
 select(dfcut, col("x"), qcut_uniform(col("x"), 2; labels = ["low", "high"]) |> alias("qcut_uniform"))
 ```
 
-`cut` is not exported: call it as `Polars.cut(expr, breaks)`, or load CategoricalArrays.jl and
-call `cut(expr, breaks)`. `qcut` and `qcut_uniform` are exported.
+With CategoricalArrays.jl loaded, the bare `cut(expr, breaks)` also works.
 
 `include_breaks` (returning a `Struct` of breakpoint and category together, instead of just the
 category) is not implemented for any of the three.
@@ -562,7 +559,7 @@ instead of hardcoding an infix operator.
 | `or(a, b)` | `a .\| b` |
 | `add(a, b)`, `sub(a, b)`, `mul(a, b)`, `div(a, b)`, `pow(a, b)` | `+`, `-`, `*`, `/`, `^` |
 | `xor(a, b)` | *(no operator equivalent)* |
-| `Base.lt(a, b)` | `<` (or use `.>` and flip arguments; `<` is not exported from Base) |
+| `Base.lt(a, b)` | *(no infix operator; use `.>` and flip arguments)* |
 
 ```@example expressions
 comparisons = Dict("gt" => gt, "eq" => eq)
@@ -585,16 +582,14 @@ select(dfbin, eq(col("a"), col("b")) |> alias("eq"), and(col("a") .> 1, col("b")
 select(dfbin, add(col("a"), col("b")) |> alias("add"), sub(col("a"), col("b")) |> alias("sub"), mul(col("a"), col("b")) |> alias("mul"), div(col("a"), col("b")) |> alias("div"))
 ```
 
-`Base.lt` is bound under `Base.lt` (not plain `lt`) since the bare name collides with an
-*unexported* internal `Base` binding — call it qualified, or use `.>` with the arguments flipped:
+`<` has no `Expr` method — call `Base.lt` qualified, or use `.>` with the arguments flipped:
 
 ```@example expressions
 select(df, Base.lt(col("x"), lit(3)))
 ```
 
-The product aggregation is bound to `prod` (an *exported* Base name, like `sum`/`mean`), so plain
-`prod(expr)` resolves with no qualification, same as the rest of the [Aggregation](@ref) table
-above.
+The product aggregation is bound to plain `prod`, same as the rest of the [Aggregation](@ref)
+table above.
 
 ## Curried forms for pipe-based composition
 

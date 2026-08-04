@@ -164,9 +164,6 @@ module Selectors
         float()::Selector
 
     Selects columns of any float dtype (`Float32`/`Float64`).
-
-    !!! note
-        Not exported (would clobber `Base.float`) -- use qualified, `Selectors.float()`.
     """
     float() = _dtype_simple(API.PolarsDtypeSelectorKindFloat)
 
@@ -270,9 +267,6 @@ module Selectors
         string()::Selector
 
     Selects `String`-dtype columns.
-
-    !!! note
-        Not exported (would clobber `Base.string`) -- use qualified, `Selectors.string()`.
     """
     string() = _dtype_one(API.PolarsValueTypeString)
 
@@ -301,9 +295,6 @@ module Selectors
         time()::Selector
 
     Selects `Dates.Time`-dtype columns.
-
-    !!! note
-        Not exported (would clobber `Base.time`) -- use qualified, `Selectors.time()`.
     """
     time() = _dtype_one(API.PolarsValueTypeTime)
 
@@ -435,9 +426,6 @@ module Selectors
     Selects column names containing any of `substrings` anywhere (a literal substring match, not a
     regex -- any regex metacharacters in `substrings` are matched literally). At least one
     substring is required.
-
-    !!! note
-        Not exported (would clobber `Base.contains`) -- use qualified, `Selectors.contains(...)`.
     """
     function contains(substrings::AbstractString...)
         isempty(substrings) &&

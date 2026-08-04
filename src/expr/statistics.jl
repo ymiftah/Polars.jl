@@ -165,11 +165,7 @@ the calculation is corrected for statistical bias.
 
 A constant (zero-variance) input gives `NaN`, not an error.
 
-!!! note "Not exported"
-    Call it as `Polars.kurtosis(expr)`. With StatsBase.jl loaded, `kurtosis(expr)` works too.
-
-    `skew` is exported; with StatsBase loaded, `skewness(expr)` also works.
-
+With StatsBase.jl loaded, the bare `kurtosis(expr)`/`skewness(expr)` also work.
 """
 function kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true)
     out = API.polars_expr_kurtosis(expr, fisher, bias)
@@ -180,9 +176,6 @@ end
     Polars.kurtosis(; fisher::Bool=true, bias::Bool=true)
 
 Curried form of [`kurtosis`](@ref) for use with `|>`.
-
-!!! note "Not exported"
-    Only available qualified, as `Polars.kurtosis(; ...)`.
 """
 kurtosis(; fisher::Bool = true, bias::Bool = true) = expr -> kurtosis(expr; fisher, bias)
 
@@ -775,9 +768,7 @@ interval strings (`"(-inf, b]"`, `"(b1, b2]"`, ..., `"(bn, inf]"`, or the `"[...
 
 Returns a labelled Enum column, which materializes as `String` (see [`cast_categorical`](@ref)).
 
-!!! note "Not exported"
-    Call it as `Polars.cut(expr, breaks)`. With CategoricalArrays.jl loaded, `cut(expr, breaks)`
-    works too.
+With CategoricalArrays.jl loaded, the bare `cut(expr, breaks)` also works.
 
 !!! note
     `include_breaks` (returning a `Struct` of breakpoint and category together) is not

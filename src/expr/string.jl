@@ -395,9 +395,6 @@ Aggregates every string value of `expr` (across *all* rows, or per group inside 
 single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are
 skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from
 [`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows).
-
-!!! note
-    Not exported -- collides with `Base.join`; call as `Strings.join(...)`.
 """
 function join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true)
     delimiter = String(delimiter)

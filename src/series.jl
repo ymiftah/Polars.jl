@@ -55,9 +55,6 @@ Base.size(series::Series) = (series.length,)
     Polars.item(series::Series)
 
 Returns the sole value of a length-1 `series`, and errors for any other length.
-
-!!! note
-    Not exported: call it as `Polars.item(...)`.
 """
 function item(series::Series)
     length(series) == 1 || error("item() requires a Series of length 1, got length $(length(series))")

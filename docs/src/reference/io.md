@@ -171,12 +171,6 @@ For S3/GCS/Azure, credentials and endpoint configuration can come from two place
   See [polars' own cloud storage options documentation](https://docs.pola.rs/user-guide/io/cloud-storage/)
   for the full set of accepted keys.
 
-!!! tip "Unrecognized keys fail silently"
-    An unrecognized `storage_options` key is not rejected outright — it's dropped and the
-    operation proceeds without it, surfacing later as a connection/credentials error rather than
-    an immediate "unknown key" error. Double-check key spelling if a call fails in a way that
-    looks like a missing credential.
-
 Two things worth keeping in mind:
 
 - **Remote files are cached locally**, honoring polars' `file_cache` feature — repeated scans of
@@ -186,12 +180,6 @@ Two things worth keeping in mind:
   with the "Concurrency" note in [Limitations](@ref): handle-sharing rules across Julia
   tasks/threads are unchanged, and cloud requests don't consume or contend with Julia's own thread
   pool.
-
-!!! warning "Don't hardcode secrets"
-    If polars fails to parse or use a `storage_options` value (e.g. a malformed
-    `aws_endpoint_url`), the value can appear verbatim in the resulting error message. Prefer
-    sourcing credentials from the environment (`~/.aws/credentials`, `AWS_ACCESS_KEY_ID`, etc.)
-    over putting them directly in code that might get logged or pasted into a bug report.
 
 ## Bulk materialization
 

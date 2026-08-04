@@ -13,11 +13,11 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error, cast
     gen_impl_expr_dt!(polars_expr_dt_week, DateLikeNameSpace::week, "ISO week number (1-53) for each Date/Datetime value in `expr`.")
     gen_impl_expr_dt!(polars_expr_dt_quarter, DateLikeNameSpace::quarter, "Quarter of the year (1-4) for each Date/Datetime value in `expr`.")
     gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date, "Extracts the `Date` component of each Datetime value in `expr` (drops the time-of-day).")
-    gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time, "Extracts the `Dates.Time` component of each Datetime value in `expr` (drops the date).\n\n!!! note\n    Not exported (would clobber `Base.time`) -- use qualified, `Dt.time(...)`.")
+    gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time, "Extracts the `Dates.Time` component of each Datetime value in `expr` (drops the date).")
 
-    gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate, "Truncates each Date/Datetime value of `a` down to the start of the enclosing interval named by the duration string `b` (e.g. `\"1h\"` zeroes out minutes/seconds).\n\n!!! note \"Has a curried form\"\n    `truncate(every)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round, "Rounds each Date/Datetime value of `a` to the nearest interval named by the duration string `b`, rather than always truncating down like [`truncate`](@ref).\n\n!!! note \"Has a curried form\"\n    `round(every)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by, "Shifts each Date/Datetime value of `a` by the (possibly signed) duration string `b` (e.g. `\"+1d\"`, `\"-2h\"`).\n\n!!! note \"Has a curried form\"\n    `offset_by(by)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate, "Truncates each Date/Datetime value of `a` down to the start of the enclosing interval named by the duration string `b` (e.g. `\"1h\"` zeroes out minutes/seconds).")
+    gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round, "Rounds each Date/Datetime value of `a` to the nearest interval named by the duration string `b`, rather than always truncating down like [`truncate`](@ref).")
+    gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by, "Shifts each Date/Datetime value of `a` by the (possibly signed) duration string `b` (e.g. `\"+1d\"`, `\"-2h\"`).")
 end
 
 # Curried (Fix2-style) forms, e.g. `col("d") |> Dt.truncate("1mo")`.

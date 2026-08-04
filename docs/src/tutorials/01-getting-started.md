@@ -57,7 +57,7 @@ products
 Since every Polars.jl function takes the frame/group-by object as its *first* argument, multi-step
 queries read nicely with [Chain.jl](https://github.com/jkrumbiegel/Chain.jl)'s `@chain` macro:
 each bare line implicitly becomes a call with the previous line's result spliced in as the first
-argument. This tutorial series uses `@chain` throughout instead of nested `|>` pipes.
+argument.
 
 Let's find the five largest orders by revenue (`quantity * unit_price`):
 

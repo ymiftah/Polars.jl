@@ -45,9 +45,6 @@ head(n) = Base.Fix2(head, convert(Expr, n))
 
 Last `n` elements of each list in `expr` (fewer if the list is shorter than `n`). Complements
 [`head`](@ref).
-
-!!! note
-    Not exported -- collides with the top-level `Polars.tail`; call as `Lists.tail(...)`.
 """
 function tail(a::Expr, b::Expr)
     out = API.polars_expr_list_tail(a, b)
@@ -60,9 +57,6 @@ tail(n) = Base.Fix2(tail, convert(Expr, n))
 
 Shifts each list's elements by `periods` (negative shifts up), filling vacated positions with
 `null` -- the per-list analogue of the top-level [`shift`](@ref).
-
-!!! note
-    Not exported -- collides with the top-level `Polars.shift`; call as `Lists.shift(...)`.
 """
 function shift(a::Expr, b::Expr)
     out = API.polars_expr_list_shift(a, b)
@@ -99,9 +93,6 @@ own list.
 `index` should be a genuinely List-typed expression (e.g. `implode(lit([...]))`, or another
 `Lists`-namespace result) -- passing a bare, non-list literal like `lit([0, -1])` still works but
 prints an upstream deprecation warning (`list.gather with a flat datatype is deprecated`).
-
-!!! note
-    Not exported -- collides with the top-level `Polars.gather`; call as `Lists.gather(...)`.
 """
 function gather(expr::Expr, index::Expr; null_on_oob::Bool = false)
     out = API.polars_expr_list_gather(expr, index, null_on_oob)
@@ -113,10 +104,6 @@ end
 
 Within each list of `expr`, keeps every `n`-th element starting at `offset`. Distinct from the
 top-level [`gather_every`](@ref) (row-level, across the whole column).
-
-!!! note
-    Not exported -- collides with the top-level `Polars.gather_every`; call as
-    `Lists.gather_every(...)`.
 """
 function gather_every(expr::Expr, n; offset = 0)
     out = API.polars_expr_list_gather_every(expr, convert(Expr, n), convert(Expr, offset))
@@ -128,9 +115,6 @@ end
               seed::Union{Nothing,Integer}=nothing)::Polars.Expr
 
 Randomly samples `n` elements from each list of `expr`.
-
-!!! note
-    Not exported -- collides with the top-level `Polars.sample_n`; call as `Lists.sample_n(...)`.
 """
 function sample_n(
         expr::Expr, n; with_replacement::Bool = false, shuffle::Bool = false,
@@ -311,9 +295,6 @@ end
     union(expr::Polars.Expr, other::Polars.Expr)::Polars.Expr
 
 Set union between each row's list in `expr` and the corresponding list in `other`.
-
-!!! note
-    Not exported -- collides with `Base.union`; call as `Lists.union(...)`.
 """
 function union(a::Expr, b::Expr)
     out = API.polars_expr_list_union(a, b)
@@ -362,9 +343,6 @@ export set_symmetric_difference
 
 Standard deviation of the values within each list of `expr`, with `ddof` degrees of freedom
 subtracted.
-
-!!! note
-    Not exported -- collides with the top-level `Polars.std`; call as `Lists.std(...)`.
 """
 std(expr::Expr; ddof::Integer = 1) = Expr(API.polars_expr_list_std(expr, UInt8(ddof)))
 
@@ -372,9 +350,6 @@ std(expr::Expr; ddof::Integer = 1) = Expr(API.polars_expr_list_std(expr, UInt8(d
     var(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
 Variance of the values within each list of `expr`, with `ddof` degrees of freedom subtracted.
-
-!!! note
-    Not exported -- collides with the top-level `Polars.var`; call as `Lists.var(...)`.
 """
 var(expr::Expr; ddof::Integer = 1) = Expr(API.polars_expr_list_var(expr, UInt8(ddof)))
 
@@ -388,9 +363,6 @@ dedicated function ([`any`](@ref)/[`all`](@ref)/[`n_unique`](@ref)) or
 [`agg`](@ref Polars.Lists.agg) instead -- `apply` always keeps the list shape even when
 `evaluation` itself produces one value per row (e.g. `Lists.apply(x, all(element()))` gives a
 length-1 list per row, not a bare `Bool`).
-
-!!! note
-    Not exported; call as `Lists.apply(...)`.
 """
 # Named `apply` rather than upstream's `eval` -- `eval`/`include` are reserved per-module names
 # in Julia and cannot be redefined. `reverse`/`unique`/`unique_stable` above are built from this
@@ -406,10 +378,6 @@ end
 Like [`apply`](@ref Polars.Lists.apply), but `evaluation` is expected to reduce to a single scalar
 per row and the result is unwrapped to that scalar. `any`/`all`/`n_unique` above are the dedicated
 form of this for their own reducers; `agg` is for anything else that doesn't have one.
-
-!!! note
-    Not exported -- collides with the top-level `Polars.agg` (`LazyGroupBy` aggregation); call as
-    `Lists.agg(...)`.
 """
 function agg(expr::Expr, evaluation::Expr)
     out = API.polars_expr_list_agg(expr, evaluation)

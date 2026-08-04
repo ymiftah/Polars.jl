@@ -48,7 +48,7 @@ Selectors.by_dtype
     `Selectors.array()` raises an error rather than selecting columns. See [Limitations](@ref) and
     [Developer](@ref) for why.
 
-`all`/`float`/`string`/`time`/`contains` are deliberately not exported from `Selectors` itself (they'd clobber `Base.all`/`Base.float`/`Base.string`/`Base.time`/`Base.contains`) — always call them qualified, e.g. `Selectors.string()`. Everything else *is* exported from `Selectors`, so `using Polars.Selectors` also brings those in unqualified if you prefer that style; this page always uses the qualified form, which works either way.
+This page always uses the qualified `Selectors.foo(...)` form, which works for every selector regardless of whether `using Polars.Selectors` would also bring its bare name into scope. See [Limitations](@ref) for which selector names require qualification.
 
 ```@example selectors
 select(df, Selectors.string())

@@ -55,9 +55,6 @@ With no extra arguments, returns the sole value of a 1×1 `df`, and errors for a
 
 With `row` and `col`, returns that single element; `col` accepts either an `Integer` index or a
 column name (`String` or `Symbol`), the same as indexing.
-
-!!! note
-    Not exported: call it as `Polars.item(...)`.
 """
 function item(df::DataFrame)
     sz = size(df)

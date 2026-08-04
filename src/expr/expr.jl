@@ -1173,9 +1173,6 @@ The aggregation form of `item`: raises unless `expr` evaluates to exactly one va
 overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead
 of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a
 `DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation).
-
-!!! note
-    Not exported: call it as `Polars.item(...)`.
 """
 item(expr::Expr; allow_empty::Bool = false) = Expr(API.polars_expr_item(expr, allow_empty))
 
