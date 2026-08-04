@@ -41,6 +41,9 @@ jobs:
       - name: Check the C header matches the Rust FFI surface
         run: python3 c-polars/check_header_drift.py
 
+      - name: Check the Arrow C Data Interface structs match their Julia mirrors
+        run: python3 c-polars/check_header_drift.py --arrow
+
       - name: Check generated API bindings are up to date
         run: |
           julia --project=gen -e 'import Pkg; Pkg.instantiate()'

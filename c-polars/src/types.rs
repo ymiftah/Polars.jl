@@ -1,6 +1,38 @@
 use polars::prelude::*;
 use polars_core::frame::PivotColumnNaming;
+use polars_core::utils::arrow::ffi::{ArrowArray, ArrowSchema};
 use polars_utils::compression::ZstdLevel;
+
+/// Pins the memory layout of the two Arrow C Data Interface structs that cross this boundary.
+///
+/// Unlike every other type here, `ArrowSchema`/`ArrowArray` are **not** ours -- they come from
+/// polars-arrow, and the Rust side always uses polars-arrow's own definitions. Two hand-maintained
+/// mirrors describe them to everyone downstream:
+///
+/// - `c-polars/include/arrow.h` -- the C declarations cbindgen's output `#include`s.
+/// - the `ArrowSchema`/`ArrowArray` mirrors in `src/api/generated.jl` -- what Julia `unsafe_load`s.
+///
+/// Neither is checked against polars-arrow by anything else: `check_header_drift.py` matches
+/// *function* symbols only, so it is structurally blind to struct layout, and the Rust side stays
+/// self-consistent no matter what polars-arrow does. A layout change upstream would therefore
+/// compile cleanly and silently corrupt memory at the FFI boundary. These assertions turn that
+/// into a build failure.
+///
+/// Both structs are all-pointer-width fields on a 64-bit target, so the expected sizes fall
+/// straight out of the field counts in `arrow.h`: `ArrowSchema` has 9 fields (72 bytes),
+/// `ArrowArray` has 10 (80 bytes).
+///
+/// `size_of`/`align_of` need no field access, so this compiles regardless of whether polars-arrow
+/// exposes the fields. That catches any field added, removed, or changed width. It does not catch
+/// a pure reordering at constant size -- `check_header_drift.py --arrow` covers ordering across
+/// the two mirrors, and `offset_of!` assertions could close it here too if polars-arrow's fields
+/// are public.
+const _: () = {
+    assert!(std::mem::size_of::<ArrowSchema>() == 72);
+    assert!(std::mem::align_of::<ArrowSchema>() == 8);
+    assert!(std::mem::size_of::<ArrowArray>() == 80);
+    assert!(std::mem::align_of::<ArrowArray>() == 8);
+};
 
 /// Borrows from its parent (a `Series`, or another `polars_value_t` for struct-field access via
 /// `polars_value_struct_get`) rather than owning its data. The caller must keep the parent alive
