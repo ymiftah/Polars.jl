@@ -1,4 +1,3 @@
-
 import Statistics: cor, cov, mean, median, quantile, std, var
 
 """
@@ -180,12 +179,12 @@ end
 """
     Polars.kurtosis(; fisher::Bool=true, bias::Bool=true)
 
-Curried form of [`kurtosis`](@ref) for use with `|>`. Only available qualified, as
-`Polars.kurtosis(; ...)` -- the curried form takes no positional argument, so it cannot be added
-to StatsBase's generic without claiming a signature that mentions no type from this package.
+Curried form of [`kurtosis`](@ref) for use with `|>`.
+
+!!! note "Not exported"
+    Only available qualified, as `Polars.kurtosis(; ...)`.
 """
 kurtosis(; fisher::Bool = true, bias::Bool = true) = expr -> kurtosis(expr; fisher, bias)
-
 
 
 """
@@ -319,7 +318,6 @@ function sample_frac(
 end
 
 export sample_frac
-
 
 
 """
@@ -586,7 +584,6 @@ export rolling_mean, rolling_sum, rolling_min, rolling_max, rolling_std, rolling
     rolling_median, rolling_quantile
 
 
-
 """
     rank(expr::Polars.Expr; method::Symbol=:dense, descending::Bool=false)::Polars.Expr
 
@@ -755,9 +752,9 @@ end
 
 export ewm_var
 
-"""Builds the `(breaks_ptr, n_breaks, label_ptrs, label_lens, n_labels)` argument tuple shared by
-`cut`/`qcut`/`qcut_uniform`, under the caller's own `GC.@preserve`. `labels === nothing` becomes
-`n_labels = 0`, the FFI convention for "generate interval-string labels"."""
+# Builds the `(breaks_ptr, n_breaks, label_ptrs, label_lens, n_labels)` argument tuple shared by
+# `cut`/`qcut`/`qcut_uniform`, under the caller's own `GC.@preserve`. `labels === nothing` becomes
+# `n_labels = 0`, the FFI convention for "generate interval-string labels".
 function _cut_labels(labels::Union{Nothing, Vector{String}})
     labels_v = labels === nothing ? String[] : labels
     ptrs, lens = _name_ptrs(labels_v)

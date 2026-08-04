@@ -25,9 +25,9 @@ Polars.jl provides two frame types:
   `collect`.
 
 The lazy path lets polars fuse and reorder operations (e.g. push a `filter` before a `select`)
-before touching any data, which matters once queries grow beyond a couple of steps. Eager
-operations in Polars.jl are implemented as `collect ∘ op ∘ lazy` under the hood, so both forms
-give identical results — prefer the lazy form once a query involves more than one or two steps.
+before touching any data, which matters once queries grow beyond a couple of steps. Eager and lazy
+operations give identical results — prefer the lazy form once a query involves more than one or
+two steps.
 
 ## Your first DataFrame
 

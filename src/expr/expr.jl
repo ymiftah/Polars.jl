@@ -660,12 +660,12 @@ end
     # it needs literal-argument `convert` overloads the macro's plain `(Expr, Expr)` shape can't
     # express (mirroring `is_in`/`fill_null`'s own curried forms further down).
 
-    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression). Has a curried form `fill_null(value)` for `|>` pipelines -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`. Has a curried form `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column). Has a curried form `is_in(values)` -- see [Curried forms for pipe-based composition](@ref) and the `lit(::Vector)` section below for how to build `b`.")
+    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression).\n\n!!! note \"Has a curried form\"\n    `fill_null(value)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`.\n\n!!! note \"Has a curried form\"\n    `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column); see the `lit(::Vector)` section below for how to build `b`.\n\n!!! note \"Has a curried form\"\n    `is_in(values)` -- see [Curried forms for pipe-based composition](@ref).")
 
-    gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`. Has a curried form `shift(n)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`. Has a curried form `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`.\n\n!!! note \"Has a curried form\"\n    `shift(n)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref).")
 
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
@@ -772,8 +772,10 @@ Replaces every `null` value in `expr` using a fill *strategy* instead of a fixed
 - `:mean`/`:min`/`:max` -- the column's own aggregate
 - `:zero`/`:one` -- a fixed numeric fill, dtype-appropriate
 
-`limit` only applies to `:forward`/`:backward` and is ignored otherwise. Has a curried form (2nd
-method) for `|>` pipelines.
+`limit` only applies to `:forward`/`:backward` and is ignored otherwise.
+
+!!! note "Has a curried form"
+    The keyword-only method above, for `|>` pipelines.
 """
 function fill_null(expr::Expr; strategy::Symbol, limit::Union{Nothing, Integer} = nothing)
     strategy_enum = if strategy == :backward
@@ -806,7 +808,10 @@ fill_null(; strategy::Symbol, limit::Union{Nothing, Integer} = nothing) =
 
 Fills every `null` value in `expr` with the last non-null value seen before it. `limit` caps
 how many consecutive nulls a single value may fill (`nothing` for unlimited). Shorthand for
-`fill_null(expr; strategy=:forward, limit)`. Has a curried form (2nd method) for `|>` pipelines.
+`fill_null(expr; strategy=:forward, limit)`.
+
+!!! note "Has a curried form"
+    The keyword-only method above, for `|>` pipelines.
 """
 forward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :forward, limit)
 forward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> forward_fill(expr; limit)
@@ -817,7 +822,10 @@ forward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> forward_fill(
 
 Fills every `null` value in `expr` with the next non-null value found after it. `limit` caps
 how many consecutive nulls a single value may fill (`nothing` for unlimited). Shorthand for
-`fill_null(expr; strategy=:backward, limit)`. Has a curried form (2nd method) for `|>` pipelines.
+`fill_null(expr; strategy=:backward, limit)`.
+
+!!! note "Has a curried form"
+    The keyword-only method above, for `|>` pipelines.
 """
 backward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :backward, limit)
 backward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> backward_fill(expr; limit)
@@ -1063,7 +1071,7 @@ Curried form of [`over`](@ref) for use with `|>`, mirroring Python polars' `.ove
 instead); for expression-valued partition keys, call `over(expr, partition_by...)` directly.
 `kwargs` (`mapping_strategy`/`order_by`/`descending`/`nulls_last`) forward to `over` unchanged.
 """
-over(partition_by::Union{String, Symbol}...; kwargs...) =
+over(partition_by::Vararg{ColId}; kwargs...) =
     expr -> over(expr, partition_by...; kwargs...)
 
 export over
@@ -1097,7 +1105,7 @@ Only accepts column-name strings/symbols, not `Expr` by-keys (an `Expr` argument
 with `sort_by`'s own `expr` argument and always resolves to that instead); for expression-valued
 by-keys, call `sort_by(expr, by...; kwargs...)` directly.
 """
-function sort_by(by::Union{String, Symbol}...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
+function sort_by(by::Vararg{ColId}; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
     return expr -> sort_by(expr, by...; rev, nulls_last, maintain_order)
 end
 
@@ -1164,9 +1172,10 @@ export gather_every
 The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or
 overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead
 of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a
-`DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation) -- the two share a name
-upstream but are different functions. Not exported, matching the `DataFrame`/`Series` methods of
-the same name: call it as `Polars.item(...)`.
+`DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation).
+
+!!! note
+    Not exported: call it as `Polars.item(...)`.
 """
 item(expr::Expr; allow_empty::Bool = false) = Expr(API.polars_expr_item(expr, allow_empty))
 

@@ -7,9 +7,9 @@ repeated to match). `empty_as_null`: an empty list produces one `null` row when 
 rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true`
 (default), rather than disappearing.
 """
-explode(df::DataFrame, columns::Vector{String}; kwargs...) = explode(lazy(df), columns; kwargs...) |> collect
+explode(df::DataFrame, columns::Vector{<:ColId}; kwargs...) = explode(lazy(df), columns; kwargs...) |> collect
 function explode(
-        lf::LazyFrame, columns::Vector{String};
+        lf::LazyFrame, columns::Vector{<:ColId};
         empty_as_null::Bool = true, keep_nulls::Bool = true
     )
     GC.@preserve columns begin
@@ -33,15 +33,15 @@ format: `index` columns are repeated, and the melted columns become two new colu
 (default `"value"`) holding its value.
 """
 function unpivot(
-        df::DataFrame, index::Vector{String};
-        on::Vector{String} = String[], variable_name::Union{Nothing, String} = nothing,
+        df::DataFrame, index::Vector{<:ColId};
+        on::Vector{<:ColId} = String[], variable_name::Union{Nothing, String} = nothing,
         value_name::Union{Nothing, String} = nothing
     )
     return unpivot(lazy(df), index; on, variable_name, value_name) |> collect
 end
 function unpivot(
-        lf::LazyFrame, index::Vector{String};
-        on::Vector{String} = String[], variable_name::Union{Nothing, String} = nothing,
+        lf::LazyFrame, index::Vector{<:ColId};
+        on::Vector{<:ColId} = String[], variable_name::Union{Nothing, String} = nothing,
         value_name::Union{Nothing, String} = nothing
     )
     variable_name = something(variable_name, "")
@@ -71,13 +71,13 @@ two unnested fields sharing a name -- or a field name colliding with an existing
 rather than silently overwriting.
 """
 function unnest(
-        df::DataFrame, columns::Vector{String};
+        df::DataFrame, columns::Vector{<:ColId};
         separator::Union{Nothing, AbstractString} = nothing
     )
     return unnest(lazy(df), columns; separator) |> collect
 end
 function unnest(
-        lf::LazyFrame, columns::Vector{String};
+        lf::LazyFrame, columns::Vector{<:ColId};
         separator::Union{Nothing, AbstractString} = nothing
     )
     separator_arg = separator === nothing ? Ptr{UInt8}(C_NULL) : separator
@@ -104,10 +104,8 @@ aggregating each group's `values` column via `agg` -- an expression built from [
 a placeholder for "the values in this group", e.g. `Base.sum(element())`. `on`/`index`/`values`
 may each be a single column name or a `Vector` of names.
 
-Wraps polars' own native `pivot` DSL node, which expands into an ordinary
-`group_by(index).agg(...)` plan internally (one conditional aggregation per distinct `on` value),
-so it reuses the same executor as `group_by`/`agg` rather than anything bespoke. Eager-only (no
-`LazyFrame` method) since it needs the distinct `on` values computed upfront.
+!!! note
+    Eager-only (no `LazyFrame` method): the distinct `on` values must be computed upfront.
 """
 function pivot(
         df::DataFrame, on, index, values; agg::Expr = Base.first(element()),
@@ -155,9 +153,10 @@ independently per group. If `stable` is `true` (default), the original row order
 when `by` is given (at some extra cost); if `false`, order is not guaranteed.
 """
 function upsample(
-        df::DataFrame, time_column::String; by::Vector{String} = String[], every::String,
+        df::DataFrame, time_column::ColId; by::Vector{<:ColId} = String[], every::String,
         stable::Bool = true
     )
+    time_column = String(time_column)
     GC.@preserve by begin
         by_ptrs, by_lens = _name_ptrs(by)
         out = Ref{Ptr{polars_dataframe_t}}()
@@ -189,15 +188,13 @@ result.
 Only these two `new_col_names` modes are supported: omitted, or an explicit name per row. Using an
 existing column's *values* as the new names is not available.
 
-Eager-only (no `LazyFrame` method) — transposing needs the whole frame materialized first, unlike
-this package's usual `collect ∘ op ∘ lazy` pattern.
-
-Extends `Base.transpose` (Julia's own array-transpose function, exported from Base, same as
-[`unique`](@ref)) — call it bare (`transpose(df)`), no qualification needed.
+!!! note
+    Eager-only (no `LazyFrame` method) — transposing needs the whole frame materialized first.
+    Extends `Base.transpose`; call it bare (`transpose(df)`), no qualification needed.
 """
 function Base.transpose(
         df::DataFrame; keep_names_as::Union{Nothing, AbstractString} = nothing,
-        new_col_names::Union{Nothing, Vector{String}} = nothing
+        new_col_names::Union{Nothing, Vector{<:ColId}} = nothing
     )
     keep_names_as_arg = keep_names_as === nothing ? Ptr{UInt8}(C_NULL) : keep_names_as
     keep_names_as_len = keep_names_as === nothing ? 0 : ncodeunits(keep_names_as)

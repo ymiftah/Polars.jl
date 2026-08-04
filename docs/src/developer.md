@@ -52,7 +52,12 @@ Some polars capabilities are gated behind Cargo features that aren't enabled by 
 `c-polars/Cargo.toml`:
 
 - `Strings.titlecase` requires an internal "nightly" Cargo feature this package deliberately
-  doesn't enable — the binding exists but errors at runtime.
+  doesn't enable — the binding exists but errors at runtime. Enabling it needs a nightly rustc and
+  `cargo build --features nightly` in `c-polars/`, then regenerating the bindings.
+- `Strings.to_integer` requires the `string_to_integer` Cargo feature; `Strings.reverse` requires
+  `string_reverse`. Neither is enabled by default — add the feature name to
+  `c-polars/Cargo.toml`'s `polars` dependency and rebuild to enable.
+- `Dt.month_start`/`Dt.month_end` require Cargo features not enabled by default; same fix as above.
 - `Array` (fixed-size list) support needs the `dtype-array` feature, which isn't enabled.
   Upstream's own `Array`-dtype selector matcher compiles to an always-`false` fallback when the
   feature is off, which would otherwise make `Selectors.array()` silently match zero columns

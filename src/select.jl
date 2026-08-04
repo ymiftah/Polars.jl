@@ -81,13 +81,9 @@ import Base: tail
 
 Returns the last `n` rows of the frame.
 
-Extends `Base.tail` (operates on `Tuple`/`NamedTuple`). Unlike `sum`/`diff`/`prod`/`replace`,
-which are *exported* Base names already visible unqualified inside any module, `tail` is
-`isdefined(Base, :tail) == true` but **not exported** -- so it isn't visible unqualified without
-the explicit `import Base: tail` above, and a plain `export tail` below would otherwise fail with
-`UndefVarError` (there being no local `tail` binding to export). This is the same trap documented
-in CLAUDE.md for `Expr::product`/`Base.product`, just on a plain `Base.foo(...) = ...` extension
-instead of the `@generate_expr_fns` macro.
+!!! note
+    Extends `Base.tail` (which otherwise operates on `Tuple`/`NamedTuple`); `Base` does not
+    export this name, so `import Base: tail` is required for it to work unqualified.
 """
 Base.tail(df::LazyFrame, n = 5) = _tail!(clone(df), n)
 Base.tail(df::DataFrame, n = 5) = _tail!(lazy(df), n) |> collect
@@ -106,9 +102,9 @@ end
     filter(lf::LazyFrame, expr)
     filter(df::DataFrame, expr)
 
-Filters the rows of the provided frames based on the provided expression. `expr` goes through
-`_as_expr` exactly like `select`/`with_columns`/`sort` do, so a `String`/`Symbol` column
-name, an `Expr`, or a `Selector` (a boolean-dtype column reference in each case) are all accepted.
+Filters the rows of the provided frames based on the provided predicate expression: a
+`String`/`Symbol` column name, an `Expr`, or a `Selector` (each treated as a boolean-dtype column
+reference).
 """
 Base.filter(df::LazyFrame, expr) = _filter!(clone(df), expr)
 Base.filter(df::DataFrame, expr) = _filter!(lazy(df), expr) |> collect

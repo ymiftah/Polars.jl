@@ -6,10 +6,9 @@ Computes summary statistics for each column of `df`, returning one row per stati
 (named e.g. `"25%"`), `"max"`) and one column per column of `df`, plus a leading `"statistic"`
 column.
 
-Every value is stringified, since a single output column otherwise couldn't coherently hold both
-e.g. a count (integer) and a mean (float). `mean`/`std`/percentile rows are `missing` for
-non-numeric columns (only `count`/`null_count`/`min`/`max` apply there); `min`/`max` are themselves
-`missing` for columns whose dtype has no natural ordering (e.g. `List`/`Struct`).
+Every value is returned as a string. `mean`/`std`/percentile rows are `missing` for non-numeric
+columns (only `count`/`null_count`/`min`/`max` apply there); `min`/`max` are themselves `missing`
+for columns whose dtype has no natural ordering (e.g. `List`/`Struct`).
 """
 function describe(df::DataFrame; percentiles::AbstractVector{<:Real} = [0.25, 0.5, 0.75])
     sch = schema(df)

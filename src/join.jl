@@ -79,21 +79,21 @@ group-by column names applied before the asof match.
 """
 function join_asof(
         a, b, on;
-        by_left::Vector{String} = String[], by_right::Vector{String} = String[],
+        by_left::Vector{<:ColId} = String[], by_right::Vector{<:ColId} = String[],
         strategy::Symbol = :backward
     )
     return join_asof(a, b, on, on; by_left, by_right, strategy)
 end
 function join_asof(
         a::DataFrame, b::DataFrame, on_a, on_b;
-        by_left::Vector{String} = String[], by_right::Vector{String} = String[],
+        by_left::Vector{<:ColId} = String[], by_right::Vector{<:ColId} = String[],
         strategy::Symbol = :backward
     )
     return join_asof(lazy(a), lazy(b), on_a, on_b; by_left, by_right, strategy) |> collect
 end
 function join_asof(
         a::LazyFrame, b::LazyFrame, on_a, on_b;
-        by_left::Vector{String} = String[], by_right::Vector{String} = String[],
+        by_left::Vector{<:ColId} = String[], by_right::Vector{<:ColId} = String[],
         strategy::Symbol = :backward
     )
     on_a = _as_expr(on_a)

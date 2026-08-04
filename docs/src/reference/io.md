@@ -135,9 +135,7 @@ function rather than attempting to create a local file — passing a `String` pa
 `scheme://` prefix to any of the six read/write functions is enough to opt in; no separate flag is
 needed.
 
-`https://`/`http://` scanning is **not new** — it already worked before cloud object-store support
-was added, needs no `storage_options` and no extra Cargo feature, and is unrelated to the
-S3/GCS/Azure work described below:
+`https://`/`http://` scanning needs no `storage_options`:
 
 ```julia
 scan_csv("https://raw.githubusercontent.com/pola-rs/polars/main/examples/datasets/foods1.csv")
@@ -170,12 +168,14 @@ For S3/GCS/Azure, credentials and endpoint configuration can come from two place
   sink_parquet(df, "s3://my-bucket/out.parquet"; storage_options)
   ```
 
-  `storage_options` keys are passed through verbatim to polars with no allowlist on the Julia
-  side — an unrecognized key is not rejected outright, it's silently dropped by polars and the
-  operation proceeds without it (surfacing as a connection/credentials error later rather than an
-  immediate "unknown key" error), so double-check key spelling against
-  [polars' own cloud storage options documentation](https://docs.pola.rs/user-guide/io/cloud-storage/)
-  if a call fails in a way that looks like a missing credential.
+  See [polars' own cloud storage options documentation](https://docs.pola.rs/user-guide/io/cloud-storage/)
+  for the full set of accepted keys.
+
+!!! tip "Unrecognized keys fail silently"
+    An unrecognized `storage_options` key is not rejected outright — it's dropped and the
+    operation proceeds without it, surfacing later as a connection/credentials error rather than
+    an immediate "unknown key" error. Double-check key spelling if a call fails in a way that
+    looks like a missing credential.
 
 Two things worth keeping in mind:
 
@@ -187,11 +187,11 @@ Two things worth keeping in mind:
   tasks/threads are unchanged, and cloud requests don't consume or contend with Julia's own thread
   pool.
 
-Finally, a security note: if polars fails to parse or use a `storage_options` value (e.g. a
-malformed `aws_endpoint_url`), the value can appear verbatim in the resulting error message. Avoid
-putting real secrets directly in code that might get logged or pasted into a bug report/issue —
-prefer sourcing credentials from the environment (`~/.aws/credentials`, `AWS_ACCESS_KEY_ID`, etc.)
-where possible.
+!!! warning "Don't hardcode secrets"
+    If polars fails to parse or use a `storage_options` value (e.g. a malformed
+    `aws_endpoint_url`), the value can appear verbatim in the resulting error message. Prefer
+    sourcing credentials from the environment (`~/.aws/credentials`, `AWS_ACCESS_KEY_ID`, etc.)
+    over putting them directly in code that might get logged or pasted into a bug report.
 
 ## Bulk materialization
 
@@ -200,11 +200,13 @@ read_series
 ```
 
 Bulk-materializes a `Series` (see [Series](@ref)) into a native Julia `Vector` in one pass, or
-returns `nothing` if the series' type isn't (yet) supported by this path. Passing `zerocopy=true`
-additionally allows, for fixed-width numeric columns with no nulls, returning a `Vector` that
-directly aliases the polars `Series`' own memory with no copy at all — the returned array must then
-be treated as **read-only**, since mutating it would corrupt the source `Series`. For any other
-column type, `zerocopy` is not honored and a normal copy is returned instead.
+returns `nothing` if the series' type isn't (yet) supported by this path. For fixed-width numeric
+columns with no nulls, passing `zerocopy=true` instead returns a `Vector` that directly aliases
+the polars `Series`' own memory with no copy at all. For any other column type, `zerocopy` is not
+honored and a normal copy is returned instead.
+
+!!! warning "`zerocopy` aliases memory"
+    The returned array must be treated as read-only — mutating it corrupts the source `Series`.
 
 ## Notes
 

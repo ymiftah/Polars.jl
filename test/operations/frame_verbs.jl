@@ -193,6 +193,41 @@ end
     @test r_named[:idx] == UInt32[10, 11, 12]
 end
 
+@testset "Symbol column identifiers (verbs.jl/reshape.jl)" begin
+    # regression test for a bug found in review: with_row_index(df, :idx) used to raise
+    # `MethodError: ncodeunits(::Symbol)` -- every other verb below routed Symbol args through
+    # `_name_ptrs`, which converts to String first, but with_row_index passed `name` straight to
+    # `ncodeunits`.
+    df = DataFrame((; g = ["a", "a", "b", "b"], x = [1, 2, 3, 4]))
+
+    r_idx = with_row_index(df, :idx)
+    @test Tables.columnnames(r_idx) == (:idx, :g, :x)
+
+    r_unique_vec = Base.unique(df, [:g]; keep = :first)
+    @test size(r_unique_vec) == (2, 2)
+    r_unique_vararg = Base.unique(df, :g; keep = :first)
+    @test size(r_unique_vararg) == (2, 2)
+
+    r_drop = drop(df, [:x])
+    @test Tables.columnnames(r_drop) == (:g,)
+
+    r_rename_vec = Base.rename(df, [:g], [:group])
+    @test Tables.columnnames(r_rename_vec) == (:group, :x)
+    r_rename_pair = Base.rename(df, :g => :group)
+    @test Tables.columnnames(r_rename_pair) == (:group, :x)
+    # mixed String/Symbol pair also works
+    r_rename_mixed = Base.rename(df, "g" => :group)
+    @test Tables.columnnames(r_rename_mixed) == (:group, :x)
+
+    df_nulls = DataFrame((; a = [1, missing, 3], b = [1, 2, 3]))
+    r_drop_nulls = drop_nulls(df_nulls, [:a])
+    @test size(r_drop_nulls) == (2, 2)
+
+    df_time = DataFrame((; time = [DateTime(2024, 1, 1, 0), DateTime(2024, 1, 1, 2)], v = [1, 2]))
+    r_upsample = upsample(df_time, :time; every = "1h")
+    @test size(r_upsample) == (3, 2)
+end
+
 @testset "hstack" begin
     df = DataFrame((; a = [1, 2, 3], b = [4, 5, 6]))
 

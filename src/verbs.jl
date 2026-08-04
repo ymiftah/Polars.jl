@@ -2,7 +2,7 @@
 under `GC.@preserve names`."""
 _name_ptrs(names::Vector{String}) =
     (Ptr{UInt8}[pointer(s) for s in names], Csize_t[ncodeunits(s) for s in names])
-_name_ptrs(names::Vector{Symbol}) = _name_ptrs(String.(names))
+_name_ptrs(names::Vector{<:ColId}) = _name_ptrs(String.(names))
 """
     unique(lf::LazyFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::LazyFrame
     unique(df::DataFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::DataFrame
@@ -11,9 +11,9 @@ Removes duplicate rows, considering only `subset` columns if provided (all colum
 `keep` selects which duplicate to retain: `:first`, `:last`, `:none` (drop all duplicates), or
 `:any` (default — no order guarantee, allows more optimization).
 """
-Base.unique(df::DataFrame, subset::Vector{T} = String[]; keep::Symbol = :any) where {T <: Union{String, Symbol}} =
+Base.unique(df::DataFrame, subset::Vector{<:ColId} = String[]; keep::Symbol = :any) =
     unique(lazy(df), subset; keep) |> collect
-function Base.unique(lf::LazyFrame, subset::Vector{T} = String[]; keep::Symbol = :any) where {T <: Union{String, Symbol}}
+function Base.unique(lf::LazyFrame, subset::Vector{<:ColId} = String[]; keep::Symbol = :any)
     keep_enum = if keep == :first
         API.PolarsUniqueKeepFirst
     elseif keep == :last
@@ -34,11 +34,11 @@ function Base.unique(lf::LazyFrame, subset::Vector{T} = String[]; keep::Symbol =
     return LazyFrame(out[])
 end
 
-function Base.unique(df::LazyFrame, subset::Vararg{T}; keep::Symbol = :any) where {T <: Union{String, Symbol}} 
-    return Base.unique(df, collect(subset); keep=keep)
+function Base.unique(df::LazyFrame, subset::Vararg{ColId}; keep::Symbol = :any)
+    return Base.unique(df, collect(subset); keep = keep)
 end
-Base.unique(df::DataFrame, subset::Vararg{T}; keep::Symbol = :any) where {T <: Union{String, Symbol}} =
-    Base.unique(lazy(df), subset...; keep=keep) |> collect
+Base.unique(df::DataFrame, subset::Vararg{ColId}; keep::Symbol = :any) =
+    Base.unique(lazy(df), subset...; keep = keep) |> collect
 
 """
     drop(lf::LazyFrame, columns::Vector{String})::LazyFrame
@@ -46,8 +46,8 @@ Base.unique(df::DataFrame, subset::Vararg{T}; keep::Symbol = :any) where {T <: U
 
 Removes the given columns from the frame.
 """
-drop(df::DataFrame, columns::Vector{T}) where {T <: Union{String, Symbol}} = drop(lazy(df), columns) |> collect
-function drop(lf::LazyFrame, columns::Vector{T}) where {T <: Union{String, Symbol}}
+drop(df::DataFrame, columns::Vector{<:ColId}) = drop(lazy(df), columns) |> collect
+function drop(lf::LazyFrame, columns::Vector{<:ColId})
     GC.@preserve columns begin
         ptrs, lens = _name_ptrs(columns)
         out = Ref{Ptr{polars_lazy_frame_t}}()
@@ -67,9 +67,9 @@ Renames `existing` columns to the corresponding `new` names (same length, paired
 If `strict` is `true` (default), every `existing` column must be present; otherwise, missing
 ones are silently ignored.
 """
-Base.rename(df::DataFrame, existing::Vector{T}, new::Vector{T}; strict::Bool = true) where {T <: Union{String, Symbol}} =
+Base.rename(df::DataFrame, existing::Vector{<:ColId}, new::Vector{<:ColId}; strict::Bool = true) =
     Base.rename(lazy(df), existing, new; strict) |> collect
-function Base.rename(lf::LazyFrame, existing::Vector{T}, new::Vector{T}; strict::Bool = true) where {T <: Union{String, Symbol}}
+function Base.rename(lf::LazyFrame, existing::Vector{<:ColId}, new::Vector{<:ColId}; strict::Bool = true)
     length(existing) == length(new) || error("existing and new must have the same length")
     GC.@preserve existing new begin
         existing_ptrs, existing_lens = _name_ptrs(existing)
@@ -83,9 +83,9 @@ function Base.rename(lf::LazyFrame, existing::Vector{T}, new::Vector{T}; strict:
     return LazyFrame(out[])
 end
 
-Base.rename(df::DataFrame, pairs::Vararg{Pair{T, T}}; strict::Bool = true) where {T <: Union{String, Symbol}} =
+Base.rename(df::DataFrame, pairs::Vararg{Pair{<:ColId, <:ColId}}; strict::Bool = true) =
     Base.rename(lazy(df), pairs...; strict) |> collect
-function Base.rename(lf::LazyFrame, pairs::Vararg{Pair{T, T}}; strict::Bool = true) where {T <: Union{String, Symbol}}
+function Base.rename(lf::LazyFrame, pairs::Vararg{Pair{<:ColId, <:ColId}}; strict::Bool = true)
     existing = [k for (k, v) in pairs]
     new = [v for (k, v) in pairs]
     return Base.rename(lf, existing, new; strict = strict)
@@ -97,8 +97,8 @@ end
 
 Removes rows containing a `null` in any of the `subset` columns (all columns if not provided).
 """
-drop_nulls(df::DataFrame, subset::Vector{T} = String[]) where {T <: Union{String, Symbol}} = drop_nulls(lazy(df), subset) |> collect
-function drop_nulls(lf::LazyFrame, subset::Vector{T} = String[]) where {T <: Union{String, Symbol}}
+drop_nulls(df::DataFrame, subset::Vector{<:ColId} = String[]) = drop_nulls(lazy(df), subset) |> collect
+function drop_nulls(lf::LazyFrame, subset::Vector{<:ColId} = String[])
     GC.@preserve subset begin
         ptrs, lens = _name_ptrs(subset)
         out = Ref{Ptr{polars_lazy_frame_t}}()
@@ -114,9 +114,10 @@ end
 
 Adds a row-index column named `name`, starting at `offset` (default `0`).
 """
-with_row_index(df::DataFrame, name::T = "index"; offset::Integer = 0) where {T <: Union{String, Symbol}} =
+with_row_index(df::DataFrame, name::ColId = "index"; offset::Integer = 0) =
     with_row_index(lazy(df), name; offset) |> collect
-function with_row_index(lf::LazyFrame, name::T = "index"; offset::Integer = 0) where {T <: Union{String, Symbol}}
+function with_row_index(lf::LazyFrame, name::ColId = "index"; offset::Integer = 0)
+    name = String(name)
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = polars_lazy_frame_with_row_index(lf, name, ncodeunits(name), Int64(offset), true, out)
     polars_error(err)

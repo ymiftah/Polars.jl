@@ -56,7 +56,8 @@ With no extra arguments, returns the sole value of a 1×1 `df`, and errors for a
 With `row` and `col`, returns that single element; `col` accepts either an `Integer` index or a
 column name (`String` or `Symbol`), the same as indexing.
 
-Not exported: call it as `Polars.item(...)`.
+!!! note
+    Not exported: call it as `Polars.item(...)`.
 """
 function item(df::DataFrame)
     sz = size(df)
@@ -157,13 +158,13 @@ end
 """
     ==(a::DataFrame, b::DataFrame)::Bool
 
-Structural equality: same column names in the same order, with pairwise-`isequal` column data.
-Uses `isequal` (not the column data's own `==`) so two `missing`s compare equal and the result is
-always a concrete `Bool` -- matches `hash`'s semantics below, and avoids `==`'s usual
-`missing`-propagating three-valued logic, which would otherwise make a whole-dataframe comparison
-return `missing` instead of `true`/`false` whenever any column has nulls. Without this method,
-two structurally-identical `DataFrame`s compared unequal via the default `===` fallback.
+Structural equality: same column names in the same order, with pairwise-equal column data
+(`missing == missing` is treated as `true`, so the result is always a concrete `Bool`).
 """
+# Uses `isequal`, not column data's own `==`, to keep `hash`'s semantics consistent and avoid
+# `==`'s missing-propagating three-valued logic turning a whole-dataframe comparison into
+# `missing`. Without this method, structurally-identical `DataFrame`s compare unequal via the
+# default `===` fallback.
 function Base.:(==)(a::DataFrame, b::DataFrame)
     na, nb = names(a), names(b)
     na == nb || return false
@@ -195,8 +196,7 @@ end
 """
     Base.names(df::DataFrame)::Vector{String}
 
-Returns the column names of `df`. Unlike [`schema`](@ref)/`Tables.schema(df)`, this reads only
-the Arrow schema and runs no query at all, so it's cheap regardless of `df`'s size.
+Returns the column names of `df`.
 """
 Base.names(df::DataFrame) = collect(String.(_column_names(df)))
 
@@ -205,9 +205,7 @@ Base.names(df::DataFrame) = collect(String.(_column_names(df)))
 
 Implements the Tables.jl interface method: returns a `Tables.Schema` with column names and types,
 refined by each column's actual null count (unlike [`collect_schema`](@ref) on a `LazyFrame`, which
-hasn't executed the query and so must conservatively report every column as nullable). Cheaper than
-a full `select`-based scan since each column's null count is already known from its `Series`
-metadata, but not as cheap as [`Base.names`](@ref), which reads only the Arrow schema.
+hasn't executed the query and so must conservatively report every column as nullable).
 """
 function schema(df::DataFrame)
     schema_out = Ref{CArrowSchema}()
