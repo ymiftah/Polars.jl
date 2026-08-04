@@ -63,11 +63,9 @@ files, without reading it into memory.
 - `hive_partitioning`: force Hive-style partition-column detection on (`true`) or off (`false`);
   `nothing` (default) auto-detects.
 - `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
-  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
-  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
-  default) falls back to the provider's standard environment variables / config files (e.g.
-  `~/.aws/credentials`).
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
+  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
+  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
 """
 function scan_parquet(
         path;
@@ -207,11 +205,9 @@ keywords as [`write_parquet`](@ref), plus:
 - `mkdir`: create missing parent directories (default `false`).
 - `maintain_order`: preserve row order through the streaming pipeline (default `true`).
 - `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
-  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
-  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
-  default) falls back to the provider's standard environment variables / config files (e.g.
-  `~/.aws/credentials`).
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
+  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
+  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
 """
 sink_parquet(df::DataFrame, path::String; kwargs...) = sink_parquet(lazy(df), path; kwargs...)
 function sink_parquet(
@@ -261,9 +257,11 @@ Executes the query and writes the result as a Hive-partitioned directory of parq
 
 Accepts the same `compression`/`compression_level`/`statistics`/`row_group_size`/`data_page_size`/
 `storage_options` keywords as the single-file [`sink_parquet`](@ref) method, plus `maintain_order`
-(default `true`). **There is no `mkdir` keyword here**: upstream polars always recursively creates
-each partition's parent directory for a partitioned sink regardless of any such flag, so accepting
-one would silently do nothing.
+(default `true`).
+
+!!! note
+    There is no `mkdir` keyword here: each partition's parent directory is always created
+    automatically.
 """
 sink_parquet(df::DataFrame, target::PartitionByKey; kwargs...) = sink_parquet(lazy(df), target; kwargs...)
 function sink_parquet(

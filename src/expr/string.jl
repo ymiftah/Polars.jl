@@ -8,22 +8,22 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
     gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars, "Length of each string of `expr`, in Unicode characters. Differs from [`len_bytes`](@ref) for non-ASCII text.")
     # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
-    gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with, "Row-wise boolean flag: `true` where `a` starts with the literal (non-regex) substring `b`. Has a curried form `starts_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with, "Row-wise boolean flag: `true` where `a` ends with the literal (non-regex) substring `b`. Has a curried form `ends_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with, "Row-wise boolean flag: `true` where `a` starts with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `starts_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with, "Row-wise boolean flag: `true` where `a` ends with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `ends_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
     gen_impl_expr_binary_str!(
         polars_expr_str_contains_literal,
         StringNameSpace::contains_literal,
-        "Row-wise boolean flag: `true` where `a` contains the literal (non-regex) substring `b`. For a regex match, use [`contains`](@ref). Has a curried form `contains_literal(pat)` -- see [Curried forms for pipe-based composition](@ref)."
+        "Row-wise boolean flag: `true` where `a` contains the literal (non-regex) substring `b`. For a regex match, use [`contains`](@ref).\n\n!!! note \"Has a curried form\"\n    `contains_literal(pat)` -- see [Curried forms for pipe-based composition](@ref)."
     )
 
-    gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars, "Removes any leading/trailing characters of `a` that appear in `b` (a string of characters to strip, not a substring to match). Has a curried form `strip_chars(chars)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_start, StringNameSpace::strip_chars_start, "Like [`strip_chars`](@ref), but only strips leading characters. Has a curried form `strip_chars_start(chars)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_end, StringNameSpace::strip_chars_end, "Like [`strip_chars`](@ref), but only strips trailing characters. Has a curried form `strip_chars_end(chars)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix, "Removes the literal prefix `b` from `a` if present (no-op otherwise). Has a curried form `strip_prefix(prefix)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix, "Removes the literal suffix `b` from `a` if present (no-op otherwise). Has a curried form `strip_suffix(suffix)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split, "Splits each string of `a` on the literal (non-regex) substring `b`, returning a `List` of substrings (see [List](@ref expr-list)). Has a curried form `split(by)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all, "Extracts every non-overlapping match of the regex `b` from `a`, returning a `List` of matches per row (see [List](@ref expr-list)). Has a curried form `extract_all(pat)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill, "Left-pads each string of `a` with `'0'` up to a total width of `b` characters (a leading `+`/`-` sign, if present, stays before the padding). Has a curried form `zfill(width)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars, "Removes any leading/trailing characters of `a` that appear in `b` (a string of characters to strip, not a substring to match).\n\n!!! note \"Has a curried form\"\n    `strip_chars(chars)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_start, StringNameSpace::strip_chars_start, "Like [`strip_chars`](@ref), but only strips leading characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_start(chars)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_end, StringNameSpace::strip_chars_end, "Like [`strip_chars`](@ref), but only strips trailing characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_end(chars)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix, "Removes the literal prefix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_prefix(prefix)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix, "Removes the literal suffix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_suffix(suffix)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split, "Splits each string of `a` on the literal (non-regex) substring `b`, returning a `List` of substrings (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `split(by)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all, "Extracts every non-overlapping match of the regex `b` from `a`, returning a `List` of matches per row (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `extract_all(pat)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill, "Left-pads each string of `a` with `'0'` up to a total width of `b` characters (a leading `+`/`-` sign, if present, stays before the padding).\n\n!!! note \"Has a curried form\"\n    `zfill(width)` -- see [Curried forms for pipe-based composition](@ref).")
 end
 
 # `head`/`tail` are pulled out of the `@generate_expr_fns` block (rather than generated via
@@ -57,11 +57,7 @@ end
     titlecase(expr::Polars.Expr)
 
 !!! warning "Unavailable in a default build"
-    Upstream `StringNameSpace::to_titlecase` sits behind polars' own `nightly` Cargo feature
-    (it still depends on unstable stdlib internals as of polars 0.54.4), and this repo pins a
-    stable toolchain deliberately -- so `c-polars` does not compile the symbol and no binding for
-    it is generated. To enable it, build `c-polars` with a nightly toolchain and
-    `cargo build --features nightly`, then regenerate the bindings.
+    See [Developer](@ref) for why, and how to enable it.
 """
 function titlecase(::Expr)
     return error(
@@ -399,7 +395,6 @@ Aggregates every string value of `expr` (across *all* rows, or per group inside 
 single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are
 skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from
 [`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows).
-Not exported -- collides with `Base.join`; call as `Strings.join(...)`.
 """
 function join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true)
     delimiter = String(delimiter)
@@ -413,10 +408,7 @@ end
     to_integer(expr::Polars.Expr; base::Integer=10, strict::Bool=true)::Polars.Expr
 
 !!! warning "Unavailable in this build"
-    Upstream `StringNameSpace::to_integer` sits behind polars' own `string_to_integer` Cargo
-    feature, which is not enabled in this build. To enable it, add `"string_to_integer"` to
-    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
-    bindings.
+    See [Developer](@ref) for why, and how to enable it.
 """
 function to_integer(::Expr; base::Integer = 10, strict::Bool = true)
     return error(
@@ -447,10 +439,7 @@ end
     reverse(expr::Polars.Expr)::Polars.Expr
 
 !!! warning "Unavailable in this build"
-    Upstream `StringNameSpace::reverse` sits behind polars' own `string_reverse` Cargo
-    feature, which is not enabled in this build. To enable it, add `"string_reverse"` to
-    `c-polars/Cargo.toml`'s `polars` feature list, rebuild `c-polars`, and regenerate the
-    bindings.
+    See [Developer](@ref) for why, and how to enable it.
 """
 function reverse(::Expr)
     return error(

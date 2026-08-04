@@ -4,10 +4,6 @@ The `Polars.Meta` namespace (py-polars' `Expr.meta`) inspects an expression *tre
 what column(s) it reads from, what name it would produce, whether it's a plain column or a
 literal -- without needing a DataFrame/LazyFrame to run it against.
 
-!!! note "`Meta` is not exported from `Polars`"
-    Unlike `Lists`/`Strings`/`Dt`/`Structs`/`Selectors`, `Meta` is always reached fully qualified,
-    `Polars.Meta.output_name(...)` etc. See [Developer](@ref) for why.
-
 ```@setup meta
 using Polars
 ```

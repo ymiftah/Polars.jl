@@ -41,15 +41,39 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
 - **`Strings.titlecase` is broken.** The binding exists but errors at runtime. See
   [Developer](@ref) for why.
 
-- **`Base.lt(expr1, expr2)` needs explicit qualification.** It collides with an unexported `Base`
-  name. Use `Base.lt(col("x"), lit(2))` instead of `col("x") < lit(2)` (or use `.>` and flip the
-  operands).
-
 - **`Polars.Meta.is_literal` reports `false` for a `Date`/`Time`/`DateTime` literal**
   (`lit(Date(2024, 1, 1))`, etc.), diverging from py-polars. These are built as a cast over an
   integer literal rather than a genuine `Literal` node (see [Literals & casting](@ref)), so
   `is_literal` correctly reports what the expression tree actually contains. This is cosmetic
   only and has no effect on query results or performance.
+
+## Exports
+
+A number of functions and one whole submodule are deliberately not exported — always reached
+qualified (`Polars.foo(...)` or `Namespace.foo(...)`) even after `using Polars`. Two reasons
+account for all of them:
+
+- **Name collision with an existing `Base` binding** (exported or not) — exporting would shadow,
+  or conflict with, that name in every module that does `using Polars`.
+- **Deliberately left open for an extension package's own generic** — the bare name resolves to
+  that package's function once its extension is loaded (StatsBase.jl, CategoricalArrays.jl), and
+  to nothing at all otherwise; the qualified `Polars.foo(...)` form works either way.
+
+| Name | Reached as | Why |
+|---|---|---|
+| `item` (`DataFrame`/`Series`/`Expr` aggregation) | `Polars.item(...)` | Generic, collision-prone name |
+| `version` | `Polars.version()` | Generic, collision-prone name |
+| `kurtosis` | `Polars.kurtosis(...)` | Left open for StatsBase.jl's own `kurtosis` |
+| `cut` | `Polars.cut(...)` | Left open for CategoricalArrays.jl's own `cut` |
+| `Base.lt` | `Base.lt(...)` | Collides with an unexported internal `Base` binding |
+| `Dt.time` | `Dt.time(...)` | Collides with `Base.time` |
+| `Strings.contains`/`replace`/`join`/`reverse` | `Strings.foo(...)` | Collide with the matching `Base` names |
+| `Lists.tail`/`shift`/`gather`/`gather_every`/`sample_n`/`union`/`std`/`var`/`agg`/`get`/`contains`/`head` | `Lists.foo(...)` | Collide with the matching top-level `Polars`/`Base` names |
+| `Lists.apply` | `Lists.apply(...)` | Deliberately left qualified-only (no collision) |
+| `Selectors.all`/`float`/`string`/`time`/`contains` | `Selectors.foo(...)` | Collide with the matching `Base` names |
+| `Meta` (whole submodule) | `Polars.Meta.foo(...)` | `Base.Meta` is itself an exported `Base` submodule; exporting `Meta` too would make plain `using Polars` immediately ambiguous-error on the bare name |
+
+See [Developer](@ref) for the full API-design rationale behind these choices.
 
 ## Feature coverage
 

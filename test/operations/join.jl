@@ -146,6 +146,10 @@ end
     r_by = join_asof(trades2, quotes2, "time"; by_left = ["g"], by_right = ["g"])
     @test r_by[:val] == [1, 2, 4]
 
+    # by_left/by_right also accept Symbol column identifiers
+    r_by_sym = join_asof(trades2, quotes2, "time"; by_left = [:g], by_right = [:g])
+    @test r_by_sym[:val] == r_by[:val]
+
     # nearest strategy: matches to the nearest row (either before or after); ties (9:00:01 is
     # equidistant from 9:00:00/9:00:02, 9:00:03 from 9:00:02/9:00:04) break toward the later quote
     r_nearest = join_asof(trades, quotes, "time"; strategy = :nearest)

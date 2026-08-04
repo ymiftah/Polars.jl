@@ -16,9 +16,8 @@ Base.unsafe_convert(::Type{Ptr{polars_lazy_group_by_t}}, gb::LazyGroupBy) = gb.p
 """
     Base.show(io::IO, gb::LazyGroupBy)
 
-Prints a short, non-pointer-leaking placeholder -- unlike [`LazyFrame`](@ref), a group-by has no
-resolved schema of its own to show (that depends on the [`agg`](@ref) call that hasn't happened
-yet), so there's nothing cheap and meaningful to display beyond this.
+Prints a short placeholder; a group-by has no resolved schema of its own to show until
+[`agg`](@ref) is called.
 """
 Base.show(io::IO, ::LazyGroupBy) = print(io, "LazyGroupBy(...) (call agg(...) to materialize)")
 
@@ -61,8 +60,8 @@ end
                      closed::Symbol=:left, label::Symbol=:left,
                      include_boundaries::Bool=false, start_by::Symbol=:window_bound)::LazyGroupBy
 
-Time-window grouping: bucket rows into fixed-size time windows (e.g. "daily sum per store").
-Returns a [`LazyGroupBy`](@ref) object for aggregation with [`agg`](@ref).
+Groups rows into fixed-size, dynamic time windows based on a time-indexed column. Returns a
+[`LazyGroupBy`](@ref) object for aggregation with [`agg`](@ref).
 
 - `index_column`: time-indexed column (as `String` or `Expr`), e.g. `"timestamp"`
 - `group_by`: optional extra grouping keys (as `String`s or `Expr`s), e.g. `["store"]`
@@ -145,8 +144,8 @@ end
     rolling(df::LazyFrame, index_column, group_by::Vector=[];
             period, offset="0ns", closed::Symbol=:right)::LazyGroupBy
 
-Sliding time-window grouping: compute per-row rolling windows over a time-indexed column.
-Returns a [`LazyGroupBy`](@ref) object for aggregation with [`agg`](@ref).
+Creates rolling groups based on a time-indexed column. Returns a [`LazyGroupBy`](@ref) object for
+aggregation with [`agg`](@ref).
 
 - `index_column`: time-indexed column (as `String` or `Expr`), e.g. `"timestamp"`
 - `group_by`: optional extra grouping keys (as `String`s or `Expr`s), e.g. `["store"]`

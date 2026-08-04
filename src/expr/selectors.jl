@@ -163,8 +163,7 @@ module Selectors
     """
         float()::Selector
 
-    Selects columns of any float dtype (`Float32`/`Float64`). Not exported (would clobber
-    `Base.float`) -- use qualified, `Selectors.float()`.
+    Selects columns of any float dtype (`Float32`/`Float64`).
     """
     float() = _dtype_simple(API.PolarsDtypeSelectorKindFloat)
 
@@ -267,8 +266,7 @@ module Selectors
     """
         string()::Selector
 
-    Selects `String`-dtype columns. Not exported (would clobber `Base.string`) -- use qualified,
-    `Selectors.string()`.
+    Selects `String`-dtype columns.
     """
     string() = _dtype_one(API.PolarsValueTypeString)
 
@@ -296,8 +294,7 @@ module Selectors
     """
         time()::Selector
 
-    Selects `Dates.Time`-dtype columns. Not exported (would clobber `Base.time`) -- use qualified,
-    `Selectors.time()`.
+    Selects `Dates.Time`-dtype columns.
     """
     time() = _dtype_one(API.PolarsValueTypeTime)
 
@@ -402,7 +399,7 @@ module Selectors
         starts_with(prefixes::AbstractString...)::Selector
 
     Selects column names starting with any of `prefixes` (a literal substring match, not a regex --
-    any regex metacharacters in `prefixes` are matched literally, escaped on the Rust side). At least
+    any regex metacharacters in `prefixes` are matched literally). At least
     one prefix is required.
     """
     function starts_with(prefixes::AbstractString...)
@@ -415,7 +412,7 @@ module Selectors
         ends_with(suffixes::AbstractString...)::Selector
 
     Selects column names ending with any of `suffixes` (a literal substring match, not a regex -- any
-    regex metacharacters in `suffixes` are matched literally, escaped on the Rust side). At least one
+    regex metacharacters in `suffixes` are matched literally). At least one
     suffix is required.
     """
     function ends_with(suffixes::AbstractString...)
@@ -427,9 +424,8 @@ module Selectors
         contains(substrings::AbstractString...)::Selector
 
     Selects column names containing any of `substrings` anywhere (a literal substring match, not a
-    regex -- any regex metacharacters in `substrings` are matched literally, escaped on the Rust
-    side). At least one substring is required. Not exported (would clobber `Base.contains`) -- use
-    qualified, `Selectors.contains(...)`.
+    regex -- any regex metacharacters in `substrings` are matched literally). At least one
+    substring is required.
     """
     function contains(substrings::AbstractString...)
         isempty(substrings) &&

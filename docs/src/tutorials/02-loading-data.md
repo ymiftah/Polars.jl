@@ -17,8 +17,7 @@ DataFrame((; product_id = [1, 2, 3], product_name = ["Espresso", "Latte", "Crois
 
 ## Parquet
 
-`write_parquet` and `read_parquet` round-trip
-a `DataFrame` through the Parquet format:
+Read Parquet data with `read_parquet`, and write with `write_parquet`.
 
 ```@example loading-data
 path = tempname() * ".parquet"

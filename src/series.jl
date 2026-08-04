@@ -55,8 +55,6 @@ Base.size(series::Series) = (series.length,)
     Polars.item(series::Series)
 
 Returns the sole value of a length-1 `series`, and errors for any other length.
-
-Not exported: call it as `Polars.item(...)`.
 """
 function item(series::Series)
     length(series) == 1 || error("item() requires a Series of length 1, got length $(length(series))")
@@ -70,11 +68,11 @@ end
 """
     Base.copy(series::Series)
 
-Materializes `series` into a native Julia `Vector`, same as [`collect`](@ref) -- lets generic
-code that calls `copy` on an `AbstractVector` (rather than `collect` specifically) still hit the
-bulk `read_series` path instead of falling back to the default `AbstractArray` `copy`
-implementation, which would loop over `getindex` one element at a time.
+Materializes `series` into a native Julia `Vector`, same as [`collect`](@ref).
 """
+# Defined explicitly so generic code calling `copy` (rather than `collect`) on an
+# `AbstractVector` still hits the bulk `read_series` path, instead of falling back to the default
+# `AbstractArray` `copy`, which loops over `getindex` one element at a time.
 Base.copy(series::Series) = collect(series)
 
 """

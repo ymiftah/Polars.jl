@@ -34,11 +34,9 @@ Hive-partitioned) IPC files, without reading it into memory.
   `nothing` (default) auto-detects.
 - `allow_missing_columns`: allow columns present in some files but not others (filled with nulls).
 - `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
-  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
-  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
-  default) falls back to the provider's standard environment variables / config files (e.g.
-  `~/.aws/credentials`).
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
+  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
+  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
 """
 function scan_ipc(
         path;
@@ -136,11 +134,9 @@ Accepts the same `compression`/`compression_level`/`record_batch_size` keywords 
 - `mkdir`: create missing parent directories (default `false`).
 - `maintain_order`: preserve row order through the streaming pipeline (default `true`).
 - `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`), passed through verbatim to
-  upstream `polars`/`object_store`'s per-provider config parsing -- see their docs for the full
-  set of accepted keys per scheme (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the
-  default) falls back to the provider's standard environment variables / config files (e.g.
-  `~/.aws/credentials`).
+  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
+  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
+  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
 """
 sink_ipc(df::DataFrame, path::String; kwargs...) = sink_ipc(lazy(df), path; kwargs...)
 function sink_ipc(

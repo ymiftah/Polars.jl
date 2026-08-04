@@ -1,342 +1,102 @@
 # Polars.jl — Project Notes for Claude
 
-## Architecture & philosophy
+## Architecture
 
-A thin Julia wrapper over the Rust `polars` crate, built as a hand-written C ABI bridge rather than
-a deep binding (no `jlrs`, no attempt to expose polars' full Rust type system to Julia):
+A thin Julia wrapper over the Rust `polars` crate via a hand-written C ABI bridge (no `jlrs`). The
+stack: `src/**/*.jl` (idiomatic Julia API + Tables.jl glue, one file per concern) → the generated
+1:1 `@ccall` wrappers in `src/api/generated.jl` → the `extern "C"` cdylib over opaque pointers in
+`c-polars/src/*.rs` → unmodified upstream `polars` (never patched).
 
-```
-src/*.jl, src/{expr,arrow,io}/*.jl   idiomatic Julia API, Tables.jl integration (one file
-        │  @ccall                    per concern -- see "Where things live" below)
-src/api/*.jl                        thin, ~1:1 per-symbol ccall wrappers (mirrors the Rust file
-        │                            split below almost exactly)
-c-polars/src/lib.rs, expr.rs, series.rs, value.rs   extern "C" cdylib over opaque pointers
-        │
-polars / polars-lazy / polars-core / ...   unmodified upstream crate — never patched
-```
+Guiding principle: `c-polars/` does the minimum — unwrap a pointer, call the real polars method,
+rebox the result. One new symbol per capability; no generic pass-through machinery. Eager `DataFrame`
+ops are `collect ∘ op ∘ lazy` in Julia, so add capabilities to the lazy path and get the eager
+version free. `src/` is split by concern (mirroring py-polars) and `test/` mirrors it — put a new
+verb in the file matching its *category* (a join variant in `join.jl`, not `verbs.jl`).
 
-Guiding principle: the C ABI layer (`c-polars/`) does the minimum possible — unwrap a pointer, call
-the real polars method, rebox the result. All actual query logic lives in upstream polars. Prefer
-extending this thin layer with one new function per new capability over building generic
-pass-through machinery; the existing symbol-per-operation style is intentional and keeps each
-addition small and auditable.
+## C ABI conventions
 
-Eager `DataFrame` operations are generally implemented as `collect ∘ op ∘ lazy` on the Julia side —
-check whether a new capability can be added purely to the lazy path (`LazyFrame`/`LazyGroupBy`) and
-get the eager equivalent for free, rather than writing separate eager and lazy C ABI functions.
+**Opaque pointers + finalizers.** Every type crossing the boundary is an empty `polars_foo_t` in
+Julia and a `Box`ed wrapper in Rust. The Julia `mutable struct` registers
+`finalizer(polars_foo_destroy, ...)` in its inner constructor and defines
+`Base.unsafe_convert(::Type{Ptr{polars_foo_t}}, x) = x.ptr` — that's the whole GC story.
 
-### Where things live (`src/`)
+**Ownership.** Constructors (`scan_parquet`, `clone`) `Box::into_raw` a fresh pointer, never consuming
+their input. Mutators (`filter`, `select`, `sort`) borrow `&mut (*handle).inner` and return void — the
+Julia wrapper clones first, so no caller observes it. `*_destroy` does `Box::from_raw`.
 
-`src/` is split by concern, modeled on py-polars' own `src/polars` layout (one directory per root
-type, one file per accessor namespace, `io/` split by format):
+**Errors.** Fallible functions return `*const polars_error_t` (null = success), the result coming via
+an out-param (`out: *mut *mut polars_foo_t`); Julia follows every such ccall with `polars_error(err)`.
+A panic unwinding across `extern "C"` is UB, so **anything that can fail — including parses — must use
+this shape, never `.unwrap()`/`.expect()`/`panic!`** (see `plans/ffi_panic_safety.md`).
 
-| Path | Contents |
-|---|---|
-| `src/Polars.jl` | Module setup only: imports, shared types (`MaybeMissing`, `PhysicalDType`), the `include()` sequence, `version()`/`polars_error()`, the final `export` list |
-| `src/dataframe.jl` | `struct DataFrame`, constructor, `size`/`getindex`/`unsafe_convert`, `Base.show`, `Tables.jl` schema/interface glue |
-| `src/lazyframe.jl` | `struct LazyFrame`, `lazy()`, `collect()`, `clone()`, `collect_schema()` |
-| `src/group_by.jl` | `struct LazyGroupBy`, `group_by`/`groupby`, `agg`, `group_by_dynamic`, `rolling` |
-| `src/select.jl` | `select`, `with_columns`, `head`, `tail`, `filter` |
-| `src/verbs.jl` | `unique`, `drop`, `rename`, `drop_nulls`, `with_row_index`, `concat` |
-| `src/join.jl` | `innerjoin`/`leftjoin`/`rightjoin`/`outerjoin`/`semijoin`/`antijoin`/`crossjoin`, `join_asof` |
-| `src/reshape.jl` | `explode`, `unpivot`, `pivot`, `upsample` |
-| `src/sort.jl` | `Base.sort` (both `LazyFrame`/`DataFrame`) |
-| `src/describe.jl` | `describe()` |
-| `src/series.jl` | `struct Series`, `getindex` across dtypes, `name()` |
-| `src/value.jl` | `struct Value`, `load_value` methods (materializing a scalar/nested value) |
-| `src/io/{parquet,csv,ipc}.jl` | `scan_*`/`read_*`/`write_*`/`sink_*` per format |
-| `src/arrow/schema.jl` | Arrow C Data Interface schema side: `parse_format`, `load_series_schema`/`load_dataframe_schema`, the `_tz_aware_datetime_type` extension hook |
-| `src/arrow/array.jl` | Arrow C Data Interface array side: `ValidityMap`, `arrowvector` (Julia `Vector` → `ArrowArray`, one method per dtype incl. `List`/`Struct`), `arrowtable` |
-| `src/expr/expr.jl` | Core `struct Expr`, operators, `@generate_expr_fns`-generated ops, everything not in a namespace submodule below (still the largest file — matches py-polars' own pattern of one big "core" file per root type even after splitting out namespaces) |
-| `src/expr/{list,string,datetime,struct}.jl` | The `Lists`/`Strings`/`Dt`/`Structs` namespace submodules |
-| `src/api/API.jl` | `module API`; thin hand-written shell, just `include()`s the generated file below |
-| `src/api/generated.jl` | **Generated by Clang.jl from `c-polars/include/polars.h` — do not hand-edit.** All `@cenum` blocks, opaque `polars_*_t` handle structs, `ArrowSchema`/`ArrowArray` C-interop structs, `IOCallback`, and every `@ccall` wrapper, in one flat file. Regenerate with `julia --project=gen gen/generate.jl` after any header change |
-| `gen/` | The Clang.jl generator: `generator.toml` (config), `generate.jl` (driver), `prologue.jl` (hand-written — the one thing that can't come from the header: the `libpolars` resolution chain (local `cargo build` → `Artifacts.toml` artifact → clear error), pasted verbatim at the top of every regeneration) |
-| `Artifacts.toml` | Pins the prebuilt `libpolars` binaries per platform to GitHub Release assets on this repo. **Generated** by the `Release libpolars` workflow — commit what it emits, don't hand-edit. See "Distributing the native library" in `docs/src/developer.md` |
-| `c-polars/cbindgen.toml`, `c-polars/regen_header.sh` | The upstream half of the same generation pipeline — cbindgen's config and its single documented entry point, producing `include/polars.h` from the Rust source itself (see below) |
+**Marshalling.** `Vec<Expr>` args → `*const *const polars_expr_t` + length under `GC.@preserve`
+(convert incoming `String`/`Symbol` to `col(...)` first). Optional scalars → nullable pointers
+(`x === nothing ? Ptr{T}(C_NULL) : Ref(T(x))`). Rust enums need a hand-written `#[repr(C)] pub enum`
+mirror plus match-based conversion, passed **by value**. Strings → `(ptr, len)` pairs, i.e.
+`(s, ncodeunits(s))` — **always `ncodeunits`, never `length`**, a *character* count that cuts
+non-ASCII args mid-codepoint and surfaces as `incomplete utf-8 byte sequence`; this was wrong at all
+24 sites once, and ASCII-only tests never catch it. Optional strings: null ptr or len 0 = `None`.
 
-When adding a new verb, put it in the file matching its *category* above, not wherever's
-convenient — e.g. a new join variant goes in `src/join.jl`, not `src/verbs.jl`. `test/` mirrors
-this by *concern* too (`test/operations/join.jl`, `test/lazyframe/scan_parquet.jl`, etc.) — see the
-workflow section below.
-
-## How the C ABI is leveraged
-
-**Opaque pointers + Julia finalizers.** Every polars type crossing the boundary
-(`DataFrame`, `LazyFrame`, `LazyGroupBy`, `Expr`, `Series`, `Value`) is an empty opaque struct on
-the Julia side (`polars_foo_t`) and a `Box`-allocated real-type wrapper on the Rust side
-(`struct polars_foo_t { inner: RealPolarsType }`). Julia wraps the raw pointer in a
-`mutable struct` that registers `finalizer(polars_foo_destroy, ...)` in its inner constructor and
-defines `Base.unsafe_convert(::Type{Ptr{polars_foo_t}}, x) = x.ptr` so it can be passed directly to
-`@ccall`. This is the whole memory-management story — get this right for any new type and GC is
-handled for free.
-
-**Ownership conventions on the Rust side:**
-- Functions that *construct a new* object (`scan_parquet`, `group_by`, `clone`) do
-  `Box::into_raw(Box::new(...))` and return a fresh pointer; the input, if any, is only
-  read/cloned, never consumed.
-- Functions that *mutate in place* (`filter`, `select`, `with_columns`, `sort`) borrow `&mut
-  (*handle).inner` directly and mutate through it, returning void; the Julia wrapper clones first
-  (`select(df) = _select!(clone(df), ...)`), so no caller ever observes the mutation.
-- Every `*_destroy` function does `Box::from_raw(...)` and lets it drop.
-
-**Error handling.** Fallible functions return `*const polars_error_t` (null = success); the actual
-result comes back through an out-parameter (`out: *mut *mut polars_foo_t`). `make_error(err)` boxes
-a stringified error. On the Julia side, every fallible ccall is immediately followed by
-`polars_error(err)`, which unwraps null-vs-message and raises via `Base.error()`. Follow this
-convention for anything that can fail — including type conversions/parses (e.g. duration strings)
-that would otherwise need to panic; a Rust panic unwinding across `extern "C"` is UB, so any
-fallible parse *must* go through this out-param + error-pointer convention instead of an
-API that panics. **This has bitten us for real, twice:** `polars_series_get` used to `.unwrap()` on
-an out-of-bounds index (crashed the whole process on e.g. `s[999]` for any `Series` whose element
-type isn't numeric/bool), and `polars_dataframe_show` used to `.expect()` on a write-callback
-failure — both fixed by converting to the out-param + error-pointer shape (see
-`plans/ffi_panic_safety.md`).
-
-**Missing Cargo features are a live version of this danger, not just a hypothetical.** Several
-polars-core/-expr functions (`Series::product`, nan-propagating min/max, others) compile to a bare
-`panic!("activate 'X' feature")` when their feature isn't enabled — calling them crashes the whole
-Julia process, not a catchable Julia error. Before wrapping or exercising a function for the first
-time, scan for these across the vendored crates and cross-check against `c-polars/Cargo.toml`'s
-feature list: `grep -rn "activate .* feature" ~/.cargo/registry/src/*/polars-*-<version>/src/`.
-**That grep is necessary but not sufficient** — the same hazard also hides behind `unreachable!()`
-in a `#[cfg]`-gated `match` arm, with no "activate" string to find. `dtype-time` was the live
-example: not implied by any default (`dtype-slim` is date+datetime+duration only), it reached
-polars-core/-io/-lazy/-expr transitively but *not* polars-ops, whose `take_chunked_unchecked` Time
-arm then compiled out and fell through to `_ => unreachable!()` — aborting the process on any
-join/gather over a Time column. Per-crate feature reality is `cargo tree -e features -i <crate>`,
-not the `features = [...]` list; a feature on the `polars` facade is not the same as that feature
-on each sub-crate.
-**This isn't limited to that literal panic macro either** — `sink_csv(...; compression=:gzip)` once
-crashed the whole process because the `polars` crate doesn't enable `polars-io`'s `decompress`
-feature by default (even though `polars-io` itself defaults it on for standalone use — the `polars`
-crate's own `Cargo.toml` disables `polars-io`'s defaults and cherry-picks features explicitly). This
-kind of bug **compiles fine and only crashes at runtime**, so a clean `cargo build` is never
-sufficient evidence a new code path is safe — always exercise it live (see workflow step 7) before
-considering it done, especially anything touching a compression/codec option.
-
-**Passing collections/strings across the boundary:**
-- `Vec<Expr>`-shaped args (used by `select`, `filter`, `group_by`, `agg`, `sort`, and any future
-  operation taking a column-expression list) are passed as `*const *const polars_expr_t` + a
-  length, built on the Julia side under `GC.@preserve` from a `Vector{Expr}`. Convert incoming
-  `String`s to `col(...)` before building the pointer array so callers can pass either.
-- Strings (paths, duration literals, column names) are passed as `(ptr: Ptr{UInt8}, len: Csize_t)`
-  pairs — a plain Julia `String` auto-converts, so just pass `(s, ncodeunits(s))`. **Always
-  `ncodeunits`, never `length`**: `length` is a *character* count, so any non-ASCII argument gets
-  a truncated byte length and is cut mid-codepoint. The Rust side validates UTF-8, so this
-  surfaces as a baffling `incomplete utf-8 byte sequence from index N` rather than as a wrong
-  length. This was wrong at *every* string site in the package until the `review-one` branch fixed
-  24 of them (`col("café")` did not work), and ASCII-only tests will never catch a regression —
-  the arrow *data* path uses `sizeof`/`codeunits` and was always correct, which is exactly why it
-  hid for so long.
-  *Optional* strings follow the same shape with a null-ptr-or-zero-len-means-`None` convention
-  (`read_opt_str` on the Rust side) — e.g. `row_index_name`, `include_file_paths`.
-- Optional scalars generally cross as nullable pointers (`*const T`, null = `None`) — e.g.
-  `polars_expr_sample_n`'s `seed: *const u64`, marshalled on the Julia side as
-  `seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))` under `GC.@preserve`.
-- Rust enums crossing the boundary need a hand-defined `#[repr(C)] pub enum polars_foo_t { ... }`
-  mirror plus match-based to/from conversion against the real polars enum (there is no derive for
-  this). C enums are passed/returned **by value**, never by pointer. This produces a
-  `typedef enum polars_foo_t { ... } polars_foo_t;` block in `c-polars/include/polars.h` (variants
-  numbered from 0 in declaration order), which `src/api/generated.jl`'s `@cenum` mirror is derived
-  from automatically — see below.
-
-**Both the header and the Julia bindings are generated — neither is hand-edited.** The chain is
-Rust source → (cbindgen) → `c-polars/include/polars.h` → (Clang.jl) → `src/api/generated.jl`.
-Adding an FFI symbol means writing the Rust `extern "C"` function and running
-`c-polars/regen_header.sh` (cbindgen, driven by `c-polars/cbindgen.toml`) to pick it up in the
-header, then `julia --project=gen gen/generate.jl` to propagate it to `generated.jl` — see the
-workflow below. This closes a real hole the old hand-maintained header had: `check_header_drift.py`
-only ever compared symbol *names* between Rust and the header, never *signatures* — a wrong
-argument type or count passed every gate silently and became an ABI-mismatched `@ccall`. CI now
-regenerates the header from Rust and fails on any diff, so a signature can no longer drift
-unnoticed. (An earlier version of the Clang.jl generator for the Julia side was removed once before
-— it had been run exactly once back in 2023 and never re-run since, so its config had gone stale
-and pointed at a pre-split file layout that no longer existed. It's been revived with an updated
-config; the per-category `src/api/{dataframe,expr,series,value}.jl` split it used to be misaligned
-with no longer exists either — with generation as the source of truth, one flat generated file is
-simpler and there's no drift risk to design around.)
-
-## Package extensions (optional weak dependencies)
-
-Some functionality needs a heavy optional dependency that most users shouldn't be forced to
-install — timezone-aware `Datetime` materialization needs `TimeZones.jl`'s `ZonedDateTime`, for
-instance. Pattern (see `ext/PolarsTimeZonesExt.jl`, `Project.toml`'s `[weakdeps]`/`[extensions]`):
-
-- The core package ships **everything that doesn't need the optional dependency's types**
-  unconditionally — e.g. `Dt.replace_time_zone`/`Dt.convert_time_zone` just pass timezone name
-  strings across the FFI boundary and work with no extension loaded at all.
-- The one place that *would* need the optional type (materializing a tz-aware value into a Julia
-  `ZonedDateTime`) is guarded by an extension hook that **errors with a clear "load X.jl" message**
-  by default, and is overridden once the user does `using TimeZones`.
-- **The hook itself must be a zero-method stub, not a function with a default-case method.**
-  Julia's package extension mechanism forbids an extension from *redefining* an existing
-  same-signature method during precompilation (`"Method overwriting is not permitted during
-  Module precompilation"`) — only *adding* a genuinely new method is allowed there. The working
-  pattern (`_tz_aware_datetime_type`/`_resolve_tz_aware_datetime_type` in `src/arrow/schema.jl`):
-  the public-facing function has real logic and catches `MethodError` from calling a *second*,
-  deliberately empty function (`function _resolve_tz_aware_datetime_type end` — zero methods,
-  declared but never implemented in core); the extension adds the first-ever method for that
-  second function. This sidesteps the precompilation restriction entirely since there's no
-  existing method to conflict with.
-- Verify both paths live in a scratch environment that actually has the optional package added
-  (`Pkg.develop(path=".")` + `Pkg.add("TimeZones")`) — the default `--project=.` session won't
-  load the extension at all, so "does it error without TimeZones" and "does it work with
-  TimeZones" need two different environments to test.
-
-## Workflow: adding a new wrapped polars operation
-
-1. **Check whether it needs a new type at all.** Many polars operations return/consume types this
-   package already wraps (`LazyFrame`, `LazyGroupBy`, `Expr`) — confirm this first so you don't
-   build unnecessary new pointer/finalizer plumbing.
-2. **Check the Cargo feature is enabled.** `c-polars/Cargo.toml`'s `polars` dependency only enables
-   a subset of upstream features; some polars capabilities are behind a Cargo feature flag that
-   isn't on by default here and needs adding to the `features = [...]` list. Remember this
-   includes transitive-crate defaults the `polars` crate itself disables (see the `decompress`
-   example above) — not just capabilities that panic outright.
-3. **Write the Rust `extern "C"` function** in the appropriate `c-polars/src/*.rs` file, following
-   the ownership/error/enum conventions above and the style of the nearest existing function for
-   the same category (constructor vs. mutator vs. destructor).
-4. **Regenerate the header prototype** by running `c-polars/regen_header.sh` from `c-polars/` — it
-   drives cbindgen against the Rust source (via `c-polars/cbindgen.toml`) and reformats with
-   clang-format, so a new `extern "C"` fn or `#[repr(C)]` enum from step 3 just appears; there is
-   nothing to hand-write here. As a fast sanity check before the full regen,
-   `python3 c-polars/check_header_drift.py` fails on any exported Rust symbol missing from the
-   header (or vice versa) and on any `#[no_mangle]` fn that isn't `extern "C"` — it runs in the
-   `lint` CI job, with the full generated-vs-committed-header diff checked separately in the `rust`
-   job. Since `generated.jl` is derived from the header, a symbol you forget in Rust (or a Rust fn
-   that isn't `extern "C"`) is simply invisible to Julia rather than a build error.
-   The same script has a second mode, `--lib PATH`, checking the other end of the chain: that a
-   *built* library actually exports everything the header declares. The `artifact` CI job runs it
-   against the downloaded `Artifacts.toml` binary, because that binary is versioned separately from
-   the bindings — see "Distributing the native library" in `docs/src/developer.md`. **Any change
-   under `c-polars/` is invisible to outside users until a new libpolars release is cut.**
-5. **Regenerate `src/api/generated.jl`** by running `julia --project=gen gen/generate.jl` from the
-   repo root — this picks up the new function/enum from the header automatically. Do not hand-edit
-   `generated.jl` directly; if the output looks wrong, fix `c-polars/include/polars.h` or
-   `gen/generator.toml` and regenerate again. Run the repo's Runic formatter over it afterward
-   (`runic -i src/api/generated.jl`) to match the rest of the codebase's style.
-6. **Write the idiomatic Julia entry point** in the `src/*.jl`/`src/{expr,arrow,io}/*.jl` file
-   matching its category (see "Where things live" above), reusing the marshalling patterns above,
-   and add it to `src/Polars.jl`'s `export` list (or the relevant namespace submodule's own
-   `export`, for `Lists`/`Strings`/`Dt`/`Structs`).
-7. **Build** (`cd c-polars && cargo build` — stable toolchain, see below) and verify end-to-end
-   through a live Julia session before writing tests: construct the smallest input that exercises
-   the new path, run it, and inspect the actual result — this repo's existing test suite has gaps
-   (whole operations have shipped with zero coverage before), so don't assume something works
-   because it compiles. **A clean build is not sufficient evidence of safety** — see the
-   `decompress`/panic notes above; exercise every new option combination live, not just the happy
-   path, especially anything touching compression/codecs or directory/multi-file scanning.
-8. **Add a test** under the matching `test/<category>/*.jl` file (`dataframe/`, `lazyframe/`,
-   `operations/`, `expr/`, `datatypes/` — mirrors py-polars' layout; `test/runtests.jl` just
-   `include`s them all). Reuse `test/fixtures.jl`'s sample-data builders where the shape fits.
-   There are no committed data fixtures — tests that need parquet/file input generate it on the
-   fly (e.g. via `write_parquet` into a `mktempdir()`, see `write_temp_parquet` in fixtures.jl).
-9. **Persist any multi-step implementation plan in-repo** under `plans/` (not only the ephemeral
-   `~/.claude/plans/` scratch file) so a future session can pick it up. Give it a `## Status` line
-   at the top and update it to `Done` (with the final test count) once landed — several plans in
-   this repo follow that convention and it's the fastest way to answer "is X finished?" later.
+**Generation pipeline — never hand-edit either end.** Rust → (cbindgen) `c-polars/include/polars.h`
+→ (Clang.jl) `src/api/generated.jl`. Regenerate with `c-polars/regen_header.sh`, then
+`julia --project=gen gen/generate.jl`, then `runic -i src/api/generated.jl`; if output looks wrong,
+fix the Rust or `gen/generator.toml`. A symbol missing
+from Rust is silently invisible to Julia, not a build error — `python3 c-polars/check_header_drift.py`
+is the fast pre-check, and `--lib PATH` verifies a built library exports what the header declares
+(the `artifact` CI job does this, since the `Artifacts.toml` binary is versioned separately: **any
+`c-polars/` change is invisible to users until a new libpolars release is cut**).
 
 ## Build environment
 
-**Cap the job count: `cargo build -j 4`.** A default 16-way parallel polars build exhausts this
-machine's RAM (~9 GB available) and the OOM killer takes the session down with it — this has
-already killed a session mid-refactor. Dependencies are cached, so only a feature change forces
-the full ~3 min rebuild.
+**Cargo features are a live crash hazard.** With a feature off, many polars functions compile to
+`panic!("activate 'X' feature")` — or worse, fall through a `#[cfg]`-gated match to `unreachable!()`
+with no greppable string — aborting the whole Julia process uncatchably. Before wrapping something
+new, grep `"activate .* feature"` under
+`~/.cargo/registry/src/*/polars-*-<version>/src/` and check per-crate reality with
+`cargo tree -e features -i <crate>`: a feature on the `polars` facade is not that feature on each
+sub-crate (`dtype-time` reached everything *except* polars-ops; `sink_csv` gzip crashed because
+`polars` disables `polars-io`'s default `decompress`). **A clean `cargo build` is never evidence a
+path is safe — exercise every option combination live.**
 
-**Dependencies build optimized even in the default dev profile** (`c-polars/Cargo.toml`'s
-`[profile.dev.package."*"] opt-level = 3`) — a plain `cargo build` used to run every polars
-kernel unoptimized (opt-level 0), which silently invalidated any live timing/benchmark taken
-against a dev build. `c-polars`'s own thin FFI shim stays unoptimized/incremental, so a
-header/binding-only change still rebuilds fast; only a dependency-affecting change (a fresh
-clone, a `Cargo.toml`/`Cargo.lock` change, or the very first build after this profile was added)
-forces a full from-scratch optimized rebuild of every vendored crate.
+- **`cargo build -j 4`** normally; **`-j 1` for any full dependency rebuild** (fresh clone,
+  `Cargo.toml`/`Cargo.lock` change) — deps build at opt-level 3 even in the dev profile, and a 16- or
+  even 4-way optimized rebuild OOM-kills this machine, taking the VS Code host down with it.
+- **Stable toolchain only** (`c-polars/rust-toolchain`): `polars-ops`' `build.rs` sniffs for nightly
+  rustc *by version string* and opts into unstable stdlib internals that break without warning —
+  invisible to `cargo tree -e features`. `regen_header.sh` therefore sets `RUSTC_BOOTSTRAP=1` on
+  stable to unlock `-Zunpretty=expanded` (cbindgen can't see the ~48% of the FFI surface that's
+  macro-generated); **do not "fix" that with `cargo +nightly`** — it re-arms the hazard.
+- **A running Julia session doesn't pick up a rebuild** — the `.so` is already mapped. Restart the
+  REPL (Kaimon `manage_repl` `command="restart"`) after every `cargo build`.
+- Tests: `test/Project.toml` carries all deps, so `Pkg.test()` / `julia-runtest` works directly.
 
-**That full rebuild is real memory pressure, not just "slower" — cap it at `-j 1` the first
-time.** Optimized (opt-level 3) compilation of `polars-ops`/`polars-core`/etc. uses far more RAM
-per rustc worker than the old opt-level-0 baseline the `-j 4` cap above was calibrated for —
-confirmed by a real incident: a full dependency rebuild at `-j 4` right after adding this profile
-setting exhausted RAM+swap and the OOM killer picked off the VS Code host process itself (killing
-this session with it, since Claude Code runs as a VS Code extension here), even though baseline
-memory pressure before the build was already fairly high. `-j 1` (one rustc worker at a time,
-peaking around the size of the single largest crate rather than four of them at once) completed
-the same rebuild without incident, just slower. Once the full dependency set is built once,
-subsequent `-j 4` builds are back to the normal fast/cheap `c-polars`-only incremental case.
+## Workflow: adding a wrapped operation
 
-**`cargo build --release`** (`[profile.release]`: thin LTO + `codegen-units = 1`) is available for
-a genuinely optimized distribution artifact; `gen/prologue.jl` prefers `target/release/` over
-`target/debug/` when both exist. This is not the default dev-loop build — building it pays the
-same full-rebuild memory cost as above (release and dev profiles don't share cached artifacts),
-so don't reach for it during ordinary iteration.
-
-**Build `c-polars` with the stable Rust toolchain**, not nightly — `c-polars/rust-toolchain` is
-pinned to `stable` deliberately. A polars dependency (`polars-ops`) auto-detects a nightly rustc via
-its own `build.rs` and unconditionally opts into a nightly-only internal code path that depends on
-unstable standard-library internals; those internals are churned by the Rust project without
-warning, and this has broken the build under nightly before. Note this is invisible to
-`cargo tree -e features` — it's injected by a `build.rs`, not a normal Cargo feature edge — so don't
-trust `cargo tree` alone if you suspect a phantom feature is active.
-
-**Header regeneration (`c-polars/regen_header.sh`) needs `RUSTC_BOOTSTRAP=1` on the pinned *stable*
-toolchain — do not "fix" this by switching to `cargo +nightly`.** ~48% of the FFI surface
-(macro-generated `#[no_mangle] extern "C"` fns, mostly in `expr.rs`) is invisible to cbindgen's
-plain `syn`-based parser; cbindgen sees it by shelling out to `cargo rustc -- -Zunpretty=expanded`,
-which is normally a nightly-only flag. `RUSTC_BOOTSTRAP=1` unlocks that one unstable flag on stable
-rustc without changing the toolchain itself — confirmed live that `RUSTC_BOOTSTRAP=1 rustc -vV`
-still reports a non-nightly `release:` string. This matters because `polars-ops`'s own `build.rs`
-auto-detects a nightly *toolchain* (by version string, not by feature-gate state) and unconditionally
-opts into the unstable code path described two paragraphs up — so reaching for `cargo +nightly`
-here to "get the expansion working" would silently re-arm exactly the build hazard this section
-already warns about. `regen_header.sh` sets this env var itself; it is not something to add to
-`rust-toolchain` or any global cargo config. The check-build this triggers is real memory pressure
-like any other dependency build — keep `CARGO_BUILD_JOBS=1` (the script's default) for it, same
-reasoning as the `-j 1` note above.
-
-**A running Julia session does not pick up a `cargo build` rebuild** — the native `.so` is already
-mapped in; re-running `using Polars` is a no-op. Restart the session (Kaimon: `manage_repl` with
-`command="restart"`) after every `c-polars` rebuild before testing the change.
-
-**Running the test suite needs a scratch environment, not `--project=test` or `Pkg.test()`.**
-Create one with `Pkg.develop(path=".")` plus
-`Pkg.add(["Aqua", "Test", "Tables", "TimeZones", "StatsBase", "CategoricalArrays"])` (TimeZones is
-needed to exercise the `PolarsTimeZonesExt` extension — see above; StatsBase/CategoricalArrays back
-`PolarsStatsBaseExt`/`PolarsCategoricalArraysExt`, exercised by `test/expr/statsbase_ext.jl`/
-`test/expr/categoricalarrays_ext.jl` — omitting either pair means `runtests.jl` errors out on the
-corresponding file's `using` before any of the rest of the suite runs), then
-`JULIA_PROJECT=<scratch env> julia -e 'include("test/runtests.jl")'`.
+1. Check the existing wrapped types suffice (usually yes — don't build new plumbing) and the Cargo
+   feature is enabled; then write the Rust `extern "C"` fn in the right `c-polars/src/*.rs` and
+   regenerate the header and bindings.
+2. Write the Julia entry point in the category-matching file; export it (or from the
+   `Lists`/`Strings`/`Dt`/`Structs` submodule).
+3. Build, restart the REPL, and **exercise it live before writing tests** — this suite has real
+   coverage gaps; whole operations have shipped untested.
+4. Add tests under the matching `test/<category>/`, reusing `test/fixtures.jl` builders (no committed
+   data fixtures — generate parquet/CSV into a `mktempdir()`). Persist any multi-step plan under
+   `plans/` with a `## Status` line, set to `Done` once landed.
 
 ## Known sharp edges
 
-- **`@generate_expr_fns` (in `src/expr/expr.jl`) qualifies by `isdefined(Base, fname)`, not
-  `isexported`** — if the Rust method name happens to match a Base binding that exists but isn't
-  exported (e.g. `Expr::product` collided with an internal, unexported `Base.product`), the
-  generated wrapper silently becomes unreachable: it's defined as `Base.product(expr)`, but since
-  `product` was never exported from Base, plain `product(expr)` throws `UndefVarError` in a normal
-  session (unlike, say, `sum`/`diff`, which collide with *exported* Base names and work unqualified
-  with no extra effort). If a generated wrapper seems to vanish, check `isdefined(Base, :fname)`
-  and `Base.isexported(Base, :fname)` both. The fix (see `prod` in `src/expr/expr.jl`) is to pull
-  that one item out of the `@generate_expr_fns` block and hand-write it under the *exported* Base
-  name instead (`prod`, not `product`) — same pattern already used for `std`/`var`/`quantile`/`rank`
-  (extra args the macro's plain shape can't express).
-- **`@generate_expr_fns` passes arguments straight through in source order, so any polars method
-  whose argument order differs from the `Base` name it's bound to must be hand-written.** `log` is
-  the live case: `Base.log(b, x)` is base-first, polars' `Expr::log(base)` is value-first. Going
-  through the macro produced a `Base.log(a, b)` that computed `log(a)` base `b` — the reverse of
-  what `log(2, 8) == 3` means in Julia, and silently wrong rather than an error since both
-  arguments are `Expr`. It's now hand-written below the macro block, swapping before the ccall.
-  Check argument order against the Base binding before adding any binary op to that block.
-- **CSV scanning has no `hive_partitioning` option, unlike parquet/IPC** — not a scope choice, a
-  real gap in upstream: `polars_lazy::frame::LazyCsvReader` (the builder `scan_csv` uses)
-  hardcodes `hive_options: HiveOptions::new_disabled()` internally and doesn't expose a way to
-  override it. Fixing this would mean bypassing the builder entirely.
-- **`allow_missing_columns` (parquet/CSV/IPC scan options) only covers files *missing* a column
-  present in the reference schema, not files with an *extra* column beyond it** — that's a
-  separate `ExtraColumnsPolicy` this wrapper doesn't expose. The reference schema is whichever
-  file/fragment gets scanned first; ordering matters when testing this.
-- **No handle (`DataFrame`/`LazyFrame`/`Series`/`Expr`/`Value`) is safe to share across Julia
-  tasks/threads without external synchronization** — they're thin unsynchronized pointer wrappers.
-  The only internal locks (`LIVE_SCHEMAS_LOCK`/`LIVE_ARRAYS_LOCK`) guard Arrow C Data Interface
-  release-callback bookkeeping, not query concurrency; polars' own rayon-backed parallelism
-  (`multithreaded: true` on select Rust operations) runs on its own pool sized by
-  `POLARS_MAX_THREADS`, independent of `JULIA_NUM_THREADS`. See "Concurrency" in
-  `docs/src/limitations.md` for the user-facing version of this.
+- **`@generate_expr_fns` qualifies by `isdefined(Base, f)`, not `isexported`** — colliding with an
+  unexported Base name (e.g. `product`) makes the wrapper unreachable via `UndefVarError`; hand-write
+  it under the exported name (`prod`), as `std`/`var`/`quantile`/`rank` already are. It also passes
+  args in source order, so an op whose polars arg order differs from its Base binding must be
+  hand-written — `log` silently computed the reverse of `log(base, x)`.
+- **A package extension hook must be a zero-method stub** (`ext/Polars*Ext.jl`) — Julia forbids an
+  extension from *redefining* a method during precompilation, only adding one. Pattern in
+  `src/arrow/schema.jl`: the public function holds the logic and catches `MethodError` from a second,
+  empty function (`function _resolve_tz_aware_datetime_type end`) the extension supplies the first
+  method for. Everything not needing the optional type ships unconditionally.
+- **No `hive_partitioning` for CSV scans** — upstream `LazyCsvReader` hardcodes it disabled.
+- **`allow_missing_columns` covers missing columns only, not extra ones** (that's a separate
+  `ExtraColumnsPolicy` we don't expose). The reference schema is whichever file is scanned first.
+- **No handle is thread-safe** — they're unsynchronized pointer wrappers; the `LIVE_*_LOCK`s only
+  guard Arrow release-callback bookkeeping. See "Concurrency" in `docs/src/limitations.md`.

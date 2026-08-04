@@ -11,6 +11,10 @@
     # LazyFrame entry point agrees
     exploded_lazy = explode(lazy(listed), ["x"]) |> collect
     @test size(exploded_lazy) == size(exploded)
+
+    # columns also accept Symbol identifiers
+    exploded_sym = explode(listed, [:x])
+    @test size(exploded_sym) == size(exploded)
 end
 
 @testset "explode: empty list rows, whole-row-null lists, and mismatched element counts (py-polars test_explode_params, test_explode_invalid_element_count)" begin
@@ -72,6 +76,10 @@ end
     # LazyFrame entry point agrees
     long_lazy = unpivot(lazy(wide), ["id"]) |> collect
     @test long_lazy[:value] == long[:value]
+
+    # index/on also accept Symbol identifiers
+    long_sym = unpivot(wide, [:id]; on = [:a])
+    @test long_sym[:value] == partial[:val]
 end
 
 @testset "pivot" begin
@@ -199,6 +207,10 @@ end
 
     # ...and the LazyFrame path surfaces the same strict-by-name error, not a crash
     @test_throws PolarsError collect(unnest(lf, ["nope"]))
+
+    # columns also accept Symbol identifiers
+    u_sym = unnest(people, [:info])
+    @test Tables.columnnames(u_sym) == Tables.columnnames(u)
 end
 
 @testset "transpose" begin
@@ -241,6 +253,10 @@ end
     # explicitly-empty new_col_names behaves like omitting it (auto-generated names)
     t_empty_names = transpose(numeric; new_col_names = String[])
     @test Tables.columnnames(t_empty_names) == (:column_0, :column_1, :column_2)
+
+    # new_col_names also accepts Symbol identifiers
+    t_named_sym = transpose(numeric; new_col_names = [:r1, :r2, :r3])
+    @test Tables.columnnames(t_named_sym) == (:r1, :r2, :r3)
 
     # Struct column -- surfaces a clean PolarsError (analogous to the source's Object-dtype
     # polars_bail!, which this crate can never hit since the `object` Cargo feature isn't

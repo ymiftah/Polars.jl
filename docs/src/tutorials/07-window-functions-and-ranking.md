@@ -17,7 +17,7 @@ result back to every row in that partition:
 ```@example window-functions
 with_store_total = with_columns(
     orders,
-    over(sum(col("quantity") * col("unit_price")), "store_id") |> alias("store_total_revenue"),
+    sum(col("quantity") * col("unit_price")) |> over("store_id") |> alias("store_total_revenue"),
 )
 head(with_store_total, 5)
 ```
@@ -41,7 +41,7 @@ each partition — e.g. each order's rank by revenue within its own store:
 ```@example window-functions
 ranked = with_columns(
     orders,
-    over(rank(col("quantity") * col("unit_price"); descending = true), "store_id") |> alias("revenue_rank_in_store"),
+    rank(col("quantity") * col("unit_price"); descending = true) |> over("store_id") |> alias("revenue_rank_in_store"),
 )
 head(ranked, 5)
 ```
