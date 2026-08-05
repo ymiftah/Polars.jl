@@ -391,11 +391,12 @@ Converts a `List`-typed `expr` to a fixed-width `Array` column of the given `wid
 list must have exactly `width` elements).
 
 !!! warning "Result cannot be materialized into Julia yet"
-    The `Array` dtype this produces cannot currently be read back into a Julia value (a
-    pre-existing gap, not specific to this function -- see `docs/src/limitations.md`
-    `Selectors.array()` entry for the same underlying cause). Usable in a lazy pipeline that
-    doesn't collect the column directly (e.g. writing straight to parquet), but
-    `collect(df)[:col]`/`getindex` on the result raises.
+    The `Array` dtype this produces cannot currently be read back into a Julia value -- the Arrow
+    schema decoder (`parse_format` in `src/arrow/schema.jl`) recognizes the fixed-size-list format
+    but has no materialization path for it yet (a pre-existing, separate gap from the same file's
+    `Decimal` one -- see [Limitations](@ref)). Selecting/passing the column onward (e.g.
+    `Selectors.array()`, writing straight to parquet) works fine; `collect(df)[:col]`/`getindex` on
+    the result raises.
 """
 to_array(expr::Expr, width::Integer) = Expr(API.polars_expr_list_to_array(expr, Csize_t(width)))
 export to_array

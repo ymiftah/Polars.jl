@@ -162,12 +162,17 @@ end
     @test names(select(dfl, S.list())) == ["l"]
     @test names(select(dfl, S.nested())) == ["l"]
 
-    # Array: `dtype-array` is not enabled in this build's Cargo features (unlike the other
-    # DataTypeSelector kinds), so `DataTypeSelector::Array`'s own upstream matcher would compile to
-    # an unconditional `false` -- it would silently match *zero* columns rather than crash. To avoid
-    # that footgun, `array()` errors loudly instead of handing back a selector that can never match
-    # anything (see its docstring / Limitations). Regression guard: this must stay a clean error.
-    @test_throws ErrorException S.array()
+    # Array (fixed-size list): a genuine positive assertion, not just "doesn't throw" -- the
+    # feature's own upstream matcher silently compiles to an unconditional `false` when
+    # `dtype-array` is off, so a selector that merely fails to error could still be matching zero
+    # columns. Uniform-width lists so `Lists.to_array` succeeds (it requires every row to already
+    # be exactly `width` long).
+    dfa = DataFrame((; a = [[1, 2], [3, 4]], n = [1, 2]))
+    dfa = select(dfa, Lists.to_array(col("a"), 2) |> alias("a"), col("n"))
+    @test names(select(dfa, S.array())) == ["a"]
+    @test names(select(dfa, S.nested())) == ["a"]
+    # and that it's not accidentally matching everything -- `list()` must not also see the Array column
+    @test isempty(names(select(dfa, S.list())))
 end
 
 @testset "Selectors.by_dtype: explicit dtypes and the parametrized-dtype error path" begin
