@@ -158,11 +158,11 @@ end
 Structural equality: same column names in the same order, with pairwise-equal column data
 (`missing == missing` is treated as `true`, so the result is always a concrete `Bool`).
 """
-# Uses `isequal`, not column data's own `==`, to keep `hash`'s semantics consistent and avoid
-# `==`'s missing-propagating three-valued logic turning a whole-dataframe comparison into
-# `missing`. Without this method, structurally-identical `DataFrame`s compare unequal via the
-# default `===` fallback.
 function Base.:(==)(a::DataFrame, b::DataFrame)
+    # Uses `isequal`, not column data's own `==`, to keep `hash`'s semantics consistent and avoid
+    # `==`'s missing-propagating three-valued logic turning a whole-dataframe comparison into
+    # `missing`. Without this method, structurally-identical `DataFrame`s compare unequal via the
+    # default `===` fallback.
     na, nb = names(a), names(b)
     na == nb || return false
     return all(isequal(collect(a[n]), collect(b[n])) for n in na)
