@@ -227,9 +227,8 @@ end
 # A comprehension, not `collect(String.(...))`: the names arrive as an N-tuple, and broadcasting
 # over a tuple compiles a fresh specialization for every distinct column count.
 #
-# NB the docstring below must stay *immediately* adjacent to the definition -- a comment between
-# the two stops the docstring reaching Documenter, which fails the docs build with "no docs found
-# for 'Base.names'" (this method is spliced into docs/src/reference/dataframe.md).
+# The docstring below must stay *immediately* adjacent to the definition for Documenter to locate it
+# (this method is spliced into reference documentation).
 """
     Base.names(df::DataFrame)::Vector{String}
 

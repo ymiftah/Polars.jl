@@ -74,10 +74,8 @@ end
 # `AbstractVector` still hits the bulk `read_series` path, instead of falling back to the default
 # `AbstractArray` `copy`, which loops over `getindex` one element at a time.
 #
-# The comment sits above the docstring, not between it and the definition: a comment in between
-# stops the docstring reaching Documenter entirely (it was silently lost here -- only noticed
-# because the same slip on `Base.names`, which *is* spliced into a reference page, failed the
-# docs build).
+# The comment sits above the docstring, not between it and the definition, to ensure Documenter
+# can locate the docstring.
 """
     Base.copy(series::Series)
 

@@ -99,10 +99,8 @@ function format(T)
     end
 
     # An immutable struct type maps to Arrow's Struct layout; a *mutable* one deliberately does
-    # not (its fields can change under the buffers this package builds from them). Both the
-    # mutable case and any other unmapped type fall through to the error below -- previously the
-    # mutable case was an `@assert`, which the Julia manual is explicit must not be used for this:
-    # assertions may be disabled, and this one guards a real, reachable user input.
+    # not (its fields can change under the buffers this package builds from them). An error ensures
+    # this invariant is checked at runtime for user input, not disabled via assertions.
     if isstructtype(T) && !ismutabletype(T)
         return "+s"
     end
