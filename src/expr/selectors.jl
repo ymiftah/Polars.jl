@@ -234,7 +234,7 @@ module Selectors
     Selects Array (fixed-size list)-dtype columns, matching any inner dtype/width. Composing a
     selector over the inner dtype is not supported -- see [`Selectors`](@ref)'s scope note. There
     is no write-side path for building an Array column directly from Julia data yet; construct one
-    via [`Lists.to_array`](@ref) over an existing List column.
+    via `Lists.to_array` over an existing List column.
     """
     array() = _dtype_simple(API.PolarsDtypeSelectorKindArray)
 
