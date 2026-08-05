@@ -173,8 +173,10 @@ end
     dfa = select(dfa, Lists.to_array(col("a"), 2) |> alias("a"), col("n"))
     @test size(select(dfa, S.array())) == (2, 1)
     @test size(select(dfa, S.nested())) == (2, 1)
-    # and that it's not accidentally matching everything -- `list()` must not also see the Array column
-    @test size(select(dfa, S.list())) == (2, 0)
+    # and that it's not accidentally matching everything -- `list()` must not also see the Array
+    # column. A zero-column selection collapses to (0, 0), not (2, 0) -- same convention already
+    # established above by `S.by_name()`'s own zero-match case.
+    @test size(select(dfa, S.list())) == (0, 0)
 end
 
 @testset "Selectors.by_dtype: explicit dtypes and the parametrized-dtype error path" begin
