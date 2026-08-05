@@ -393,8 +393,7 @@ list must have exactly `width` elements).
 !!! warning "Result cannot be materialized into Julia yet"
     The `Array` dtype this produces cannot currently be read back into a Julia value -- the Arrow
     schema decoder (`parse_format` in `src/arrow/schema.jl`) recognizes the fixed-size-list format
-    but has no materialization path for it yet (a pre-existing, separate gap from the same file's
-    `Decimal` one -- see [Limitations](@ref)). Selecting/passing the column onward (e.g.
+    but has no materialization path for it (see [Limitations](@ref)). Selecting/passing the column onward (e.g.
     `Selectors.array()`, writing straight to parquet) works fine; `collect(df)[:col]`/`getindex` on
     the result raises.
 """

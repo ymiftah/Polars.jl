@@ -106,11 +106,6 @@ accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`
     1-based indexing is the convention everywhere else in this package, matching
     [`Polars.nth`](@ref). Negative indices count back from the end (`by_index(-1)` is the last
     column, same as `nth(-1)`).
-
-!!! note "Scope: no per-unit/zone temporal matching, no recursive nested-selector composition"
-    `datetime()`/`duration()` match *any* time unit/time zone (no `cs.datetime(time_unit="ms")`
-    equivalent), and `list()`/`array()` match *any* inner dtype (no `cs.list(cs.numeric())`
-    nesting) -- both are real, deliberate scope cuts for this first cut, not oversights.
 """
 module Selectors
 
