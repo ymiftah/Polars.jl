@@ -68,7 +68,7 @@ Polars.item(DataFrame((; x = [42])))
 
 ```@docs
 describe
-Base.:(==)
+Base.:(==)(::Polars.DataFrame, ::Polars.DataFrame)
 ```
 
 ```@example dataframe

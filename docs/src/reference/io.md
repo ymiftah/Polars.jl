@@ -116,7 +116,7 @@ sink_parquet(df, PartitionByKey("/tmp/out"; by = ["year", "month"]))
 # /tmp/out/year=2024/month=1/00000000.parquet
 ```
 
-`by` accepts column name(s) or arbitrary elementwise [`Expr`](@ref)s (e.g. a derived key such as
+`by` accepts column name(s) or arbitrary elementwise [`Expr`](@ref Polars.Expr)s (e.g. a derived key such as
 `Dt.year(col("date")) |> alias("year")`), not just plain columns. It accepts the same
 `compression`/`compression_level`/`statistics`/`row_group_size`/`data_page_size`/`storage_options`
 keywords as the single-file `sink_parquet` method, plus `maintain_order` — but **not `mkdir`**:

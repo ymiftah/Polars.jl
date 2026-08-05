@@ -168,8 +168,12 @@ jobs:
   docs:
     runs-on: "ubuntu-latest"
     needs: test
-    if: github.event_name == 'push'
 
+    # Runs on both push (to main) and pull_request (the workflow-level `on:` above already scopes
+    # both), unlike previously push-only: `deploydocs` only pushes to gh-pages when running on
+    # `devbranch` via a push event, so a PR run builds (and so validates) the docs but never
+    # deploys -- the standard, documented-safe Documenter.jl CI pattern. Push-only meant a
+    # doc-breaking PR was invisible until after merge, which is exactly what happened here.
     # This job needs permission to push the built site to the gh-pages branch.
     permissions:
       contents: write
