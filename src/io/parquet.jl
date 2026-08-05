@@ -15,9 +15,9 @@ function _with_cloud_options(f, storage_options::Union{Nothing, AbstractDict{<:A
         push!(ks, String(k))
         push!(vs, String(v))
     end
-    handle = GC.@preserve ks vs begin
-        key_ptrs, key_lens = _name_ptrs(ks)
-        value_ptrs, value_lens = _name_ptrs(vs)
+    key_names, key_ptrs, key_lens = _name_ptrs(ks)
+    value_names, value_ptrs, value_lens = _name_ptrs(vs)
+    handle = GC.@preserve key_names value_names begin
         out = Ref{Ptr{polars_cloud_options_t}}()
         err = polars_cloud_options_new(key_ptrs, key_lens, value_ptrs, value_lens, length(ks), out)
         polars_error(err)

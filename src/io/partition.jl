@@ -36,10 +36,10 @@ function PartitionByKey(
         max_rows_per_file::Union{Nothing, Integer} = nothing,
         approximate_bytes_per_file::Union{Nothing, Integer} = nothing
     )
-    keys = by isa AbstractVector ? map(_as_expr, by) : [_as_expr(by)]
+    keys = by isa AbstractVector ? _expr_vector(by) : Expr[_as_expr(by)]
     isempty(keys) && error("PartitionByKey requires at least one partition key in `by`")
     return PartitionByKey(
-        String(base_path), convert(Vector{Expr}, keys), include_key,
+        String(base_path), keys, include_key,
         max_rows_per_file === nothing ? nothing : Int(max_rows_per_file),
         approximate_bytes_per_file === nothing ? nothing : Int(approximate_bytes_per_file)
     )

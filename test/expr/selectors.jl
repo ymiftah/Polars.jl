@@ -268,3 +268,18 @@ end
     @test hasmethod(Selectors.by_dtype, Tuple{}) # sanity: by_dtype() itself IS a valid call
     @test_throws MethodError Selectors.empty() # resolves to Base.empty, not a Selectors constructor
 end
+
+@testset "Selectors.by_index accepts any Integer width" begin
+    # The varargs form used to `collect(Integer, ...)`, building a `Vector{Integer}` -- an
+    # abstract element type, so every index was boxed. It collects to `Vector{Int}` now, which
+    # still has to accept a narrower `Integer` on the way in.
+    df = DataFrame((; a = [1], b = [2], c = [3]))
+
+    @test names(select(df, S.by_index(Int32(1), Int32(3)))) == ["a", "c"]
+    @test names(select(df, S.by_index(Int8(2)))) == ["b"]
+    @test names(select(df, S.by_index(UInt16(1)))) == ["a"]
+    @test names(select(df, S.by_index(Int32(-1)))) == ["c"]
+
+    # the vector form keeps working for any Integer element type
+    @test names(select(df, S.by_index(Int32[1, 2]))) == ["a", "b"]
+end

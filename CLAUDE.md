@@ -36,6 +36,10 @@ mirror plus match-based conversion, passed **by value**. Strings → `(ptr, len)
 `(s, ncodeunits(s))` — **always `ncodeunits`, never `length`**, a *character* count that cuts
 non-ASCII args mid-codepoint and surfaces as `incomplete utf-8 byte sequence`; this was wrong at all
 24 sites once, and ASCII-only tests never catch it. Optional strings: null ptr or len 0 = `None`.
+Lists of column names go through `_name_ptrs` (`src/verbs.jl`), which returns `(owned, ptrs, lens)`
+— **`GC.@preserve` the returned `owned`, never the argument you passed in**: for anything but a
+`Vector{String}` (a `Vector{Symbol}`, say) `owned` is a freshly converted copy that nothing else
+roots, and the `Ref` allocation every call site makes before its ccall is a live GC safepoint.
 
 **Generation pipeline — never hand-edit either end.** Rust → (cbindgen) `c-polars/include/polars.h`
 → (Clang.jl) `src/api/generated.jl`. Regenerate with `c-polars/regen_header.sh`, then

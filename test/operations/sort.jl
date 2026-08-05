@@ -81,3 +81,25 @@ end
     @test ismissing(s_nulls_first[:v][3])
     @test s_nulls_first[:v][4] == 1
 end
+
+@testset "sort: a wrong-length `rev` raises ArgumentError" begin
+    # Validating a user-supplied argument, so a real exception rather than an `@assert` (which
+    # the Julia manual is explicit must not be used for this -- assertions may be disabled).
+    df = DataFrame((; g = ["a", "b"], v = [1, 2]))
+
+    @test_throws ArgumentError sort(df, col("g"), col("v"); rev = [true])
+    @test_throws ArgumentError sort(df, col("g"); rev = [true, false])
+    @test_throws ArgumentError sort(lazy(df), col("g"), col("v"); rev = Bool[])
+
+    err = try
+        sort(df, col("g"), col("v"); rev = [true])
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test contains(err.msg, "2 expressions")
+    @test contains(err.msg, "1 rev")
+
+    # a scalar `rev` is broadcast over every expression and stays valid
+    @test names(sort(df, col("g"), col("v"); rev = true)) == ["g", "v"]
+end

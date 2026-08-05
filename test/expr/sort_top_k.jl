@@ -168,3 +168,20 @@ end
     @test [(v.id, v.count) for v in s_ties] ==
         [("c", UInt32(3)), ("b", UInt32(2)), ("d", UInt32(2)), ("a", UInt32(1))]
 end
+
+@testset "sort_by: a wrong-length `rev` raises ArgumentError" begin
+    # Matches `sort`'s own frame-level validation -- see test/operations/sort.jl.
+    df = DataFrame((; x = [1, 2, 3], y = [3, 2, 1], z = [1, 1, 1]))
+
+    @test_throws ArgumentError select(df, sort_by(col("x"), col("y"), col("z"); rev = [true]))
+    @test_throws ArgumentError select(df, sort_by(col("x"), col("y"); rev = [true, false, true]))
+
+    err = try
+        sort_by(col("x"), col("y"), col("z"); rev = [true])
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test contains(err.msg, "2 by expressions")
+    @test contains(err.msg, "1 rev")
+end

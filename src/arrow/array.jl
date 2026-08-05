@@ -98,12 +98,16 @@ function format(T)
         return "+L" # large-list (Int64 offsets) -- see the arrowvector methods below for why
     end
 
-    @assert !ismutabletype(T)
-    if isstructtype(T)
+    # An immutable struct type maps to Arrow's Struct layout; a *mutable* one deliberately does
+    # not (its fields can change under the buffers this package builds from them). Both the
+    # mutable case and any other unmapped type fall through to the error below -- previously the
+    # mutable case was an `@assert`, which the Julia manual is explicit must not be used for this:
+    # assertions may be disabled, and this one guards a real, reachable user input.
+    if isstructtype(T) && !ismutabletype(T)
         return "+s"
     end
 
-    throw("cannot find a arrow format for type $T")
+    error("cannot find an Arrow format for type $T")
 end
 format(::Type{MaybeMissing{T}}) where {T} = format(T)
 # `MaybeMissing{Any}` (i.e. `Union{Any, Union{Any,Missing}}`) collapses to the literal type `Any`
@@ -288,9 +292,12 @@ Base.cconvert(::Type{CArrowArray}, array::ArrowArray) = array
 Base.unsafe_convert(::Type{CArrowArray}, array::ArrowArray) = array.carrow_array
 
 function Base.unsafe_convert(::Type{Ptr{CArrowArray}}, array::ArrowArray)
+    # `Base.fieldindex` (as in `_mark_released!`) rather than `findfirst` over `fieldnames`: with
+    # both arguments constant this folds away at compile time, where the search ran on every
+    # single conversion -- and this is the hot path every ccall taking an array goes through.
     return Ptr{CArrowArray}(
         Ptr{UInt8}(Base.pointer_from_objref(array)) +
-            fieldoffset(ArrowArray, findfirst(==(:carrow_array), fieldnames(ArrowArray)))
+            fieldoffset(ArrowArray, Base.fieldindex(ArrowArray, :carrow_array))
     )
 end
 
@@ -472,6 +479,19 @@ function column_schema(name, type)
 end
 
 """
+    _as_vector(column)::Vector
+
+Normalizes one Tables.jl column to a concrete `Vector`. Tables.jl only promises its columns are
+`AbstractVector`s, but every `arrowvector` method above is written against a real `Vector` buffer
+(it takes `pointer`s into it, or indexes it directly), so anything else -- a range, a `SubArray`,
+another package's column type, or one of this package's own `Series` -- is materialized once here.
+Done at the call site rather than as an `arrowvector(::AbstractVector)` fallback, which would
+recurse forever for a `Vector` element type that has no method.
+"""
+_as_vector(column::Vector) = column
+_as_vector(column::AbstractVector) = collect(column)
+
+"""
     arrowtable(table, table_name)::Tuple{ArrowArray, ArrowSchema}
 
 Encodes `table` (any Tables.jl-compatible source) into a top-level `ArrowArray`/`ArrowSchema` pair,
@@ -496,11 +516,17 @@ function arrowtable(table, table_name)
         children
     )
 
-    ℓ = Tables.rowcount(Tables.columns(table))
+    # Fetch each column by *name*, through the Tables.jl `AbstractColumns` interface. Iterating
+    # the columns object directly (the old shape) is not part of that interface -- it happens to
+    # work for a `NamedTuple` and fails for anything else, including this package's own
+    # `DataFrameColumns` -- and it silently assumed iteration order matched `tschema.names`, the
+    # order the schema children above were built in.
+    cols = Tables.columns(table)
+    ℓ = Tables.rowcount(cols)
     array = ArrowArray(
         ValidityMap(ℓ, 0, UInt8[]), [], [
-            arrowvector(t)
-                for t in Tables.columns(table)
+            arrowvector(_as_vector(Tables.getcolumn(cols, name)))
+                for name in tschema.names
         ]
     )
 

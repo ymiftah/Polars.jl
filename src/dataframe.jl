@@ -1,8 +1,13 @@
 mutable struct DataFrame
     ptr::Ptr{polars_dataframe_t}
+    # Lazily-populated column-name cache -- `nothing` until the first `_column_names` call. Safe
+    # to cache for a handle's whole lifetime: no C entry point renames, adds, or drops a column of
+    # an existing `polars_dataframe_t` in place (every such verb goes through `LazyFrame` and
+    # yields a *new* frame), so a handle's column names never change once it exists.
+    column_names::Union{Nothing, Tuple{Vararg{Symbol}}}
 
     DataFrame(ptr::Ptr{polars_dataframe_t}) =
-        finalizer(polars_dataframe_destroy, new(ptr))
+        finalizer(polars_dataframe_destroy, new(ptr, nothing))
 end
 
 """
@@ -82,14 +87,17 @@ item(df::DataFrame, row::Integer, col) = getindex(df, row, col)
 
 Base.getindex(df::DataFrame, row_index, col_index) = getindex(getindex(df, col_index), row_index)
 Base.getindex(df::DataFrame, idx::Int) = Tables.getcolumn(df, idx)
-Base.getindex(df::DataFrame, s::String) = getindex(df, Symbol(s))
-function Base.getindex(df::DataFrame, s::Symbol)
-    s = string(s)::String
+# The string form is the primitive one (it's what the ccall needs); the `Symbol` method converts
+# into it. It used to be the other way round, so the common `df["a"]` path allocated a `Symbol`
+# and then a second `String` back out of it before reaching the ccall.
+function Base.getindex(df::DataFrame, name::AbstractString)
+    s = String(name)
     out = Ref{Ptr{polars_series_t}}()
     err = polars_dataframe_get(df, s, ncodeunits(s), out)
     polars_error(err)
     return Series(out[])
 end
+Base.getindex(df::DataFrame, s::Symbol) = getindex(df, String(s))
 
 struct _NoDefault end
 # Sentinel rather than a `default = nothing` default value: `nothing` is itself a valid `default`
@@ -199,12 +207,21 @@ import Tables: schema
 
 """Reads column names straight from the Arrow schema, with no query executed -- the cheap half
 of what [`schema`](@ref) below does (it additionally refines nullability from real null counts,
-which needs a `select` over the whole frame)."""
+which needs a `select` over the whole frame).
+
+Memoized in `df.column_names` (see the `DataFrame` struct for why that's sound): each call was
+otherwise a ccall plus a full Arrow schema export and parse, which made positional column access
+(`Tables.getcolumn(df, i)`, and so `df[i]`) O(ncols) *per column*, i.e. O(ncols²) to walk a frame."""
 function _column_names(df::DataFrame)
+    cached = df.column_names
+    cached === nothing || return cached
+
     out = Ref{CArrowSchema}()
     err = API.polars_dataframe_schema(df, out)
     polars_error(err)
-    return load_dataframe_schema(out[]).names
+    resolved = load_dataframe_schema(out[]).names
+    df.column_names = resolved
+    return resolved
 end
 
 """
@@ -212,7 +229,9 @@ end
 
 Returns the column names of `df`.
 """
-Base.names(df::DataFrame) = collect(String.(_column_names(df)))
+# A comprehension, not `collect(String.(...))`: the names arrive as an N-tuple, and broadcasting
+# over a tuple compiles a fresh specialization for every distinct column count.
+Base.names(df::DataFrame) = String[String(name) for name in _column_names(df)]
 
 """
     Tables.schema(df::DataFrame)::Tables.Schema
@@ -232,7 +251,7 @@ function schema(df::DataFrame)
     # `polars_series_null_count` (a validity-bitmap count, no query engine), so this is a plain
     # per-column metadata read rather than a `select` query over the whole frame.
     types = map(zip(names, types)) do (name, T)
-        iszero(df[string(name)].null_count) ? nomissing(T) : T
+        iszero(df[name].null_count) ? nomissing(T) : T
     end
 
     return Tables.Schema(names, types)
@@ -244,6 +263,21 @@ Tables.columnaccess(::DataFrame) = true
 Tables.rowaccess(::DataFrame) = true # enables Pluto.jl viewer
 
 """
+    Tables.rows(df::DataFrame)
+
+Implements the row half of the Tables.jl interface. `Tables.rowaccess(::DataFrame)` above has
+always declared this method exists -- which the interface takes as a promise -- but nothing ever
+defined it, so any row-oriented consumer was relying on Tables.jl's own fallbacks rather than on
+anything this package guaranteed.
+
+Row access over a columnar frame is inherently a materialization, so this is deliberately explicit
+about it: every column is `collect`ed into a native Julia `Vector` once (through the bulk
+`read_series` path, not one element at a time), and rows are then iterated over that. Prefer
+`Tables.columns` when you don't actually need rows.
+"""
+Tables.rows(df::DataFrame) = Tables.rows(map(collect, Tables.columntable(df)))
+
+"""
     DataFrameColumns
 
 `Tables.columns(df)`'s return value: a thin snapshot holding `df` plus its column names computed
@@ -251,12 +285,16 @@ once. Without this, `Tables.getcolumn(df, ::Int)` re-ran `_column_names` (a ccal
 schema parse) on *every* call, so iterating a `DataFrame`'s columns positionally (as many Tables.jl
 consumers do via `Tables.columns`) cost O(ncols²) rather than O(ncols).
 """
-struct DataFrameColumns
+struct DataFrameColumns{N}
     df::DataFrame
-    names::Tuple{Vararg{Symbol}}
+    names::NTuple{N, Symbol}
 end
 
 Tables.columns(df::DataFrame) = DataFrameColumns(df, _column_names(df))
+# Idempotent, as the Tables.jl interface requires of anything `columns` hands back -- without it,
+# generic Tables.jl machinery that re-normalizes a columns object (`columntable`, `rows`, ...)
+# has no `columns` method to call on it.
+Tables.columns(cols::DataFrameColumns) = cols
 
 Tables.istable(::DataFrameColumns) = true
 Tables.columnaccess(::DataFrameColumns) = true

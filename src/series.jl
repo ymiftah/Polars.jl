@@ -13,7 +13,7 @@ mutable struct Series{T} <: AbstractVector{T}
     fmt::String
 
     function Series(ptr)
-        @assert ptr != C_NULL
+        ptr == C_NULL && error("cannot build a Series from a null pointer")
 
         # No finalizer is registered yet at this point, so an error anywhere below (e.g.
         # `load_series_schema`/`parse_format` throwing on an unsupported dtype such as a
@@ -50,6 +50,11 @@ end
 Base.unsafe_convert(::Type{Ptr{polars_series_t}}, series::Series) = series.ptr
 
 Base.size(series::Series) = (series.length,)
+
+# `getindex` below takes a single linear index, which is what `IndexLinear` declares -- without it
+# `Series` inherits `AbstractArray`'s `IndexCartesian` default and generic Base code goes through
+# the (slower, and for a vector entirely pointless) cartesian machinery.
+Base.IndexStyle(::Type{<:Series}) = IndexLinear()
 
 """
     Polars.item(series::Series)
@@ -98,6 +103,7 @@ _series_getter(::Type{Float32}) = API.polars_series_get_f32
 _series_getter(::Type{Float64}) = API.polars_series_get_f64
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Integer}, MaybeMissing{AbstractFloat}}}
+    checkbounds(series, index)
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -114,6 +120,7 @@ function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{Ma
 end
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Dates.TimeType}, Dates.TimeType, MaybeMissing{Dates.Period}, Dates.Period}}
+    checkbounds(series, index)
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -132,6 +139,7 @@ end
 
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Vector}, MaybeMissing{String}, MaybeMissing{NamedTuple}}}
+    checkbounds(series, index)
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)

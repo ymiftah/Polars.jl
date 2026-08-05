@@ -1037,8 +1037,7 @@ function over(
         descending::Bool = false,
         nulls_last::Bool = false
     )
-    partition_by = map(_as_expr, partition_by)
-    partition_by = convert(Vector{Expr}, collect(partition_by))
+    partition_by = _expr_vector(partition_by)
     mapping_enum = if mapping_strategy == :group_to_rows
         API.PolarsWindowMappingGroupsToRows
     elseif mapping_strategy == :explode
@@ -1085,11 +1084,16 @@ own values -- typically used inside [`over`](@ref)/[`agg`](@ref) for "most recen
 `Vector{Bool}` the same length as `by`.
 """
 function sort_by(expr::Expr, by...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
-    by = map(_as_expr, by)
-    by = convert(Vector{Expr}, collect(by))
+    by = _expr_vector(by)
     n_by = length(by)
     descending = rev isa Bool ? fill(rev, n_by) : rev
-    @assert length(descending) == n_by "rev must have the same length as the number of by expressions (got $n_by by expressions and $(length(descending)) rev)"
+    # See `_sort!` in sort.jl: user-argument validation gets a real exception, not an `@assert`.
+    length(descending) == n_by || throw(
+        ArgumentError(
+            "rev must have one entry per by expression (got $n_by by expressions and " *
+                "$(length(descending)) rev)"
+        )
+    )
     GC.@preserve by begin
         by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
         out = API.polars_expr_sort_by(expr, by_ptrs, n_by, descending, nulls_last, maintain_order)
@@ -1177,10 +1181,12 @@ of raising -- more than one value always raises regardless. Distinct from `Polar
 item(expr::Expr; allow_empty::Bool = false) = Expr(API.polars_expr_item(expr, allow_empty))
 
 
-function _expr_vector(args)
-    exprs = map(_as_expr, args)
-    return convert(Vector{Expr}, collect(exprs))
-end
+"""Coerces an iterable of column references (names, `Expr`s, `Selector`s) into a `Vector{Expr}`
+ready to have its pointers marshalled. A typed comprehension rather than
+`convert(Vector{Expr}, collect(map(_as_expr, args)))`: same result, one allocation instead of
+three, and it lands on `Vector{Expr}` directly even when `args` is empty (where `collect` would
+otherwise produce a `Vector{Union{}}`)."""
+_expr_vector(args) = Expr[_as_expr(arg) for arg in args]
 
 """
     coalesce(exprs::Expr...)::Polars.Expr
