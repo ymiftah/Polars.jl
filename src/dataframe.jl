@@ -224,13 +224,17 @@ function _column_names(df::DataFrame)
     return resolved
 end
 
+# A comprehension, not `collect(String.(...))`: the names arrive as an N-tuple, and broadcasting
+# over a tuple compiles a fresh specialization for every distinct column count.
+#
+# NB the docstring below must stay *immediately* adjacent to the definition -- a comment between
+# the two stops the docstring reaching Documenter, which fails the docs build with "no docs found
+# for 'Base.names'" (this method is spliced into docs/src/reference/dataframe.md).
 """
     Base.names(df::DataFrame)::Vector{String}
 
 Returns the column names of `df`.
 """
-# A comprehension, not `collect(String.(...))`: the names arrive as an N-tuple, and broadcasting
-# over a tuple compiles a fresh specialization for every distinct column count.
 Base.names(df::DataFrame) = String[String(name) for name in _column_names(df)]
 
 """

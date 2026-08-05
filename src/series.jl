@@ -70,14 +70,19 @@ end
 # T = T`), which resolves identically -- verified via `@code_typed`, both fold to the same
 # `Core.Const` field-type extraction. The explicit method here was pure duplication.
 
+# Defined explicitly so generic code calling `copy` (rather than `collect`) on an
+# `AbstractVector` still hits the bulk `read_series` path, instead of falling back to the default
+# `AbstractArray` `copy`, which loops over `getindex` one element at a time.
+#
+# The comment sits above the docstring, not between it and the definition: a comment in between
+# stops the docstring reaching Documenter entirely (it was silently lost here -- only noticed
+# because the same slip on `Base.names`, which *is* spliced into a reference page, failed the
+# docs build).
 """
     Base.copy(series::Series)
 
 Materializes `series` into a native Julia `Vector`, same as [`collect`](@ref).
 """
-# Defined explicitly so generic code calling `copy` (rather than `collect`) on an
-# `AbstractVector` still hits the bulk `read_series` path, instead of falling back to the default
-# `AbstractArray` `copy`, which loops over `getindex` one element at a time.
 Base.copy(series::Series) = collect(series)
 
 """
