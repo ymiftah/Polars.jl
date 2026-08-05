@@ -68,15 +68,17 @@ Polars.item(DataFrame((; x = [42])))
 
 ```@docs
 describe
-Base.:(==)(::Polars.DataFrame, ::Polars.DataFrame)
 ```
 
 ```@example dataframe
 describe(orders)
 ```
 
-`Base.summary(df::DataFrame)` returns a one-line summary (e.g. `"3×2 DataFrame"`); `Base.show`
-renders the full table with PrettyTables formatting. Both are automatic in the REPL/Pluto.jl.
+`Base.:(==)(a::DataFrame, b::DataFrame)` is structural equality: same column names in the same
+order, with pairwise-equal column data (`missing == missing` is treated as `true`, so the result
+is always a concrete `Bool`). `Base.summary(df::DataFrame)` returns a one-line summary (e.g.
+`"3×2 DataFrame"`); `Base.show` renders the full table with PrettyTables formatting. Both are
+automatic in the REPL/Pluto.jl.
 
 ## Manipulation/selection
 
