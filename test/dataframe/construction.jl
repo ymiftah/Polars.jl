@@ -66,6 +66,27 @@ end
     @test collect(df_rows[:b]) == ["x", "y", "z"]
 end
 
+@testset "DataFrame(series::AbstractVector{<:Series})" begin
+    a = Series("a", [1, 2, 3])
+    b = Series("b", ["x", "y", "z"])
+    df = DataFrame([a, b])
+    @test size(df) == (3, 2)
+    @test Polars.names(df) == ["a", "b"]
+    @test collect(df[:a]) == [1, 2, 3]
+    @test collect(df[:b]) == ["x", "y", "z"]
+
+    # the input series are cloned, not consumed -- both the DataFrame and the originals stay usable
+    @test collect(a) == [1, 2, 3]
+
+    # an empty-named series falls back to "column_i" (0-based)
+    unnamed = Series("", [true, false])
+    df_unnamed = DataFrame([unnamed])
+    @test Polars.names(df_unnamed) == ["column_0"]
+
+    # duplicate resulting names raise, same as any other DataFrame constructor
+    @test_throws PolarsError DataFrame([Series("dup", [1]), Series("dup", [2])])
+end
+
 @testset "mixed-type column coercion" begin
     # Int/Float64 mix in a single column literal promotes to Float64 (plain Julia array
     # promotion, not a Polars-specific coercion path)

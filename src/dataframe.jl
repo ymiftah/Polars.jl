@@ -40,6 +40,23 @@ function DataFrame(table)
     end
 end
 
+"""
+    DataFrame(series::AbstractVector{<:Series})
+
+Builds a `DataFrame` directly from a vector of `Series`, one per column, in order. Each series is
+cloned, not consumed. Column names are each series' own `name`; a series with an empty name is
+assigned `"column_i"` (0-based) instead. Duplicate resulting names raise an error.
+"""
+function DataFrame(series::AbstractVector{<:Series})
+    GC.@preserve series begin
+        ptrs = Ptr{polars_series_t}[s.ptr for s in series]
+        out = Ref{Ptr{polars_dataframe_t}}()
+        err = API.polars_dataframe_new_from_series(ptrs, length(ptrs), out)
+        polars_error(err)
+        return DataFrame(out[])
+    end
+end
+
 function Base.size(df::DataFrame)
     rows, cols = Ref{Csize_t}(), Ref{Csize_t}()
     API.polars_dataframe_size(df, rows, cols)
