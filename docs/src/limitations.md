@@ -18,6 +18,12 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   [Data types](@ref). Keep decimal columns on the lazy/query side (cast to `Float64`/`String`
   before collecting if you need the values in Julia).
 
+- **An `Array` (fixed-size list)-typed column can be selected/built from an existing List column
+  (`Selectors.array()`, `Lists.to_array`) but not materialized back into Julia**, same shape of gap
+  as `Decimal` above — the Arrow schema decoder recognizes the format but has no read path for it
+  yet. Select/pass the column onward instead of collecting its values directly (e.g. write straight
+  to parquet, or cast to a `String`/scalar column first).
+
 ## Date/time limitations
 
 - **A `lit(dt::DateTime)` literal is built at nanosecond resolution and inherits that
@@ -80,9 +86,10 @@ See [Developer](@ref) for the full API-design rationale behind these choices.
 - Some polars capabilities aren't compiled into this package's build. If you hit an "activate 'X'
   feature" panic message, please open an issue.
 
-- **`Selectors.array()` is unavailable in this build** and raises an error rather than selecting
-  columns; there is also no write-side support for constructing an `Array`-dtype column yet.
-  `Selectors.list()`/`struct_()`/`nested()`/etc. are unaffected and work correctly.
+- **No `.arr` namespace (operations on Array-dtype columns) and no direct construction from raw
+  Julia nested data.** `Selectors.array()` and `Lists.to_array` (List → Array, given a fixed width)
+  cover selection and List-to-Array construction — there is simply nothing else that operates on an
+  Array column once built, and no path straight from a Julia nested literal to one.
 
 ## Performance notes
 

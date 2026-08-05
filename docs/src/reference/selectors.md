@@ -44,10 +44,6 @@ Selectors.nested
 Selectors.by_dtype
 ```
 
-!!! warning "`array()` is unavailable in this build"
-    `Selectors.array()` raises an error rather than selecting columns. See [Limitations](@ref) and
-    [Developer](@ref) for why.
-
 This page always uses the qualified `Selectors.foo(...)` form, which works for every selector regardless of whether `using Polars.Selectors` would also bring its bare name into scope. See [Limitations](@ref) for which selector names require qualification.
 
 ```@example selectors
