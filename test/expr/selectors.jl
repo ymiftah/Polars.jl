@@ -166,13 +166,15 @@ end
     # feature's own upstream matcher silently compiles to an unconditional `false` when
     # `dtype-array` is off, so a selector that merely fails to error could still be matching zero
     # columns. Uniform-width lists so `Lists.to_array` succeeds (it requires every row to already
-    # be exactly `width` long).
+    # be exactly `width` long). Like Decimal above, `names()` itself can't introspect an Array
+    # column's schema (a separate, pre-existing gap -- see `Lists.to_array`'s own docstring), so
+    # check via `size` instead.
     dfa = DataFrame((; a = [[1, 2], [3, 4]], n = [1, 2]))
     dfa = select(dfa, Lists.to_array(col("a"), 2) |> alias("a"), col("n"))
-    @test names(select(dfa, S.array())) == ["a"]
-    @test names(select(dfa, S.nested())) == ["a"]
+    @test size(select(dfa, S.array())) == (2, 1)
+    @test size(select(dfa, S.nested())) == (2, 1)
     # and that it's not accidentally matching everything -- `list()` must not also see the Array column
-    @test isempty(names(select(dfa, S.list())))
+    @test size(select(dfa, S.list())) == (2, 0)
 end
 
 @testset "Selectors.by_dtype: explicit dtypes and the parametrized-dtype error path" begin
