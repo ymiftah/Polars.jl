@@ -12,8 +12,8 @@ function explode(
         lf::LazyFrame, columns::Vector{<:ColId};
         empty_as_null::Bool = true, keep_nulls::Bool = true
     )
-    GC.@preserve columns begin
-        ptrs, lens = _name_ptrs(columns)
+    owned_names, ptrs, lens = _name_ptrs(columns)
+    GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_explode(lf, ptrs, lens, length(ptrs), empty_as_null, keep_nulls, out)
         polars_error(err)
@@ -46,9 +46,9 @@ function unpivot(
     )
     variable_name = something(variable_name, "")
     value_name = something(value_name, "")
-    GC.@preserve index on begin
-        index_ptrs, index_lens = _name_ptrs(index)
-        on_ptrs, on_lens = _name_ptrs(on)
+    index_names, index_ptrs, index_lens = _name_ptrs(index)
+    on_names, on_ptrs, on_lens = _name_ptrs(on)
+    GC.@preserve index_names on_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_unpivot(
             lf, index_ptrs, index_lens, length(index_ptrs), on_ptrs, on_lens, length(on_ptrs),
@@ -82,8 +82,8 @@ function unnest(
     )
     separator_arg = separator === nothing ? Ptr{UInt8}(C_NULL) : separator
     separator_len = separator === nothing ? 0 : ncodeunits(separator)
-    GC.@preserve columns begin
-        ptrs, lens = _name_ptrs(columns)
+    owned_names, ptrs, lens = _name_ptrs(columns)
+    GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_unnest(
             lf, ptrs, lens, length(ptrs), separator_arg, separator_len, out
@@ -126,10 +126,10 @@ function pivot(
         error("unknown column_naming $column_naming, expected one of (:auto, :combine)")
     end
 
-    GC.@preserve on index values begin
-        on_ptrs, on_lens = _name_ptrs(on)
-        index_ptrs, index_lens = _name_ptrs(index)
-        values_ptrs, values_lens = _name_ptrs(values)
+    on_names, on_ptrs, on_lens = _name_ptrs(on)
+    index_names, index_ptrs, index_lens = _name_ptrs(index)
+    values_names, values_ptrs, values_lens = _name_ptrs(values)
+    GC.@preserve on_names index_names values_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_pivot(
             lf, on_ptrs, on_lens, length(on_ptrs), on_columns,
@@ -157,8 +157,8 @@ function upsample(
         stable::Bool = true
     )
     time_column = String(time_column)
-    GC.@preserve by begin
-        by_ptrs, by_lens = _name_ptrs(by)
+    by_names, by_ptrs, by_lens = _name_ptrs(by)
+    GC.@preserve by_names begin
         out = Ref{Ptr{polars_dataframe_t}}()
         err = polars_dataframe_upsample(
             df, by_ptrs, by_lens, length(by_ptrs), time_column, ncodeunits(time_column), every,
@@ -198,9 +198,8 @@ function Base.transpose(
     )
     keep_names_as_arg = keep_names_as === nothing ? Ptr{UInt8}(C_NULL) : keep_names_as
     keep_names_as_len = keep_names_as === nothing ? 0 : ncodeunits(keep_names_as)
-    names = something(new_col_names, String[])
-    GC.@preserve names begin
-        ptrs, lens = _name_ptrs(names)
+    owned_names, ptrs, lens = _name_ptrs(something(new_col_names, String[]))
+    GC.@preserve owned_names begin
         out = Ref{Ptr{polars_dataframe_t}}()
         err = polars_dataframe_transpose(
             df, keep_names_as_arg, keep_names_as_len, ptrs, lens, length(ptrs), out

@@ -745,14 +745,12 @@ end
 
 export ewm_var
 
-# Builds the `(breaks_ptr, n_breaks, label_ptrs, label_lens, n_labels)` argument tuple shared by
-# `cut`/`qcut`/`qcut_uniform`, under the caller's own `GC.@preserve`. `labels === nothing` becomes
-# `n_labels = 0`, the FFI convention for "generate interval-string labels".
-function _cut_labels(labels::Union{Nothing, Vector{String}})
-    labels_v = labels === nothing ? String[] : labels
-    ptrs, lens = _name_ptrs(labels_v)
-    return labels_v, ptrs, lens
-end
+# Builds the `(owned, label_ptrs, label_lens)` triple shared by `cut`/`qcut`/`qcut_uniform` --
+# `owned` being the `Vector{String}` the caller must name in its own `GC.@preserve`, see
+# `_name_ptrs`. `labels === nothing` becomes an empty list, i.e. `n_labels = 0`, the FFI convention
+# for "generate interval-string labels".
+_cut_labels(labels::Union{Nothing, Vector{String}}) =
+    _name_ptrs(labels === nothing ? String[] : labels)
 
 """
     cut(expr::Polars.Expr, breaks::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,

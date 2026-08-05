@@ -338,9 +338,9 @@ module Selectors
     """
     function by_name(names::Vector{String}; strict::Bool = true)
         out = Ref{Ptr{polars_expr_t}}()
-        GC.@preserve names begin
-            ptrs, lens = _name_ptrs(names)
-            err = API.polars_expr_selector_by_name(ptrs, lens, length(ptrs), strict, out)
+        owned, ptrs, lens = _name_ptrs(names)
+        err = GC.@preserve owned begin
+            API.polars_expr_selector_by_name(ptrs, lens, length(ptrs), strict, out)
         end
         polars_error(err)
         return _wrap(out[])
@@ -360,7 +360,7 @@ module Selectors
         out = API.polars_expr_selector_by_index(zero_based, length(zero_based), strict)
         return _wrap(out)
     end
-    by_index(indices::Integer...; strict::Bool = true) = by_index(collect(Integer, indices); strict)
+    by_index(indices::Integer...; strict::Bool = true) = by_index(collect(Int, indices); strict)
 
     function _matches_kind(kind, pattern::AbstractString)
         out = Ref{Ptr{polars_expr_t}}()

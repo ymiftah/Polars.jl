@@ -355,3 +355,64 @@ end
     @test size(df) == (3, 1)
     @test collect(df[:x]) == [1, 2, 3]
 end
+
+@testset "_name_ptrs hands back the vector its pointers point into" begin
+    # The pointers in `ptrs` are raw interior pointers into `owned`'s strings. Nothing else
+    # references `owned` when the input isn't already a `Vector{String}` (it is built right here),
+    # so returning it is what lets every caller root the *right* object in its `GC.@preserve`.
+    # Preserving only the caller's own argument -- what every call site used to do -- left the
+    # pointers dangling for a `Vector{Symbol}`, with each call site's `Ref` allocation sitting
+    # between the conversion and the ccall as a live GC safepoint.
+    strs = ["alpha", "beta"]
+    owned, ptrs, lens = Polars._name_ptrs(strs)
+    @test owned === strs # already-owned input is passed straight through, not copied
+    @test ptrs == Ptr{UInt8}[pointer(s) for s in strs]
+    @test lens == Csize_t[5, 4]
+
+    syms = [:alpha, :beta]
+    owned_syms, ptrs_syms, lens_syms = Polars._name_ptrs(syms)
+    @test owned_syms isa Vector{String}
+    @test owned_syms == ["alpha", "beta"]
+    # the load-bearing assertion: the pointers address `owned_syms`, not some temporary
+    @test ptrs_syms == Ptr{UInt8}[pointer(s) for s in owned_syms]
+    @test lens_syms == Csize_t[5, 4]
+
+    # non-ASCII names are measured in bytes (ncodeunits), not characters
+    owned_utf8, _, lens_utf8 = Polars._name_ptrs([:é, Symbol("日本")])
+    @test owned_utf8 == ["é", "日本"]
+    @test lens_utf8 == Csize_t[2, 6]
+
+    # empty input is a valid no-op, not an error
+    owned_empty, ptrs_empty, lens_empty = Polars._name_ptrs(Symbol[])
+    @test owned_empty == String[]
+    @test isempty(ptrs_empty)
+    @test isempty(lens_empty)
+end
+
+@testset "Symbol column names survive a GC between marshalling and the ccall" begin
+    # Every verb below takes a `Vector{<:ColId}` and marshals it through `_name_ptrs`. With a
+    # `Vector{Symbol}` that conversion allocates, so a collection here used to be free to reclaim
+    # the converted strings before polars ever read them -- a use-after-free that surfaces as
+    # garbage column names or a crash, nondeterministically. Forcing a full GC on each iteration
+    # makes the window as hostile as it can be made from Julia.
+    df = DataFrame((; a = [1, 2, 3], b = ["x", "y", "z"], c = [1.5, 2.5, 3.5]))
+    lists = DataFrame((; g = ["p", "q"], l = [[1, 2], [3]]))
+    wide = DataFrame((; id = [1, 2], m = [10, 20], n = [30, 40]))
+
+    for _ in 1:25
+        GC.gc(true)
+
+        @test names(drop(df, [:b])) == ["a", "c"]
+        @test names(Base.rename(df, [:a], [:renamed])) == ["renamed", "b", "c"]
+        @test size(Base.unique(df, [:a])) == (3, 3)
+        @test size(drop_nulls(df, [:a])) == (3, 3)
+        @test names(transpose(df; new_col_names = [:r1, :r2, :r3])) == ["r1", "r2", "r3"]
+
+        @test size(explode(lists, [:l])) == (3, 2)
+        long = unpivot(wide, [:id]; on = [:m, :n])
+        @test size(long) == (4, 3)
+
+        # selector/struct paths marshal names through the same helper
+        @test sort(names(select(df, Selectors.by_name("a", "c")))) == ["a", "c"]
+    end
+end

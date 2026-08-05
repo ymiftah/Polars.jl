@@ -34,9 +34,8 @@ field_by_index(fieldidx) = Base.Fix2(field_by_index, fieldidx)
 Renames the fields of the struct series with the provided new names.
 """
 function rename_fields(expr, new_names)
-    new_names = convert(Vector{String}, new_names)
-    GC.@preserve new_names begin
-        ptrs, lens = _name_ptrs(new_names)
+    owned, ptrs, lens = _name_ptrs(convert(Vector{String}, new_names))
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_expr_t}}()
         err = API.polars_expr_struct_rename_fields(expr, ptrs, lens, length(ptrs), out)
         polars_error(err)

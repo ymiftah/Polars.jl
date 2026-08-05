@@ -219,57 +219,88 @@ end
     end
 end
 
-@testset "Series getindex out-of-bounds (regression: FFI panic in polars_series_get)" begin
-    # `polars_series_get` backs the Date/DateTime/Duration/String/List/Struct getindex methods
-    # (unlike the numeric/bool methods, which go through the already-fallible `gen_series_get!`
-    # family) -- an out-of-bounds index here used to `.unwrap()` a Rust panic straight across the
-    # FFI boundary, crashing the whole Julia process instead of raising a catchable error.
+@testset "Series getindex out-of-bounds raises BoundsError" begin
+    # `Series{T} <: AbstractVector{T}`, so an out-of-range scalar index must raise `BoundsError`
+    # like any other Julia array -- `getindex` `checkbounds` first and never reaches the FFI.
+    # (It used to pass the index straight through and surface whatever polars made of it, which
+    # was a `PolarsError` with a Rust-flavoured message; see the testset below for the separate,
+    # still-load-bearing guarantee that the C ABI itself stays fallible rather than panicking.)
     s_str = Series(:names, ["a", "b"])
-    @test_throws PolarsError s_str[5]
-    @test s_str[1] == "a" # in-bounds access still correct after the fix
+    @test_throws BoundsError s_str[5]
+    @test s_str[1] == "a" # in-bounds access still correct
 
     s_date = Series(:dates, [Date(2024, 1, 1)])
-    @test_throws PolarsError s_date[5]
+    @test_throws BoundsError s_date[5]
     @test s_date[1] == Date(2024, 1, 1)
 
     s_dt = Series(:dts, [DateTime(2024, 1, 1)])
-    @test_throws PolarsError s_dt[5]
+    @test_throws BoundsError s_dt[5]
     @test s_dt[1] == DateTime(2024, 1, 1)
 
     df_list = DataFrame((; x = [1, 2, 3]))
     s_list = select(df_list, implode(col("x")) |> alias("l"))[:l]
-    @test_throws PolarsError s_list[5]
+    @test_throws BoundsError s_list[5]
     @test s_list[1] isa Vector
 
     df_struct = DataFrame((; a = [1], b = ["x"]))
     s_struct = select(df_struct, as_struct(col("a"), col("b")) |> alias("s"))[:s]
-    @test_throws PolarsError s_struct[5]
+    @test_throws BoundsError s_struct[5]
     @test s_struct[1].a == 1
-end
 
-@testset "Series getindex out-of-bounds on the numeric/bool path" begin
-    # gen_series_get!-backed getters (numeric/bool) are a separate code path from
-    # polars_series_get (Date/String/List/Struct, covered above) -- confirm they're
-    # independently fallible on out-of-bounds too, not just in-bounds-correct.
+    # numeric/bool go through the separate `gen_series_get!`-backed getters
     s_num = Series(:nums, [1, 2, 3])
-    @test_throws PolarsError s_num[5]
+    @test_throws BoundsError s_num[5]
     @test s_num[1] == 1
 
     s_bool = Series(:flags, [true, false])
-    @test_throws PolarsError s_bool[5]
+    @test_throws BoundsError s_bool[5]
     @test s_bool[1] == true
+
+    # the all-null (Null dtype) series has its own getindex method, which checks bounds too
+    s_null = select(DataFrame((; x = [1, 2])), alias(lit(missing), "n"))[:n]
+    @test ismissing(s_null[1])
+    @test_throws BoundsError s_null[5]
+end
+
+@testset "polars_series_get stays fallible out-of-bounds (regression: FFI panic)" begin
+    # `checkbounds` in `getindex` (above) now stops an out-of-range index before it reaches the C
+    # ABI, so drive the ABI directly to keep covering what that testset used to: an out-of-bounds
+    # `polars_series_get` must return an error pointer, never `.unwrap()` a Rust panic across the
+    # `extern "C"` boundary (which aborts the whole Julia process, uncatchably).
+    s_str = Series(:names, ["a", "b"])
+    out = Ref{Ptr{Polars.polars_value_t}}()
+    err = Polars.API.polars_series_get(s_str, 99, out)
+    @test err != C_NULL
+    Polars.API.polars_error_destroy(err)
+
+    # ... and so must the numeric getter family
+    s_num = Series(:nums, [1, 2, 3])
+    num_out = Ref{Int64}()
+    num_err = Polars.API.polars_series_get_i64(s_num, 99, num_out)
+    @test num_err != C_NULL
+    Polars.API.polars_error_destroy(num_err)
+
+    # `polars_series_is_null` is documented to answer `false` (not error) out of bounds
+    @test Polars.API.polars_series_is_null(s_num, 99) == false
 end
 
 @testset "Series getindex with negative/zero index" begin
     # No negative-index support (no wraparound-from-end semantics) -- these are simply
-    # invalid indices and error, across both getindex code paths.
+    # invalid indices, and now raise `BoundsError` like any other Julia array.
     s_num = Series(:nums, [1, 2, 3])
-    @test_throws Exception s_num[-1]
-    @test_throws Exception s_num[0]
+    @test_throws BoundsError s_num[-1]
+    @test_throws BoundsError s_num[0]
 
     s_str = Series(:names, ["a", "b"])
-    @test_throws Exception s_str[-1]
-    @test_throws Exception s_str[0]
+    @test_throws BoundsError s_str[-1]
+    @test_throws BoundsError s_str[0]
+end
+
+@testset "Series declares IndexLinear" begin
+    # `getindex` takes a single linear index; without this declaration `Series` would inherit
+    # `AbstractArray`'s `IndexCartesian` default and generic Base code would take the slow path.
+    @test IndexStyle(Polars.Series) == IndexLinear()
+    @test IndexStyle(Series(:nums, [1, 2, 3])) == IndexLinear()
 end
 
 @testset "Series slicing" begin
@@ -302,7 +333,7 @@ end
 
     # scalar indexing is unaffected by the new UnitRange method
     @test s[1] == 1
-    @test_throws PolarsError s[100]
+    @test_throws BoundsError s[100]
 end
 
 @testset "Boolean Series all/any with nulls" begin

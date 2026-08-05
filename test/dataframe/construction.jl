@@ -1,3 +1,13 @@
+# Element types for the "unmappable column type" testset at the bottom of this file. Defined at
+# top level because a `struct` cannot be declared inside a `@testset` block.
+mutable struct MutableColumnElement
+    x::Int
+end
+
+struct ImmutableColumnElement
+    x::Int
+end
+
 @testset "Create from C Data interface" begin
     table = (; x = randn(Float32, 100))
 
@@ -144,4 +154,75 @@ end
     sch = Tables.schema(df)
     @test sch.names == (:a, :b, :c)
     @test sch.types == (Int64, String, Union{Missing, Float64})
+end
+
+@testset "columns that aren't `Vector`s (Tables.jl only promises AbstractVector)" begin
+    # `arrowtable` used to iterate the columns object directly -- not part of the Tables.jl
+    # `AbstractColumns` interface -- and hand each column straight to `arrowvector`, whose methods
+    # all require a concrete `Vector`. Anything else was a `MethodError`.
+
+    # a range
+    df_range = DataFrame((; a = 1:3, b = ["x", "y", "z"]))
+    @test size(df_range) == (3, 2)
+    @test collect(df_range[:a]) == [1, 2, 3]
+
+    # a view
+    backing = [10, 20, 30, 40]
+    df_view = DataFrame((; a = view(backing, 2:4)))
+    @test collect(df_view[:a]) == [20, 30, 40]
+
+    # a reinterpreted/lazily-mapped column
+    df_step = DataFrame((; a = 0:2:4))
+    @test collect(df_step[:a]) == [0, 2, 4]
+
+    # columns are fetched by name, in schema order, rather than by iteration order
+    @test names(DataFrame((; z = [1], a = [2], m = [3]))) == ["z", "a", "m"]
+end
+
+@testset "round-tripping a Polars DataFrame back through the constructor" begin
+    # `Tables.columns(::DataFrame)` returns a `DataFrameColumns`, which defines no `iterate` --
+    # so this was a `MethodError` even though `DataFrame` is a perfectly good Tables.jl source.
+    original = DataFrame(
+        (;
+            i = [1, 2, 3],
+            s = ["a", "b", "c"],
+            f = [1.5, 2.5, 3.5],
+            n = [1, missing, 3],
+            d = [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3)],
+        )
+    )
+
+    copy_of = DataFrame(original)
+    @test names(copy_of) == names(original)
+    @test size(copy_of) == size(original)
+    @test collect(copy_of[:i]) == [1, 2, 3]
+    @test collect(copy_of[:s]) == ["a", "b", "c"]
+    @test collect(copy_of[:f]) == [1.5, 2.5, 3.5]
+    @test isequal(collect(copy_of[:n]), [1, missing, 3])
+    @test collect(copy_of[:d]) == [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3)]
+    @test copy_of == original
+
+    # ... and through the columns object explicitly, the way a generic Tables.jl sink would
+    @test DataFrame(Tables.columns(original)) == original
+    @test DataFrame(Tables.columntable(original)) == original
+end
+
+@testset "an unmappable column type raises a catchable error" begin
+    # `throw("...")` threw a bare `String`, which is not an `Exception`: it can't be caught as
+    # one and prints as a stray string rather than an error. A mutable struct column additionally
+    # tripped an `@assert` -- which the Julia manual is explicit must not be used to validate an
+    # argument, since assertions may be disabled.
+    @test_throws ErrorException Polars.format(MutableColumnElement)
+    @test_throws ErrorException DataFrame((; x = [MutableColumnElement(1)]))
+
+    err = try
+        Polars.format(MutableColumnElement)
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test contains(err.msg, "MutableColumnElement")
+
+    # an immutable struct is still mapped to Arrow's Struct layout
+    @test Polars.format(ImmutableColumnElement) == "+s"
 end

@@ -10,6 +10,12 @@ using Polars, TimeZones, Dates
 Polars._resolve_tz_aware_datetime_type(::AbstractString) = ZonedDateTime
 
 function Polars.load_value(value::Polars.Value{ZonedDateTime})
+    # Same guard every `load_value` method in src/value.jl carries, and required for the same
+    # reason (see the comment on the `Dates.Period` method there): a null in a schema-typed slot
+    # still reports its real dtype, so without this `polars_value_datetime_get` fails with
+    # "value is not of type datetime" instead of yielding `missing`.
+    Polars.polars_value_type(value) == Polars.PolarsValueTypeNull && return missing
+
     v = Ref{Int64}()
     err = Polars.polars_value_datetime_get(value, v)
     Polars.polars_error(err)
