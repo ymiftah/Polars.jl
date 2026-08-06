@@ -176,7 +176,6 @@ end
 
     # stable=false: allow unstable ordering among upsampled rows
     r_unstable = upsample(df, "time"; every = "1h", stable = false)
-    # Just verify it runs and produces correct values (row order may vary)
     @test size(r_unstable) == (4, 2)
     @test r_unstable[:time] |> collect |> sort == r[:time] |> collect |> sort
 end

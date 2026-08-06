@@ -29,7 +29,6 @@ end
     df_wide = DataFrame(cols)
     show_str_wide = repr("text/plain", df_wide)
     @test !isempty(show_str_wide)
-    # Check that at least some column names appear
     @test contains(show_str_wide, "col1") || contains(show_str_wide, "col")
 end
 

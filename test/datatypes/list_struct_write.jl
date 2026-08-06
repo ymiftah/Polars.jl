@@ -4,7 +4,7 @@
     r = read_parquet(path)
 
     @test size(r) == (3, 1)
-    # List elements are plain Vectors now (not nested Series), so getindex already returns the
+    # List elements are plain Vectors (not nested Series), so getindex already returns the
     # materialized row -- no collect() needed.
     @test r[:x][1] == [1, 2]
     @test r[:x][2] == [3]

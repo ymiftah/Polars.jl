@@ -60,7 +60,6 @@
 end
 
 @testset "Lists namespace with nested nulls and empty lists" begin
-    # Create a DataFrame with list operations that produce empty or null lists
     df = DataFrame(
         (;
             v = [[1, 2, 3], Int64[], [missing, 4, 5]],
