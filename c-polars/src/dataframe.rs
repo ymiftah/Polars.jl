@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use polars::prelude::*;
@@ -219,6 +220,102 @@ pub unsafe extern "C" fn polars_dataframe_write_csv(
             return make_error(err);
         }
 
+        std::ptr::null()
+    })
+}
+
+/// Reads a JSON file (a single top-level array of objects -- upstream's `JsonFormat::Json`) from
+/// `path` into a `DataFrame`. Unlike Parquet/CSV/IPC, plain JSON has no lazy scan counterpart
+/// upstream either (the whole array must be parsed to know its shape), so this is eager-only --
+/// there is no `polars_lazy_frame_scan_json` to pair it with.
+#[no_mangle]
+pub unsafe extern "C" fn polars_dataframe_read_json(
+    path: *const u8,
+    pathlen: usize,
+    out: *mut *mut polars_dataframe_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let path = tri!(read_str(path, pathlen));
+        let file = tri!(std::fs::File::open(path).map_err(|e| PolarsError::IO {
+            error: Arc::new(e),
+            msg: Some(format!("failed to open {path}").into()),
+        }));
+        let df = tri!(JsonReader::new(file)
+            .with_json_format(JsonFormat::Json)
+            .finish());
+        *out = make_dataframe(df);
+        std::ptr::null()
+    })
+}
+
+/// Reads a newline-delimited JSON file (upstream's `JsonFormat::JsonLines`) from `path` into a
+/// `DataFrame`. `infer_schema_length` (null = default 100 rows, matching upstream) caps how many
+/// leading rows are scanned to infer the schema; `ignore_errors` turns a per-row parse mismatch
+/// into a `null` instead of a hard error.
+#[no_mangle]
+pub unsafe extern "C" fn polars_dataframe_read_ndjson(
+    path: *const u8,
+    pathlen: usize,
+    infer_schema_length: *const usize,
+    ignore_errors: bool,
+    out: *mut *mut polars_dataframe_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let path = tri!(read_str(path, pathlen));
+        let file = tri!(std::fs::File::open(path).map_err(|e| PolarsError::IO {
+            error: Arc::new(e),
+            msg: Some(format!("failed to open {path}").into()),
+        }));
+        let infer_schema_len = match infer_schema_length.as_ref().copied() {
+            Some(n) => Some(tri!(NonZeroUsize::new(n).ok_or_else(|| {
+                PolarsError::InvalidOperation("infer_schema_length must be positive".into())
+            }))),
+            None => Some(NonZeroUsize::new(100).unwrap()),
+        };
+        let df = tri!(JsonReader::new(file)
+            .with_json_format(JsonFormat::JsonLines)
+            .infer_schema_len(infer_schema_len)
+            .with_ignore_errors(ignore_errors)
+            .finish());
+        *out = make_dataframe(df);
+        std::ptr::null()
+    })
+}
+
+/// Writes `df` as a single top-level JSON array of objects (upstream's `JsonFormat::Json`), via
+/// the same `IOCallback` shape as `polars_dataframe_write_csv`/`_write_parquet`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_dataframe_write_json(
+    df: *mut polars_dataframe_t,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let df = &mut (*df).inner;
+        let w = UserIOCallback(callback, user);
+        if let Err(err) = JsonWriter::new(w).with_json_format(JsonFormat::Json).finish(df) {
+            return make_error(err);
+        }
+        std::ptr::null()
+    })
+}
+
+/// Writes `df` as newline-delimited JSON (upstream's `JsonFormat::JsonLines`), via the same
+/// `IOCallback` shape as `polars_dataframe_write_csv`/`_write_parquet`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_dataframe_write_ndjson(
+    df: *mut polars_dataframe_t,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let df = &mut (*df).inner;
+        let w = UserIOCallback(callback, user);
+        if let Err(err) =
+            JsonWriter::new(w).with_json_format(JsonFormat::JsonLines).finish(df)
+        {
+            return make_error(err);
+        }
         std::ptr::null()
     })
 }
@@ -581,9 +678,15 @@ pub unsafe extern "C" fn polars_lazy_frame_group_by(
     df: *mut polars_lazy_frame_t,
     exprs: *const *const polars_expr_t,
     nexprs: usize,
+    maintain_order: bool,
 ) -> *mut polars_lazy_group_by_t {
     let exprs = read_exprs(exprs, nexprs);
-    let gb = (*df).inner.clone().group_by(&exprs);
+    let df = (*df).inner.clone();
+    let gb = if maintain_order {
+        df.group_by_stable(&exprs)
+    } else {
+        df.group_by(&exprs)
+    };
     make_lazy_group_by(gb)
 }
 
@@ -680,6 +783,7 @@ pub unsafe extern "C" fn polars_lazy_frame_rolling(
 }
 
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn polars_lazy_frame_join(
     a: *mut polars_lazy_frame_t,
     b: *mut polars_lazy_frame_t,
@@ -688,20 +792,39 @@ pub unsafe extern "C" fn polars_lazy_frame_join(
     exprs_b: *const *const polars_expr_t,
     exprs_b_len: usize,
     how: polars_join_type_t,
-) -> *mut polars_lazy_frame_t {
-    let exprs_a = read_exprs(exprs_a, exprs_a_len);
-    let exprs_b = read_exprs(exprs_b, exprs_b_len);
-    let df = LazyFrame::join(
-        (*a).inner.clone(),
-        (*b).inner.clone(),
-        exprs_a,
-        exprs_b,
-        JoinArgs::new(how.to_join_type()),
-    );
-    make_lazy_frame(df)
+    suffix: *const u8,
+    suffix_len: usize,
+    coalesce: polars_join_coalesce_t,
+    validate: polars_join_validation_t,
+    nulls_equal: bool,
+    slice_offset: *const i64,
+    slice_len: *const usize,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let exprs_a = read_exprs(exprs_a, exprs_a_len);
+        let exprs_b = read_exprs(exprs_b, exprs_b_len);
+        let suffix = tri!(read_opt_str(suffix, suffix_len));
+        let slice = slice_offset
+            .as_ref()
+            .zip(slice_len.as_ref())
+            .map(|(&offset, &len)| (offset, len));
+        let args = JoinArgs {
+            suffix,
+            coalesce: coalesce.to_join_coalesce(),
+            validation: validate.to_join_validation(),
+            nulls_equal,
+            slice,
+            ..JoinArgs::new(how.to_join_type())
+        };
+        let df = LazyFrame::join((*a).inner.clone(), (*b).inner.clone(), exprs_a, exprs_b, args);
+        *out = make_lazy_frame(df);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn polars_lazy_frame_join_asof(
     a: *mut polars_lazy_frame_t,
     b: *mut polars_lazy_frame_t,
@@ -714,15 +837,24 @@ pub unsafe extern "C" fn polars_lazy_frame_join_asof(
     by_b_lens: *const usize,
     by_b_len: usize,
     strategy: polars_asof_strategy_t,
+    tolerance: *const u8,
+    tolerance_len: usize,
+    allow_eq: bool,
+    check_sortedness: bool,
+    suffix: *const u8,
+    suffix_len: usize,
+    nulls_equal: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     let left_by = tri!(read_names(by_a, by_a_lens, by_a_len));
     let right_by = tri!(read_names(by_b, by_b_lens, by_b_len));
+    let tolerance_str = tri!(read_opt_str(tolerance, tolerance_len));
+    let suffix = tri!(read_opt_str(suffix, suffix_len));
 
     let asof_options = AsOfOptions {
         strategy: strategy.to_asof_strategy(),
         tolerance: None,
-        tolerance_str: None,
+        tolerance_str,
         left_by: if left_by.is_empty() {
             None
         } else {
@@ -733,19 +865,18 @@ pub unsafe extern "C" fn polars_lazy_frame_join_asof(
         } else {
             Some(right_by)
         },
-        allow_eq: true,
-        check_sortedness: true,
+        allow_eq,
+        check_sortedness,
     };
 
     let on_a = (*on_a).inner.clone();
     let on_b = (*on_b).inner.clone();
-    let df = LazyFrame::join(
-        (*a).inner.clone(),
-        (*b).inner.clone(),
-        vec![on_a],
-        vec![on_b],
-        JoinArgs::new(JoinType::AsOf(Box::new(asof_options))),
-    );
+    let args = JoinArgs {
+        suffix,
+        nulls_equal,
+        ..JoinArgs::new(JoinType::AsOf(Box::new(asof_options)))
+    };
+    let df = LazyFrame::join((*a).inner.clone(), (*b).inner.clone(), vec![on_a], vec![on_b], args);
     *out = make_lazy_frame(df);
     std::ptr::null()
 }
@@ -757,11 +888,17 @@ pub unsafe extern "C" fn polars_lazy_frame_unique(
     lens: *const usize,
     n: usize,
     keep: polars_unique_keep_t,
+    maintain_order: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     let names = tri!(read_names(names, lens, n));
     let subset = selector_by_name_opt(names, true);
-    let result = (*lf).inner.clone().unique(subset, keep.to_keep_strategy());
+    let lf = (*lf).inner.clone();
+    let result = if maintain_order {
+        lf.unique_stable(subset, keep.to_keep_strategy())
+    } else {
+        lf.unique(subset, keep.to_keep_strategy())
+    };
     *out = make_lazy_frame(result);
     std::ptr::null()
 }

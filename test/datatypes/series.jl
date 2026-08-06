@@ -19,6 +19,34 @@ end
     @test Polars.name(s_renamed) == "renamed"
 end
 
+@testset "Series dtype" begin
+    df = DataFrame((;
+        i = Int64[1, 2, 3],
+        f = Float64[1.0, 2.0, 3.0],
+        s = ["a", "b", "c"],
+        bo = [true, false, true],
+        d = [Date(2020, 1, 1), Date(2020, 1, 2), Date(2020, 1, 3)],
+        dt = [DateTime(2020, 1, 1), DateTime(2020, 1, 2), DateTime(2020, 1, 3)],
+        bin = [UInt8[1, 2], UInt8[3], UInt8[]],
+    ))
+
+    @test Polars.dtype(df[:i]) == Polars.API.PolarsValueTypeInt64
+    @test Polars.dtype(df[:f]) == Polars.API.PolarsValueTypeFloat64
+    @test Polars.dtype(df[:s]) == Polars.API.PolarsValueTypeString
+    @test Polars.dtype(df[:bo]) == Polars.API.PolarsValueTypeBoolean
+    @test Polars.dtype(df[:d]) == Polars.API.PolarsValueTypeDate
+    @test Polars.dtype(df[:dt]) == Polars.API.PolarsValueTypeDatetime
+    @test Polars.dtype(df[:bin]) == Polars.API.PolarsValueTypeBinary
+
+    # A List column reports List, not its inner dtype.
+    lst = select(df, implode(col(:i)))[:i]
+    @test Polars.dtype(lst) == Polars.API.PolarsValueTypeList
+
+    # Agrees with `eltype` for plain non-null dtypes (`eltype` unwraps `missing` on top).
+    @test Polars.nomissing(eltype(df[:i])) == Int64
+    @test Polars.dtype(df[:i]) == Polars.API.PolarsValueTypeInt64
+end
+
 @testset "Series getindex across dtypes" begin
     s_str = Series(:names, ["a", "b", missing, "d"])
     @test s_str[1] == "a"

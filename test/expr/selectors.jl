@@ -254,19 +254,39 @@ end
     @test_throws MethodError xor(col("x"), S.numeric())
 end
 
-@testset "Selectors: Enum/Object have no public constructor; empty() is not part of the public surface" begin
+@testset "Selectors: Enum/Object have no public constructor" begin
     # First-cut scope: the Rust primitive supports a strict superset of `DataTypeSelector` kinds
-    # (including Enum/Object), and `polars_expr_selector_empty` exists as the combinators'
-    # identity element -- neither is meant to be reachable as a public `Selectors.*` constructor.
+    # (including Enum/Object), neither of which is meant to be reachable as a public
+    # `Selectors.*` constructor.
 
-    # Enum/Object: no binding of either name exists in the `Selectors` module at all (unlike
-    # `empty` below, neither is a `Base` name, so a plain `isdefined` check is real proof here --
-    # not just "not exported", genuinely absent).
+    # No binding of either name exists in the `Selectors` module at all -- a plain `isdefined`
+    # check is real proof here, not just "not exported", genuinely absent.
     @test !isdefined(Selectors, :enum_)
     @test !isdefined(Selectors, :object)
 
     @test hasmethod(Selectors.by_dtype, Tuple{}) # sanity: by_dtype() itself IS a valid call
-    @test_throws MethodError Selectors.empty() # resolves to Base.empty, not a Selectors constructor
+end
+
+@testset "Selectors.empty: identity for |, annihilator for &, not exported (collides with Base.empty)" begin
+    df = DataFrame((; a = Int64[1, 2], b = Float64[3.0, 4.0], x = ["p", "q"]))
+
+    # Not exported -- `empty` collides with `Base.empty`, so only qualified `Selectors.empty()`
+    # resolves to the selector constructor; a bare `empty()` still resolves to `Base.empty`.
+    @test_throws MethodError empty()
+
+    @test size(select(df, S.empty())) == (0, 0)
+
+    # identity element for `|`
+    @test sort(names(select(df, S.empty() | S.numeric()))) == ["a", "b"]
+    @test sort(names(select(df, S.numeric() | S.empty()))) == ["a", "b"]
+
+    # annihilator for `&`
+    @test size(select(df, S.empty() & S.numeric())) == (0, 0)
+    @test size(select(df, S.numeric() & S.empty())) == (0, 0)
+
+    # `-` and `xor` against empty() are no-ops on the non-empty side
+    @test sort(names(select(df, S.numeric() - S.empty()))) == ["a", "b"]
+    @test sort(names(select(df, xor(S.numeric(), S.empty())))) == ["a", "b"]
 end
 
 @testset "Selectors.by_index accepts any Integer width" begin

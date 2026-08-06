@@ -8,14 +8,14 @@
     )
 
     # unique on single column with keep=:first (row order among groups is not guaranteed
-    # without a maintain_order kwarg, which unique doesn't expose -- sort before comparing)
+    # without `maintain_order=true` -- sort before comparing; see its own testset below)
     r_first = sort(unique(df, ["a"]; keep = :first), col("a"))
     @test size(r_first) == (3, 3)
     @test r_first[:a] == [1, 2, 3]
     @test r_first[:val] == [10, 30, 50]  # first occurrence of each a value
 
     # unique on single column with keep=:last (row order among groups is not guaranteed
-    # without a maintain_order kwarg, which unique doesn't expose -- sort before comparing)
+    # without `maintain_order=true` -- sort before comparing; see its own testset below)
     r_last = sort(unique(df, ["a"]; keep = :last), col("a"))
     @test size(r_last) == (3, 3)
     @test r_last[:a] == [1, 2, 3]
@@ -26,6 +26,30 @@
     @test size(r_multi) == (3, 3)  # (1,x), (2,y), (3,z)
     @test r_multi[:a] == [1, 2, 3]
     @test r_multi[:b] == ["x", "y", "z"]
+end
+
+@testset "unique: maintain_order preserves original row order" begin
+    df = DataFrame((; g = ["b", "a", "b", "a", "c"], val = [1, 2, 3, 4, 5]))
+
+    # without maintain_order, order among kept rows isn't guaranteed
+    r_unordered = unique(df, ["g"]; keep = :first)
+    @test Set(collect(r_unordered[:g])) == Set(["a", "b", "c"])
+
+    # with maintain_order, kept rows appear in the same relative order as their first occurrence
+    r_ordered = unique(df, ["g"]; keep = :first, maintain_order = true)
+    @test collect(r_ordered[:g]) == ["b", "a", "c"]
+    @test collect(r_ordered[:val]) == [1, 2, 5]
+
+    # LazyFrame entry point agrees
+    r_lazy = collect(Base.unique(lazy(df), ["g"]; keep = :first, maintain_order = true))
+    @test collect(r_lazy[:g]) == ["b", "a", "c"]
+
+    # Expr.unique: maintain_order preserves first-occurrence order too
+    s_unordered = select(df, Base.unique(col("g")) |> alias("u"))
+    @test Set(collect(s_unordered[:u])) == Set(["a", "b", "c"])
+
+    s_ordered = select(df, Base.unique(col("g"); maintain_order = true) |> alias("u"))
+    @test collect(s_ordered[:u]) == ["b", "a", "c"]
 end
 
 @testset "n_unique" begin

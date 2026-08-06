@@ -124,6 +124,17 @@ module Selectors
     """
     all() = _wrap(API.polars_expr_selector_all())
 
+    """
+        empty()::Selector
+
+    Selects no columns at all -- the identity element for [`Base.:|`](@ref) (`empty() | s == s`)
+    and the annihilator for [`Base.:&`](@ref) (`empty() & s == empty()`). Has no dedicated name in
+    py-polars' own `selectors` module (there, `cs.by_name()` with no names is the equivalent), but
+    is included here for completeness of the selector algebra -- the underlying Rust primitive
+    already backs every other combinator in this module.
+    """
+    empty() = _wrap(API.polars_expr_selector_empty())
+
     _dtype_simple(kind) = _wrap(API.polars_expr_selector_dtype_simple(kind))
 
     """
@@ -418,11 +429,11 @@ module Selectors
     export numeric, integer, unsigned_integer, signed_integer, boolean, binary,
         temporal, categorical, date, datetime, duration, decimal, struct_, list, array, nested,
         by_dtype, by_name, by_index, matches, starts_with, ends_with
-    # `all`/`float`/`string`/`time`/`contains` are deliberately *not* exported -- each collides with
-    # an exported `Base` binding (`Base.all`/`Base.float`/`Base.string`/`Base.time`/`Base.contains`),
-    # so `using Polars.Selectors` would otherwise clash with those (same reasoning as `Lists`'
-    # `get`/`contains`/`head`, `Strings`' none, `Dt`'s none -- this namespace collides the most since
-    # it mirrors so much of `Base`'s own vocabulary). Qualified use (`Selectors.all()`, etc.) always
-    # works regardless.
+    # `all`/`float`/`string`/`time`/`contains`/`empty` are deliberately *not* exported -- each
+    # collides with an exported `Base` binding (`Base.all`/`Base.float`/`Base.string`/`Base.time`/
+    # `Base.contains`/`Base.empty`), so `using Polars.Selectors` would otherwise clash with those
+    # (same reasoning as `Lists`' `get`/`contains`/`head`, `Strings`' none, `Dt`'s none -- this
+    # namespace collides the most since it mirrors so much of `Base`'s own vocabulary). Qualified
+    # use (`Selectors.all()`, etc.) always works regardless.
 
 end # module Selectors

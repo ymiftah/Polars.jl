@@ -18,6 +18,7 @@ Base.unsafe_convert(::Type{Ptr{polars_expr_t}}, expr::Expr) = expr.ptr
 # matching length(::Expr)` inside a dot-broadcast expression like `col("x") .> 1`. Wrapping in
 # `Ref` marks `Expr` as a scalar for broadcasting purposes -- the same idiom
 # `AbstractString`/`Symbol`/`Missing` use -- so it participates as-is instead of being iterated.
+# Refer to https://docs.julialang.org/en/v1/manual/interfaces/#man-interfaces-broadcasting
 Base.Broadcast.broadcastable(expr::Expr) = Ref(expr)
 
 Base.convert(::Type{Expr}, ::Colon) = col("*")
@@ -622,7 +623,6 @@ end
     gen_impl_expr!(polars_expr_rle_id, Expr::rle_id, "Maps each value of `expr` to a 0-indexed run ID: rows in the same run of consecutive identical values share an ID, which increments at each run boundary. Unlike [`rle`](@ref), the column keeps its length -- one output row per input row.")
 
     gen_impl_expr!(polars_expr_n_unique, Expr::n_unique, "Counts the number of distinct values in `expr` (`null` counts as one distinct value), one result per group (or a single overall count outside a `group_by`).")
-    gen_impl_expr!(polars_expr_unique, Expr::unique, "Returns the distinct values of `expr` (order not guaranteed), shortening the column. Inside `agg`, per-group distinct values are automatically collected into a `List` (see [List](@ref expr-list)) so the aggregation still produces one row per group.")
     gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated, "Row-wise boolean flag: `true` for every occurrence of a value that appears more than once in `expr`. See [`is_unique`](@ref) for the complementary flag.")
     gen_impl_expr!(polars_expr_is_unique, Expr::is_unique, "Row-wise boolean flag: `true` for every value that appears exactly once in `expr`. See [`is_duplicated`](@ref) for the complementary flag.")
     gen_impl_expr!(polars_expr_is_first_distinct, Expr::is_first_distinct, "Row-wise boolean flag: `true` only for the first occurrence of each distinct value in `expr`. See [`is_last_distinct`](@ref) for the complementary flag.")
@@ -669,6 +669,26 @@ end
 
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
+
+"""
+    unique(expr::Polars.Expr; maintain_order::Bool=false)::Polars.Expr
+
+Returns the distinct values of `expr`, shortening the column. Inside `agg`, per-group distinct
+values are automatically collected into a `List` (see [List](@ref expr-list)) so the aggregation
+still produces one row per group.
+
+`maintain_order` (default `false`) preserves the order values first appear in; the default allows
+more optimization but does not guarantee any particular order. This is a separate, hand-written
+method (not `@generate_expr_fns`-derived like most other `Expr` methods) precisely because it
+needs this extra keyword, dispatching between polars' own `Expr::unique`/`Expr::unique_stable`.
+
+!!! note
+    Extends `Base.unique` (which otherwise operates on collections); `unique` collides with an
+    exported `Base` name, so this is `Base.unique(...)`, not a plain `function unique(...)` -- see
+    the matching note on [`tail`](@ref)'s definition for why that distinction matters.
+"""
+Base.unique(expr::Expr; maintain_order::Bool = false) =
+    Expr(maintain_order ? API.polars_expr_unique_stable(expr) : API.polars_expr_unique(expr))
 
 """
     flatten(expr::Polars.Expr; empty_as_null::Bool=true, keep_nulls::Bool=true)::Polars.Expr
@@ -1169,6 +1189,174 @@ end
 
 export gather_every
 
+"""
+    filter(expr::Polars.Expr, predicate)::Polars.Expr
+
+Filters `expr`'s own values by `predicate`, both evaluated in the same context -- typically inside
+[`agg`](@ref)/[`over`](@ref), e.g. `Polars.sum(filter(col("x"), col("x") .> 0))`. `predicate`
+accepts anything `_as_expr` does (an `Expr`, a [`Selector`](@ref), or a column-name
+`String`/`Symbol`).
+
+Distinct from `filter` on a `LazyFrame`/`DataFrame`, which filters a whole frame's rows -- this
+filters one expression's values without touching the rest of the row.
+"""
+function Base.filter(expr::Expr, predicate)
+    predicate = _as_expr(predicate)
+    return Expr(API.polars_expr_filter(expr, predicate))
+end
+# A separate, more specific method for `String`/`SubString{String}` predicates: without it,
+# `filter(expr::Expr, ::String)` is ambiguous with `Base.filter(f, s::Union{SubString{String},
+# String})` (character-filtering a string) -- both match equally well, since the generic method
+# above accepts `predicate::Any`. Mirrors `Base.filter(df::LazyFrame,
+# ::Union{SubString{String},String})` in src/select.jl, same reasoning.
+Base.filter(expr::Expr, predicate::Union{SubString{String}, String}) =
+    Expr(API.polars_expr_filter(expr, _as_expr(predicate)))
+
+"""
+    sort(expr::Polars.Expr; rev::Bool=false, nulls_last::Bool=false, multithreaded::Bool=true, maintain_order::Bool=false)::Polars.Expr
+
+Sorts `expr`'s own values, as opposed to [`sort_by`](@ref) (sorts by a different key) or `sort` on
+a `LazyFrame`/`DataFrame` (sorts whole rows).
+"""
+function Base.sort(
+        expr::Expr;
+        rev::Bool = false, nulls_last::Bool = false, multithreaded::Bool = true,
+        maintain_order::Bool = false
+    )
+    out = API.polars_expr_sort(expr, rev, nulls_last, multithreaded, maintain_order)
+    return Expr(out)
+end
+
+"""
+    head(expr::Polars.Expr, n::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Returns the first `n` values of `expr`'s result (default: polars' own default of 10). Distinct
+from `head` on a `LazyFrame`/`DataFrame`, which takes the first `n` whole rows.
+"""
+function head(expr::Expr, n::Union{Nothing, Integer} = nothing)
+    n_ref = n === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n))
+    out = GC.@preserve n_ref API.polars_expr_head(expr, n_ref)
+    return Expr(out)
+end
+
+"""
+    tail(expr::Polars.Expr, n::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Returns the last `n` values of `expr`'s result (default: polars' own default of 10). Distinct from
+`tail` on a `LazyFrame`/`DataFrame`, which takes the last `n` whole rows.
+
+!!! note
+    Extends `Base.tail` (which otherwise operates on `Tuple`/`NamedTuple`), matching the
+    `LazyFrame`/`DataFrame` method in `src/select.jl` -- a plain (non-`Base.`-qualified)
+    `function tail(...)` here would instead create a *new*, separate binding that shadows
+    `Base.tail` for the rest of the module, breaking `import Base: tail` wherever it runs next.
+"""
+function Base.tail(expr::Expr, n::Union{Nothing, Integer} = nothing)
+    n_ref = n === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n))
+    out = GC.@preserve n_ref API.polars_expr_tail(expr, n_ref)
+    return Expr(out)
+end
+
+"""
+    limit(expr::Polars.Expr, n::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Alias for [`head`](@ref) (matching upstream, where `Expr.limit` is itself just an alias for
+`Expr.head`).
+"""
+limit(expr::Expr, n::Union{Nothing, Integer} = nothing) = head(expr, n)
+
+export limit
+# `head`/`tail` are already exported centrally in src/Polars.jl (shared with the
+# LazyFrame/DataFrame methods in src/select.jl) -- no separate export needed here.
+
+"""
+    slice(expr::Polars.Expr, offset, length)::Polars.Expr
+
+Slices `expr`'s own result: `length` values starting at `offset` (0-based; `offset` may be
+negative, counting from the end). `offset`/`length` accept anything `lit` does (an `Expr`, or a
+literal value promoted via `convert(Expr, ...)`).
+"""
+function slice(expr::Expr, offset, length)
+    offset = convert(Expr, offset)
+    length = convert(Expr, length)
+    out = API.polars_expr_slice(expr, offset, length)
+    return Expr(out)
+end
+
+export slice
+
+"""
+    get(expr::Polars.Expr, index; null_on_oob::Bool=false)::Polars.Expr
+
+The scalar counterpart to [`gather`](@ref) (which takes a vector of indices): returns the single
+value of `expr` at `index` (0-based; negative counts from the end). `null_on_oob` sets the
+behaviour when `index` is out of bounds: `true` gives `missing`, `false` (the default) raises a
+[`PolarsError`](@ref) when the result is collected.
+
+!!! note
+    Extends `Base.get` -- already exported by `Base` itself, so no separate `export` is needed
+    (or possible) here; see the matching note on [`tail`](@ref) above for why this must be
+    `Base.get(...)`, not a plain `function get(...)`.
+"""
+function Base.get(expr::Expr, index; null_on_oob::Bool = false)
+    index = convert(Expr, index)
+    out = API.polars_expr_get(expr, index, null_on_oob)
+    return Expr(out)
+end
+
+"""
+    top_k_by(expr::Polars.Expr, k, by...; rev=false)::Polars.Expr
+
+Returns the `k` rows of `expr` with the largest values of `by` (columns or expressions) -- the
+`by`-key counterpart to [`top_k`](@ref), analogous to how [`sort_by`](@ref) relates to `sort`.
+`rev` is either a single `Bool` (applied to every `by` expression) or a `Vector{Bool}` the same
+length as `by`.
+"""
+function top_k_by(expr::Expr, k, by...; rev = false)
+    k = convert(Expr, k)
+    by = _expr_vector(by)
+    n_by = length(by)
+    descending = rev isa Bool ? fill(rev, n_by) : rev
+    length(descending) == n_by || throw(
+        ArgumentError(
+            "rev must have one entry per by expression (got $n_by by expressions and " *
+                "$(length(descending)) rev)"
+        )
+    )
+    GC.@preserve by begin
+        by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
+        out = API.polars_expr_top_k_by(expr, k, by_ptrs, n_by, descending)
+    end
+    return Expr(out)
+end
+
+export top_k_by
+
+"""
+    bottom_k_by(expr::Polars.Expr, k, by...; rev=false)::Polars.Expr
+
+Returns the `k` rows of `expr` with the smallest values of `by` (columns or expressions) -- the
+complement of [`top_k_by`](@ref).
+"""
+function bottom_k_by(expr::Expr, k, by...; rev = false)
+    k = convert(Expr, k)
+    by = _expr_vector(by)
+    n_by = length(by)
+    descending = rev isa Bool ? fill(rev, n_by) : rev
+    length(descending) == n_by || throw(
+        ArgumentError(
+            "rev must have one entry per by expression (got $n_by by expressions and " *
+                "$(length(descending)) rev)"
+        )
+    )
+    GC.@preserve by begin
+        by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
+        out = API.polars_expr_bottom_k_by(expr, k, by_ptrs, n_by, descending)
+    end
+    return Expr(out)
+end
+
+export bottom_k_by
 
 """
     item(expr::Polars.Expr; allow_empty::Bool=false)::Polars.Expr

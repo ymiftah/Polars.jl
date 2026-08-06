@@ -387,9 +387,14 @@ flatten
 reverse
 is_in
 top_k
+top_k_by
+bottom_k_by
 arg_sort
 gather
 gather_every
+Base.get(::Polars.Expr, ::Any)
+limit
+slice
 sort_by
 over
 as_struct
@@ -398,6 +403,26 @@ sample_frac
 rle
 rle_id
 ```
+
+`filter`, `sort`, `head`/`tail` on an `Expr` are documented alongside their `LazyFrame`/`DataFrame`
+counterparts in [DataFrame](@ref) -- same name, different receiver type, same idea: `filter(col("x"),
+col("x") .> 0)` keeps only `col("x")`'s own values matching the predicate (as opposed to `filter`
+on a frame, which drops whole rows), and likewise `sort(col("x"))`/`head(col("x"), n)`/`tail(col("x"),
+n)` operate on `col("x")`'s values alone. These are the standard idioms inside `agg`/`over` for
+per-group computations that don't need a full row filter.
+
+`top_k_by(expr, k, by...)`/`bottom_k_by(expr, k, by...)` are the `by`-key counterparts to
+`top_k`/`bottom_k`, analogous to how `sort_by` relates to `sort` -- the `k` rows of `expr` with the
+largest/smallest values of `by`:
+
+```@example expressions
+df5 = DataFrame((; g = ["a", "a", "b", "b", "b"], x = [3, 1, 10, 20, 5]))
+select(df5, top_k_by(col("x"), 2, col("x")) |> alias("top2"))
+```
+
+`get(expr, index)` is the scalar counterpart to `gather` (which takes a vector of indices) --
+`index` is 0-based and may be negative, and accepts anything `lit` does. `limit` is an alias for
+`head`. `slice(expr, offset, length)` slices `expr`'s own result (`offset` may be negative).
 
 `reverse` reverses row order; `flatten` is the expression-level inverse of `implode` — it explodes
 a `List`-typed column back into one row per element (see [`list`](@ref expr-list)):

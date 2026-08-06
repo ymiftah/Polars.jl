@@ -147,6 +147,12 @@ end
     PolarsIpcCompressionZstd = 2
 end
 
+@cenum polars_join_coalesce_t::UInt32 begin
+    PolarsJoinCoalesceJoinSpecific = 0
+    PolarsJoinCoalesceCoalesceColumns = 1
+    PolarsJoinCoalesceKeepColumns = 2
+end
+
 @cenum polars_join_type_t::UInt32 begin
     PolarsJoinTypeInner = 0
     PolarsJoinTypeLeft = 1
@@ -155,6 +161,13 @@ end
     PolarsJoinTypeSemi = 4
     PolarsJoinTypeAnti = 5
     PolarsJoinTypeCross = 6
+end
+
+@cenum polars_join_validation_t::UInt32 begin
+    PolarsJoinValidationManyToMany = 0
+    PolarsJoinValidationManyToOne = 1
+    PolarsJoinValidationOneToMany = 2
+    PolarsJoinValidationOneToOne = 3
 end
 
 @cenum polars_label_t::UInt32 begin
@@ -366,6 +379,42 @@ function polars_dataframe_write_csv(df, user, callback, include_header, include_
     return @ccall libpolars.polars_dataframe_write_csv(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback, include_header::Bool, include_bom::Bool, separator::UInt8, quote_char::UInt8, null_value::Ptr{UInt8}, null_value_len::Csize_t, line_terminator::Ptr{UInt8}, line_terminator_len::Csize_t, quote_style::polars_quote_style_t, date_format::Ptr{UInt8}, date_format_len::Csize_t, time_format::Ptr{UInt8}, time_format_len::Csize_t, datetime_format::Ptr{UInt8}, datetime_format_len::Csize_t, float_precision::Ptr{Csize_t}, decimal_comma::Bool)::Ptr{polars_error_t}
 end
 
+"""
+    polars_dataframe_read_json(path, pathlen, out)
+
+Reads a JSON file (a single top-level array of objects -- upstream's `JsonFormat::Json`) from `path` into a `DataFrame`. Unlike Parquet/CSV/IPC, plain JSON has no lazy scan counterpart upstream either (the whole array must be parsed to know its shape), so this is eager-only -- there is no `polars_lazy_frame_scan_json` to pair it with.
+"""
+function polars_dataframe_read_json(path, pathlen, out)
+    return @ccall libpolars.polars_dataframe_read_json(path::Ptr{UInt8}, pathlen::Csize_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_dataframe_read_ndjson(path, pathlen, infer_schema_length, ignore_errors, out)
+
+Reads a newline-delimited JSON file (upstream's `JsonFormat::JsonLines`) from `path` into a `DataFrame`. `infer_schema_length` (null = default 100 rows, matching upstream) caps how many leading rows are scanned to infer the schema; `ignore_errors` turns a per-row parse mismatch into a `null` instead of a hard error.
+"""
+function polars_dataframe_read_ndjson(path, pathlen, infer_schema_length, ignore_errors, out)
+    return @ccall libpolars.polars_dataframe_read_ndjson(path::Ptr{UInt8}, pathlen::Csize_t, infer_schema_length::Ptr{Csize_t}, ignore_errors::Bool, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_dataframe_write_json(df, user, callback)
+
+Writes `df` as a single top-level JSON array of objects (upstream's `JsonFormat::Json`), via the same [`IOCallback`](@ref) shape as [`polars_dataframe_write_csv`](@ref)/`_write_parquet`.
+"""
+function polars_dataframe_write_json(df, user, callback)
+    return @ccall libpolars.polars_dataframe_write_json(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+end
+
+"""
+    polars_dataframe_write_ndjson(df, user, callback)
+
+Writes `df` as newline-delimited JSON (upstream's `JsonFormat::JsonLines`), via the same [`IOCallback`](@ref) shape as [`polars_dataframe_write_csv`](@ref)/`_write_parquet`.
+"""
+function polars_dataframe_write_ndjson(df, user, callback)
+    return @ccall libpolars.polars_dataframe_write_ndjson(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+end
+
 function polars_dataframe_show(df, user, callback)
     return @ccall libpolars.polars_dataframe_show(df::Ptr{polars_dataframe_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
 end
@@ -459,8 +508,8 @@ function polars_lazy_frame_collect_schema(df, out)
     return @ccall libpolars.polars_lazy_frame_collect_schema(df::Ptr{polars_lazy_frame_t}, out::Ptr{ArrowSchema})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_group_by(df, exprs, nexprs)
-    return @ccall libpolars.polars_lazy_frame_group_by(df::Ptr{polars_lazy_frame_t}, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t)::Ptr{polars_lazy_group_by_t}
+function polars_lazy_frame_group_by(df, exprs, nexprs, maintain_order)
+    return @ccall libpolars.polars_lazy_frame_group_by(df::Ptr{polars_lazy_frame_t}, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t, maintain_order::Bool)::Ptr{polars_lazy_group_by_t}
 end
 
 function polars_lazy_frame_group_by_dynamic(df, index_expr, group_by_exprs, n_group_by, every, every_len, period, period_len, offset, offset_len, label, include_boundaries, closed_window, start_by, out)
@@ -471,16 +520,16 @@ function polars_lazy_frame_rolling(df, index_expr, group_by_exprs, n_group_by, p
     return @ccall libpolars.polars_lazy_frame_rolling(df::Ptr{polars_lazy_frame_t}, index_expr::Ptr{polars_expr_t}, group_by_exprs::Ptr{Ptr{polars_expr_t}}, n_group_by::Csize_t, period::Ptr{UInt8}, period_len::Csize_t, offset::Ptr{UInt8}, offset_len::Csize_t, closed_window::polars_closed_window_t, out::Ptr{Ptr{polars_lazy_group_by_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_join(a, b, exprs_a, exprs_a_len, exprs_b, exprs_b_len, how)
-    return @ccall libpolars.polars_lazy_frame_join(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, exprs_a::Ptr{Ptr{polars_expr_t}}, exprs_a_len::Csize_t, exprs_b::Ptr{Ptr{polars_expr_t}}, exprs_b_len::Csize_t, how::polars_join_type_t)::Ptr{polars_lazy_frame_t}
+function polars_lazy_frame_join(a, b, exprs_a, exprs_a_len, exprs_b, exprs_b_len, how, suffix, suffix_len, coalesce, validate, nulls_equal, slice_offset, slice_len, out)
+    return @ccall libpolars.polars_lazy_frame_join(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, exprs_a::Ptr{Ptr{polars_expr_t}}, exprs_a_len::Csize_t, exprs_b::Ptr{Ptr{polars_expr_t}}, exprs_b_len::Csize_t, how::polars_join_type_t, suffix::Ptr{UInt8}, suffix_len::Csize_t, coalesce::polars_join_coalesce_t, validate::polars_join_validation_t, nulls_equal::Bool, slice_offset::Ptr{Int64}, slice_len::Ptr{Csize_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_join_asof(a, b, on_a, on_b, by_a, by_a_lens, by_a_len, by_b, by_b_lens, by_b_len, strategy, out)
-    return @ccall libpolars.polars_lazy_frame_join_asof(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, on_a::Ptr{polars_expr_t}, on_b::Ptr{polars_expr_t}, by_a::Ptr{Ptr{UInt8}}, by_a_lens::Ptr{Csize_t}, by_a_len::Csize_t, by_b::Ptr{Ptr{UInt8}}, by_b_lens::Ptr{Csize_t}, by_b_len::Csize_t, strategy::polars_asof_strategy_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_join_asof(a, b, on_a, on_b, by_a, by_a_lens, by_a_len, by_b, by_b_lens, by_b_len, strategy, tolerance, tolerance_len, allow_eq, check_sortedness, suffix, suffix_len, nulls_equal, out)
+    return @ccall libpolars.polars_lazy_frame_join_asof(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, on_a::Ptr{polars_expr_t}, on_b::Ptr{polars_expr_t}, by_a::Ptr{Ptr{UInt8}}, by_a_lens::Ptr{Csize_t}, by_a_len::Csize_t, by_b::Ptr{Ptr{UInt8}}, by_b_lens::Ptr{Csize_t}, by_b_len::Csize_t, strategy::polars_asof_strategy_t, tolerance::Ptr{UInt8}, tolerance_len::Csize_t, allow_eq::Bool, check_sortedness::Bool, suffix::Ptr{UInt8}, suffix_len::Csize_t, nulls_equal::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_unique(lf, names, lens, n, keep, out)
-    return @ccall libpolars.polars_lazy_frame_unique(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, keep::polars_unique_keep_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_unique(lf, names, lens, n, keep, maintain_order, out)
+    return @ccall libpolars.polars_lazy_frame_unique(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, keep::polars_unique_keep_t, maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_drop(lf, names, lens, n, out)
@@ -997,6 +1046,10 @@ function polars_expr_unique(expr)
     return @ccall libpolars.polars_expr_unique(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_unique_stable(expr)
+    return @ccall libpolars.polars_expr_unique_stable(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_is_duplicated(expr)
     return @ccall libpolars.polars_expr_is_duplicated(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1250,6 +1303,68 @@ end
 
 function polars_expr_gather_every(expr, n, offset)
     return @ccall libpolars.polars_expr_gather_every(expr::Ptr{polars_expr_t}, n::Csize_t, offset::Csize_t)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_filter(expr, predicate)
+
+`Expr::filter` -- filters `expr`'s own values by `predicate`, both evaluated in the same context (typically inside `agg`, e.g. `col("x").filter(col("x") > 0).sum()`). Distinct from [`polars_lazy_frame_filter`](@ref), which filters a whole frame's rows.
+"""
+function polars_expr_filter(expr, predicate)
+    return @ccall libpolars.polars_expr_filter(expr::Ptr{polars_expr_t}, predicate::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_sort(expr, descending, nulls_last, multithreaded, maintain_order)
+
+`Expr::sort` -- sorts `expr`'s own values (as opposed to [`polars_expr_sort_by`](@ref), which sorts by a different key).
+"""
+function polars_expr_sort(expr, descending, nulls_last, multithreaded, maintain_order)
+    return @ccall libpolars.polars_expr_sort(expr::Ptr{polars_expr_t}, descending::Bool, nulls_last::Bool, multithreaded::Bool, maintain_order::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_head(expr, length)
+
+`Expr::head` -- the first `length` elements of `expr`'s result (`length: null` = upstream's own default of 10).
+"""
+function polars_expr_head(expr, length)
+    return @ccall libpolars.polars_expr_head(expr::Ptr{polars_expr_t}, length::Ptr{Csize_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_tail(expr, length)
+
+`Expr::tail` -- the last `length` elements of `expr`'s result (`length: null` = upstream's own default of 10).
+"""
+function polars_expr_tail(expr, length)
+    return @ccall libpolars.polars_expr_tail(expr::Ptr{polars_expr_t}, length::Ptr{Csize_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_slice(expr, offset, length)
+
+`Expr::slice` -- both `offset` and `length` are themselves expressions (typically `lit`s); `offset` may be negative (counts from the end).
+"""
+function polars_expr_slice(expr, offset, length)
+    return @ccall libpolars.polars_expr_slice(expr::Ptr{polars_expr_t}, offset::Ptr{polars_expr_t}, length::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_get(expr, index, null_on_oob)
+
+`Expr::get` -- a scalar counterpart to [`polars_expr_gather`](@ref) (which takes a vector of indices); `index` is itself an expression (typically a `lit`), 0-based, and may be negative.
+"""
+function polars_expr_get(expr, index, null_on_oob)
+    return @ccall libpolars.polars_expr_get(expr::Ptr{polars_expr_t}, index::Ptr{polars_expr_t}, null_on_oob::Bool)::Ptr{polars_expr_t}
+end
+
+function polars_expr_top_k_by(expr, k, by, n_by, descending)
+    return @ccall libpolars.polars_expr_top_k_by(expr::Ptr{polars_expr_t}, k::Ptr{polars_expr_t}, by::Ptr{Ptr{polars_expr_t}}, n_by::Csize_t, descending::Ptr{Bool})::Ptr{polars_expr_t}
+end
+
+function polars_expr_bottom_k_by(expr, k, by, n_by, descending)
+    return @ccall libpolars.polars_expr_bottom_k_by(expr::Ptr{polars_expr_t}, k::Ptr{polars_expr_t}, by::Ptr{Ptr{polars_expr_t}}, n_by::Csize_t, descending::Ptr{Bool})::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_lengths(a)
@@ -1854,6 +1969,10 @@ function polars_lazy_frame_scan_ipc(path, pathlen, n_rows, row_index_name, row_i
     return @ccall libpolars.polars_lazy_frame_scan_ipc(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, rechunk::Bool, cache::Bool, glob::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, allow_missing_columns::Bool, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
+function polars_lazy_frame_scan_ndjson(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, infer_schema_length, ignore_errors, low_memory, rechunk, include_file_paths, include_file_paths_len, cloud_options, out)
+    return @ccall libpolars.polars_lazy_frame_scan_ndjson(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, infer_schema_length::Ptr{Csize_t}, ignore_errors::Bool, low_memory::Bool, rechunk::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
 function polars_lazy_frame_sink_parquet(lf, path, pathlen, compression, compression_level, statistics, row_group_size, data_page_size, mkdir, maintain_order, cloud_options, out)
     return @ccall libpolars.polars_lazy_frame_sink_parquet(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, compression::polars_parquet_compression_t, compression_level::Ptr{Int32}, statistics::Bool, row_group_size::Ptr{Csize_t}, data_page_size::Ptr{Csize_t}, mkdir::Bool, maintain_order::Bool, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
@@ -1868,6 +1987,10 @@ end
 
 function polars_lazy_frame_sink_ipc(lf, path, pathlen, compression, compression_level, record_batch_size, mkdir, maintain_order, cloud_options, out)
     return @ccall libpolars.polars_lazy_frame_sink_ipc(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, compression::polars_ipc_compression_t, compression_level::Ptr{Int32}, record_batch_size::Ptr{Csize_t}, mkdir::Bool, maintain_order::Bool, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_sink_ndjson(lf, path, pathlen, mkdir, maintain_order, cloud_options, out)
+    return @ccall libpolars.polars_lazy_frame_sink_ndjson(lf::Ptr{polars_lazy_frame_t}, path::Ptr{UInt8}, pathlen::Csize_t, mkdir::Bool, maintain_order::Bool, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 """

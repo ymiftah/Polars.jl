@@ -944,6 +944,7 @@ pub unsafe extern "C" fn polars_expr_replace_strict(
 
 gen_impl_expr!(polars_expr_n_unique, Expr::n_unique);
 gen_impl_expr!(polars_expr_unique, Expr::unique);
+gen_impl_expr!(polars_expr_unique_stable, Expr::unique_stable);
 gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated);
 gen_impl_expr!(polars_expr_is_unique, Expr::is_unique);
 gen_impl_expr!(polars_expr_is_first_distinct, Expr::is_first_distinct);
@@ -1272,6 +1273,133 @@ pub unsafe extern "C" fn polars_expr_gather_every(
 ) -> *const polars_expr_t {
     let expr = (*expr).inner.clone();
     make_expr(expr.gather_every(n, offset))
+}
+
+/// `Expr::filter` -- filters `expr`'s own values by `predicate`, both evaluated in the same
+/// context (typically inside `agg`, e.g. `col("x").filter(col("x") > 0).sum()`). Distinct from
+/// `polars_lazy_frame_filter`, which filters a whole frame's rows.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_filter(
+    expr: *const polars_expr_t,
+    predicate: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let predicate = (*predicate).inner.clone();
+    make_expr(expr.filter(predicate))
+}
+
+/// `Expr::sort` -- sorts `expr`'s own values (as opposed to `polars_expr_sort_by`, which sorts by
+/// a different key).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_sort(
+    expr: *const polars_expr_t,
+    descending: bool,
+    nulls_last: bool,
+    multithreaded: bool,
+    maintain_order: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.sort(SortOptions {
+        descending,
+        nulls_last,
+        multithreaded,
+        maintain_order,
+        limit: None,
+    }))
+}
+
+/// `Expr::head` -- the first `length` elements of `expr`'s result (`length: null` = upstream's
+/// own default of 10).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_head(
+    expr: *const polars_expr_t,
+    length: *const usize,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.head(length.as_ref().copied()))
+}
+
+/// `Expr::tail` -- the last `length` elements of `expr`'s result (`length: null` = upstream's own
+/// default of 10).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_tail(
+    expr: *const polars_expr_t,
+    length: *const usize,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.tail(length.as_ref().copied()))
+}
+
+/// `Expr::slice` -- both `offset` and `length` are themselves expressions (typically `lit`s);
+/// `offset` may be negative (counts from the end).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_slice(
+    expr: *const polars_expr_t,
+    offset: *const polars_expr_t,
+    length: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let offset = (*offset).inner.clone();
+    let length = (*length).inner.clone();
+    make_expr(expr.slice(offset, length))
+}
+
+/// `Expr::get` -- a scalar counterpart to `polars_expr_gather` (which takes a vector of indices);
+/// `index` is itself an expression (typically a `lit`), 0-based, and may be negative.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_get(
+    expr: *const polars_expr_t,
+    index: *const polars_expr_t,
+    null_on_oob: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let index = (*index).inner.clone();
+    make_expr(expr.get(index, null_on_oob))
+}
+
+/// `Expr::top_k_by`/`Expr::bottom_k_by` share this shape: `k` (an expression, typically a `lit`),
+/// `by` (one or more key expressions), and a `descending` mask the same length as `by` (mirrors
+/// `polars_expr_sort_by`'s own per-key `descending`/`read_bool_mask` convention).
+unsafe fn top_or_bottom_k_by(
+    expr: *const polars_expr_t,
+    k: *const polars_expr_t,
+    by: *const *const polars_expr_t,
+    n_by: usize,
+    descending: *const bool,
+    bottom: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let k = (*k).inner.clone();
+    let by = read_exprs(by, n_by);
+    let descending = read_bool_mask(descending, n_by);
+    let result = if bottom {
+        expr.bottom_k_by(k, by, descending)
+    } else {
+        expr.top_k_by(k, by, descending)
+    };
+    make_expr(result)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_top_k_by(
+    expr: *const polars_expr_t,
+    k: *const polars_expr_t,
+    by: *const *const polars_expr_t,
+    n_by: usize,
+    descending: *const bool,
+) -> *const polars_expr_t {
+    top_or_bottom_k_by(expr, k, by, n_by, descending, false)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_bottom_k_by(
+    expr: *const polars_expr_t,
+    k: *const polars_expr_t,
+    by: *const *const polars_expr_t,
+    n_by: usize,
+    descending: *const bool,
+) -> *const polars_expr_t {
+    top_or_bottom_k_by(expr, k, by, n_by, descending, true)
 }
 
 macro_rules! gen_impl_expr_list {

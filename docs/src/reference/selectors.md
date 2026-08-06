@@ -99,6 +99,12 @@ select(df, Selectors.all() - Selectors.numeric())
     [Expressions](@ref) page, in [Boolean](@ref) — **not** `^`, which always means exponentiation
     in Julia.
 
+`Selectors.empty()` selects no columns at all — the identity element for `|` and the annihilator
+for `&`. It has no dedicated name in py-polars' own `selectors` module (there, `cs.by_name()` with
+no names is the equivalent), but rounds out the algebra here since the underlying Rust primitive
+already backs every other combinator. Like `Selectors.all`, it collides with a `Base` export
+(`Base.empty`), so it's reachable only as `Selectors.empty()`, never via `using Polars.Selectors`.
+
 !!! warning "Mixing a `Selector` with a plain `Expr` is a `MethodError`"
     `Selectors.numeric() | col("x")` has genuinely ambiguous intent — does `col("x")` mean "the column named x" or "select by name x"? No method exists for the mixed case, in either argument order, on purpose: combine two `Selector`s (e.g. `Selectors.numeric() | Selectors.by_name("x")`), not a `Selector` and a bare `Expr`.
 

@@ -267,6 +267,46 @@ pub enum polars_asof_strategy_t {
     PolarsAsofStrategyNearest,
 }
 
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_join_coalesce_t {
+    PolarsJoinCoalesceJoinSpecific,
+    PolarsJoinCoalesceCoalesceColumns,
+    PolarsJoinCoalesceKeepColumns,
+}
+
+impl polars_join_coalesce_t {
+    pub(crate) fn to_join_coalesce(&self) -> JoinCoalesce {
+        match self {
+            polars_join_coalesce_t::PolarsJoinCoalesceJoinSpecific => JoinCoalesce::JoinSpecific,
+            polars_join_coalesce_t::PolarsJoinCoalesceCoalesceColumns => {
+                JoinCoalesce::CoalesceColumns
+            }
+            polars_join_coalesce_t::PolarsJoinCoalesceKeepColumns => JoinCoalesce::KeepColumns,
+        }
+    }
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_join_validation_t {
+    PolarsJoinValidationManyToMany,
+    PolarsJoinValidationManyToOne,
+    PolarsJoinValidationOneToMany,
+    PolarsJoinValidationOneToOne,
+}
+
+impl polars_join_validation_t {
+    pub(crate) fn to_join_validation(&self) -> JoinValidation {
+        match self {
+            polars_join_validation_t::PolarsJoinValidationManyToMany => JoinValidation::ManyToMany,
+            polars_join_validation_t::PolarsJoinValidationManyToOne => JoinValidation::ManyToOne,
+            polars_join_validation_t::PolarsJoinValidationOneToMany => JoinValidation::OneToMany,
+            polars_join_validation_t::PolarsJoinValidationOneToOne => JoinValidation::OneToOne,
+        }
+    }
+}
+
 impl polars_asof_strategy_t {
     pub(crate) fn to_asof_strategy(&self) -> AsofStrategy {
         match self {

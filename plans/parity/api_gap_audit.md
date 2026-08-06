@@ -2,9 +2,34 @@
 
 ## Status
 
-**Audit complete; no gaps closed.** This file is a static inventory, not an implementation plan —
-nothing under `src/` or `c-polars/` was changed to produce it. Two of its claims are explicitly
-marked as needing a live check before anyone acts on them (see [Caveats](#caveats)).
+**Audit complete; gap-closure in progress.** This file started as a static inventory; it is now
+also being used to track closure. Two items have since been closed on `main` (merged into this
+branch), independent of this effort:
+
+- **`Selectors.array()`** (Group 0) — no longer a stub; now `_dtype_simple(API.PolarsDtypeSelectorKindArray)`.
+  The staleness caveat below is resolved.
+- **`polars_dataframe_new_from_series`** (Group 9, item 7) — now surfaced as
+  `DataFrame(series::AbstractVector{<:Series})` in `src/dataframe.jl`.
+- **`polars_value_time_zone`** (Group 9, item 7) — now used by `ext/PolarsTimeZonesExt.jl`'s
+  `load_value(::Value{ZonedDateTime})`, which the merge also brought in.
+
+Closed by this effort, on top of the merge:
+
+- **Three of the four remaining Group 9 item-7 symbols** — `polars_expr_selector_empty` (now
+  `Selectors.empty()`), `polars_series_type` (now `Polars.dtype(series)`), `polars_dataframe_show`
+  (now `Polars.native_repr(df)`). `polars_value_list_type` remains unsurfaced: it backs a
+  `Value`-level (internal, unexported) correctness case for nested-list element typing that needs
+  its own design pass, not a thin wrapper — deferred, not attempted here.
+- **JSON/NDJSON I/O (Group 7)** — closed in full, and turned out to need zero Cargo.toml changes:
+  `read_json`/`write_json` (plain JSON, eager-only — matching upstream, which has no lazy JSON
+  scan either) and `read_ndjson`/`write_ndjson`/`scan_ndjson`/`sink_ndjson` (NDJSON, with a lazy
+  scan and streaming sink) are now all live in `src/io/json.jl`, backed by six new `c-polars`
+  `extern "C"` functions. The `json` feature already covered both formats fully upstream
+  (`LazyJsonLineReader` and `FileWriteFormat::NDJson` are both gated on `json`, not a separate
+  `ndjson` feature as [Group 10](#group-10) speculated) — that entry is now stale, see its own
+  note.
+
+Everything else in this file was re-checked against `main` after the merge and remains accurate.
 
 Read alongside its two siblings, which cover different slices of the same problem:
 
@@ -106,18 +131,15 @@ mapping — unrelated to `pl.format`, and a name collision to watch when adding 
 reductions (`bitwise_and`, `bitwise_or`, `bitwise_xor`, `bitwise_count_ones`,
 `bitwise_leading_zeros`).
 
-**Selection within an expression** — the most-felt group, since these are the standard idioms inside
-`agg`. None has a plain `polars_expr_*` symbol:
-
-- **`filter`** — only `polars_lazy_frame_filter` exists; there is no `polars_expr_filter`.
-- **`sort`** — `sort_by` exists; sorting an expression's *own* values does not.
-- **`head`, `tail`, `slice`, `get`, `limit`** — note `head`/`tail`/`slice` *do* exist inside the
-  `Lists` and `Strings` namespaces (`polars_expr_list_head`, `polars_expr_str_slice`, …); it is the
-  plain `Expr` forms that are absent. `gather` covers the vector case of `get`; there is no scalar
-  `get`.
-- **`top_k_by`, `bottom_k_by`** — plain `top_k`/`bottom_k` do exist.
-- **`Expr.explode` is *not* a gap** — it is covered by `flatten` (`src/expr/expr.jl:681`, calling
-  `polars_expr_flatten`), which is upstream's own alias for it.
+**Selection within an expression** — the most-felt group, since these are the standard idioms
+inside `agg`. **Closed** by this effort: `filter`, `sort`, `head`/`tail`/`slice`/`get`/`limit`,
+`top_k_by`/`bottom_k_by` are all now plain `Expr` methods in `src/expr/expr.jl`, each backed by a
+new `polars_expr_*` FFI symbol (`get`/`sort`/`tail` extend `Base.get`/`Base.sort`/`Base.tail`
+rather than shadowing them — see the in-source note on `tail`'s definition for why a plain,
+non-`Base.`-qualified `function tail(...)` breaks `select.jl`'s later `import Base: tail`; `limit`
+is a plain alias for `head`, matching upstream). `Expr.explode` was never actually a gap — it's
+covered by `flatten` (`src/expr/expr.jl`, calling `polars_expr_flatten`), which is upstream's own
+alias for it.
 
 **Window and ordering**: `cumulative_eval`, `peak_min`, `peak_max`, `search_sorted`, `set_sorted`,
 `lower_bound`, `upper_bound`, `rolling_skew`, `rolling_kurtosis`, `rolling_map`, every temporal
@@ -206,25 +228,37 @@ idiomatic Julia equivalent.
 
 Called out separately because each function looks complete from the outside.
 
-- **Joins carry no options at all.** `c-polars/src/dataframe.rs:699` passes
-  `JoinArgs::new(how.to_join_type())` — every default. So no `suffix` (upstream defaults to
-  `"_right"`), no `coalesce`, no `validate`, no `nulls_equal`/`join_nulls`, no `slice`.
-- **`join_asof` hardcodes `tolerance: None`** (`c-polars/src/dataframe.rs:724`). Also no `allow_eq`,
-  no `check_sortedness`.
-- **`maintain_order` appears nowhere in the FFI** — so `group_by(maintain_order=)`, frame
-  `unique(maintain_order=)`, and `Expr.unique(maintain_order=)` are all unavailable.
+- ~~**Joins carry no options at all.**~~ **Closed**, except `slice`: `innerjoin`/`leftjoin`/
+  `rightjoin`/`outerjoin`/`semijoin`/`antijoin`/`crossjoin` now accept `suffix`, `coalesce`,
+  `validate`, `nulls_equal` (`src/join.jl`). **`slice` is deliberately *not* exposed** — verified
+  live that `JoinArgs.slice` panics unconditionally in this polars version
+  (`"impl error: slice is not handled"`, both the in-memory and `:streaming` engines), caught by
+  `guard_error`'s `catch_unwind` rather than crashing the process, but with no working codepath
+  behind it. The FFI parameter is still threaded through (always null from Julia) so a future
+  polars upgrade needs only a Julia-side change once this is fixed upstream.
+- ~~**`join_asof` hardcodes `tolerance: None`**~~ **Closed**: `join_asof` now accepts `tolerance`
+  (string form only — e.g. `"1d"`; a numeric `Scalar` tolerance for non-temporal `on` columns is
+  a further scope cut, not attempted), `allow_eq`, `check_sortedness`, plus the same `suffix`/
+  `nulls_equal` the other join verbs got.
+- ~~**`maintain_order` appears nowhere in the FFI**~~ **Closed**: `group_by(maintain_order=)`,
+  frame `unique(maintain_order=)`, and `Base.unique(expr::Expr; maintain_order=)` are all now
+  available. Each dispatches between polars' own paired methods (`group_by`/`group_by_stable`,
+  `unique`/`unique_stable`, `Expr::unique`/`Expr::unique_stable`) rather than threading a bool
+  through a single call, matching how upstream itself expresses the option.
 - `rolling_*` accept `window_size`/`min_samples`/`center` but have no `by`/`closed` temporal form.
 - `describe` is `DataFrame`-only (upstream also has it on `LazyFrame`). `pivot`, `transpose`,
   `hstack`, `vstack`, and `upsample` being `DataFrame`-only matches upstream.
 
 ## Group 7 — Missing I/O
 
-Present: Parquet, CSV, and IPC, each with read/scan/write/sink and a good option surface
-(`src/io/`), plus cloud `storage_options` and partitioned parquet sinks.
+Present: Parquet, CSV, IPC, and (as of this effort) JSON/NDJSON, each with read/scan/write/sink and
+a good option surface (`src/io/`), plus cloud `storage_options` and partitioned parquet sinks.
 
-- **JSON / NDJSON** — `read_json`, `read_ndjson`, `scan_ndjson`, `write_json`, `write_ndjson`,
-  `sink_ndjson`. **The lowest-hanging item in this audit:** the `json` Cargo feature is *already
-  enabled* (for `Structs.json_encode`), so this is plausibly shims-only, possibly plus `ndjson`.
+- ~~**JSON / NDJSON**~~ **Closed.** `read_json`/`write_json` (plain JSON, eager-only — no lazy
+  scan, matching upstream) and `read_ndjson`/`write_ndjson`/`scan_ndjson`/`sink_ndjson` (NDJSON,
+  with a lazy scan and streaming sink) are now all in `src/io/json.jl`, backed by six new
+  `c-polars` functions. No Cargo.toml change was needed: `json` alone gates both formats fully
+  upstream (see [Status](#status)).
 - **Avro** — `read_avro`, `write_avro`.
 - **Delta / Iceberg** — `scan_delta`, `write_delta`, `scan_iceberg`.
 - **Partitioned sinks for CSV/IPC** — only `polars_lazy_frame_sink_parquet_partitioned` exists.
@@ -261,9 +295,10 @@ These block whole families of functions rather than individual ones.
 5. **No string cache** — `enable_string_cache`, `StringCache`.
 6. **No test helpers** — `assert_frame_equal`, `assert_series_equal`. `Base.==` on `DataFrame` exists
    but there is no tolerance-aware or schema-aware comparison for downstream packages to use.
-7. **Six FFI symbols wrapped in Rust but never surfaced in Julia** — the cheapest wins in this file:
-   `polars_dataframe_new_from_series`, `polars_dataframe_show`, `polars_expr_selector_empty`,
-   `polars_series_type`, `polars_value_list_type`, `polars_value_time_zone`.
+7. **~~Six~~ One FFI symbol still wrapped in Rust but never surfaced in Julia** —
+   `polars_value_list_type`. (The other five — `polars_dataframe_new_from_series`,
+   `polars_value_time_zone`, `polars_dataframe_show`, `polars_expr_selector_empty`,
+   `polars_series_type` — are all closed now; see [Status](#status).)
 
 ## Group 10
 
@@ -301,7 +336,7 @@ option must be exercised live.
 | `array_any_all`, `array_count`, `array_to_struct` | the `.arr` namespace |
 | `bitwise` | the `bitwise_*` reductions |
 | `rolling_window_by`, `ewma_by` | the temporal `rolling_*_by` and `ewm_mean_by` variants |
-| `ndjson` | NDJSON I/O (`json` is already on) |
+| ~~`ndjson`~~ | **Stale — no such feature was needed** (`json` alone gates NDJSON fully upstream); JSON/NDJSON I/O is closed, see [Status](#status). |
 | `avro` | Avro I/O |
 | `sql` / the `polars-sql` crate | the SQL interface |
 | `nightly` | `Strings.titlecase` — **do not add**; `rust-toolchain` pins stable deliberately |
@@ -323,13 +358,8 @@ preamble still describes a pre-sweep baseline.
 
 ## Caveats
 
-Two claims here were derived by reading configuration rather than by running code, and should be
-confirmed before anyone acts on them:
-
-1. **The `Selectors.array()` staleness claim (Group 0).** Needs a `cargo build`, a REPL restart, and
-   a call against a real Array-dtype column (via `Lists.to_array`) to confirm the selector *matches*
-   rather than silently matching zero columns. The entire point of the existing guard is that a
-   wrong answer here is **silent**, so this must not be taken on faith from reading `Cargo.toml`.
+1. ~~The `Selectors.array()` staleness claim (Group 0).~~ **Resolved** — closed on `main`, see
+   [Status](#status).
 2. **Feature-name accuracy in [Group 10](#group-10).** Each name should be checked against
    `~/.cargo/registry/src/*/polars-*-0.54.4/Cargo.toml`, plus a grep for `"activate .* feature"`
    under the registry source, per `CLAUDE.md`'s warning that a feature on the `polars` facade is not
