@@ -314,31 +314,59 @@ macro curry(sig)
 end
 
 """
-    @gen_expr_fn f(expr::Expr, pos...; kw...) cname desc
+    _marshal_arg(node) -> (decl, fwds)
 
-Generates the non-fallible primal shape that most single-`Expr` wrappers share --
+Marshalling rule for one argument of a `@gen_expr_fn`/`@gen_expr_fn_fallible` signature. `decl` is
+the node to put in the generated signature; `fwds` is the (possibly two-element) list of C
+arguments it expands into. The declared *type annotation* selects the rule, so a signature written
+the way it should read to a caller already says how to marshal it:
 
-    f(expr::Expr, pos...; kw...) = Expr(API.cname(expr, pos..., kw...))
+| annotation        | generated signature | forwarded to the ccall     |
+|:------------------|:--------------------|:---------------------------|
+| `::Expr`          | annotation dropped  | `convert(Expr, x)`         |
+| `::AbstractString`| kept                | `String(x), ncodeunits(x)` |
+| `::Char`          | kept                | `codepoint(x)`             |
+| anything else     | kept                | `x`                        |
 
-Every argument after the leading `expr::Expr` is forwarded to the ccall as a plain positional C
-argument, in declaration order (positionals first, then keywords) -- so the declaration order here
-must match the C function's own parameter order after `expr`. Two forwarding rules, matching
-[`@curry`](@ref)'s convention exactly:
+`::Expr` drops its annotation so the argument keeps accepting a bare literal (`clip(col("x"), 0,
+10)`); `::AbstractString` expands to the `(ptr, len)` pair the C ABI takes, which is the single
+most error-prone marshalling in this package -- **`ncodeunits` (bytes), never `length`
+(characters)**, the latter cutting non-ASCII arguments mid-codepoint. `String(x)` is a no-op on a
+`String` and materialises anything else (a `SubString`, say) into one whose pointer is safe to
+hand across the boundary.
 
-- an argument annotated `::Expr` is forwarded as `convert(Expr, ·)`, and the annotation is
-  dropped from the generated signature so the argument still accepts a bare literal
-  (`clip(col("x"), 0, 10)`);
-- anything else is forwarded verbatim, keeping whatever annotation it was given
-  (`gather_every`'s `n::Integer` reaches the ccall as-is).
-
-Only fits an argument needing *no other* wrapping on the way to the ccall: `rolling_std`'s `ddof`
-(`UInt8(ddof)`) and every `Symbol`-to-enum keyword stay hand-written, as does anything fallible
-(an out-param plus `polars_error`) -- see [`@gen_variadic`](@ref) for the fallible vector shape.
-Not used for a Base-colliding name (`Base.all`/`Base.any`/`Base.replace`), which would need the
-`Base.`-qualification dance `@generate_expr_fns` carries for that case.
+Recurses through `x = default` (a `:kw` node) to reach the underlying `x`/`x::T`, preserving the
+default.
 """
-macro gen_expr_fn(sig, cname, desc)
-    @assert sig isa Base.Expr && sig.head === :call && sig.args[1] isa Symbol "@gen_expr_fn expects a call signature, e.g. `clip(expr::Expr, min::Expr, max::Expr)`"
+function _marshal_arg(node::Symbol)
+    return node, Any[node]
+end
+function _marshal_arg(node::Base.Expr)
+    if node.head === :(::)
+        name, T = node.args[1], node.args[2]
+        T === :Expr && return name, Any[:(convert(Expr, $name))]
+        T === :AbstractString && return node, Any[:(String($name)), :(ncodeunits($name))]
+        T === :Char && return node, Any[:(codepoint($name))]
+        return node, Any[name]
+    elseif node.head === :kw
+        inner_decl, fwds = _marshal_arg(node.args[1])
+        return Base.Expr(:kw, inner_decl, node.args[2]), fwds
+    else
+        error("@gen_expr_fn: can't process argument node $node")
+    end
+end
+
+"""
+    _gen_expr_parts(macro_name, sig) -> (gen_sig, fwd_args)
+
+Shared signature processing for [`@gen_expr_fn`](@ref) and [`@gen_expr_fn_fallible`](@ref): splits
+`sig` into its keyword and positional parts, checks it leads with `expr::Expr`, and runs every
+other argument through [`_marshal_arg`](@ref). Returns the signature to generate and the C
+argument list, in declaration order (positionals first, then keywords) -- which is therefore the
+order the C function's own parameters must be in after `expr`.
+"""
+function _gen_expr_parts(macro_name, sig)
+    @assert sig isa Base.Expr && sig.head === :call && sig.args[1] isa Symbol "$macro_name expects a call signature, e.g. `clip(expr::Expr, min::Expr, max::Expr)`"
     fname = sig.args[1]
     rest = sig.args[2:end]
     kwparams = if !isempty(rest) && rest[1] isa Base.Expr && rest[1].head === :parameters
@@ -348,40 +376,97 @@ macro gen_expr_fn(sig, cname, desc)
     else
         ()
     end
-    @assert !isempty(rest) && rest[1] == Base.Expr(:(::), :expr, :Expr) "@gen_expr_fn's first positional argument must be `expr::Expr` -- got $(isempty(rest) ? "nothing" : rest[1])"
+    @assert !isempty(rest) && rest[1] == Base.Expr(:(::), :expr, :Expr) "$macro_name's first positional argument must be `expr::Expr` -- got $(isempty(rest) ? "nothing" : rest[1])"
 
     # `expr` itself is already an `Expr`: kept verbatim in the signature, forwarded unconverted.
     decl_args, fwd_args = Any[rest[1]], Any[:expr]
     for a in rest[2:end]
-        decl, _, fwd = _curry_arg(a)
+        decl, fwds = _marshal_arg(a)
         push!(decl_args, decl)
-        push!(fwd_args, fwd)
+        append!(fwd_args, fwds)
     end
     kwdecls = Any[]
     for kw in kwparams
-        decl, _, fwd = _curry_arg(kw)
+        decl, fwds = _marshal_arg(kw)
         push!(kwdecls, decl)
-        push!(fwd_args, fwd)
+        append!(fwd_args, fwds)
     end
 
     sig_args = Any[fname]
     isempty(kwdecls) || push!(sig_args, Base.Expr(:parameters, kwdecls...))
     append!(sig_args, decl_args)
-    gen_sig = Base.Expr(:call, sig_args...)
+    return Base.Expr(:call, sig_args...), fwd_args
+end
 
-    ccall_expr = Base.Expr(:call, Base.Expr(:(.), :API, QuoteNode(cname)), fwd_args...)
-    fn_def = Base.Expr(:(=), gen_sig, :(Expr($ccall_expr)))
-
+"""Builds the `Docs.@doc` call every `@gen_expr_fn`-family macro attaches, documenting `gen_sig`
+under a `sig::Polars.Expr` header derived from the signature itself."""
+function _gen_expr_doc(gen_sig, desc)
     string_sig = replace(string(gen_sig), "Expr" => "Polars.Expr")
     docstring = """
         $(string_sig)::Polars.Expr
 
     $desc
     """
+    return :(Docs.@doc $docstring $gen_sig)
+end
+
+"""
+    @gen_expr_fn f(expr::Expr, pos...; kw...) cname desc
+
+Generates the non-fallible primal shape that most single-`Expr` wrappers share --
+
+    f(expr::Expr, pos...; kw...) = Expr(API.cname(expr, pos..., kw...))
+
+Every argument after the leading `expr::Expr` is forwarded to the ccall as a positional C
+argument, marshalled according to its declared type annotation -- see [`_marshal_arg`](@ref) for
+the table, and [`@gen_expr_fn_fallible`](@ref) for the same thing around an out-param.
+
+Only fits arguments whose marshalling that table covers: `rolling_std`'s `ddof` (`UInt8(ddof)`),
+`splitn`'s `n` (`Csize_t(n)`), every `Symbol`-to-enum keyword, and `Strings.replace_n` (whose C
+parameter order differs from the Julia one) all stay hand-written. Not used for a Base-colliding
+name (`Base.all`/`Base.any`/`Base.replace`), which would need the `Base.`-qualification dance
+`@generate_expr_fns` carries for that case.
+"""
+macro gen_expr_fn(sig, cname, desc)
+    gen_sig, fwd_args = _gen_expr_parts("@gen_expr_fn", sig)
+    ccall_expr = Base.Expr(:call, Base.Expr(:(.), :API, QuoteNode(cname)), fwd_args...)
     return esc(
         quote
-            $fn_def
-            Docs.@doc $docstring $gen_sig
+            $(Base.Expr(:(=), gen_sig, :(Expr($ccall_expr))))
+            $(_gen_expr_doc(gen_sig, desc))
+        end
+    )
+end
+
+"""
+    @gen_expr_fn_fallible f(expr::Expr, pos...; kw...) cname desc
+
+[`@gen_expr_fn`](@ref) for a *fallible* ccall -- one returning `*const polars_error_t` with the
+result arriving through a trailing out-param:
+
+    function f(expr::Expr, pos...; kw...)
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.cname(expr, pos..., kw..., out)
+        polars_error(err)
+        return Expr(out[])
+    end
+
+Argument marshalling is identical (see [`_marshal_arg`](@ref)); only the body differs. Per
+CLAUDE.md every fallible entry point *must* check `polars_error`, since a panic unwinding across
+`extern "C"` is undefined behaviour -- generating the check is one fewer place to forget it.
+"""
+macro gen_expr_fn_fallible(sig, cname, desc)
+    gen_sig, fwd_args = _gen_expr_parts("@gen_expr_fn_fallible", sig)
+    ccall_expr = Base.Expr(:call, Base.Expr(:(.), :API, QuoteNode(cname)), fwd_args..., :out)
+    return esc(
+        quote
+            function $gen_sig
+                out = Ref{Ptr{polars_expr_t}}()
+                err = $ccall_expr
+                polars_error(err)
+                return Expr(out[])
+            end
+            $(_gen_expr_doc(gen_sig, desc))
         end
     )
 end
@@ -389,25 +474,23 @@ end
 """
     @gen_name_fn f cname desc
 
-Generates the output-name-rewriting shape shared by [`alias`](@ref)/[`prefix`](@ref)/
-[`suffix`](@ref): a fallible ccall taking the expression plus one string, marshalled as the
-`(ptr, ncodeunits)` pair the C ABI expects, together with its `Base.Fix2` curry --
+The output-name-rewriting shape shared by [`alias`](@ref)/[`prefix`](@ref)/[`suffix`](@ref):
+exactly [`@gen_expr_fn_fallible`](@ref) over the fixed signature `f(expr::Expr, s::AbstractString)`
+(so the `(ptr, ncodeunits)` marshalling comes from the same [`_marshal_arg`](@ref) rule as
+everywhere else), plus two things that shape needs and the general macro does not emit:
 
-    f(expr::Expr, s::AbstractString)::Expr
-    f(s::AbstractString)::Base.Fix2
-
-Centralising this is a correctness measure as much as a brevity one: `ncodeunits` (bytes) rather
-than `length` (characters) is the whole contract of the `(ptr, len)` marshalling, and getting it
-wrong truncates non-ASCII arguments mid-codepoint -- a mistake that once landed at all 24 sites at
-once. One macro means one place for that to be right.
+- a `Base.Fix2` curry rather than [`@curry`](@ref)'s closure, so `alias("x")` still prints as
+  something legible in the REPL;
+- one docstring covering *both* signatures, matching what the hand-written originals carried.
 """
 macro gen_name_fn(fname, cname, desc)
     @assert fname isa Symbol && cname isa Symbol "@gen_name_fn expects (fname::Symbol, cname::Symbol, desc::String)"
+    gen_sig, fwd_args = _gen_expr_parts("@gen_name_fn", :($fname(expr::Expr, s::AbstractString)))
+    ccall_expr = Base.Expr(:call, Base.Expr(:(.), :API, QuoteNode(cname)), fwd_args..., :out)
     # Attached to the two-argument *signature*, not the bare function name -- matching both the
     # hand-written original and `@generate_expr_fns`. `docs/src/reference/expressions.md` lists
     # these in a `@docs` block by bare name, which pulls in every docstring attached to any method;
     # documenting the generic function instead would change what Documenter renders.
-    sig = :($fname(expr::Expr, s::AbstractString))
     docstring = """
         $(fname)(expr::Polars.Expr, s::AbstractString)::Polars.Expr
         $(fname)(s::AbstractString)::Base.Fix2{typeof($fname), <:AbstractString}
@@ -416,14 +499,14 @@ macro gen_name_fn(fname, cname, desc)
     """
     return esc(
         quote
-            function $sig
+            function $gen_sig
                 out = Ref{Ptr{polars_expr_t}}()
-                err = API.$cname(expr, s, ncodeunits(s), out)
+                err = $ccall_expr
                 polars_error(err)
                 return Expr(out[])
             end
             $fname(s::AbstractString) = Base.Fix2($fname, s)
-            Docs.@doc $docstring $sig
+            Docs.@doc $docstring $gen_sig
         end
     )
 end

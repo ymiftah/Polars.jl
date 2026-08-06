@@ -1,5 +1,6 @@
 module Strings
-using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error, _time_unit_enum
+using ..Polars: @generate_expr_fns, @gen_expr_fn, @gen_expr_fn_fallible, @curry,
+    API, polars_expr_t, Expr, polars_error, _time_unit_enum
 
 @generate_expr_fns begin
     gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase, "Converts each string of `expr` to uppercase.")
@@ -74,181 +75,41 @@ end
 head(n) = Base.Fix2(head, convert(Expr, n))
 tail(n) = Base.Fix2(tail, convert(Expr, n))
 
-"""
-    contains(expr::Polars.Expr, pat::Polars.Expr; strict::Bool=true)::Polars.Expr
+@gen_expr_fn contains(expr::Expr, pat::Expr; strict::Bool = true) polars_expr_str_contains "Check if the string contains a match for the regex `pat`. If `strict` is `true` (default), an invalid regex raises an error; if `false`, it returns `null` instead. For a plain substring (non-regex) check, use [`contains_literal`](@ref)."
+@curry contains(pat; strict::Bool = true)
 
-Check if the string contains a match for the regex `pat`. If `strict` is `true` (default),
-an invalid regex raises an error; if `false`, it returns `null` instead. For a plain
-substring (non-regex) check, use [`contains_literal`](@ref).
-"""
-function contains(expr::Expr, pat::Expr; strict::Bool = true)
-    out = API.polars_expr_str_contains(expr, pat, strict)
-    return Expr(out)
-end
+@gen_expr_fn find(expr::Expr, pat::Expr; strict::Bool = true) polars_expr_str_find "Index of the start of the first match of the regex `pat` in each string of `expr` (`null` if there is no match). If `strict` is `true` (default), an invalid regex raises an error; if `false`, it returns `null` instead. For a plain substring (non-regex) search, build the literal-search equivalent via [`contains_literal`](@ref) instead."
+@curry find(pat; strict::Bool = true)
 
-"""
-    contains(pat; strict::Bool=true)::Base.Callable
+@gen_expr_fn slice(expr::Expr, offset::Expr, length::Expr) polars_expr_str_slice "Extracts a substring starting at `offset` (0-indexed; negative indexes from the end) with the given `length` (extends to the end of the string if `length` is `null`)."
+@curry slice(offset, length)
 
-Curried form of [`contains`](@ref) for use with `|>`.
-"""
-contains(pat; strict::Bool = true) = expr -> contains(expr, convert(Expr, pat); strict)
+@gen_expr_fn_fallible pad_start(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_start "Pads each string of `expr` on the left with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
+@curry pad_start(length; fill_char::Char = ' ')
 
-"""
-    find(expr::Polars.Expr, pat::Polars.Expr; strict::Bool=true)::Polars.Expr
+@gen_expr_fn_fallible pad_end(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_end "Pads each string of `expr` on the right with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
+@curry pad_end(length; fill_char::Char = ' ')
 
-Index of the start of the first match of the regex `pat` in each string of `expr` (`null` if
-there is no match). If `strict` is `true` (default), an invalid regex raises an error; if
-`false`, it returns `null` instead. For a plain substring (non-regex) search, build the
-literal-search equivalent via [`contains_literal`](@ref) instead.
-"""
-function find(expr::Expr, pat::Expr; strict::Bool = true)
-    out = API.polars_expr_str_find(expr, pat, strict)
-    return Expr(out)
-end
+@gen_expr_fn replace(expr::Expr, pat::Expr, value::Expr; literal::Bool = false) polars_expr_str_replace "Replaces the first match of `pat` with `value`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
+@curry replace(pat, value; literal::Bool = false)
 
-"""
-    find(pat; strict::Bool=true)::Base.Callable
+@gen_expr_fn replace_all(expr::Expr, pat::Expr, value::Expr; literal::Bool = false) polars_expr_str_replace_all "Replaces all matches of `pat` with `value`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
+@curry replace_all(pat, value; literal::Bool = false)
 
-Curried form of [`find`](@ref) for use with `|>`.
-"""
-find(pat; strict::Bool = true) = expr -> find(expr, convert(Expr, pat); strict)
+@gen_expr_fn extract(expr::Expr, pat::Expr, group_index::Integer) polars_expr_str_extract "Extracts the capture group numbered `group_index` (0 = the whole match) from the first match of the regex `pat`."
+@curry extract(pat, group_index::Integer)
 
-"""
-    slice(expr::Polars.Expr, offset::Polars.Expr, length::Polars.Expr)::Polars.Expr
+@gen_expr_fn count_matches(expr::Expr, pat::Expr; literal::Bool = false) polars_expr_str_count_matches "Counts the number of non-overlapping matches of `pat`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
+@curry count_matches(pat; literal::Bool = false)
 
-Extracts a substring starting at `offset` (0-indexed; negative indexes from the end) with
-the given `length` (extends to the end of the string if `length` is `null`).
-"""
-function slice(expr::Expr, offset::Expr, length::Expr)
-    out = API.polars_expr_str_slice(expr, offset, length)
-    return Expr(out)
-end
-
-"""
-    slice(offset, length)::Base.Callable
-
-Curried form of [`slice`](@ref) for use with `|>`.
-"""
-slice(offset, length) = expr -> slice(expr, convert(Expr, offset), convert(Expr, length))
-
-"""
-    pad_start(expr::Polars.Expr, length; fill_char::Char=' ')::Polars.Expr
-
-Pads each string of `expr` on the left with `fill_char` until it reaches `length` characters
-(no-op for a string already at least that long). `length` is an integer literal or an
-expression (e.g. another column), giving a per-row target length.
-"""
-function pad_start(expr::Expr, length; fill_char::Char = ' ')
-    out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_str_pad_start(expr, convert(Expr, length), codepoint(fill_char), out)
-    polars_error(err)
-    return Expr(out[])
-end
-
-"""
-    pad_start(length; fill_char::Char=' ')::Base.Callable
-
-Curried form of [`pad_start`](@ref) for use with `|>`.
-"""
-pad_start(length; fill_char::Char = ' ') = expr -> pad_start(expr, length; fill_char)
-
-"""
-    pad_end(expr::Polars.Expr, length; fill_char::Char=' ')::Polars.Expr
-
-Pads each string of `expr` on the right with `fill_char` until it reaches `length` characters
-(no-op for a string already at least that long). `length` is an integer literal or an
-expression (e.g. another column), giving a per-row target length.
-"""
-function pad_end(expr::Expr, length; fill_char::Char = ' ')
-    out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_str_pad_end(expr, convert(Expr, length), codepoint(fill_char), out)
-    polars_error(err)
-    return Expr(out[])
-end
-
-"""
-    pad_end(length; fill_char::Char=' ')::Base.Callable
-
-Curried form of [`pad_end`](@ref) for use with `|>`.
-"""
-pad_end(length; fill_char::Char = ' ') = expr -> pad_end(expr, length; fill_char)
-
-"""
-    replace(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr; literal::Bool=false)::Polars.Expr
-
-Replaces the first match of `pat` with `value`. If `literal` is `true`, `pat` is treated as
-a plain substring rather than a regex.
-"""
-function replace(expr::Expr, pat::Expr, value::Expr; literal::Bool = false)
-    out = API.polars_expr_str_replace(expr, pat, value, literal)
-    return Expr(out)
-end
-
-"""
-    replace(pat, value; literal::Bool=false)::Base.Callable
-
-Curried form of [`replace`](@ref) for use with `|>`.
-"""
-function replace(pat, value; literal::Bool = false)
-    return expr -> replace(expr, convert(Expr, pat), convert(Expr, value); literal)
-end
-
-"""
-    replace_all(expr::Polars.Expr, pat::Polars.Expr, value::Polars.Expr; literal::Bool=false)::Polars.Expr
-
-Replaces all matches of `pat` with `value`. If `literal` is `true`, `pat` is treated as a
-plain substring rather than a regex.
-"""
-function replace_all(expr::Expr, pat::Expr, value::Expr; literal::Bool = false)
-    out = API.polars_expr_str_replace_all(expr, pat, value, literal)
-    return Expr(out)
-end
-
-"""
-    replace_all(pat, value; literal::Bool=false)::Base.Callable
-
-Curried form of [`replace_all`](@ref) for use with `|>`.
-"""
-function replace_all(pat, value; literal::Bool = false)
-    return expr -> replace_all(expr, convert(Expr, pat), convert(Expr, value); literal)
-end
-
-"""
-    extract(expr::Polars.Expr, pat::Polars.Expr, group_index::Integer)::Polars.Expr
-
-Extracts the capture group numbered `group_index` (0 = the whole match) from the first
-match of the regex `pat`.
-"""
-function extract(expr::Expr, pat::Expr, group_index::Integer)
-    out = API.polars_expr_str_extract(expr, pat, group_index)
-    return Expr(out)
-end
-
-"""
-    extract(pat, group_index::Integer)::Base.Callable
-
-Curried form of [`extract`](@ref) for use with `|>`.
-"""
-extract(pat, group_index::Integer) = expr -> extract(expr, convert(Expr, pat), group_index)
-
-"""
-    count_matches(expr::Polars.Expr, pat::Polars.Expr; literal::Bool=false)::Polars.Expr
-
-Counts the number of non-overlapping matches of `pat`. If `literal` is `true`, `pat` is
-treated as a plain substring rather than a regex.
-"""
-function count_matches(expr::Expr, pat::Expr; literal::Bool = false)
-    out = API.polars_expr_str_count_matches(expr, pat, literal)
-    return Expr(out)
-end
-
-"""
-    count_matches(pat; literal::Bool=false)::Base.Callable
-
-Curried form of [`count_matches`](@ref) for use with `|>`.
-"""
-count_matches(pat; literal::Bool = false) = expr -> count_matches(expr, convert(Expr, pat); literal)
-
+# Everything below stays hand-written: each needs marshalling `@gen_expr_fn`'s annotation-driven
+# table (see `_marshal_arg`) deliberately does not cover.
+#   - `to_date`/`to_datetime`: `format` is `Union{Nothing,String}`, collapsed to `""` via
+#     `something(format, "")` before the `(ptr, len)` pair is taken -- the length must come from
+#     the collapsed value, not the original `nothing`. `to_datetime` also resolves an enum.
+#   - `replace_n`: the C parameter order (`pat, value, literal, n`) differs from the Julia one
+#     (`pat, value, n; literal`), and `n` needs `Int64`.
+#   - `splitn`/`split_exact`: `n` needs `Csize_t`.
 """
     to_date(expr::Polars.Expr; format::Union{Nothing,String}=nothing, strict::Bool=true,
             exact::Bool=true)::Polars.Expr
@@ -371,21 +232,7 @@ Curried form of [`split_exact`](@ref) for use with `|>`.
 """
 split_exact(by, n::Integer) = expr -> split_exact(expr, convert(Expr, by), n)
 
-"""
-    join(expr::Polars.Expr, delimiter::AbstractString; ignore_nulls::Bool=true)::Polars.Expr
-
-Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a
-single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are
-skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from
-[`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows).
-"""
-function join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true)
-    delimiter = String(delimiter)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_str_join(expr, delimiter, ncodeunits(delimiter), ignore_nulls, out)
-    polars_error(err)
-    return Expr(out[])
-end
+@gen_expr_fn_fallible join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true) polars_expr_str_join "Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from [`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows)."
 
 """
     to_integer(expr::Polars.Expr; base::Integer=10, strict::Bool=true)::Polars.Expr
@@ -402,21 +249,7 @@ function to_integer(::Expr; base::Integer = 10, strict::Bool = true)
     )
 end
 
-"""
-    extract_groups(expr::Polars.Expr, pat::AbstractString)::Polars.Expr
-
-Extracts every named capture group of the regex `pat` from the first match within each string of
-`expr`, into a `Struct` (see [Struct](@ref expr-struct)) with one field per named group. `pat`
-must be a plain string (not an `Expr`): the regex is compiled once, at plan time, to determine the
-output `Struct`'s field names.
-"""
-function extract_groups(expr::Expr, pat::AbstractString)
-    pat = String(pat)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_str_extract_groups(expr, pat, ncodeunits(pat), out)
-    polars_error(err)
-    return Expr(out[])
-end
+@gen_expr_fn_fallible extract_groups(expr::Expr, pat::AbstractString) polars_expr_str_extract_groups "Extracts every named capture group of the regex `pat` from the first match within each string of `expr`, into a `Struct` (see [Struct](@ref expr-struct)) with one field per named group. `pat` must be a plain string (not an `Expr`): the regex is compiled once, at plan time, to determine the output `Struct`'s field names."
 
 """
     reverse(expr::Polars.Expr)::Polars.Expr
