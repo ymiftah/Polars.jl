@@ -270,9 +270,9 @@ end
 end
 
 @testset "Selectors.by_index accepts any Integer width" begin
-    # The varargs form used to `collect(Integer, ...)`, building a `Vector{Integer}` -- an
-    # abstract element type, so every index was boxed. It collects to `Vector{Int}` now, which
-    # still has to accept a narrower `Integer` on the way in.
+    # The varargs form collects to a concrete `Vector{Int}` (rather than a `Vector{Integer}`,
+    # whose abstract element type boxes every index), so it still has to accept a narrower
+    # `Integer` on the way in.
     df = DataFrame((; a = [1], b = [2], c = [3]))
 
     @test names(select(df, S.by_index(Int32(1), Int32(3)))) == ["a", "c"]

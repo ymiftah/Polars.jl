@@ -148,8 +148,8 @@ end
     filtered = filter(df, is_in(col("g"), membership))
     @test filtered[:g] == ["a", "a"]
 
-    # multi-value membership: implode(lit(::Vector)) (see test/expr/lit_vector.jl) replaces what
-    # used to require chaining several single-value implode(lit(x))s together
+    # multi-value membership: implode(lit(::Vector)) (see test/expr/lit_vector.jl) takes the whole
+    # set in one literal, with no chaining of single-value implode(lit(x))s
     filtered_multi = filter(df, is_in(col("g"), implode(lit(["a", "c"]))))
     @test filtered_multi[:g] == ["a", "a", "c"]
 end

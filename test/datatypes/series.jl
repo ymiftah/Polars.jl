@@ -157,13 +157,12 @@ end
         @test arr == collect(s)
 
         # the borrowed buffer must stay valid (and correct) after the source Series/DataFrame
-        # are dropped and GC'd -- the whole point of the release-on-finalize keeper. Regression
-        # test for a real use-after-free: `_dispatch_read` used to release the exported buffers
-        # unconditionally right after building `arr`, regardless of whether `arr` was a zero-copy
-        # alias of them -- freeing the very memory `arr` still pointed at. A single
-        # non-forced `GC.gc()` doesn't reliably surface this (the freed pages often still hold
-        # their old bytes), so force full collections and churn the heap with fresh allocations in
-        # between to encourage the freed memory to actually be reused before checking.
+        # are dropped and GC'd -- the whole point of the release-on-finalize keeper. Releasing the
+        # exported buffers as soon as `arr` is built would free the very memory a zero-copy `arr`
+        # still points at, so this guards against a use-after-free. A single non-forced `GC.gc()`
+        # doesn't reliably surface such a bug (the freed pages often still hold their old bytes),
+        # so force full collections and churn the heap with fresh allocations in between to
+        # encourage the freed memory to actually be reused before checking.
         s = nothing
         GC.gc(true)
         junk = [rand(Int64, 64) for _ in 1:20_000]
@@ -218,10 +217,10 @@ end
 
 @testset "Series getindex out-of-bounds raises BoundsError" begin
     # `Series{T} <: AbstractVector{T}`, so an out-of-range scalar index must raise `BoundsError`
-    # like any other Julia array -- `getindex` `checkbounds` first and never reaches the FFI.
-    # (It used to pass the index straight through and surface whatever polars made of it, which
-    # was a `PolarsError` with a Rust-flavoured message; see the testset below for the separate,
-    # still-load-bearing guarantee that the C ABI itself stays fallible rather than panicking.)
+    # like any other Julia array -- `getindex` `checkbounds` first and never reaches the FFI, so
+    # the failure is a `BoundsError` rather than a `PolarsError` carrying a Rust-flavoured message.
+    # (See the testset below for the separate, still-load-bearing guarantee that the C ABI itself
+    # stays fallible rather than panicking.)
     s_str = Series(:names, ["a", "b"])
     @test_throws BoundsError s_str[5]
     @test s_str[1] == "a" # in-bounds access still correct
@@ -259,11 +258,11 @@ end
     @test_throws BoundsError s_null[5]
 end
 
-@testset "polars_series_get stays fallible out-of-bounds (regression: FFI panic)" begin
-    # `checkbounds` in `getindex` (above) now stops an out-of-range index before it reaches the C
-    # ABI, so drive the ABI directly to keep covering what that testset used to: an out-of-bounds
-    # `polars_series_get` must return an error pointer, never `.unwrap()` a Rust panic across the
-    # `extern "C"` boundary (which aborts the whole Julia process, uncatchably).
+@testset "polars_series_get stays fallible out-of-bounds" begin
+    # `checkbounds` in `getindex` (above) stops an out-of-range index before it reaches the C ABI,
+    # so drive the ABI directly to cover it: an out-of-bounds `polars_series_get` must return an
+    # error pointer, never `.unwrap()` a Rust panic across the `extern "C"` boundary (which aborts
+    # the whole Julia process, uncatchably).
     s_str = Series(:names, ["a", "b"])
     out = Ref{Ptr{Polars.polars_value_t}}()
     err = Polars.API.polars_series_get(s_str, 99, out)
@@ -283,7 +282,7 @@ end
 
 @testset "Series getindex with negative/zero index" begin
     # No negative-index support (no wraparound-from-end semantics) -- these are simply
-    # invalid indices, and now raise `BoundsError` like any other Julia array.
+    # invalid indices, and raise `BoundsError` like any other Julia array.
     s_num = Series(:nums, [1, 2, 3])
     @test_throws BoundsError s_num[-1]
     @test_throws BoundsError s_num[0]

@@ -1,6 +1,6 @@
 @testset "Structs namespace" begin
     # Struct column construction from Vector{<:NamedTuple} (Milestone E3b) and value_counts
-    # (Tier 1) both provide genuine struct-typed columns from pure Julia now -- field_by_name
+    # (Tier 1) both provide genuine struct-typed columns from pure Julia -- field_by_name
     # is already covered via the write path in datatypes/list_struct_write.jl; this covers the
     # remaining field_by_index/rename_fields.
     df = DataFrame((; s = [(a = 1, b = "x"), (a = 2, b = "y"), (a = 3, b = "z")]))
@@ -84,12 +84,13 @@ end
 end
 
 @testset "Struct field holding a null temporal value (Julia-side P0.9)" begin
-    # `load_value(::Value{<:Period})`/`(::Value{DateTime})`/`(::Value{Date})`/`(::Value{Time})`
-    # used to lack the `PolarsValueTypeNull` guard every other `load_value` method has. A
-    # *bare* untyped null (e.g. `lit(missing)`) is caught one level up by the NamedTuple loader's
-    # `PolarsValueTypeUnknown` check -- but a null value in a schema-typed struct field reports
-    # its real dtype even while null, bypassing that check and reaching these methods directly,
-    # where they used to error ("value is not of type datetime") instead of returning `missing`.
+    # The temporal `load_value` methods
+    # (`::Value{<:Period}`/`::Value{DateTime}`/`::Value{Date}`/`::Value{Time}`) need the same
+    # `PolarsValueTypeNull` guard every other `load_value` method has. A *bare* untyped null (e.g.
+    # `lit(missing)`) is caught one level up by the NamedTuple loader's `PolarsValueTypeUnknown`
+    # check -- but a null value in a schema-typed struct field reports its real dtype even while
+    # null, bypassing that check and reaching these methods directly, so only their own guard makes
+    # it return `missing` rather than erroring with "value is not of type datetime".
     dt_nt = NamedTuple{(:a, :b), Tuple{Union{DateTime, Missing}, Int}}
     df = DataFrame((; s = dt_nt[(a = DateTime(2024, 1, 1), b = 1), (a = missing, b = 2)]))
     r = collect(df[:s])
@@ -111,11 +112,12 @@ end
 
 @testset "Column type Any raises a clear error, not infinite recursion (Julia-side, found during P0.9)" begin
     # `MaybeMissing{Any}` (== `Union{Any, Union{Any,Missing}}`) collapses to the literal type
-    # `Any`, so `format(Any)` used to dispatch to the `MaybeMissing{T}` method with `T = Any`
-    # solved from that same collapse -- whose body calls `format(Any)` again: unconditional
-    # infinite recursion (`StackOverflowError`, not a catchable Julia error). Reachable from a
-    # `Vector{<:NamedTuple}` built from row literals whose fields don't share one concrete type
-    # across rows (e.g. mixing a concrete value and bare `missing` without a `Union` annotation).
+    # `Any`, so without the concrete `format(::Type{Any})` method, `format(Any)` would dispatch to
+    # the `MaybeMissing{T}` method with `T = Any` solved from that same collapse -- whose body
+    # calls `format(Any)` again: unconditional infinite recursion (`StackOverflowError`, not a
+    # catchable Julia error). Reachable from a `Vector{<:NamedTuple}` built from row literals whose
+    # fields don't share one concrete type across rows (e.g. mixing a concrete value and bare
+    # `missing` without a `Union` annotation).
     @test_throws Exception DataFrame((; s = [(a = DateTime(2024, 1, 1), b = 1), (a = missing, b = 2)]))
     @test_throws Exception DataFrame((; x = Any[1, missing]))
     try

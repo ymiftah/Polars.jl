@@ -1,5 +1,5 @@
-# Regression tests for the c-polars hardening pass (see plans/c_polars_hardening.md).
-# Several of these exercise paths that previously invoked undefined behaviour or aborted the whole
+# FFI safety tests for the c-polars hardening pass (see plans/c_polars_hardening.md).
+# Several of these exercise paths where a slip invokes undefined behaviour or aborts the whole
 # process rather than raising a catchable Julia error -- so "the test process is still alive" is
 # itself part of what is being asserted.
 
@@ -7,8 +7,8 @@ using TimeZones
 
 @testset "empty expr list / null pointer into read_exprs (P0.3)" begin
     # `slice::from_raw_parts` requires a non-null aligned pointer even for len 0, and the Julia
-    # side may pass null/dangling for an empty list. Pre-fix this was UB; it must now be a plain
-    # error return from polars itself, with the process intact.
+    # side may pass null/dangling for an empty list -- constructing the slice regardless is UB,
+    # so this must come back as a plain error return from polars itself, with the process intact.
     out = Ref{Ptr{Polars.polars_expr_t}}()
     err = Polars.API.polars_expr_sum_horizontal(Ptr{Ptr{Polars.polars_expr_t}}(C_NULL), 0, true, out)
     @test err != C_NULL # polars rejects an empty horizontal fold -- but does not crash
@@ -22,9 +22,10 @@ using TimeZones
 end
 
 @testset "unencodable cast returns an error, not a silent Unknown cast (P1.1)" begin
-    # `to_dtype` used to map Datetime/Duration/List/Struct to `Unknown(UnknownKind::Any)`, so
-    # `cast(col, Datetime)` silently became a cast-to-unknown. Drive the C ABI directly: Julia's
-    # own `cast` whitelist would reject these before they ever reach Rust.
+    # `to_dtype` must reject the dtypes it can't encode (Datetime/Duration/List/Struct) rather than
+    # mapping them to `Unknown(UnknownKind::Any)`, which would turn `cast(col, Datetime)` into a
+    # silent cast-to-unknown. Drive the C ABI directly: Julia's own `cast` whitelist would reject
+    # these before they ever reach Rust.
     e = col("x")
     out = Ref{Ptr{Polars.polars_expr_t}}()
 
@@ -59,15 +60,16 @@ end
     bad = String(UInt8[0xff, 0xfe]) # not valid UTF-8
     df = DataFrame((; s = [(a = 1, b = 2)]))
 
-    # struct_rename_fields used from_utf8_unchecked -> UB on invalid input
+    # struct_rename_fields must validate UTF-8; `from_utf8_unchecked` is UB on invalid input
     @test_throws Exception select(df, col("s") |> Structs.rename_fields([bad, "z"]))
-    # struct_field_by_name returned a null handle, which Julia then wrapped and finalized
+    # struct_field_by_name must not answer with a null handle, which Julia would wrap and finalize
     @test_throws Exception select(df, col("s") |> Structs.field_by_name(bad))
 end
 
 @testset "row index offset does not wrap (P1.5)" begin
     df = DataFrame((; x = [1, 2, 3]))
-    # `offset as IdxSize` silently wrapped a negative i64 into a huge u32
+    # the offset must be range-checked: an unguarded `offset as IdxSize` wraps a negative i64
+    # into a huge u32
     @test_throws Exception Polars.collect(with_row_index(lazy(df), "idx"; offset = -1))
 
     r = Polars.collect(with_row_index(lazy(df), "idx"; offset = 10))
@@ -75,7 +77,7 @@ end
 end
 
 @testset "values larger than one callback chunk are not truncated (P1.6)" begin
-    # `Write::write` may report a short count; the tail was silently dropped. Must be `write_all`.
+    # `Write::write` may report a short count and silently drop the tail. Must be `write_all`.
     big = "x"^(1024 * 1024)
     @test collect(DataFrame((; s = [big]))[:s])[1] == big
 
@@ -84,8 +86,8 @@ end
 end
 
 @testset "non-ASCII strings cross the FFI boundary intact" begin
-    # The Julia side passed `length(s)` (character count) where the ABI wants a byte length, so
-    # any non-ASCII argument was truncated mid-string.
+    # The ABI wants a byte length, so every string argument travels as `ncodeunits(s)`; a
+    # `length(s)` character count truncates any non-ASCII argument mid-string.
     df = DataFrame((; s = [(café = 1, ω = 2)]))
     renamed = select(df, col("s") |> Structs.rename_fields(["日本語", "naïve"]))
     @test collect(renamed[:s])[1] == (; 日本語 = 1, naïve = 2)
@@ -120,22 +122,21 @@ end
 end
 
 @testset "tail/rename are reachable unqualified (Julia-side P0.1)" begin
-    # Both used to extend an unexported Base binding (Base.tail/Base.rename) with no local
-    # binding to `export`, so plain `tail(df, n)`/`rename(df, ...)` raised UndefVarError even
-    # though `Base.tail(df, n)` worked.
+    # Both names are unexported Base bindings (`Base.tail`/`Base.rename`). Extending them without
+    # a local binding to `export` would leave plain `tail(df, n)`/`rename(df, ...)` raising
+    # `UndefVarError` even though the `Base.`-qualified call works.
     df = DataFrame((; x = [1, 2, 3, 4, 5]))
     @test collect(tail(df, 2)[:x]) == [4, 5]
     @test Tables.columnnames(rename(df, ["x"], ["y"])) == (:y,)
 end
 
 @testset "String/binary/list write path uses 64-bit offsets (Julia-side P0.7)" begin
-    # `format(String)`/`format(Vector{UInt8})`/list columns used to declare the 32-bit-offset
-    # Arrow formats ("u"/"z"/"+l") while building `UInt32`/`Int32` offset buffers -- a column
-    # whose total byte length (or, for lists, total flattened element count) crosses 2^31/2^32
-    # would silently wrap `cumsum!` and corrupt every offset past that point. Switched to the
-    # large-offset formats ("U"/"Z"/"+L") with `Int64` offsets, which have no such practical
-    # limit. This doesn't fabricate multi-GB data (impractical for a test) -- it locks in the
-    # format constants themselves and exercises the actual round trip through polars.
+    # `format(String)`/`format(Vector{UInt8})`/list columns declare the large-offset Arrow formats
+    # ("U"/"Z"/"+L") and build `Int64` offset buffers to match. The 32-bit-offset formats
+    # ("u"/"z"/"+l") would cap a column's total byte length (or, for lists, total flattened element
+    # count) at 2^31/2^32, past which `cumsum!` silently wraps and corrupts every later offset.
+    # This doesn't fabricate multi-GB data (impractical for a test) -- it locks in the format
+    # constants themselves and exercises the actual round trip through polars.
     @test Polars.format(String) == "U"
     @test Polars.format(Vector{UInt8}) == "Z"
     @test Polars.format(Vector{Int}) == "+L"
@@ -155,11 +156,11 @@ end
 end
 
 @testset "fixed-size-list schema raises a clear error, not a TypeError (Julia-side P0.2)" begin
-    # `@assert schema.n_children` (an Int64) instead of `@assert schema.n_children == 1` blew up
-    # with a TypeError before ever reaching the "not supported" message. There's no way to
-    # construct an Array-dtype column through this package's own API (only reachable by scanning
-    # a file written by another Arrow implementation), so drive `parse_format` directly against a
-    # hand-built schema.
+    # An unsupported fixed-size-list schema must reach its "not supported" message rather than
+    # dying earlier in a `TypeError` (asserting on a bare `Int64` `n_children` field, say, instead
+    # of a comparison against it). There's no way to construct an Array-dtype column through this
+    # package's own API (only reachable by scanning a file written by another Arrow
+    # implementation), so drive `parse_format` directly against a hand-built schema.
     child = Polars.ArrowSchema(; format = "i", name = "item")
     sch = Polars.ArrowSchema(; format = "+w4", name = "col", children = [child])
     csch = unsafe_load(Base.unsafe_convert(Ptr{Polars.API.ArrowSchema}, sch))
@@ -171,21 +172,21 @@ end
     end
 end
 
-@testset "GC stress: Value accessors survive interleaved GC (P1 GC use-after-free fix)" begin
-    # `Value` ccalls (polars_value_duration_get/datetime_get/date_get/time_get) used to pass the
-    # raw `value.ptr` instead of `value` itself, bypassing the `unsafe_convert`-based rooting that
-    # keeps the wrapper (and the Rust-owned pointee) alive for the ccall's duration -- a GC
-    # running on another thread mid-ccall could finalize (and destroy) the `Value` while Rust was
-    # still using it. This doesn't deterministically reproduce that race (it needs an unlucky
-    # concurrent GC), but repeatedly materializing every accessor affected by the fix with a
-    # `GC.gc()` forced in between at least exercises the fixed call sites under GC pressure.
+@testset "GC stress: Value accessors survive interleaved GC" begin
+    # The `Value` ccalls (polars_value_duration_get/datetime_get/date_get/time_get) pass `value`
+    # itself, not the raw `value.ptr`, so the `unsafe_convert`-based rooting keeps the wrapper (and
+    # the Rust-owned pointee) alive for the ccall's duration. Passing the bare pointer instead
+    # would let a GC running on another thread mid-ccall finalize (and destroy) the `Value` while
+    # Rust is still using it. That race can't be reproduced deterministically (it needs an unlucky
+    # concurrent GC), but repeatedly materializing every affected accessor with a `GC.gc()` forced
+    # in between at least exercises those call sites under GC pressure.
     #
-    # The companion fix -- the Series constructor leaking its owned pointer when `parse_format`
-    # throws on an unsupported dtype (`src/series.jl`) -- has no independent regression test here:
-    # there's no way to construct a genuinely unsupported-dtype `Series` through this package's
-    # public API (see the fixed-size-list testset above), so the only assertion available for that
-    # fix is that ordinary construction still installs a working finalizer, which the rest of this
-    # suite already exercises continuously.
+    # The companion guarantee -- the Series constructor destroying its owned pointer when
+    # `parse_format` throws on an unsupported dtype (`src/series.jl`) -- has no independent test
+    # here: there's no way to construct a genuinely unsupported-dtype `Series` through this
+    # package's public API (see the fixed-size-list testset above), so the only assertion available
+    # is that ordinary construction installs a working finalizer, which the rest of this suite
+    # already exercises continuously.
     df = DataFrame(
         (;
             dt = [DateTime(2024, 1, 1) + Dates.Day(i) for i in 1:50],
@@ -360,9 +361,9 @@ end
     # The pointers in `ptrs` are raw interior pointers into `owned`'s strings. Nothing else
     # references `owned` when the input isn't already a `Vector{String}` (it is built right here),
     # so returning it is what lets every caller root the *right* object in its `GC.@preserve`.
-    # Preserving only the caller's own argument -- what every call site used to do -- left the
-    # pointers dangling for a `Vector{Symbol}`, with each call site's `Ref` allocation sitting
-    # between the conversion and the ccall as a live GC safepoint.
+    # Preserving only the caller's own argument would leave the pointers dangling for a
+    # `Vector{Symbol}`, with each call site's `Ref` allocation sitting between the conversion and
+    # the ccall as a live GC safepoint.
     strs = ["alpha", "beta"]
     owned, ptrs, lens = Polars._name_ptrs(strs)
     @test owned === strs # already-owned input is passed straight through, not copied
@@ -391,10 +392,10 @@ end
 
 @testset "Symbol column names survive a GC between marshalling and the ccall" begin
     # Every verb below takes a `Vector{<:ColId}` and marshals it through `_name_ptrs`. With a
-    # `Vector{Symbol}` that conversion allocates, so a collection here used to be free to reclaim
-    # the converted strings before polars ever read them -- a use-after-free that surfaces as
-    # garbage column names or a crash, nondeterministically. Forcing a full GC on each iteration
-    # makes the window as hostile as it can be made from Julia.
+    # `Vector{Symbol}` that conversion allocates, and only the `GC.@preserve` around the ccall
+    # keeps the converted strings from being reclaimed before polars reads them -- reclaiming them
+    # is a use-after-free that surfaces as garbage column names or a crash, nondeterministically.
+    # Forcing a full GC on each iteration makes the window as hostile as it can be made from Julia.
     df = DataFrame((; a = [1, 2, 3], b = ["x", "y", "z"], c = [1.5, 2.5, 3.5]))
     lists = DataFrame((; g = ["p", "q"], l = [[1, 2], [3]]))
     wide = DataFrame((; id = [1, 2], m = [10, 20], n = [30, 40]))

@@ -88,12 +88,10 @@ function validitybuffer(vm::ValidityMap)
 end
 
 function format(T)
-    # `T <: Vector` is the real dispatch path for every list column (`Vector{Int}`,
-    # `Vector{Vector{Int}}`, ...): a `format(::Type{Vector{<:Any}})` method below looks like it
-    # should take priority for concrete `Vector{X}` types, but `Vector{<:Any}` collapses to the
-    # bare UnionAll `Vector`, so `Type{Vector{<:Any}}` only matches the literal unparameterized
-    # `Vector` value -- never a concrete `Vector{X}` -- and was silently dead code. This fallback
-    # is what every real list column actually goes through.
+    # A subtype test in this untyped fallback, rather than a `format(::Type{Vector{<:Any}})`
+    # method, is what catches every list column (`Vector{Int}`, `Vector{Vector{Int}}`, ...):
+    # `Vector{<:Any}` collapses to the bare UnionAll `Vector`, so a `Type{Vector{<:Any}}` signature
+    # matches only the literal unparameterized `Vector` value, never a concrete `Vector{X}`.
     if T <: Vector
         return "+L" # large-list (Int64 offsets) -- see the arrowvector methods below for why
     end
@@ -189,8 +187,7 @@ call their own release callbacks, MUST free any data area it owns directly, and 
 structure released (`release = NULL`). Recursion through the whole tree falls out for free here:
 every `ArrowArray` this package builds shares this same callback, so invoking a child's callback
 walks *its* children in turn, all the way down to the leaves -- no explicit recursion needed on
-the Julia side (contrast with the old `release_array!`, which had to recurse because every level
-used to root itself independently in `LIVE_ARRAYS`).
+the Julia side.
 """
 function base_release_array(carray_ptr::Ptr{CArrowArray})
     carray = unsafe_load(carray_ptr)
@@ -242,8 +239,7 @@ Registers `array` in `LIVE_ARRAYS`, keeping it (and everything reachable through
 field) alive from the Julia GC's perspective until Rust invokes its release callback. Only ever
 needed for the top-level array handed across the FFI boundary (see `arrowtable`) -- children are
 kept alive transitively through their parent's `children::Vector{ArrowArray}` field, so rooting
-every nesting level independently (the old behavior) was both unnecessary and the reason
-`release_array!` used to have to recurse.
+every nesting level independently would be redundant.
 """
 function root!(array::ArrowArray)
     lock(LIVE_ARRAYS_LOCK) do
@@ -291,8 +287,8 @@ Base.unsafe_convert(::Type{CArrowArray}, array::ArrowArray) = array.carrow_array
 
 function Base.unsafe_convert(::Type{Ptr{CArrowArray}}, array::ArrowArray)
     # `Base.fieldindex` (as in `_mark_released!`) rather than `findfirst` over `fieldnames`: with
-    # both arguments constant this folds away at compile time, where the search ran on every
-    # single conversion -- and this is the hot path every ccall taking an array goes through.
+    # both arguments constant it folds away at compile time instead of searching on every single
+    # conversion -- and this is the hot path every ccall taking an array goes through.
     return Ptr{CArrowArray}(
         Ptr{UInt8}(Base.pointer_from_objref(array)) +
             fieldoffset(ArrowArray, Base.fieldindex(ArrowArray, :carrow_array))
@@ -514,11 +510,10 @@ function arrowtable(table, table_name)
         children
     )
 
-    # Fetch each column by *name*, through the Tables.jl `AbstractColumns` interface. Iterating
-    # the columns object directly (the old shape) is not part of that interface -- it happens to
-    # work for a `NamedTuple` and fails for anything else, including this package's own
-    # `DataFrameColumns` -- and it silently assumed iteration order matched `tschema.names`, the
-    # order the schema children above were built in.
+    # Fetch each column by *name*, through the Tables.jl `AbstractColumns` interface, so the
+    # columns line up with the schema children built above regardless of the source's own ordering.
+    # Iterating a columns object directly is not part of that interface: it happens to work for a
+    # `NamedTuple` and fails for anything else, including this package's own `DataFrameColumns`.
     cols = Tables.columns(table)
     ℓ = Tables.rowcount(cols)
     array = ArrowArray(

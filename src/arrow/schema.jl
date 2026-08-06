@@ -291,8 +291,7 @@ call their own release callbacks, MUST free any data area it owns directly, and 
 structure released (`release = NULL`). Recursion through the whole tree falls out for free here:
 every `ArrowSchema` this package builds shares this same callback, so invoking a child's callback
 walks *its* children in turn, all the way down to the leaves -- no explicit recursion needed on
-the Julia side (contrast with the old `release_schema!`, which had to recurse because every level
-used to root itself independently in `LIVE_SCHEMAS`).
+the Julia side.
 """
 function base_release_schema(schema_ptr::Ptr{CArrowSchema})
     cschema = unsafe_load(schema_ptr)
@@ -342,8 +341,7 @@ Registers `schema` in `LIVE_SCHEMAS`, keeping it (and everything reachable throu
 field) alive from the Julia GC's perspective until Rust invokes its release callback. Only ever
 needed for the top-level schema handed across the FFI boundary (see `arrowtable`) -- children are
 kept alive transitively through their parent's `children::Vector{ArrowSchema}` field, so rooting
-every nesting level independently (the old behavior) was both unnecessary and the reason
-`release_schema!` used to have to recurse.
+every nesting level independently would be redundant.
 """
 function root!(schema::ArrowSchema)
     lock(LIVE_SCHEMAS_LOCK) do

@@ -1,7 +1,7 @@
 //! Rust-side smoke tests for the C ABI surface.
 //!
 //! These are deliberately about *safety*, not feature coverage (that lives in the Julia suite):
-//! every case here exercises a path that previously invoked undefined behaviour or aborted the
+//! every case here exercises a path where a slip invokes undefined behaviour or aborts the
 //! process. `cargo test` compiles the crate with the unit-test harness even though it is a
 //! `cdylib`, so the `extern "C"` entry points are callable directly by their module paths.
 #![allow(clippy::undocumented_unsafe_blocks)]
@@ -195,11 +195,10 @@ fn write_callback_receives_the_full_output() {
 
 #[test]
 fn destroy_is_a_no_op_on_null_for_every_handle_type() {
-    // Every `*_destroy` used to `assert!(!ptr.is_null())`; a failed assert panics, and a panic
-    // crossing `extern "C"` aborts the whole host process (none of the destructors runs inside
-    // `guard_error`). `Opaque::destroy` treats null as a no-op instead, matching C's
-    // `free(NULL)` -- this exercises that all 7 handle types actually get that behavior instead
-    // of aborting. A previous version of this test would have crashed the test binary outright.
+    // `Opaque::destroy` treats null as a no-op, matching C's `free(NULL)`. An
+    // `assert!(!ptr.is_null())` in its place would panic, and a panic crossing `extern "C"` aborts
+    // the whole host process (none of the destructors runs inside `guard_error`) -- taking this
+    // test binary with it. This exercises that all 7 handle types get the no-op behavior.
     unsafe {
         crate::polars_error_destroy(std::ptr::null());
         crate::expr::polars_expr_destroy(std::ptr::null());
