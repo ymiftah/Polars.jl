@@ -1,5 +1,5 @@
 module Dt
-using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error, cast, floor_div, _time_unit_enum
+using ..Polars: @generate_expr_fns, @gen_kwpass, @curry, API, polars_expr_t, Expr, polars_error, cast, floor_div, _time_unit_enum
 
 @generate_expr_fns begin
     gen_impl_expr_dt!(polars_expr_dt_year, DateLikeNameSpace::year, "Extracts the year component of each Date/Datetime value in `expr`.")
@@ -122,144 +122,32 @@ function month_end(::Expr)
     )
 end
 
-"""
-    total_days(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
-
-Total number of whole days represented by each Duration value in `expr` (truncated toward
-zero). Pass `fractional=true` for the exact value as a `Float64` instead.
-"""
-function total_days(expr::Expr; fractional::Bool = false)
-    out = API.polars_expr_dt_total_days(expr, fractional)
-    return Expr(out)
-end
-
-"""
-    total_days(; fractional::Bool=false)::Base.Callable
-
-Curried form of [`total_days`](@ref) for use with `|>`.
-"""
-total_days(; fractional::Bool = false) = expr -> total_days(expr; fractional)
-
+@gen_kwpass total_days(expr::Expr; fractional::Bool = false) polars_expr_dt_total_days "Total number of whole days represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+@curry total_days(; fractional::Bool = false)
 export total_days
 
-"""
-    total_hours(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
-
-Total number of whole hours represented by each Duration value in `expr` (truncated toward
-zero). Pass `fractional=true` for the exact value as a `Float64` instead.
-"""
-function total_hours(expr::Expr; fractional::Bool = false)
-    out = API.polars_expr_dt_total_hours(expr, fractional)
-    return Expr(out)
-end
-
-"""
-    total_hours(; fractional::Bool=false)::Base.Callable
-
-Curried form of [`total_hours`](@ref) for use with `|>`.
-"""
-total_hours(; fractional::Bool = false) = expr -> total_hours(expr; fractional)
-
+@gen_kwpass total_hours(expr::Expr; fractional::Bool = false) polars_expr_dt_total_hours "Total number of whole hours represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+@curry total_hours(; fractional::Bool = false)
 export total_hours
 
-"""
-    total_minutes(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
-
-Total number of whole minutes represented by each Duration value in `expr` (truncated toward
-zero). Pass `fractional=true` for the exact value as a `Float64` instead.
-"""
-function total_minutes(expr::Expr; fractional::Bool = false)
-    out = API.polars_expr_dt_total_minutes(expr, fractional)
-    return Expr(out)
-end
-
-"""
-    total_minutes(; fractional::Bool=false)::Base.Callable
-
-Curried form of [`total_minutes`](@ref) for use with `|>`.
-"""
-total_minutes(; fractional::Bool = false) = expr -> total_minutes(expr; fractional)
-
+@gen_kwpass total_minutes(expr::Expr; fractional::Bool = false) polars_expr_dt_total_minutes "Total number of whole minutes represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+@curry total_minutes(; fractional::Bool = false)
 export total_minutes
 
-"""
-    total_seconds(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
-
-Total number of whole seconds represented by each Duration value in `expr` (truncated toward
-zero). Pass `fractional=true` for the exact value as a `Float64` instead.
-"""
-function total_seconds(expr::Expr; fractional::Bool = false)
-    out = API.polars_expr_dt_total_seconds(expr, fractional)
-    return Expr(out)
-end
-
-"""
-    total_seconds(; fractional::Bool=false)::Base.Callable
-
-Curried form of [`total_seconds`](@ref) for use with `|>`.
-"""
-total_seconds(; fractional::Bool = false) = expr -> total_seconds(expr; fractional)
-
+@gen_kwpass total_seconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_seconds "Total number of whole seconds represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+@curry total_seconds(; fractional::Bool = false)
 export total_seconds
 
-"""
-    total_milliseconds(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
-
-Total number of whole milliseconds represented by each Duration value in `expr` (truncated
-toward zero). Pass `fractional=true` for the exact value as a `Float64` instead.
-"""
-function total_milliseconds(expr::Expr; fractional::Bool = false)
-    out = API.polars_expr_dt_total_milliseconds(expr, fractional)
-    return Expr(out)
-end
-
-"""
-    total_milliseconds(; fractional::Bool=false)::Base.Callable
-
-Curried form of [`total_milliseconds`](@ref) for use with `|>`.
-"""
-total_milliseconds(; fractional::Bool = false) = expr -> total_milliseconds(expr; fractional)
-
+@gen_kwpass total_milliseconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_milliseconds "Total number of whole milliseconds represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+@curry total_milliseconds(; fractional::Bool = false)
 export total_milliseconds
 
-"""
-    total_microseconds(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
-
-Total number of whole microseconds represented by each Duration value in `expr` (truncated
-toward zero). Pass `fractional=true` for the exact value as a `Float64` instead.
-"""
-function total_microseconds(expr::Expr; fractional::Bool = false)
-    out = API.polars_expr_dt_total_microseconds(expr, fractional)
-    return Expr(out)
-end
-
-"""
-    total_microseconds(; fractional::Bool=false)::Base.Callable
-
-Curried form of [`total_microseconds`](@ref) for use with `|>`.
-"""
-total_microseconds(; fractional::Bool = false) = expr -> total_microseconds(expr; fractional)
-
+@gen_kwpass total_microseconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_microseconds "Total number of whole microseconds represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+@curry total_microseconds(; fractional::Bool = false)
 export total_microseconds
 
-"""
-    total_nanoseconds(expr::Polars.Expr; fractional::Bool=false)::Polars.Expr
-
-Total number of whole nanoseconds represented by each Duration value in `expr` (truncated
-toward zero). Pass `fractional=true` for the exact value as a `Float64` instead.
-"""
-function total_nanoseconds(expr::Expr; fractional::Bool = false)
-    out = API.polars_expr_dt_total_nanoseconds(expr, fractional)
-    return Expr(out)
-end
-
-"""
-    total_nanoseconds(; fractional::Bool=false)::Base.Callable
-
-Curried form of [`total_nanoseconds`](@ref) for use with `|>`.
-"""
-total_nanoseconds(; fractional::Bool = false) = expr -> total_nanoseconds(expr; fractional)
-
+@gen_kwpass total_nanoseconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_nanoseconds "Total number of whole nanoseconds represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+@curry total_nanoseconds(; fractional::Bool = false)
 export total_nanoseconds
 
 """

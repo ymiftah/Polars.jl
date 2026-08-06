@@ -121,45 +121,13 @@ end
 
 export spearman_rank_corr
 
-"""
-    skew(expr::Polars.Expr; bias::Bool=true)::Polars.Expr
-
-Compute the sample skewness of the values.
-
-For normally distributed data, the skewness should be about zero. For unimodal continuous
-distributions, a skewness value greater than zero means that there is more weight in the right
-tail of the distribution.
-
-The sample skewness is computed as the Fisher-Pearson coefficient of skewness. If `bias` is
-`false`, the calculation is corrected for statistical bias.
-"""
-function skew(expr::Expr; bias::Bool = true)
-    out = API.polars_expr_skew(expr, bias)
-    return Expr(out)
-end
+@gen_kwpass skew(expr::Expr; bias::Bool = true) polars_expr_skew "Compute the sample skewness of the values.\n\nFor normally distributed data, the skewness should be about zero. For unimodal continuous distributions, a skewness value greater than zero means that there is more weight in the right tail of the distribution.\n\nThe sample skewness is computed as the Fisher-Pearson coefficient of skewness. If `bias` is `false`, the calculation is corrected for statistical bias."
 
 @curry skew(; bias::Bool = true)
 
 export skew
 
-"""
-    kurtosis(expr::Polars.Expr; fisher::Bool=true, bias::Bool=true)::Polars.Expr
-
-Compute the kurtosis (Fisher or Pearson) of the values.
-
-Kurtosis is the fourth central moment divided by the square of the variance. If `fisher` is
-`true` (default), `3.0` is subtracted from the result so that a normal distribution gives `0.0`;
-if `false`, Pearson's definition is used (`3.0` for a normal distribution). If `bias` is `false`,
-the calculation is corrected for statistical bias.
-
-A constant (zero-variance) input gives `NaN`, not an error.
-
-With StatsBase.jl loaded, the bare `kurtosis(expr)`/`skewness(expr)` also work.
-"""
-function kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true)
-    out = API.polars_expr_kurtosis(expr, fisher, bias)
-    return Expr(out)
-end
+@gen_kwpass kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true) polars_expr_kurtosis "Compute the kurtosis (Fisher or Pearson) of the values.\n\nKurtosis is the fourth central moment divided by the square of the variance. If `fisher` is `true` (default), `3.0` is subtracted from the result so that a normal distribution gives `0.0`; if `false`, Pearson's definition is used (`3.0` for a normal distribution). If `bias` is `false`, the calculation is corrected for statistical bias.\n\nA constant (zero-variance) input gives `NaN`, not an error.\n\nWith StatsBase.jl loaded, the bare `kurtosis(expr)`/`skewness(expr)` also work."
 
 @curry kurtosis(; fisher::Bool = true, bias::Bool = true)
 
@@ -261,45 +229,11 @@ end
 export sample_frac
 
 
-"""
-    cum_sum(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
-
-Cumulative sum of the values. If `reverse` is `true`, accumulates from the last value to the
-first.
-"""
-cum_sum(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_sum(expr, reverse))
-
-"""
-    cum_prod(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
-
-Cumulative product of the values. If `reverse` is `true`, accumulates from the last value to
-the first.
-"""
-cum_prod(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_prod(expr, reverse))
-
-"""
-    cum_min(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
-
-Cumulative minimum of the values. If `reverse` is `true`, accumulates from the last value to
-the first.
-"""
-cum_min(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_min(expr, reverse))
-
-"""
-    cum_max(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
-
-Cumulative maximum of the values. If `reverse` is `true`, accumulates from the last value to
-the first.
-"""
-cum_max(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_max(expr, reverse))
-
-"""
-    cum_count(expr::Polars.Expr; reverse::Bool=false)::Polars.Expr
-
-Cumulative count of non-null values. If `reverse` is `true`, accumulates from the last value to
-the first.
-"""
-cum_count(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_count(expr, reverse))
+@gen_kwpass cum_sum(expr::Expr; reverse::Bool = false) polars_expr_cum_sum "Cumulative sum of the values. If `reverse` is `true`, accumulates from the last value to the first."
+@gen_kwpass cum_prod(expr::Expr; reverse::Bool = false) polars_expr_cum_prod "Cumulative product of the values. If `reverse` is `true`, accumulates from the last value to the first."
+@gen_kwpass cum_min(expr::Expr; reverse::Bool = false) polars_expr_cum_min "Cumulative minimum of the values. If `reverse` is `true`, accumulates from the last value to the first."
+@gen_kwpass cum_max(expr::Expr; reverse::Bool = false) polars_expr_cum_max "Cumulative maximum of the values. If `reverse` is `true`, accumulates from the last value to the first."
+@gen_kwpass cum_count(expr::Expr; reverse::Bool = false) polars_expr_cum_count "Cumulative count of non-null values. If `reverse` is `true`, accumulates from the last value to the first."
 
 @curry cum_sum(; reverse::Bool = false)
 @curry cum_prod(; reverse::Bool = false)

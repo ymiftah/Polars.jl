@@ -314,6 +314,106 @@ macro curry(sig)
 end
 
 """
+    @gen_kwpass f(expr::Expr; kw1::T1 = d1, ...) cname desc
+
+Generates the "extra kwargs forwarded straight through as plain positional C args, no
+conversion, non-fallible" primal shape shared by [`cum_sum`](@ref) (and `cum_prod`/`cum_min`/
+`cum_max`/`cum_count`), `Dt.total_days` (and its six siblings), [`skew`](@ref), and others --
+
+    f(expr::Expr; kw1::T1 = d1, ...) = Expr(API.cname(expr, kw1, ...))
+
+`desc` becomes the docstring body under a `f(...)::Polars.Expr` header built from `sig` itself.
+Only fits a kwarg that needs *no* wrapping before reaching the ccall (contrast `rolling_std`'s
+`ddof`, which needs `UInt8(ddof)` -- that stays hand-written); the kwarg declaration order here
+must match the C function's actual positional parameter order after `expr`. Not used for a
+Base-colliding name (`Base.all`/`Base.any`) -- those stay hand-written rather than teaching this
+macro the qualification dance `@generate_expr_fns` already carries for that case.
+"""
+macro gen_kwpass(sig, cname, desc)
+    @assert sig isa Base.Expr && sig.head === :call && sig.args[1] isa Symbol &&
+        length(sig.args) == 3 && sig.args[3] == Base.Expr(:(::), :expr, :Expr) &&
+        sig.args[2] isa Base.Expr && sig.args[2].head === :parameters "@gen_kwpass expects e.g. `cum_sum(expr::Expr; reverse::Bool = false)`"
+    fname = sig.args[1]
+    kwparams = sig.args[2]
+    kwnames = Symbol[_curry_arg(kw)[2] for kw in kwparams.args]
+
+    ccall_expr = Base.Expr(:call, Base.Expr(:(.), :API, QuoteNode(cname)), :expr, kwnames...)
+    fn_def = Base.Expr(:(=), sig, :(Expr($ccall_expr)))
+
+    string_sig = replace(string(sig), "Expr" => "Polars.Expr")
+    docstring = """
+        $(string_sig)::Polars.Expr
+
+    $desc
+    """
+    return esc(
+        quote
+            $fn_def
+            Docs.@doc $docstring $sig
+        end
+    )
+end
+
+"""
+    @gen_horizontal fname cname has_ignore_nulls desc
+
+Generates one `_horizontal` row-wise reduction -- `fname(exprs...)`, or `fname(exprs...;
+ignore_nulls::Bool=true)` when `has_ignore_nulls` is the literal `true`: `_expr_vector`s `exprs`,
+marshals pointers under `GC.@preserve`, calls the fallible `cname` ccall, and returns
+`Expr(out[])`. `desc` becomes the docstring body.
+"""
+macro gen_horizontal(fname, cname, has_ignore_nulls, desc)
+    @assert fname isa Symbol && has_ignore_nulls isa Bool "@gen_horizontal expects (fname::Symbol, cname::Symbol, has_ignore_nulls::Bool, desc::String) -- got ($fname, $cname, $has_ignore_nulls, $desc)"
+
+    ccall_args = Any[Base.Expr(:(.), :API, QuoteNode(cname)), :ptrs, :(length(ptrs))]
+    has_ignore_nulls && push!(ccall_args, :ignore_nulls)
+    push!(ccall_args, :out)
+    ccall_expr = Base.Expr(:call, ccall_args...)
+
+    fn_def = if has_ignore_nulls
+        quote
+            function $fname(exprs...; ignore_nulls::Bool = true)
+                exprs = _expr_vector(exprs)
+                GC.@preserve exprs begin
+                    ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+                    out = Ref{Ptr{polars_expr_t}}()
+                    err = $ccall_expr
+                    polars_error(err)
+                end
+                return Expr(out[])
+            end
+        end
+    else
+        quote
+            function $fname(exprs...)
+                exprs = _expr_vector(exprs)
+                GC.@preserve exprs begin
+                    ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+                    out = Ref{Ptr{polars_expr_t}}()
+                    err = $ccall_expr
+                    polars_error(err)
+                end
+                return Expr(out[])
+            end
+        end
+    end
+
+    doc_sig = has_ignore_nulls ? "$(fname)(exprs...; ignore_nulls::Bool=true)" : "$(fname)(exprs...)"
+    doc_target = has_ignore_nulls ? :($fname(exprs...; ignore_nulls::Bool = true)) : :($fname(exprs...))
+    docstring = """
+        $(doc_sig)::Polars.Expr
+
+    $desc
+    """
+    return esc(
+        quote
+            $fn_def
+            Docs.@doc $docstring $doc_target
+        end
+    )
+end
+
+"""
     nth(n::Int64)::Polars.Expr
 
 Returns an expression referencing the nth column in a dataframe.
@@ -813,18 +913,7 @@ end
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
 
-"""
-    flatten(expr::Polars.Expr; empty_as_null::Bool=true, keep_nulls::Bool=true)::Polars.Expr
-
-Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of
-[`implode`](@ref). `empty_as_null`: an empty list produces one `null` row when `true` (default),
-rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true`
-(default), rather than disappearing.
-"""
-function flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true)
-    out = API.polars_expr_flatten(expr, empty_as_null, keep_nulls)
-    return Expr(out)
-end
+@gen_kwpass flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true) polars_expr_flatten "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref). `empty_as_null`: an empty list produces one `null` row when `true` (default), rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true` (default), rather than disappearing."
 export flatten
 
 """
@@ -1258,15 +1347,7 @@ end
 export gather_every
 
 
-"""
-    item(expr::Polars.Expr; allow_empty::Bool=false)::Polars.Expr
-
-The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or
-overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead
-of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a
-`DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation).
-"""
-item(expr::Expr; allow_empty::Bool = false) = Expr(API.polars_expr_item(expr, allow_empty))
+@gen_kwpass item(expr::Expr; allow_empty::Bool = false) polars_expr_item "The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a `DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation)."
 
 
 """Coerces an iterable of column references (names, `Expr`s, `Selector`s) into a `Vector{Expr}`
@@ -1312,107 +1393,12 @@ end
 
 export as_struct
 
-"""
-    all_horizontal(exprs...)::Polars.Expr
-
-Row-wise (horizontal) boolean AND across `exprs`. The output column is named `"all"` unless
-[`alias`](@ref)ed.
-"""
-function all_horizontal(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_all_horizontal(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    any_horizontal(exprs...)::Polars.Expr
-
-Row-wise (horizontal) boolean OR across `exprs`. The output column is named `"any"` unless
-[`alias`](@ref)ed.
-"""
-function any_horizontal(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_any_horizontal(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    min_horizontal(exprs...)::Polars.Expr
-
-Row-wise (horizontal) minimum across `exprs`. The output column is named `"min"` unless
-[`alias`](@ref)ed.
-"""
-function min_horizontal(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_min_horizontal(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    max_horizontal(exprs...)::Polars.Expr
-
-Row-wise (horizontal) maximum across `exprs`. The output column is named `"max"` unless
-[`alias`](@ref)ed.
-"""
-function max_horizontal(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_max_horizontal(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    sum_horizontal(exprs...; ignore_nulls::Bool=true)::Polars.Expr
-
-Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are
-treated as `0`; if `false`, any null in a row makes that row's sum `null`.
-"""
-function sum_horizontal(exprs...; ignore_nulls::Bool = true)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_sum_horizontal(ptrs, length(ptrs), ignore_nulls, out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    mean_horizontal(exprs...; ignore_nulls::Bool=true)::Polars.Expr
-
-Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are
-excluded from the average; if `false`, any null in a row makes that row's mean `null`.
-"""
-function mean_horizontal(exprs...; ignore_nulls::Bool = true)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_mean_horizontal(ptrs, length(ptrs), ignore_nulls, out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
+@gen_horizontal all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
+@gen_horizontal any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."
+@gen_horizontal min_horizontal polars_expr_min_horizontal false "Row-wise (horizontal) minimum across `exprs`. The output column is named `\"min\"` unless [`alias`](@ref)ed."
+@gen_horizontal max_horizontal polars_expr_max_horizontal false "Row-wise (horizontal) maximum across `exprs`. The output column is named `\"max\"` unless [`alias`](@ref)ed."
+@gen_horizontal sum_horizontal polars_expr_sum_horizontal true "Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are treated as `0`; if `false`, any null in a row makes that row's sum `null`."
+@gen_horizontal mean_horizontal polars_expr_mean_horizontal true "Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are excluded from the average; if `false`, any null in a row makes that row's mean `null`."
 
 export all_horizontal, any_horizontal, min_horizontal, max_horizontal, sum_horizontal, mean_horizontal
 
