@@ -39,6 +39,14 @@ using .API
 using Dates
 using Statistics
 
+# The wrapper-generating macros, and the argument-marshalling rules they share. Included before
+# anything that wraps a `polars_*` symbol, since Julia resolves a macro at parse time and every
+# later file expands these. See the file header for which shape each macro covers, and prefer
+# extending one over hand-writing a wrapper -- the marshalling it encodes (`ncodeunits` not
+# `length` for a `(ptr, len)` pair, `polars_error` after every fallible call) is the part that
+# goes wrong silently.
+include("./macros.jl")
+
 # Arrow interface
 # TODO Monitor progress of https://github.com/apache/arrow-julia/issues/184
 # which should be considered the "Official" julia arrow implementation
