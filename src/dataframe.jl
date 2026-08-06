@@ -87,9 +87,9 @@ item(df::DataFrame, row::Integer, col) = getindex(df, row, col)
 
 Base.getindex(df::DataFrame, row_index, col_index) = getindex(getindex(df, col_index), row_index)
 Base.getindex(df::DataFrame, idx::Int) = Tables.getcolumn(df, idx)
-# The string form is the primitive one (it's what the ccall needs); the `Symbol` method converts
-# into it. It used to be the other way round, so the common `df["a"]` path allocated a `Symbol`
-# and then a second `String` back out of it before reaching the ccall.
+# The string form is the primitive one -- it's what the ccall needs. The `Symbol` method routes
+# through it (rather than the reverse) so the common `df["a"]` path allocates one `String`, not a
+# `Symbol` plus a second `String` converted back out of it.
 function Base.getindex(df::DataFrame, name::AbstractString)
     s = String(name)
     out = Ref{Ptr{polars_series_t}}()
