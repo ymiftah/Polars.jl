@@ -213,7 +213,8 @@ impl polars_start_by_t {
 pub unsafe extern "C" fn polars_value_time_unit(value: *mut polars_value_t) -> polars_time_unit_t {
     let tu = match (*value).inner {
         AnyValue::Duration(_, tu) => tu,
-        AnyValue::Datetime(_, tu, _) => tu,
+        // See `polars_value_datetime_get` on why both datetime variants are matched.
+        AnyValue::DatetimeOwned(_, tu, _) | AnyValue::Datetime(_, tu, _) => tu,
         _ => return polars_time_unit_t::PolarsTimeUnitInvalid,
     };
 
@@ -231,7 +232,15 @@ pub unsafe extern "C" fn polars_value_time_zone(
     value: *mut polars_value_t,
     out: *mut *const u8,
 ) -> usize {
+    // `DatetimeOwned` holds `Option<Arc<TimeZone>>` where `Datetime` holds `Option<&TimeZone>`;
+    // both deref to `TimeZone`, and the `Arc`'s payload lives exactly as long as the value does, so
+    // the borrowed-pointer contract is the same either way.
     match &(*value).inner {
+        AnyValue::DatetimeOwned(_, _, Some(tz)) => {
+            let s = tz.as_str();
+            *out = s.as_ptr();
+            s.len()
+        }
         AnyValue::Datetime(_, _, Some(tz)) => {
             let s = tz.as_str();
             *out = s.as_ptr();
@@ -340,7 +349,9 @@ pub unsafe extern "C" fn polars_value_datetime_get(
 ) -> *const polars_error_t {
     guard_error(|| {
         match (*value).inner {
-            AnyValue::Datetime(i, _, _) => *out = i,
+            // `DatetimeOwned` is what `into_static` produces (see `polars_value_t`); the borrowed
+            // `Datetime` arm is kept so the accessor stays correct for a value built another way.
+            AnyValue::DatetimeOwned(i, _, _) | AnyValue::Datetime(i, _, _) => *out = i,
             _ => return make_error("value is not of type datetime"),
         }
 
@@ -390,8 +401,12 @@ pub unsafe extern "C" fn polars_value_binary_get(
 ) -> *const polars_error_t {
     guard_error(|| {
         let mut w = UserIOCallback(callback, user);
-        let AnyValue::Binary(s) = (*value).inner else {
-            return make_error("value is not of type binary");
+        // `BinaryOwned` is what `into_static` produces; the borrowed `Binary` arm is kept for the
+        // same reason the datetime accessor keeps its.
+        let s: &[u8] = match &(*value).inner {
+            AnyValue::BinaryOwned(v) => v,
+            AnyValue::Binary(v) => v,
+            _ => return make_error("value is not of type binary"),
         };
         // write_all, not write: a single write() may report a short count and silently drop the tail.
         match w.write_all(s) {
@@ -401,34 +416,31 @@ pub unsafe extern "C" fn polars_value_binary_get(
     })
 }
 
-/// Returns the value of struct field `fieldidx`.
-///
-/// # Safety
-/// The returned value borrows into the parent struct's backing memory (as every `polars_value_t`
-/// does -- it wraps an `AnyValue<'a>`). Lifetime parameters on a `#[no_mangle] extern "C"` fn
-/// enforce nothing across the C boundary, so this is a *caller invariant*, not a compiler-checked
-/// one: **the caller must keep `value` (and its parent Series) alive until it is done with `*out`,
-/// and must destroy `*out` before `value`.** The Julia side roots the parent accordingly.
+/// Returns the value of struct field `fieldidx`. The result owns its data (see `polars_value_t`),
+/// so it may outlive `value` and be destroyed in any order relative to it.
 #[no_mangle]
-pub unsafe extern "C" fn polars_value_struct_get<'a>(
-    value: *mut polars_value_t<'a>,
+pub unsafe extern "C" fn polars_value_struct_get(
+    value: *mut polars_value_t,
     fieldidx: usize,
-    out: *mut *mut polars_value_t<'a>,
+    out: *mut *mut polars_value_t,
 ) -> *const polars_error_t {
     guard_error(|| {
-        let inner: &'a AnyValue<'a> = &(*value).inner;
-        if !matches!(inner, AnyValue::Struct(_, _, _)) {
+        // Always `StructOwned` rather than `Struct`: `make_value` ran `into_static`, which
+        // materializes the fields into a `Vec`. That makes this a direct index instead of a walk
+        // of the field list per call. It is also the only correct match -- polars-core's
+        // `_iter_struct_av` (the borrowed-`Struct` accessor) hits an `unreachable!()` on an owned
+        // struct, and that panic has no greppable message.
+        let AnyValue::StructOwned(payload) = &(*value).inner else {
             return make_error("invalid type for value");
-        }
-
-        // `_iter_struct_av` is an underscore-prefixed polars-core internal (semver-exempt -- may break
-        // on a polars bump; re-check on upgrade). `.nth(fieldidx)` also walks the fields, so repeated
-        // per-field access over one struct is O(n^2); acceptable for the small structs we materialize.
-        let Some(field_value) = inner._iter_struct_av().nth(fieldidx) else {
-            return make_error(format!("invalid field index {fieldidx}"));
+        };
+        let Some(field_value) = payload.0.get(fieldidx) else {
+            return make_error(format!(
+                "invalid field index {fieldidx} (struct has {} fields)",
+                payload.0.len()
+            ));
         };
 
-        *out = make_value(field_value);
+        *out = make_value(field_value.clone());
 
         std::ptr::null()
     })

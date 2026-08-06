@@ -34,11 +34,21 @@ const _: () = {
     assert!(std::mem::align_of::<ArrowArray>() == 8);
 };
 
-/// Borrows from its parent (a `Series`, or another `polars_value_t` for struct-field access via
-/// `polars_value_struct_get`) rather than owning its data. The caller must keep the parent alive
-/// for as long as this value is alive, and must destroy this value before the parent.
-pub struct polars_value_t<'a> {
-    pub(crate) inner: AnyValue<'a>,
+/// Owns its data: `make_value` calls `AnyValue::into_static` on the way in, so a value never
+/// borrows from the `Series` (or parent `polars_value_t`) it came from. It can therefore outlive
+/// its source and be destroyed in any order relative to it.
+///
+/// A borrowed `AnyValue<'a>` would be the cheaper representation, but the lifetime cannot survive
+/// the C boundary: `polars_series_get`'s `'a` would be chosen by the caller and inferred as
+/// `'static`, so the compiler would check nothing and the "keep the parent alive" rule would rest
+/// entirely on the Julia side rooting correctly -- with silent memory corruption as the failure
+/// mode. Owning the data deletes the rule instead of documenting it.
+///
+/// Note `into_static` also *normalizes the variant*: `Struct` becomes `StructOwned`, `Datetime`
+/// becomes `DatetimeOwned`, `String`/`Binary` become their `*Owned` forms. Accessors in `value.rs`
+/// match the owned variants accordingly.
+pub struct polars_value_t {
+    pub(crate) inner: AnyValue<'static>,
 }
 
 pub struct polars_dataframe_t {
@@ -100,7 +110,7 @@ pub(crate) trait Opaque: Sized {
     }
 }
 
-impl Opaque for polars_value_t<'_> {}
+impl Opaque for polars_value_t {}
 impl Opaque for polars_dataframe_t {}
 impl Opaque for polars_lazy_frame_t {}
 impl Opaque for polars_lazy_group_by_t {}
@@ -121,10 +131,16 @@ pub(crate) fn make_lazy_group_by(gb: LazyGroupBy) -> *mut polars_lazy_group_by_t
 }
 
 /// Counterpart to `make_dataframe`/`make_series`/... for `polars_value_t`, which is built at two
-/// call sites (`polars_series_get`, `polars_value_struct_get`). See the type's own docs for the
-/// borrow contract it carries.
-pub(crate) fn make_value(value: AnyValue<'_>) -> *mut polars_value_t<'_> {
-    polars_value_t { inner: value }.into_handle()
+/// call sites (`polars_series_get`, `polars_value_struct_get`).
+///
+/// `into_static` is what makes the handle self-contained -- see the type's own docs. For a struct
+/// value it materializes every field once here, which also makes per-field access O(1) rather than
+/// a fresh walk of the field list per call.
+pub(crate) fn make_value(value: AnyValue<'_>) -> *mut polars_value_t {
+    polars_value_t {
+        inner: value.into_static(),
+    }
+    .into_handle()
 }
 
 #[repr(C)]

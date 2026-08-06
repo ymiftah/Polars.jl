@@ -93,10 +93,10 @@ pub unsafe extern "C" fn polars_series_name(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_series_get<'a>(
+pub unsafe extern "C" fn polars_series_get(
     series: *mut polars_series_t,
     index: usize,
-    out: *mut *mut polars_value_t<'a>,
+    out: *mut *mut polars_value_t,
 ) -> *const polars_error_t {
     guard_error(|| {
         let value = tri!((*series).inner.get(index));

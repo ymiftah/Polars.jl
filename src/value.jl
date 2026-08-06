@@ -1,8 +1,12 @@
 """
     Polars.Value{T}
 
-Internal type which represents a reference to a value of type `T` in a series or as a field to
-a struct.
+Internal type holding a single value of type `T` read out of a series, or out of a struct field.
+
+The Rust-side handle owns its data (`polars_value_t` runs `AnyValue::into_static`), so a `Value`
+does not point into its source's buffers and the two can be finalized in either order. `parent` is
+kept anyway: it costs one reference, and it keeps the source reachable for as long as anything
+derived from it is, which is what a reader of this type would expect.
 """
 mutable struct Value{T}
     ptr::Ptr{polars_value_t}
