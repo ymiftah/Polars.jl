@@ -65,10 +65,9 @@ function item(series::Series)
     length(series) == 1 || error("item() requires a Series of length 1, got length $(length(series))")
     return series[1]
 end
-# No `Base.eltype(::Series{T}) where {T} = T` needed: `Series{T} <: AbstractVector{T}` already
-# gets this for free from `AbstractArray`'s own default (`eltype(::Type{<:AbstractArray{T}}) where
-# T = T`), which resolves identically -- verified via `@code_typed`, both fold to the same
-# `Core.Const` field-type extraction. The explicit method here was pure duplication.
+# No `Base.eltype(::Series{T}) where {T} = T` method is needed: `Series{T} <: AbstractVector{T}`
+# gets it for free from `AbstractArray`'s own default (`eltype(::Type{<:AbstractArray{T}}) where
+# T = T`), which folds to the same `Core.Const` field-type extraction.
 
 # Defined explicitly so generic code calling `copy` (rather than `collect`) on an
 # `AbstractVector` still hits the bulk `read_series` path, instead of falling back to the default
@@ -87,11 +86,10 @@ Base.copy(series::Series) = collect(series)
     _series_getter(::Type{T})
 
 Compile-time dispatch table from a physical dtype `T` to its `polars_series_get_*` ccall
-wrapper, one method per type. This replaces building a `Symbol` from string pieces and resolving
-it via `getproperty(API, name)` at every single element access -- that was a dynamic (runtime)
-global lookup returning an un-inferred `Function`, so the actual ccall couldn't be inlined or
-specialized. Since `T` is known at compile time inside each `getindex` specialization (see below),
-this call constant-folds to a direct, inlinable reference to the right ccall wrapper instead.
+wrapper, one method per type. `T` is known at compile time inside each `getindex` specialization
+(see below), so this call constant-folds to a direct, inlinable reference to the right ccall
+wrapper -- unlike a name-based `getproperty(API, name)` lookup, which is a runtime global
+resolution returning an un-inferred `Function` that can be neither inlined nor specialized.
 """
 _series_getter(::Type{Bool}) = API.polars_series_get_bool
 _series_getter(::Type{Int8}) = API.polars_series_get_i8

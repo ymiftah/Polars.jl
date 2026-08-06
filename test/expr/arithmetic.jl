@@ -196,8 +196,7 @@ end
 @testset "arccos / degrees / radians (API gap batch four, Phase 1; fixture mirrors py-polars' test_trigonometric)" begin
     # Upstream's exact fixture (`test_trigonometric` in series_test.py, parametrized over `arccos`
     # among others): null propagates as null, NaN propagates as NaN, and `arccos(π)` is NaN because
-    # π > 1 is out of arccos's [-1, 1] domain -- the interesting edge the happy-path-only version of
-    # this test previously missed entirely.
+    # π > 1 is out of arccos's [-1, 1] domain -- the edge a happy-path-only fixture would miss.
     dftrig = DataFrame((; a = Union{Float64, Missing}[0.0, π, missing, NaN]))
 
     r = select(dftrig, alias(arccos(col("a")), "arccos"))
@@ -304,12 +303,12 @@ end
         @test expr isa Polars.Expr
     end
 
-    # dot-broadcasting treats `Expr` as a scalar (matching what `Expr <: Number` used to give for
-    # free via `Broadcast.broadcastable(::Number) = x`) rather than trying to iterate it
+    # dot-broadcasting treats `Expr` as a scalar rather than trying to iterate it
     @test collect(select(df, col("x") .> 1)[:x]) == [false, true, true]
 
-    # `isless`/`isequal`/sorting a `Vector{Expr}` are deliberately unsupported now (previously
-    # silently returned another `Expr` instead of a `Bool`, violating both functions' contracts)
+    # `isless`/`isequal`/sorting a `Vector{Expr}` are deliberately unsupported: an `Expr`
+    # comparison builds another `Expr`, and answering with that instead of a `Bool` would violate
+    # both functions' contracts
     @test_throws MethodError isless(col("x"), col("y"))
     @test_throws MethodError sort([col("x"), col("y")])
 end

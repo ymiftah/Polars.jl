@@ -209,8 +209,8 @@ import Tables: schema
 of what [`schema`](@ref) below does (it additionally refines nullability from real null counts,
 which needs a `select` over the whole frame).
 
-Memoized in `df.column_names` (see the `DataFrame` struct for why that's sound): each call was
-otherwise a ccall plus a full Arrow schema export and parse, which made positional column access
+Memoized in `df.column_names` (see the `DataFrame` struct for why that's sound): an unmemoized call
+costs a ccall plus a full Arrow schema export and parse, which would make positional column access
 (`Tables.getcolumn(df, i)`, and so `df[i]`) O(ncols) *per column*, i.e. O(ncols²) to walk a frame."""
 function _column_names(df::DataFrame)
     cached = df.column_names
@@ -268,10 +268,8 @@ Tables.rowaccess(::DataFrame) = true # enables Pluto.jl viewer
 """
     Tables.rows(df::DataFrame)
 
-Implements the row half of the Tables.jl interface. `Tables.rowaccess(::DataFrame)` above has
-always declared this method exists -- which the interface takes as a promise -- but nothing ever
-defined it, so any row-oriented consumer was relying on Tables.jl's own fallbacks rather than on
-anything this package guaranteed.
+Implements the row half of the Tables.jl interface, making good on the promise
+`Tables.rowaccess(::DataFrame)` above makes to row-oriented consumers.
 
 Row access over a columnar frame is inherently a materialization, so this is deliberately explicit
 about it: every column is `collect`ed into a native Julia `Vector` once (through the bulk
@@ -284,9 +282,9 @@ Tables.rows(df::DataFrame) = Tables.rows(map(collect, Tables.columntable(df)))
     DataFrameColumns
 
 `Tables.columns(df)`'s return value: a thin snapshot holding `df` plus its column names computed
-once. Without this, `Tables.getcolumn(df, ::Int)` re-ran `_column_names` (a ccall + full Arrow
-schema parse) on *every* call, so iterating a `DataFrame`'s columns positionally (as many Tables.jl
-consumers do via `Tables.columns`) cost O(ncols²) rather than O(ncols).
+once. Holding the names here keeps positional column iteration (what many Tables.jl consumers do
+via `Tables.columns`) O(ncols) overall, rather than the O(ncols²) it would cost if
+`Tables.getcolumn(cols, ::Int)` resolved names afresh on every call.
 """
 struct DataFrameColumns{N}
     df::DataFrame

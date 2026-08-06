@@ -81,9 +81,9 @@ impl polars_value_type_t {
         }
     }
 
-    /// Maps an inbound type code to a `DataType`. Fallible: this backs `polars_expr_cast`, and
-    /// the un-encodable arms previously became `Unknown(UnknownKind::Any)` silently, which turned
-    /// e.g. `cast(col, Datetime)` into a cast-to-unknown rather than an error.
+    /// Maps an inbound type code to a `DataType`. Fallible: this backs `polars_expr_cast`, where
+    /// mapping an un-encodable arm to `Unknown(UnknownKind::Any)` would silently turn e.g.
+    /// `cast(col, Datetime)` into a cast-to-unknown rather than an error.
     pub(crate) fn to_dtype(&self) -> PolarsResult<DataType> {
         use polars_value_type_t::*;
         Ok(match self {

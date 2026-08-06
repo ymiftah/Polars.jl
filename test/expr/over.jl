@@ -74,13 +74,12 @@ end
     @test_throws ErrorException over(col("x"); mapping_strategy = :bogus)
 end
 
-@testset "over() with zero partition_by, whole frame as one group (fixed, see plans/parity/gap_closure_scope.md A1)" begin
-    # Was a confirmed live regression (plans/parity/batch-4-order-window-over.md): constructing the
-    # Expr succeeded but running it always failed, regardless of order_by, because `Some(vec![])`
-    # reached polars-core's group-by execution with zero real keys. Root cause: upstream's own
-    # whole-frame sentinel (`vec![lit(1)]`) only fires on `over_with_options`'s `None` branch, not
-    # `Some(vec![])` -- fixed by substituting `lit(1)` ourselves when the incoming partition list is
-    # empty, mirroring that `None` branch. One-or-more partition_by columns is unaffected either way
+@testset "over() with zero partition_by, whole frame as one group (see plans/parity/gap_closure_scope.md A1)" begin
+    # An empty partition list is substituted with `lit(1)` before it reaches polars, mirroring
+    # upstream's own whole-frame sentinel. That sentinel (`vec![lit(1)]`) only fires on
+    # `over_with_options`'s `None` branch, not on `Some(vec![])`, so passing the empty list through
+    # would reach polars-core's group-by execution with zero real keys: the `Expr` builds fine and
+    # every run fails, regardless of order_by. One-or-more partition_by columns takes neither path
     # (verified separately above).
     df = DataFrame((; a = [1, 1, 2], i = [2, 1, 3]))
 

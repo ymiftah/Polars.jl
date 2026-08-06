@@ -113,9 +113,9 @@ gets scanned first, so ordering matters when relying on this option.
 ## API design rationale
 
 `Base.lt` is bound under that qualified name because the bare `lt` collides with an *unexported*
-internal `Base` binding. The product aggregation used to have the same problem
-(`Base.product`/an unexported internal `Base` binding) but was renamed to `prod`, an exported
-`Base` name, so it now resolves unqualified like `sum`/`mean`.
+internal `Base` binding. The product aggregation faces the same collision under the name
+`product`, so it is instead exposed as `prod` — an exported `Base` name — and resolves unqualified
+like `sum`/`mean`.
 
 Most binary `Expr` functions have a curried form for pipe-based composition, but five —
 `log`, `rem`, `replace`, `diff`, `round` — deliberately don't. These are `Base`-qualified names,

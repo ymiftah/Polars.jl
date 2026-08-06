@@ -38,7 +38,7 @@ end
     r_curried2 = select(df, alias(col("x") |> replace_strict([1, 2], [10, 20]; default = -1), "rs"))
     @test r_direct2[:rs] == r_curried2[:rs] == [10, 20, -1, -1]
 
-    # `quantile` has no curried (`|>`) form now that it extends `Statistics.quantile` (see
+    # `quantile` has no curried (`|>`) form, since it extends `Statistics.quantile` (see
     # expr/expr.jl) -- a bare `x -> quantile(x, 0.5)` lambda is the documented replacement for
     # `|>`-composition.
     r_direct3 = select(df, alias(quantile(col("x"), 0.5), "q"))
@@ -188,7 +188,7 @@ end
 end
 
 @testset "std/var have no curried form -- lambda is the documented replacement (P2.2)" begin
-    # `std`/`var` extend `Statistics.std`/`Statistics.var` now (see expr/expr.jl); a curried
+    # `std`/`var` extend `Statistics.std`/`Statistics.var` (see expr/expr.jl); a curried
     # (Fix2-style) form taking only keyword arguments would be type piracy (nothing in
     # `std(; ddof=0)`'s signature mentions `Expr`). `x -> std(x; ddof=0)` is the replacement.
     df = DataFrame((; x = [3, 1, 2]))

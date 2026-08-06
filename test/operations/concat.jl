@@ -7,8 +7,7 @@
     @test r[:id] == [1, 2, 3, 4]
     @test r[:name] == ["x", "y", "z", "w"]
 
-    # LazyFrame entry point agrees, and stacks the first frame (regression: previously the
-    # first frame in the list was silently dropped)
+    # LazyFrame entry point agrees, and stacks every frame in the list including the first
     r_lazy = concat([lazy(a), lazy(b)]) |> collect
     @test r_lazy[:id] == r[:id]
     @test r_lazy[:name] == r[:name]

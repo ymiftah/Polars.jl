@@ -175,7 +175,7 @@ end
     @test isempty(readdir(dir))
     @test !isdir(joinpath(dir, "s3:"))
 
-    # regression guard: a plain local path still works exactly as before
+    # a plain local path takes the same entry point and still writes normally
     local_path = joinpath(dir, "out.parquet")
     write_parquet(local_path, df)
     @test read_parquet(local_path)[:x] == df[:x]
