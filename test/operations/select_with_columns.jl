@@ -48,8 +48,8 @@ end
     # with_columns overwriting an existing column name
     wc_overwrite = with_columns(df, col("x") * 10 |> alias("x"))
     @test Tables.columnnames(wc_overwrite) == (:x, :y)
-    @test wc_overwrite[:x] == [10, 20, 30]  # original x values multiplied by 10
-    @test wc_overwrite[:y] == [10, 20, 30]  # y unchanged
+    @test wc_overwrite[:x] == [10, 20, 30]
+    @test wc_overwrite[:y] == [10, 20, 30]
 end
 
 @testset "Symbol column references (Julia-side P2.4)" begin

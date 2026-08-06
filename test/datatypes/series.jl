@@ -5,18 +5,15 @@
 end
 
 @testset "Series name" begin
-    # Test name on directly constructed Series
     s = Series(:test_col, [1, 2, 3])
     @test Polars.name(s) == "test_col"
 
-    # Test name on Series obtained via DataFrame column access
     df = DataFrame((; x = [10, 20, 30], y = ["a", "b", "c"]))
     s_x = df[:x]
     @test Polars.name(s_x) == "x"
     s_y = df[:y]
     @test Polars.name(s_y) == "y"
 
-    # Test name consistency after operations (e.g., via select)
     result = select(df, col("x") |> alias("renamed"))
     s_renamed = result[:renamed]
     @test Polars.name(s_renamed) == "renamed"
@@ -185,7 +182,7 @@ end
 
     @testset "List: bulk read (leaf child) vs per-element agreement" begin
         # A List<Int64> column IS a read_series bulk-read target (leaf child format) -- elements
-        # materialize as plain Vectors now, not nested Series (see arrow/read.jl's _read_list).
+        # materialize as plain Vectors, not nested Series (see arrow/read.jl's _read_list).
         df = DataFrame((; x = [[1, 2, 3], [4, 5]]))
         s = df[:x]
         @test Polars.read_series(s) !== nothing

@@ -63,19 +63,16 @@ end
 @testset "Dt.truncate / Dt.round with different duration strings" begin
     df = DataFrame((; dt = [DateTime(2024, 1, 1, 5, 30, 45), DateTime(2024, 1, 1, 14, 45, 30)]))
 
-    # Test different duration units for truncate
     for duration in ["1h", "2h", "1d", "1w"]
         r_trunc = select(df, alias(Dt.truncate(col("dt"), lit(duration)), "trunc"))
-        @test size(r_trunc) == (2, 1)  # Should work for all durations
+        @test size(r_trunc) == (2, 1)
     end
 
-    # Test different duration units for round
     for duration in ["1h", "6h", "1d"]
         r_round = select(df, alias(Dt.round(col("dt"), lit(duration)), "round"))
-        @test size(r_round) == (2, 1)  # Should work for all durations
+        @test size(r_round) == (2, 1)
     end
 
-    # Test offset_by with various duration strings
     r_offset_1d = select(df, alias(Dt.offset_by(col("dt"), lit("1d")), "offset_1d"))
     @test r_offset_1d[:offset_1d][1] == DateTime(2024, 1, 2, 5, 30, 45)
 
@@ -156,7 +153,6 @@ end
 @testset "Dt.strftime with various formats" begin
     df = DataFrame((; dt = [DateTime(2024, 1, 15, 9, 30, 45)]))
 
-    # Test various format strings
     formats = [
         ("%Y-%m-%d", "2024-01-15"),
         ("%H:%M:%S", "09:30:45"),
