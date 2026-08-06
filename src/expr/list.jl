@@ -1,5 +1,5 @@
 module Lists
-using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
+using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error, _null_behavior_enum
 
 @generate_expr_fns begin
     gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths, "Length of each list in `expr` (`null` list entries count, and a `null` list itself gives a `null` length -- an empty list gives `0`).")
@@ -243,13 +243,7 @@ first `n` elements of each list with `null`) or `:drop` (drops the first `n` ele
 shortening each list).
 """
 function diff(expr::Expr, n::Integer = 1; null_behavior::Symbol = :ignore)
-    behavior = if null_behavior == :ignore
-        API.PolarsNullBehaviorIgnore
-    elseif null_behavior == :drop
-        API.PolarsNullBehaviorDrop
-    else
-        error("unknown null_behavior $null_behavior, expected one of (:ignore, :drop)")
-    end
+    behavior = _null_behavior_enum(null_behavior)
     out = API.polars_expr_list_diff(expr, Int64(n), behavior)
     return Expr(out)
 end

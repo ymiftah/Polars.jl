@@ -1,5 +1,16 @@
 import Statistics: cor, cov, mean, median, quantile, std, var
 
+"""Shared `method` resolver for [`quantile`](@ref) and [`rolling_quantile`](@ref)."""
+_quantile_method_enum(method::Symbol) = _enum_lookup(
+    method, "quantile method",
+    :nearest => API.PolarsQuantileMethodNearest,
+    :lower => API.PolarsQuantileMethodLower,
+    :higher => API.PolarsQuantileMethodHigher,
+    :midpoint => API.PolarsQuantileMethodMidpoint,
+    :linear => API.PolarsQuantileMethodLinear,
+    :equiprobable => API.PolarsQuantileMethodEquiprobable,
+)
+
 """
     mean(expr::Polars.Expr)::Polars.Expr
 
@@ -53,24 +64,7 @@ the given interpolation `method`: one of `:nearest` (default), `:lower`, `:highe
 """
 function Statistics.quantile(expr::Expr, q; method::Symbol = :nearest)
     q = convert(Expr, q)
-    method_enum = if method == :nearest
-        API.PolarsQuantileMethodNearest
-    elseif method == :lower
-        API.PolarsQuantileMethodLower
-    elseif method == :higher
-        API.PolarsQuantileMethodHigher
-    elseif method == :midpoint
-        API.PolarsQuantileMethodMidpoint
-    elseif method == :linear
-        API.PolarsQuantileMethodLinear
-    elseif method == :equiprobable
-        API.PolarsQuantileMethodEquiprobable
-    else
-        error(
-            "unknown quantile method $method, expected one of " *
-                "(:nearest, :lower, :higher, :midpoint, :linear, :equiprobable)"
-        )
-    end
+    method_enum = _quantile_method_enum(method)
     out = API.polars_expr_quantile(expr, q, method_enum)
     return Expr(out)
 end
@@ -144,12 +138,7 @@ function skew(expr::Expr; bias::Bool = true)
     return Expr(out)
 end
 
-"""
-    skew(; bias::Bool=true)
-
-Curried form of [`skew`](@ref) for use with `|>`.
-"""
-skew(; bias::Bool = true) = expr -> skew(expr; bias)
+@curry skew(; bias::Bool = true)
 
 export skew
 
@@ -172,12 +161,7 @@ function kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true)
     return Expr(out)
 end
 
-"""
-    Polars.kurtosis(; fisher::Bool=true, bias::Bool=true)
-
-Curried form of [`kurtosis`](@ref) for use with `|>`.
-"""
-kurtosis(; fisher::Bool = true, bias::Bool = true) = expr -> kurtosis(expr; fisher, bias)
+@curry kurtosis(; fisher::Bool = true, bias::Bool = true)
 
 
 """
@@ -192,12 +176,7 @@ function top_k(expr::Expr, k)
     return Expr(out)
 end
 
-"""
-    top_k(k)::Base.Fix2{typeof(top_k)}
-
-Curried form of [`top_k`](@ref) for use with `|>` -- e.g. `col("x") |> top_k(3)`.
-"""
-top_k(k) = Base.Fix2(top_k, convert(Expr, k))
+@curry top_k(k)
 
 export top_k
 
@@ -213,12 +192,7 @@ function bottom_k(expr::Expr, k)
     return Expr(out)
 end
 
-"""
-    bottom_k(k)::Base.Fix2{typeof(bottom_k)}
-
-Curried form of [`bottom_k`](@ref) for use with `|>`.
-"""
-bottom_k(k) = Base.Fix2(bottom_k, convert(Expr, k))
+@curry bottom_k(k)
 
 export bottom_k
 
@@ -241,15 +215,7 @@ function value_counts(
     return Expr(out[])
 end
 
-"""
-    value_counts(; sort::Bool=false, parallel::Bool=false, name::String="count",
-                 normalize::Bool=false)::Base.Callable
-
-Curried form of [`value_counts`](@ref) for use with `|>`.
-"""
-function value_counts(; sort::Bool = false, parallel::Bool = false, name::String = "count", normalize::Bool = false)
-    return expr -> value_counts(expr; sort, parallel, name, normalize)
-end
+@curry value_counts(; sort::Bool = false, parallel::Bool = false, name::String = "count", normalize::Bool = false)
 
 export value_counts
 
@@ -269,15 +235,7 @@ function sample_n(
     return Expr(out)
 end
 
-"""
-    sample_n(n; with_replacement::Bool=false, shuffle::Bool=false,
-             seed::Union{Nothing,Integer}=nothing)::Base.Callable
-
-Curried form of [`sample_n`](@ref) for use with `|>`.
-"""
-function sample_n(n; with_replacement::Bool = false, shuffle::Bool = false, seed::Union{Nothing, Integer} = nothing)
-    return expr -> sample_n(expr, n; with_replacement, shuffle, seed)
-end
+@curry sample_n(n; with_replacement::Bool = false, shuffle::Bool = false, seed::Union{Nothing, Integer} = nothing)
 
 export sample_n
 
@@ -298,17 +256,7 @@ function sample_frac(
     return Expr(out)
 end
 
-"""
-    sample_frac(frac; with_replacement::Bool=false, shuffle::Bool=false,
-                seed::Union{Nothing,Integer}=nothing)::Base.Callable
-
-Curried form of [`sample_frac`](@ref) for use with `|>`.
-"""
-function sample_frac(
-        frac; with_replacement::Bool = false, shuffle::Bool = false, seed::Union{Nothing, Integer} = nothing
-    )
-    return expr -> sample_frac(expr, frac; with_replacement, shuffle, seed)
-end
+@curry sample_frac(frac; with_replacement::Bool = false, shuffle::Bool = false, seed::Union{Nothing, Integer} = nothing)
 
 export sample_frac
 
@@ -353,21 +301,11 @@ the first.
 """
 cum_count(expr::Expr; reverse::Bool = false) = Expr(API.polars_expr_cum_count(expr, reverse))
 
-"""
-    cum_sum(; reverse::Bool=false)::Base.Callable
-    cum_prod(; reverse::Bool=false)::Base.Callable
-    cum_min(; reverse::Bool=false)::Base.Callable
-    cum_max(; reverse::Bool=false)::Base.Callable
-    cum_count(; reverse::Bool=false)::Base.Callable
-
-Curried forms of [`cum_sum`](@ref)/[`cum_prod`](@ref)/[`cum_min`](@ref)/[`cum_max`](@ref)/
-[`cum_count`](@ref) for use with `|>`.
-"""
-cum_sum(; reverse::Bool = false) = expr -> cum_sum(expr; reverse)
-cum_prod(; reverse::Bool = false) = expr -> cum_prod(expr; reverse)
-cum_min(; reverse::Bool = false) = expr -> cum_min(expr; reverse)
-cum_max(; reverse::Bool = false) = expr -> cum_max(expr; reverse)
-cum_count(; reverse::Bool = false) = expr -> cum_count(expr; reverse)
+@curry cum_sum(; reverse::Bool = false)
+@curry cum_prod(; reverse::Bool = false)
+@curry cum_min(; reverse::Bool = false)
+@curry cum_max(; reverse::Bool = false)
+@curry cum_count(; reverse::Bool = false)
 
 export cum_sum, cum_prod, cum_min, cum_max, cum_count
 
@@ -482,96 +420,24 @@ function rolling_quantile(
         expr::Expr, window_size::Integer, quantile::Real;
         min_samples::Integer = window_size, center::Bool = false, method::Symbol = :nearest
     )
-    method_enum = if method == :nearest
-        API.PolarsQuantileMethodNearest
-    elseif method == :lower
-        API.PolarsQuantileMethodLower
-    elseif method == :higher
-        API.PolarsQuantileMethodHigher
-    elseif method == :midpoint
-        API.PolarsQuantileMethodMidpoint
-    elseif method == :linear
-        API.PolarsQuantileMethodLinear
-    elseif method == :equiprobable
-        API.PolarsQuantileMethodEquiprobable
-    else
-        error(
-            "unknown quantile method $method, expected one of " *
-                "(:nearest, :lower, :higher, :midpoint, :linear, :equiprobable)"
-        )
-    end
+    method_enum = _quantile_method_enum(method)
     out = API.polars_expr_rolling_quantile(
         expr, Csize_t(window_size), Csize_t(min_samples), center, Float64(quantile), method_enum
     )
     return Expr(out)
 end
 
-"""
-    rolling_mean(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
-
-Curried form of [`rolling_mean`](@ref) for use with `|>`.
-"""
-rolling_mean(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
-    expr -> rolling_mean(expr, window_size; min_samples, center)
-
-"""
-    rolling_sum(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
-
-Curried form of [`rolling_sum`](@ref) for use with `|>`.
-"""
-rolling_sum(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
-    expr -> rolling_sum(expr, window_size; min_samples, center)
-
-"""
-    rolling_min(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
-
-Curried form of [`rolling_min`](@ref) for use with `|>`.
-"""
-rolling_min(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
-    expr -> rolling_min(expr, window_size; min_samples, center)
-
-"""
-    rolling_max(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
-
-Curried form of [`rolling_max`](@ref) for use with `|>`.
-"""
-rolling_max(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
-    expr -> rolling_max(expr, window_size; min_samples, center)
-
-"""
-    rolling_std(window_size::Integer; min_samples::Integer=window_size, center::Bool=false, ddof::Integer=1)
-
-Curried form of [`rolling_std`](@ref) for use with `|>`.
-"""
-rolling_std(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1) =
-    expr -> rolling_std(expr, window_size; min_samples, center, ddof)
-
-"""
-    rolling_var(window_size::Integer; min_samples::Integer=window_size, center::Bool=false, ddof::Integer=1)
-
-Curried form of [`rolling_var`](@ref) for use with `|>`.
-"""
-rolling_var(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1) =
-    expr -> rolling_var(expr, window_size; min_samples, center, ddof)
-
-"""
-    rolling_median(window_size::Integer; min_samples::Integer=window_size, center::Bool=false)
-
-Curried form of [`rolling_median`](@ref) for use with `|>`.
-"""
-rolling_median(window_size::Integer; min_samples::Integer = window_size, center::Bool = false) =
-    expr -> rolling_median(expr, window_size; min_samples, center)
-
-"""
-    rolling_quantile(window_size::Integer, quantile::Real; min_samples::Integer=window_size,
-                     center::Bool=false, method::Symbol=:nearest)
-
-Curried form of [`rolling_quantile`](@ref) for use with `|>`.
-"""
-rolling_quantile(
+@curry rolling_mean(window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+@curry rolling_sum(window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+@curry rolling_min(window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+@curry rolling_max(window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+@curry rolling_std(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1)
+@curry rolling_var(window_size::Integer; min_samples::Integer = window_size, center::Bool = false, ddof::Integer = 1)
+@curry rolling_median(window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
+@curry rolling_quantile(
     window_size::Integer, quantile::Real; min_samples::Integer = window_size, center::Bool = false,
     method::Symbol = :nearest,
-) = expr -> rolling_quantile(expr, window_size, quantile; min_samples, center, method)
+)
 
 export rolling_mean, rolling_sum, rolling_min, rolling_max, rolling_std, rolling_var,
     rolling_median, rolling_quantile
@@ -584,29 +450,19 @@ Assigns ranks to the values, dealing with ties according to `method`: one of `:a
 `:min`, `:max`, `:dense` (default), `:ordinal`.
 """
 function rank(expr::Expr; method::Symbol = :dense, descending::Bool = false)
-    method_enum = if method == :average
-        API.PolarsRankMethodAverage
-    elseif method == :min
-        API.PolarsRankMethodMin
-    elseif method == :max
-        API.PolarsRankMethodMax
-    elseif method == :dense
-        API.PolarsRankMethodDense
-    elseif method == :ordinal
-        API.PolarsRankMethodOrdinal
-    else
-        error("unknown rank method $method, expected one of (:average, :min, :max, :dense, :ordinal)")
-    end
+    method_enum = _enum_lookup(
+        method, "rank method",
+        :average => API.PolarsRankMethodAverage,
+        :min => API.PolarsRankMethodMin,
+        :max => API.PolarsRankMethodMax,
+        :dense => API.PolarsRankMethodDense,
+        :ordinal => API.PolarsRankMethodOrdinal,
+    )
     out = API.polars_expr_rank(expr, method_enum, descending)
     return Expr(out)
 end
 
-"""
-    rank(; method::Symbol=:dense, descending::Bool=false)::Base.Callable
-
-Curried form of [`rank`](@ref) for use with `|>`.
-"""
-rank(; method::Symbol = :dense, descending::Bool = false) = expr -> rank(expr; method, descending)
+@curry rank(; method::Symbol = :dense, descending::Bool = false)
 
 export rank
 
@@ -663,18 +519,10 @@ function ewm_mean(
     return Expr(out)
 end
 
-"""
-    ewm_mean(; com=nothing, span=nothing, half_life=nothing, alpha=nothing, adjust::Bool=true,
-             min_samples::Integer=1, ignore_nulls::Bool=true)
-
-Curried form of [`ewm_mean`](@ref) for use with `|>`.
-"""
-function ewm_mean(;
-        com = nothing, span = nothing, half_life = nothing, alpha = nothing,
-        adjust::Bool = true, min_samples::Integer = 1, ignore_nulls::Bool = true
-    )
-    return expr -> ewm_mean(expr; com, span, half_life, alpha, adjust, min_samples, ignore_nulls)
-end
+@curry ewm_mean(;
+    com = nothing, span = nothing, half_life = nothing, alpha = nothing,
+    adjust::Bool = true, min_samples::Integer = 1, ignore_nulls::Bool = true,
+)
 
 export ewm_mean
 
@@ -697,18 +545,10 @@ function ewm_std(
     return Expr(out)
 end
 
-"""
-    ewm_std(; com=nothing, span=nothing, half_life=nothing, alpha=nothing, adjust::Bool=true,
-            bias::Bool=false, min_samples::Integer=1, ignore_nulls::Bool=true)
-
-Curried form of [`ewm_std`](@ref) for use with `|>`.
-"""
-function ewm_std(;
-        com = nothing, span = nothing, half_life = nothing, alpha = nothing,
-        adjust::Bool = true, bias::Bool = false, min_samples::Integer = 1, ignore_nulls::Bool = true
-    )
-    return expr -> ewm_std(expr; com, span, half_life, alpha, adjust, bias, min_samples, ignore_nulls)
-end
+@curry ewm_std(;
+    com = nothing, span = nothing, half_life = nothing, alpha = nothing,
+    adjust::Bool = true, bias::Bool = false, min_samples::Integer = 1, ignore_nulls::Bool = true,
+)
 
 export ewm_std
 
@@ -730,18 +570,10 @@ function ewm_var(
     return Expr(out)
 end
 
-"""
-    ewm_var(; com=nothing, span=nothing, half_life=nothing, alpha=nothing, adjust::Bool=true,
-            bias::Bool=false, min_samples::Integer=1, ignore_nulls::Bool=true)
-
-Curried form of [`ewm_var`](@ref) for use with `|>`.
-"""
-function ewm_var(;
-        com = nothing, span = nothing, half_life = nothing, alpha = nothing,
-        adjust::Bool = true, bias::Bool = false, min_samples::Integer = 1, ignore_nulls::Bool = true
-    )
-    return expr -> ewm_var(expr; com, span, half_life, alpha, adjust, bias, min_samples, ignore_nulls)
-end
+@curry ewm_var(;
+    com = nothing, span = nothing, half_life = nothing, alpha = nothing,
+    adjust::Bool = true, bias::Bool = false, min_samples::Integer = 1, ignore_nulls::Bool = true,
+)
 
 export ewm_var
 
@@ -790,15 +622,7 @@ function cut(
     return Expr(out[])
 end
 
-"""
-    cut(breaks::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,
-        left_closed::Bool=false)
-
-Curried form of [`cut`](@ref) for use with `|>`. Only available qualified, as
-`Polars.cut(breaks; ...)` -- see [`cut`](@ref)'s docstring.
-"""
-cut(breaks::AbstractVector{<:Real}; labels::Union{Nothing, Vector{String}} = nothing, left_closed::Bool = false) =
-    expr -> cut(expr, breaks; labels, left_closed)
+@curry cut(breaks::AbstractVector{<:Real}; labels::Union{Nothing, Vector{String}} = nothing, left_closed::Bool = false)
 
 """
     qcut(expr::Polars.Expr, probs::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,
@@ -831,16 +655,10 @@ function qcut(
     return Expr(out[])
 end
 
-"""
-    qcut(probs::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,
-         left_closed::Bool=false, allow_duplicates::Bool=false)
-
-Curried form of [`qcut`](@ref) for use with `|>`.
-"""
-qcut(
+@curry qcut(
     probs::AbstractVector{<:Real}; labels::Union{Nothing, Vector{String}} = nothing,
-    left_closed::Bool = false, allow_duplicates::Bool = false
-) = expr -> qcut(expr, probs; labels, left_closed, allow_duplicates)
+    left_closed::Bool = false, allow_duplicates::Bool = false,
+)
 
 export qcut
 
@@ -867,16 +685,10 @@ function qcut_uniform(
     return Expr(out[])
 end
 
-"""
-    qcut_uniform(n_bins::Integer; labels::Union{Nothing,Vector{String}}=nothing,
-                 left_closed::Bool=false, allow_duplicates::Bool=false)
-
-Curried form of [`qcut_uniform`](@ref) for use with `|>`.
-"""
-qcut_uniform(
+@curry qcut_uniform(
     n_bins::Integer; labels::Union{Nothing, Vector{String}} = nothing,
-    left_closed::Bool = false, allow_duplicates::Bool = false
-) = expr -> qcut_uniform(expr, n_bins; labels, left_closed, allow_duplicates)
+    left_closed::Bool = false, allow_duplicates::Bool = false,
+)
 
 export qcut_uniform
 

@@ -1,5 +1,5 @@
 module Strings
-using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
+using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error, _time_unit_enum
 
 @generate_expr_fns begin
     gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase, "Converts each string of `expr` to uppercase.")
@@ -8,26 +8,26 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr, polars_error
     gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars, "Length of each string of `expr`, in Unicode characters. Differs from [`len_bytes`](@ref) for non-ASCII text.")
     # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
-    gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with, "Row-wise boolean flag: `true` where `a` starts with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `starts_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with, "Row-wise boolean flag: `true` where `a` ends with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `ends_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(
+    gen_impl_expr_binary_str_curried!(polars_expr_str_starts_with, StringNameSpace::starts_with, "Row-wise boolean flag: `true` where `a` starts with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `starts_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(polars_expr_str_ends_with, StringNameSpace::ends_with, "Row-wise boolean flag: `true` where `a` ends with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `ends_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(
         polars_expr_str_contains_literal,
         StringNameSpace::contains_literal,
         "Row-wise boolean flag: `true` where `a` contains the literal (non-regex) substring `b`. For a regex match, use [`contains`](@ref).\n\n!!! note \"Has a curried form\"\n    `contains_literal(pat)` -- see [Curried forms for pipe-based composition](@ref)."
     )
 
-    gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars, "Removes any leading/trailing characters of `a` that appear in `b` (a string of characters to strip, not a substring to match).\n\n!!! note \"Has a curried form\"\n    `strip_chars(chars)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_start, StringNameSpace::strip_chars_start, "Like [`strip_chars`](@ref), but only strips leading characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_start(chars)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_end, StringNameSpace::strip_chars_end, "Like [`strip_chars`](@ref), but only strips trailing characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_end(chars)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix, "Removes the literal prefix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_prefix(prefix)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix, "Removes the literal suffix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_suffix(suffix)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split, "Splits each string of `a` on the literal (non-regex) substring `b`, returning a `List` of substrings (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `split(by)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all, "Extracts every non-overlapping match of the regex `b` from `a`, returning a `List` of matches per row (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `extract_all(pat)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill, "Left-pads each string of `a` with `'0'` up to a total width of `b` characters (a leading `+`/`-` sign, if present, stays before the padding).\n\n!!! note \"Has a curried form\"\n    `zfill(width)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_chars, StringNameSpace::strip_chars, "Removes any leading/trailing characters of `a` that appear in `b` (a string of characters to strip, not a substring to match).\n\n!!! note \"Has a curried form\"\n    `strip_chars(chars)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_chars_start, StringNameSpace::strip_chars_start, "Like [`strip_chars`](@ref), but only strips leading characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_start(chars)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_chars_end, StringNameSpace::strip_chars_end, "Like [`strip_chars`](@ref), but only strips trailing characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_end(chars)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix, "Removes the literal prefix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_prefix(prefix)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix, "Removes the literal suffix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_suffix(suffix)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(polars_expr_str_split, StringNameSpace::split, "Splits each string of `a` on the literal (non-regex) substring `b`, returning a `List` of substrings (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `split(by)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(polars_expr_str_extract_all, StringNameSpace::extract_all, "Extracts every non-overlapping match of the regex `b` from `a`, returning a `List` of matches per row (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `extract_all(pat)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str_curried!(polars_expr_str_zfill, StringNameSpace::zfill, "Left-pads each string of `a` with `'0'` up to a total width of `b` characters (a leading `+`/`-` sign, if present, stays before the padding).\n\n!!! note \"Has a curried form\"\n    `zfill(width)` -- see [Curried forms for pipe-based composition](@ref).")
 end
 
 # `head`/`tail` are pulled out of the `@generate_expr_fns` block (rather than generated via
-# `gen_impl_expr_binary_str!`, like the other binary ops above) because they collide with
+# `gen_impl_expr_binary_str_curried!`, like the other binary ops above) because they collide with
 # `Polars`'s own top-level `head`/`tail` (for `DataFrame`/`LazyFrame`) -- not Base names, so the
 # macro's own Base-collision check can't catch them, and they must never be exported: designed for
 # qualified use (`Strings.head`), matching `contains`/`replace` below.
@@ -67,19 +67,10 @@ function titlecase(::Expr)
     )
 end
 
-# Curried (Fix2-style) forms for the binary namespace ops above, e.g.
-# `col("s") |> Strings.starts_with("foo")`, mirroring Python polars' fluent `.starts_with(...)`.
-starts_with(pat) = Base.Fix2(starts_with, convert(Expr, pat))
-ends_with(pat) = Base.Fix2(ends_with, convert(Expr, pat))
-contains_literal(pat) = Base.Fix2(contains_literal, convert(Expr, pat))
-strip_chars(matches) = Base.Fix2(strip_chars, convert(Expr, matches))
-strip_chars_start(matches) = Base.Fix2(strip_chars_start, convert(Expr, matches))
-strip_chars_end(matches) = Base.Fix2(strip_chars_end, convert(Expr, matches))
-strip_prefix(prefix) = Base.Fix2(strip_prefix, convert(Expr, prefix))
-strip_suffix(suffix) = Base.Fix2(strip_suffix, convert(Expr, suffix))
-split(by) = Base.Fix2(split, convert(Expr, by))
-extract_all(pat) = Base.Fix2(extract_all, convert(Expr, pat))
-zfill(len) = Base.Fix2(zfill, convert(Expr, len))
+# The `Fix2`-style curries for the binary namespace ops above (e.g. `col("s") |>
+# Strings.starts_with("foo")`) are generated by `@generate_expr_fns`'s `curried` variant, right
+# next to each primal in the block above. `head`/`tail` are the exception, hand-written both
+# above and here since they're pulled out of the macro block entirely (see the comment there).
 head(n) = Base.Fix2(head, convert(Expr, n))
 tail(n) = Base.Fix2(tail, convert(Expr, n))
 
@@ -295,15 +286,7 @@ function to_datetime(
         expr::Expr; format::Union{Nothing, String} = nothing, time_unit::Symbol = :us,
         strict::Bool = true, exact::Bool = true
     )
-    time_unit_enum = if time_unit == :ns
-        API.PolarsTimeUnitNanosecond
-    elseif time_unit == :us
-        API.PolarsTimeUnitMicrosecond
-    elseif time_unit == :ms
-        API.PolarsTimeUnitMillisecond
-    else
-        error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms)")
-    end
+    time_unit_enum = _time_unit_enum(time_unit)
     format_str = something(format, "")
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_str_to_datetime(

@@ -186,6 +186,134 @@ _as_expr(x::Symbol) = col(String(x))
 _as_expr(x::Expr) = x
 
 """
+    _enum_lookup(sym::Symbol, label::AbstractString, mapping::Pair{Symbol}...)
+
+Resolves `sym` against `mapping` (each entry `:key => value`), returning the matched `value`.
+Raises a plain `ErrorException` naming `label` and listing the valid keys if `sym` matches none
+of them. Every `Symbol`-keyword-to-C-enum conversion in this module (`time_unit`, quantile
+`method`, `strategy`, ...) goes through this instead of restating its own `if/elseif/error`
+chain.
+"""
+function _enum_lookup(sym::Symbol, label::AbstractString, mapping::Pair{Symbol}...)
+    for (key, value) in mapping
+        sym === key && return value
+    end
+    valid = join((string(':', key) for (key, _) in mapping), ", ")
+    error("unknown $label $sym, expected one of ($valid)")
+end
+
+"""Shared `time_unit` resolver (`:ns`/`:us`/`:ms`) for every function accepting one -- `cast`,
+[`cast_datetime`](@ref), [`cast_duration`](@ref) here, plus `Dt.timestamp` and
+`Strings.to_datetime`."""
+_time_unit_enum(time_unit::Symbol) = _enum_lookup(
+    time_unit, "time_unit",
+    :ns => API.PolarsTimeUnitNanosecond,
+    :us => API.PolarsTimeUnitMicrosecond,
+    :ms => API.PolarsTimeUnitMillisecond,
+)
+
+"""Shared `null_behavior` resolver (`:ignore`/`:drop`) for [`diff`](@ref) here and `Lists.diff`."""
+_null_behavior_enum(null_behavior::Symbol) = _enum_lookup(
+    null_behavior, "null_behavior",
+    :ignore => API.PolarsNullBehaviorIgnore,
+    :drop => API.PolarsNullBehaviorDrop,
+)
+
+"""Processes one argument node from a `@curry` target signature, returning
+`(decl_node, name, forward_expr)`:
+- `decl_node` is what goes in the *curry's own* signature (same node, except an `::Expr`
+  annotation is stripped -- the curry accepts a bare literal there, not just an `Expr`).
+- `name` is the bare argument `Symbol`, for building the curry's own signature/forwarding call.
+- `forward_expr` is what gets passed to the primal at that position: the bare `name` normally, or
+  `convert(Expr, name)` when the original annotation was `::Expr` (mirroring what the primal
+  itself requires, since it performs no such conversion internally when it declares the arg
+  `::Expr`).
+Recurses through `x=default`/`x::T=default` (a `:kw` node) to reach the underlying `x`/`x::T`,
+preserving the default in `decl_node`."""
+function _curry_arg(node::Symbol)
+    return node, node, node
+end
+function _curry_arg(node::Base.Expr)
+    if node.head === :(::)
+        name, T = node.args[1], node.args[2]
+        return T === :Expr ? (name, name, Base.Expr(:call, :convert, :Expr, name)) : (node, name, name)
+    elseif node.head === :kw
+        inner_decl, name, forward = _curry_arg(node.args[1])
+        return Base.Expr(:kw, inner_decl, node.args[2]), name, forward
+    else
+        error("@curry: can't process argument node $node")
+    end
+end
+
+"""
+    @curry f(args...; kwargs...)
+
+Generates the curried (pipe-with-`|>`) sibling of `f`, whose primary method takes the piped
+`Polars.Expr` as its first (unnamed here) argument -- i.e. expands to
+
+    f(args...; kwargs...) = expr -> f(expr, args...; kwargs...)
+
+plus a `"Curried form of [`f`](@ref) for use with `\\|>`."` docstring, the exact convention every
+hand-written curry in this module already follows. Write the *same* argument list `f`'s own
+primary method declares from its second argument onward -- including any `::Expr` annotation --
+except with the leading `expr::Expr` dropped: any argument written `::Expr` here is wrapped in
+`convert(Expr, ·)` before being forwarded (since the primary method requires an actual `Expr` at
+that position and performs no conversion of its own), and the annotation itself is dropped from
+the curry's own signature so it keeps accepting bare literals, not just `Expr`s. An argument with
+any other type (or none) is forwarded as-is, on the assumption the primary method converts it
+itself. For example, `contains(expr::Expr, pat::Expr; strict::Bool=true)` pairs with
+`@curry contains(pat::Expr; strict::Bool=true)`, generating
+`contains(pat; strict=true) = expr -> contains(expr, convert(Expr, pat); strict)`.
+
+Not a fit for a curry whose accepted argument types are deliberately *narrower* than the primary
+method's own (`sort_by`/`over` restrict their curried `by`/`partition_by` to column names, not
+arbitrary `Expr`s, since an `Expr` there would be ambiguous with the piped `expr` itself) or that
+splats a variable number of arguments -- both stay hand-written.
+"""
+macro curry(sig)
+    @assert sig isa Base.Expr && sig.head === :call "@curry expects a call signature, e.g. `@curry f(x; y=1)`"
+    fname = sig.args[1]
+    posarg_decls, posarg_forwards = Any[], Any[]
+    kwarg_decls, kwarg_forwards = Any[], Any[]
+    for a in sig.args[2:end]
+        if a isa Base.Expr && a.head === :parameters
+            for kw in a.args
+                decl, name, forward = _curry_arg(kw)
+                push!(kwarg_decls, decl)
+                push!(kwarg_forwards, forward === name ? name : Base.Expr(:kw, name, forward))
+            end
+        else
+            decl, _, forward = _curry_arg(a)
+            push!(posarg_decls, decl)
+            push!(posarg_forwards, forward)
+        end
+    end
+
+    curry_sig_args = Any[fname]
+    isempty(kwarg_decls) || push!(curry_sig_args, Base.Expr(:parameters, kwarg_decls...))
+    append!(curry_sig_args, posarg_decls)
+    curry_sig = Base.Expr(:call, curry_sig_args...)
+
+    call_args = Any[fname, :expr]
+    append!(call_args, posarg_forwards)
+    call_expr = Base.Expr(:call, call_args...)
+    isempty(kwarg_forwards) || insert!(call_expr.args, 2, Base.Expr(:parameters, kwarg_forwards...))
+    curry_def = Base.Expr(:(=), curry_sig, Base.Expr(:->, :expr, Base.Expr(:block, call_expr)))
+
+    docstring = """
+        $(curry_sig)::Base.Callable
+
+    Curried form of [`$fname`](@ref) for use with `|>`.
+    """
+    return esc(
+        quote
+            Docs.@doc $docstring $curry_sig
+            $curry_def
+        end
+    )
+end
+
+"""
     nth(n::Int64)::Polars.Expr
 
 Returns an expression referencing the nth column in a dataframe.
@@ -399,15 +527,7 @@ implementation. `Datetime` needs its own entry point because `polars_value_type_
 function cast_datetime(
         expr::Expr; time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
     )
-    unit_enum = if time_unit == :ns
-        API.PolarsTimeUnitNanosecond
-    elseif time_unit == :us
-        API.PolarsTimeUnitMicrosecond
-    elseif time_unit == :ms
-        API.PolarsTimeUnitMillisecond
-    else
-        error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms)")
-    end
+    unit_enum = _time_unit_enum(time_unit)
     tz = time_zone === nothing ? "" : String(time_zone)
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_cast_datetime(expr, unit_enum, tz, ncodeunits(tz), out)
@@ -427,21 +547,13 @@ pass `time_unit` as a keyword.
 - `time_unit`: one of `:ns`, `:us` (default), `:ms`
 """
 function cast_duration(expr::Expr; time_unit::Symbol = :us)
-    unit_enum = if time_unit == :ns
-        API.PolarsTimeUnitNanosecond
-    elseif time_unit == :us
-        API.PolarsTimeUnitMicrosecond
-    elseif time_unit == :ms
-        API.PolarsTimeUnitMillisecond
-    else
-        error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms)")
-    end
+    unit_enum = _time_unit_enum(time_unit)
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_cast_duration(expr, unit_enum, out)
     polars_error(err)
     return Expr(out[])
 end
-cast_duration(; time_unit::Symbol = :us) = expr -> cast_duration(expr; time_unit)
+@curry cast_duration(; time_unit::Symbol = :us)
 
 """
     cast_decimal(expr::Polars.Expr, precision::Integer, scale::Integer)::Polars.Expr
@@ -458,7 +570,7 @@ function cast_decimal(expr::Expr, precision::Integer, scale::Integer)
     out = API.polars_expr_cast_decimal(expr, Csize_t(precision), Csize_t(scale))
     return Expr(out)
 end
-cast_decimal(precision::Integer, scale::Integer) = expr -> cast_decimal(expr, precision, scale)
+@curry cast_decimal(precision::Integer, scale::Integer)
 
 """
     cast_categorical(expr::Polars.Expr)::Polars.Expr
@@ -539,6 +651,22 @@ macro generate_expr_fns(ex)
         sig = Base.Expr(:call, fname)
         gen_name = string(first(call.args))
         @assert occursin("gen", gen_name)
+        # "curried" is opt-in on top of "binary" (e.g. `gen_impl_expr_binary_curried!`): besides
+        # the plain `(a::Expr, b::Expr)` method, also emits `orig_fname(b) = Base.Fix2(orig_fname,
+        # convert(Expr, b))` -- the `Base.Fix2`-style curry every binary op with a natural
+        # "value to curry in" needs for `|>` pipelines (`col("x") |> is_in([1, 2])`), previously
+        # hand-written next to each macro-generated primal. Guarded against `base_qualified`, not
+        # the weaker `base_collision`: a namespace submodule (`split` in `Strings`, `round` in
+        # `Dt`) can collide with a Base name and still curry unqualified fine, since its primal
+        # is already its own wholly local binding there (see the base-collision note above) that
+        # the unqualified `orig_fname` in the curry correctly picks up; only the top-level
+        # `Polars`-module + collision case (`base_qualified`) would need `Base.orig_fname`
+        # qualification this curry doesn't attempt, so it's excluded instead.
+        curried = occursin("curried", gen_name)
+        if curried
+            @assert occursin("binary", gen_name) "the curried variant is only defined for binary generators"
+            @assert !base_qualified "curried Fix2 form not supported for a Base-qualified name ($orig_fname); write it by hand"
+        end
         if occursin("binary", gen_name)
             push!(sig.args, Base.Expr(:(::), :a, :Expr), Base.Expr(:(::), :b, :Expr))
             body = quote
@@ -582,6 +710,21 @@ macro generate_expr_fns(ex)
             end
         )
         base_collision || push!(out.args, :(export $orig_fname))
+        if curried
+            curry_sig = Base.Expr(:call, orig_fname, :b)
+            curry_body = :(Base.Fix2($orig_fname, convert(Expr, b)))
+            push!(out.args, Base.Expr(:(=), curry_sig, curry_body))
+            curry_docstring = """
+                $(orig_fname)(b)::Base.Callable
+
+            Curried form of [`$orig_fname`](@ref) for use with `|>`.
+            """
+            push!(
+                out.args, quote
+                    Docs.@doc $curry_docstring $curry_sig
+                end
+            )
+        end
     end
     return esc(out)
 end
@@ -660,12 +803,12 @@ end
     # it needs literal-argument `convert` overloads the macro's plain `(Expr, Expr)` shape can't
     # express (mirroring `is_in`/`fill_null`'s own curried forms further down).
 
-    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression).\n\n!!! note \"Has a curried form\"\n    `fill_null(value)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`.\n\n!!! note \"Has a curried form\"\n    `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column); see the `lit(::Vector)` section below for how to build `b`.\n\n!!! note \"Has a curried form\"\n    `is_in(values)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_curried!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression).\n\n!!! note \"Has a curried form\"\n    `fill_null(value)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_curried!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`.\n\n!!! note \"Has a curried form\"\n    `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_curried!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column); see the `lit(::Vector)` section below for how to build `b`.\n\n!!! note \"Has a curried form\"\n    `is_in(values)` -- see [Curried forms for pipe-based composition](@ref).")
 
-    gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`.\n\n!!! note \"Has a curried form\"\n    `shift(n)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_curried!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`.\n\n!!! note \"Has a curried form\"\n    `shift(n)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_curried!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref).")
 
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
@@ -737,13 +880,17 @@ a `group_by`).
 has_nulls(expr::Expr) = null_count(expr) > 0
 export has_nulls
 
-# Curried (`Fix2`-style) forms for the binary namespace-free ops above that have no natural
-# operator equivalent (unlike +/-/*//, which already read fluently as infix). Each promotes a
-# literal second argument via `convert(Expr, ...)`, matching Python polars' `.is_in([1,2,3])`,
-# `.fill_null(0)`, etc.
-#
-# `log`/`rem` (and, elsewhere, `replace`/`diff`/`round`) are deliberately excluded. It isn't a
-# dispatch-ambiguity concern, Julia always prefers Base's own concrete-type methods (e.g.
+# The plain `Fix2`-style curries for `is_in`/`fill_null`/`fill_nan`/`shift`/`pct_change` are
+# generated by `@generate_expr_fns`'s `curried` variant, right next to each primal above (search
+# `_curried!`). This is the one exception -- `is_in` also needs an `AbstractVector`-specific
+# overload (more specific than the macro-generated `is_in(b) = Base.Fix2(is_in, convert(Expr,
+# b))`, so it dispatches ahead of it) that `implode`s the vector into a single list-typed `Expr`
+# first: the plain `convert(Expr, ::AbstractVector)` above builds a per-row *Series* literal
+# instead, the wrong shape for `is_in`'s membership check against `b`.
+is_in(other::AbstractVector) = Base.Fix2(is_in, implode(convert(Expr, other)))
+
+# `log`/`rem` (and, elsewhere, `replace`/`diff`/`round`) deliberately get no curry at all. It isn't
+# a dispatch-ambiguity concern, Julia always prefers Base's own concrete-type methods (e.g.
 # `log(::Float64)`) over anything added here, so no ambiguity would occur. It's type piracy: a
 # curry that's actually useful for plain numeric literals needs an untyped or broadly-typed second
 # argument, which means claiming argument-type combinations Base currently leaves undefined (e.g.
@@ -754,10 +901,6 @@ export has_nulls
 # A curry typed narrowly to `Expr` would avoid the piracy, but would then only accept
 # already-constructed `Expr`s, not bare literals -- defeating the ergonomic point of currying at
 # all, so it isn't worth doing either.
-is_in(other::AbstractVector) = Base.Fix2(is_in, implode(convert(Expr, other)))
-is_in(other) = Base.Fix2(is_in, convert(Expr, other))
-fill_null(value) = Base.Fix2(fill_null, convert(Expr, value))
-fill_nan(value) = Base.Fix2(fill_nan, convert(Expr, value))
 
 """
     fill_null(expr::Polars.Expr; strategy::Symbol, limit::Union{Nothing,Integer}=nothing)::Polars.Expr
@@ -778,29 +921,21 @@ Replaces every `null` value in `expr` using a fill *strategy* instead of a fixed
     The keyword-only method above, for `|>` pipelines.
 """
 function fill_null(expr::Expr; strategy::Symbol, limit::Union{Nothing, Integer} = nothing)
-    strategy_enum = if strategy == :backward
-        API.PolarsFillNullStrategyBackward
-    elseif strategy == :forward
-        API.PolarsFillNullStrategyForward
-    elseif strategy == :mean
-        API.PolarsFillNullStrategyMean
-    elseif strategy == :min
-        API.PolarsFillNullStrategyMin
-    elseif strategy == :max
-        API.PolarsFillNullStrategyMax
-    elseif strategy == :zero
-        API.PolarsFillNullStrategyZero
-    elseif strategy == :one
-        API.PolarsFillNullStrategyOne
-    else
-        error("unknown fill_null strategy=$strategy, expected one of (:forward, :backward, :mean, :min, :max, :zero, :one)")
-    end
+    strategy_enum = _enum_lookup(
+        strategy, "fill_null strategy",
+        :backward => API.PolarsFillNullStrategyBackward,
+        :forward => API.PolarsFillNullStrategyForward,
+        :mean => API.PolarsFillNullStrategyMean,
+        :min => API.PolarsFillNullStrategyMin,
+        :max => API.PolarsFillNullStrategyMax,
+        :zero => API.PolarsFillNullStrategyZero,
+        :one => API.PolarsFillNullStrategyOne,
+    )
     limit_ref = limit === nothing ? Ptr{UInt32}(C_NULL) : Ref(UInt32(limit))
     out = GC.@preserve limit_ref API.polars_expr_fill_null_with_strategy(expr, strategy_enum, limit_ref)
     return Expr(out)
 end
-fill_null(; strategy::Symbol, limit::Union{Nothing, Integer} = nothing) =
-    expr -> fill_null(expr; strategy, limit)
+@curry fill_null(; strategy::Symbol, limit::Union{Nothing, Integer} = nothing)
 
 """
     forward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
@@ -814,7 +949,7 @@ how many consecutive nulls a single value may fill (`nothing` for unlimited). Sh
     The keyword-only method above, for `|>` pipelines.
 """
 forward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :forward, limit)
-forward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> forward_fill(expr; limit)
+@curry forward_fill(; limit::Union{Nothing, Integer} = nothing)
 
 """
     backward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
@@ -828,12 +963,9 @@ how many consecutive nulls a single value may fill (`nothing` for unlimited). Sh
     The keyword-only method above, for `|>` pipelines.
 """
 backward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :backward, limit)
-backward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> backward_fill(expr; limit)
+@curry backward_fill(; limit::Union{Nothing, Integer} = nothing)
 
 export forward_fill, backward_fill
-
-shift(n) = Base.Fix2(shift, convert(Expr, n))
-pct_change(n) = Base.Fix2(pct_change, convert(Expr, n))
 
 """
     shift_and_fill(expr::Polars.Expr, n, fill_value)::Polars.Expr
@@ -854,18 +986,12 @@ Rounds to `decimals` decimal places, breaking ties according to `mode`: one of
 `:half_to_even` (default, banker's rounding), `:half_away_from_zero`, `:to_zero`.
 """
 function Base.round(expr::Expr, decimals::Integer = 0; mode::Symbol = :half_to_even)
-    mode_enum = if mode == :half_to_even
-        API.PolarsRoundModeHalfToEven
-    elseif mode == :half_away_from_zero
-        API.PolarsRoundModeHalfAwayFromZero
-    elseif mode == :to_zero
-        API.PolarsRoundModeToZero
-    else
-        error(
-            "unknown round mode $mode, expected one of " *
-                "(:half_to_even, :half_away_from_zero, :to_zero)"
-        )
-    end
+    mode_enum = _enum_lookup(
+        mode, "round mode",
+        :half_to_even => API.PolarsRoundModeHalfToEven,
+        :half_away_from_zero => API.PolarsRoundModeHalfAwayFromZero,
+        :to_zero => API.PolarsRoundModeToZero,
+    )
     out = API.polars_expr_round(expr, UInt32(decimals), mode_enum)
     return Expr(out)
 end
@@ -882,12 +1008,7 @@ function clip(expr::Expr, min, max)
     return Expr(out)
 end
 
-"""
-    clip(min, max)::Base.Callable
-
-Curried form of [`clip`](@ref) for use with `|>`, e.g. `col("x") |> clip(0, 10)`.
-"""
-clip(min, max) = expr -> clip(expr, min, max)
+@curry clip(min, max)
 
 export clip
 
@@ -900,12 +1021,7 @@ upper-bound-only form.
 """
 clip_min(expr::Expr, min) = Expr(API.polars_expr_clip_min(expr, convert(Expr, min)))
 
-"""
-    clip_min(min)::Base.Callable
-
-Curried form of [`clip_min`](@ref) for use with `|>`.
-"""
-clip_min(min) = expr -> clip_min(expr, min)
+@curry clip_min(min)
 
 """
     clip_max(expr::Polars.Expr, max)::Polars.Expr
@@ -916,12 +1032,7 @@ lower-bound-only form.
 """
 clip_max(expr::Expr, max) = Expr(API.polars_expr_clip_max(expr, convert(Expr, max)))
 
-"""
-    clip_max(max)::Base.Callable
-
-Curried form of [`clip_max`](@ref) for use with `|>`.
-"""
-clip_max(max) = expr -> clip_max(expr, max)
+@curry clip_max(max)
 
 export clip_min, clip_max
 
@@ -940,28 +1051,18 @@ can satisfy the condition.
 function is_between(expr::Expr, lower_bound, upper_bound; closed::Symbol = :both)
     lower_bound = convert(Expr, lower_bound)
     upper_bound = convert(Expr, upper_bound)
-    closed_enum = if closed == :both
-        API.PolarsClosedIntervalBoth
-    elseif closed == :left
-        API.PolarsClosedIntervalLeft
-    elseif closed == :right
-        API.PolarsClosedIntervalRight
-    elseif closed == :none
-        API.PolarsClosedIntervalNone
-    else
-        error("unknown closed=$closed, expected one of (:both, :left, :right, :none)")
-    end
+    closed_enum = _enum_lookup(
+        closed, "closed",
+        :both => API.PolarsClosedIntervalBoth,
+        :left => API.PolarsClosedIntervalLeft,
+        :right => API.PolarsClosedIntervalRight,
+        :none => API.PolarsClosedIntervalNone,
+    )
     out = API.polars_expr_is_between(expr, lower_bound, upper_bound, closed_enum)
     return Expr(out)
 end
 
-"""
-    is_between(lower_bound, upper_bound; closed::Symbol=:both)
-
-Curried form of [`is_between`](@ref) for use with `|>`.
-"""
-is_between(lower_bound, upper_bound; closed::Symbol = :both) =
-    expr -> is_between(expr, lower_bound, upper_bound; closed)
+@curry is_between(lower_bound, upper_bound; closed::Symbol = :both)
 
 export is_between
 
@@ -995,12 +1096,7 @@ function replace_strict(expr::Expr, old, new; default = nothing)
     return Expr(out)
 end
 
-"""
-    replace_strict(old, new; default=nothing)::Base.Callable
-
-Curried form of [`replace_strict`](@ref) for use with `|>`.
-"""
-replace_strict(old, new; default = nothing) = expr -> replace_strict(expr, old, new; default = default)
+@curry replace_strict(old, new; default = nothing)
 
 export replace_strict
 
@@ -1038,15 +1134,12 @@ function over(
         nulls_last::Bool = false
     )
     partition_by = _expr_vector(partition_by)
-    mapping_enum = if mapping_strategy == :group_to_rows
-        API.PolarsWindowMappingGroupsToRows
-    elseif mapping_strategy == :explode
-        API.PolarsWindowMappingExplode
-    elseif mapping_strategy == :join
-        API.PolarsWindowMappingJoin
-    else
-        error("unknown over mapping_strategy=$mapping_strategy, expected one of (:group_to_rows, :explode, :join)")
-    end
+    mapping_enum = _enum_lookup(
+        mapping_strategy, "over mapping_strategy",
+        :group_to_rows => API.PolarsWindowMappingGroupsToRows,
+        :explode => API.PolarsWindowMappingExplode,
+        :join => API.PolarsWindowMappingJoin,
+    )
     order_by_expr = order_by === nothing ? nothing : _as_expr(order_by)
     GC.@preserve partition_by order_by_expr begin
         partition_ptrs = Ptr{polars_expr_t}[p.ptr for p in partition_by]
@@ -1125,12 +1218,7 @@ function arg_sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false
     return Expr(out)
 end
 
-"""
-    arg_sort(; descending::Bool=false, nulls_last::Bool=false)::Base.Callable
-
-Curried form of [`arg_sort`](@ref) for use with `|>`.
-"""
-arg_sort(; descending::Bool = false, nulls_last::Bool = false) = expr -> arg_sort(expr; descending, nulls_last)
+@curry arg_sort(; descending::Bool = false, nulls_last::Bool = false)
 
 export arg_sort
 
@@ -1336,23 +1424,16 @@ Fills `null`s by interpolating between the surrounding non-null values, using `m
 `null`.
 """
 function interpolate(expr::Expr; method::Symbol = :linear)
-    method_enum = if method == :linear
-        API.PolarsInterpolationMethodLinear
-    elseif method == :nearest
-        API.PolarsInterpolationMethodNearest
-    else
-        error("unknown interpolation method $method, expected one of (:linear, :nearest)")
-    end
+    method_enum = _enum_lookup(
+        method, "interpolation method",
+        :linear => API.PolarsInterpolationMethodLinear,
+        :nearest => API.PolarsInterpolationMethodNearest,
+    )
     out = API.polars_expr_interpolate(expr, method_enum)
     return Expr(out)
 end
 
-"""
-    interpolate(; method::Symbol=:linear)::Base.Callable
-
-Curried form of [`interpolate`](@ref) for use with `|>`.
-"""
-interpolate(; method::Symbol = :linear) = expr -> interpolate(expr; method)
+@curry interpolate(; method::Symbol = :linear)
 
 export interpolate
 
@@ -1365,13 +1446,7 @@ Computes the first discrete difference between shifted items (`expr[i] - expr[i 
 """
 function Base.diff(expr::Expr, n = 1; null_behavior::Symbol = :ignore)
     n = convert(Expr, n)
-    behavior = if null_behavior == :ignore
-        API.PolarsNullBehaviorIgnore
-    elseif null_behavior == :drop
-        API.PolarsNullBehaviorDrop
-    else
-        error("unknown null_behavior $null_behavior, expected one of (:ignore, :drop)")
-    end
+    behavior = _null_behavior_enum(null_behavior)
     out = API.polars_expr_diff(expr, n, behavior)
     return Expr(out)
 end
