@@ -1,7 +1,7 @@
 //! Rust-side smoke tests for the C ABI surface.
 //!
 //! These are deliberately about *safety*, not feature coverage (that lives in the Julia suite):
-//! every case here exercises a path that previously invoked undefined behaviour or aborted the
+//! every case here exercises a path where a slip invokes undefined behaviour or aborts the
 //! process. `cargo test` compiles the crate with the unit-test harness even though it is a
 //! `cdylib`, so the `extern "C"` entry points are callable directly by their module paths.
 #![allow(clippy::undocumented_unsafe_blocks)]
@@ -195,11 +195,11 @@ fn write_callback_receives_the_full_output() {
 
 #[test]
 fn destroy_is_a_no_op_on_null_for_every_handle_type() {
-    // Every `*_destroy` used to `assert!(!ptr.is_null())`; a failed assert panics, and a panic
-    // crossing `extern "C"` aborts the whole host process (none of the destructors runs inside
-    // `guard_error`). `Opaque::destroy` treats null as a no-op instead, matching C's
-    // `free(NULL)` -- this exercises that all 7 handle types actually get that behavior instead
-    // of aborting. A previous version of this test would have crashed the test binary outright.
+    // `Opaque::destroy` treats null as a no-op, matching C's `free(NULL)`. An
+    // `assert!(!ptr.is_null())` in its place would panic, and a panic crossing `extern "C"` aborts
+    // the whole host process (destructors return void, so they cannot run inside `guard_error`) --
+    // taking this test binary with it. This exercises that all 7 handle types get the no-op
+    // behavior.
     unsafe {
         crate::polars_error_destroy(std::ptr::null());
         crate::expr::polars_expr_destroy(std::ptr::null());
@@ -222,9 +222,9 @@ fn make_error_round_trips_through_the_accessor() {
 
 #[test]
 fn read_str_accepts_valid_multi_byte_utf8() {
-    // The historical bug class here was byte-length *truncation* for non-ASCII input (a caller
-    // passing a character count instead of a byte count) -- `read_opt_str_rejects_invalid_utf8`
-    // above only covers outright invalid bytes, not a correctly-encoded multi-byte string.
+    // Guards against byte-length *truncation* for non-ASCII input (a caller passing a character
+    // count where a byte count is required) -- `read_opt_str_rejects_invalid_utf8` above only
+    // covers outright invalid bytes, not a correctly-encoded multi-byte string.
     unsafe {
         let s = "café 日本語 π_test";
         assert_eq!(read_str(s.as_ptr(), s.len()).unwrap(), s);
@@ -292,15 +292,12 @@ fn export_carray_and_schema_handle_a_multi_chunk_series() {
 
 #[test]
 fn scanning_and_collecting_a_malformed_file_returns_an_error_not_a_crash() {
-    // `scan_parquet` itself only builds a lazy DSL scan node -- confirmed empirically (this test
-    // originally asserted `scan_parquet` itself would error on bad content, and that assertion
-    // failed: it returns `Ok` for any path, valid or not). The actual file read/validation is
-    // deferred to schema resolution inside `collect`, which already carries `guard_error` from an
-    // earlier hardening pass. This test exercises the real user-facing property: the full
-    // scan-then-collect pipeline on a malformed file surfaces a clean `PolarsError`, not a crash.
-    // `guard_error` was still extended to `scan_parquet`/`scan_csv`/`scan_ipc` themselves as
-    // defense-in-depth for whatever those builder chains *do* resolve eagerly (e.g. hive/cloud
-    // options), even though plain file-content validation isn't part of that for parquet.
+    // `scan_parquet` itself only builds a lazy DSL scan node: it returns `Ok` for any path, valid
+    // or not (verified empirically -- hence the first assertion below, which pins that down rather
+    // than the more obvious "scanning garbage errors"). The actual file read/validation is deferred
+    // to schema resolution inside `collect`. This test exercises the real user-facing property: the
+    // full scan-then-collect pipeline on a malformed file surfaces a clean `PolarsError`, not a
+    // crash.
     unsafe {
         let mut path = std::env::temp_dir();
         path.push(format!(

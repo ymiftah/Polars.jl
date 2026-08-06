@@ -74,12 +74,14 @@ pub unsafe extern "C" fn polars_expr_literal_utf8(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let value = tri!(read_str(s, len));
-    *out = make_expr(Expr::Literal(LiteralValue::Scalar(Scalar::new(
-        DataType::String,
-        AnyValue::StringOwned(PlSmallStr::from_str(value)),
-    ))));
-    std::ptr::null()
+    guard_error(|| {
+        let value = tri!(read_str(s, len));
+        *out = make_expr(Expr::Literal(LiteralValue::Scalar(Scalar::new(
+            DataType::String,
+            AnyValue::StringOwned(PlSmallStr::from_str(value)),
+        ))));
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -88,10 +90,12 @@ pub unsafe extern "C" fn polars_expr_col(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = tri!(read_str(name, len));
-    let expr = col(name);
-    *out = make_expr(expr);
-    std::ptr::null()
+    guard_error(|| {
+        let name = tri!(read_str(name, len));
+        let expr = col(name);
+        *out = make_expr(expr);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -99,8 +103,10 @@ pub unsafe extern "C" fn polars_expr_nth(
     n: i64,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    *out = make_expr(Expr::Selector(nth(n)));
-    std::ptr::null()
+    guard_error(|| {
+        *out = make_expr(Expr::Selector(nth(n)));
+        std::ptr::null()
+    })
 }
 
 /// A placeholder for "the values in this group", used to build the `agg` expression passed to
@@ -117,12 +123,14 @@ pub unsafe extern "C" fn polars_expr_coalesce(
     n: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    if n == 0 {
-        return make_error("coalesce requires at least one expression");
-    }
-    let exprs = read_exprs(exprs, n);
-    *out = make_expr(coalesce(&exprs));
-    std::ptr::null()
+    guard_error(|| {
+        if n == 0 {
+            return make_error("coalesce requires at least one expression");
+        }
+        let exprs = read_exprs(exprs, n);
+        *out = make_expr(coalesce(&exprs));
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -131,12 +139,14 @@ pub unsafe extern "C" fn polars_expr_as_struct(
     n: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    if n == 0 {
-        return make_error("as_struct requires at least one field");
-    }
-    let exprs = read_exprs(exprs, n);
-    *out = make_expr(as_struct(exprs));
-    std::ptr::null()
+    guard_error(|| {
+        if n == 0 {
+            return make_error("as_struct requires at least one field");
+        }
+        let exprs = read_exprs(exprs, n);
+        *out = make_expr(as_struct(exprs));
+        std::ptr::null()
+    })
 }
 
 /// `all/any/min/max_horizontal`: fallible reductions over a `Vec<Expr>` with no extra options.
@@ -148,14 +158,16 @@ macro_rules! gen_horizontal {
             n: usize,
             out: *mut *const polars_expr_t,
         ) -> *const polars_error_t {
-            let exprs = read_exprs(exprs, n);
-            match $f(&exprs) {
-                Ok(result) => {
-                    *out = make_expr(result);
-                    std::ptr::null()
+            guard_error(|| {
+                let exprs = read_exprs(exprs, n);
+                match $f(&exprs) {
+                    Ok(result) => {
+                        *out = make_expr(result);
+                        std::ptr::null()
+                    }
+                    Err(err) => make_error(err),
                 }
-                Err(err) => make_error(err),
-            }
+            })
         }
     };
 }
@@ -170,14 +182,16 @@ macro_rules! gen_horizontal_ignore_nulls {
             ignore_nulls: bool,
             out: *mut *const polars_expr_t,
         ) -> *const polars_error_t {
-            let exprs = read_exprs(exprs, n);
-            match $f(&exprs, ignore_nulls) {
-                Ok(result) => {
-                    *out = make_expr(result);
-                    std::ptr::null()
+            guard_error(|| {
+                let exprs = read_exprs(exprs, n);
+                match $f(&exprs, ignore_nulls) {
+                    Ok(result) => {
+                        *out = make_expr(result);
+                        std::ptr::null()
+                    }
+                    Err(err) => make_error(err),
                 }
-                Err(err) => make_error(err),
-            }
+            })
         }
     };
 }
@@ -225,10 +239,12 @@ pub unsafe extern "C" fn polars_expr_alias(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = tri!(read_str(name, len));
-    let aliased = (*expr).inner.clone().alias(name);
-    *out = make_expr(aliased);
-    std::ptr::null()
+    guard_error(|| {
+        let name = tri!(read_str(name, len));
+        let aliased = (*expr).inner.clone().alias(name);
+        *out = make_expr(aliased);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -238,10 +254,12 @@ pub unsafe extern "C" fn polars_expr_prefix(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = tri!(read_str(name, len));
-    let aliased = (*expr).inner.clone().name().prefix(name);
-    *out = make_expr(aliased);
-    std::ptr::null()
+    guard_error(|| {
+        let name = tri!(read_str(name, len));
+        let aliased = (*expr).inner.clone().name().prefix(name);
+        *out = make_expr(aliased);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -251,10 +269,12 @@ pub unsafe extern "C" fn polars_expr_suffix(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = tri!(read_str(name, len));
-    let aliased = (*expr).inner.clone().name().suffix(name);
-    *out = make_expr(aliased);
-    std::ptr::null()
+    guard_error(|| {
+        let name = tri!(read_str(name, len));
+        let aliased = (*expr).inner.clone().name().suffix(name);
+        *out = make_expr(aliased);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -285,27 +305,31 @@ pub unsafe extern "C" fn polars_expr_cast(
     dtype: polars_value_type_t,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    // Fallible since `to_dtype` rejects type codes it cannot encode, rather than silently
-    // producing a cast to `Unknown` (see `polars_value_type_t::to_dtype`).
-    let dtype = tri!(dtype.to_dtype());
-    *out = make_expr(cast((*expr).inner.clone(), dtype));
-    std::ptr::null()
+    guard_error(|| {
+        // Fallible since `to_dtype` rejects type codes it cannot encode, rather than silently
+        // producing a cast to `Unknown` (see `polars_value_type_t::to_dtype`).
+        let dtype = tri!(dtype.to_dtype());
+        *out = make_expr(cast((*expr).inner.clone(), dtype));
+        std::ptr::null()
+    })
 }
 
 /// Strict cast: raises on overflow/loss instead of `polars_expr_cast`'s non-strict "overflow
-/// becomes null" behavior (our `cast()` was hardwired non-strict; upstream `Expr.cast(dtype,
-/// strict=True)` defaults to strict -- this exposes the other branch as an explicit function
-/// rather than a mode switch on `cast` itself, matching `Expr::strict_cast`/`Expr::cast`'s own
-/// split upstream).
+/// becomes null" behavior. The two modes are separate functions rather than one function with a
+/// mode flag, mirroring upstream's own `Expr::strict_cast`/`Expr::cast` split (note upstream's
+/// *Python* `Expr.cast(dtype, strict=True)` defaults to the strict branch, so `cast` here is the
+/// non-default one).
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_strict_cast(
     expr: *const polars_expr_t,
     dtype: polars_value_type_t,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let dtype = tri!(dtype.to_dtype());
-    *out = make_expr((*expr).inner.clone().strict_cast(dtype));
-    std::ptr::null()
+    guard_error(|| {
+        let dtype = tri!(dtype.to_dtype());
+        *out = make_expr((*expr).inner.clone().strict_cast(dtype));
+        std::ptr::null()
+    })
 }
 
 /// Casts to `Datetime(unit, tz)`. `tz_len == 0` casts to a naive (timezone-less) Datetime.
@@ -317,12 +341,14 @@ pub unsafe extern "C" fn polars_expr_cast_datetime(
     tz_len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let unit = tri!(unit.to_time_unit());
-    let tz = tri!(read_opt_str(tz, tz_len));
-    let time_zone = tri!(TimeZone::opt_try_new(tz));
-    let dtype = DataType::Datetime(unit, time_zone);
-    *out = make_expr(cast((*expr).inner.clone(), dtype));
-    std::ptr::null()
+    guard_error(|| {
+        let unit = tri!(unit.to_time_unit());
+        let tz = tri!(read_opt_str(tz, tz_len));
+        let time_zone = tri!(TimeZone::opt_try_new(tz));
+        let dtype = DataType::Datetime(unit, time_zone);
+        *out = make_expr(cast((*expr).inner.clone(), dtype));
+        std::ptr::null()
+    })
 }
 
 /// Casts to `Duration(unit)`.
@@ -332,10 +358,12 @@ pub unsafe extern "C" fn polars_expr_cast_duration(
     unit: polars_time_unit_t,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let unit = tri!(unit.to_time_unit());
-    let dtype = DataType::Duration(unit);
-    *out = make_expr(cast((*expr).inner.clone(), dtype));
-    std::ptr::null()
+    guard_error(|| {
+        let unit = tri!(unit.to_time_unit());
+        let dtype = DataType::Duration(unit);
+        *out = make_expr(cast((*expr).inner.clone(), dtype));
+        std::ptr::null()
+    })
 }
 
 /// Targeted cast to `Decimal(precision, scale)` (`dtype-decimal` is already enabled). polars'
@@ -549,11 +577,13 @@ pub unsafe extern "C" fn polars_expr_cut(
     left_closed: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let expr = (*expr).inner.clone();
-    let breaks = read_f64_array(breaks, n_breaks);
-    let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
-    *out = make_expr(expr.cut(breaks, labels, left_closed, false));
-    std::ptr::null()
+    guard_error(|| {
+        let expr = (*expr).inner.clone();
+        let breaks = read_f64_array(breaks, n_breaks);
+        let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
+        *out = make_expr(expr.cut(breaks, labels, left_closed, false));
+        std::ptr::null()
+    })
 }
 
 /// Bins continuous values into discrete categories based on their quantiles. `probs` are the
@@ -572,11 +602,13 @@ pub unsafe extern "C" fn polars_expr_qcut(
     allow_duplicates: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let expr = (*expr).inner.clone();
-    let probs = read_f64_array(probs, n_probs);
-    let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
-    *out = make_expr(expr.qcut(probs, labels, left_closed, allow_duplicates, false));
-    std::ptr::null()
+    guard_error(|| {
+        let expr = (*expr).inner.clone();
+        let probs = read_f64_array(probs, n_probs);
+        let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
+        *out = make_expr(expr.qcut(probs, labels, left_closed, allow_duplicates, false));
+        std::ptr::null()
+    })
 }
 
 /// Like `polars_expr_qcut`, but with `n_bins` uniformly-spaced quantile probabilities instead of
@@ -592,10 +624,12 @@ pub unsafe extern "C" fn polars_expr_qcut_uniform(
     allow_duplicates: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let expr = (*expr).inner.clone();
-    let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
-    *out = make_expr(expr.qcut_uniform(n_bins, labels, left_closed, allow_duplicates, false));
-    std::ptr::null()
+    guard_error(|| {
+        let expr = (*expr).inner.clone();
+        let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
+        *out = make_expr(expr.qcut_uniform(n_bins, labels, left_closed, allow_duplicates, false));
+        std::ptr::null()
+    })
 }
 
 #[repr(C)]
@@ -775,36 +809,39 @@ pub unsafe extern "C" fn polars_expr_over(
     mapping: polars_window_mapping_t,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let mut partition_by = read_exprs(partition_by, n_partition_by);
-    // An empty partition list is a real, meaningful window spec (the whole frame as one group),
-    // but `over_with_options` does not treat `Some(vec![])` that way -- only its own `None` branch
-    // substitutes the whole-frame sentinel `vec![lit(1)]` (upstream `dsl/mod.rs`); `Some(vec![])`
-    // is passed straight through as zero actual group-by keys, which polars-core's group-by
-    // execution then rejects at *run* time ("at least one key is required in a group_by
-    // operation") even though building the `Expr` itself succeeds. Passing `None` outright doesn't
-    // work either -- `over_with_options`'s own `polars_ensure!` then requires `order_by` to be set.
-    // So: replicate upstream's `None`-branch substitution ourselves whenever the caller passed an
-    // empty list, keeping `Some(..)` (which upstream's ensure is satisfied by) either way.
-    if partition_by.is_empty() {
-        partition_by.push(lit(1));
-    }
-    let partition_by = Some(partition_by);
-    let order_by = if order_by.is_null() {
-        None
-    } else {
-        Some((
-            vec![(*order_by).inner.clone()],
-            SortOptions {
-                descending,
-                nulls_last,
-                ..Default::default()
-            },
-        ))
-    };
-    let expr = (*expr).inner.clone();
-    let result = tri!(expr.over_with_options(partition_by, order_by, mapping.to_window_mapping()));
-    *out = make_expr(result);
-    std::ptr::null()
+    guard_error(|| {
+        let mut partition_by = read_exprs(partition_by, n_partition_by);
+        // An empty partition list is a real, meaningful window spec (the whole frame as one group),
+        // but `over_with_options` does not treat `Some(vec![])` that way -- only its own `None` branch
+        // substitutes the whole-frame sentinel `vec![lit(1)]` (upstream `dsl/mod.rs`); `Some(vec![])`
+        // is passed straight through as zero actual group-by keys, which polars-core's group-by
+        // execution then rejects at *run* time ("at least one key is required in a group_by
+        // operation") even though building the `Expr` itself succeeds. Passing `None` outright doesn't
+        // work either -- `over_with_options`'s own `polars_ensure!` then requires `order_by` to be set.
+        // So: replicate upstream's `None`-branch substitution ourselves whenever the caller passed an
+        // empty list, keeping `Some(..)` (which upstream's ensure is satisfied by) either way.
+        if partition_by.is_empty() {
+            partition_by.push(lit(1));
+        }
+        let partition_by = Some(partition_by);
+        let order_by = if order_by.is_null() {
+            None
+        } else {
+            Some((
+                vec![(*order_by).inner.clone()],
+                SortOptions {
+                    descending,
+                    nulls_last,
+                    ..Default::default()
+                },
+            ))
+        };
+        let expr = (*expr).inner.clone();
+        let result =
+            tri!(expr.over_with_options(partition_by, order_by, mapping.to_window_mapping()));
+        *out = make_expr(result);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -1011,13 +1048,15 @@ pub unsafe extern "C" fn polars_expr_value_counts(
     normalize: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = tri!(read_str(name, name_len));
-    let result = (*expr)
-        .inner
-        .clone()
-        .value_counts(sort, parallel, name, normalize);
-    *out = make_expr(result);
-    std::ptr::null()
+    guard_error(|| {
+        let name = tri!(read_str(name, name_len));
+        let result = (*expr)
+            .inner
+            .clone()
+            .value_counts(sort, parallel, name, normalize);
+        *out = make_expr(result);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -1573,9 +1612,11 @@ pub unsafe extern "C" fn polars_expr_list_to_struct(
     num_names: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let names: Arc<[PlSmallStr]> = tri!(read_names(names, lens, num_names)).into();
-    *out = make_expr((*a).inner.clone().list().to_struct(names));
-    std::ptr::null()
+    guard_error(|| {
+        let names: Arc<[PlSmallStr]> = tri!(read_names(names, lens, num_names)).into();
+        *out = make_expr((*a).inner.clone().list().to_struct(names));
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -1697,10 +1738,12 @@ pub unsafe extern "C" fn polars_expr_str_join(
     ignore_nulls: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let delimiter = tri!(read_str(delimiter, delimiter_len));
-    let expr = (*a).inner.clone().str().join(delimiter, ignore_nulls);
-    *out = make_expr(expr);
-    std::ptr::null()
+    guard_error(|| {
+        let delimiter = tri!(read_str(delimiter, delimiter_len));
+        let expr = (*a).inner.clone().str().join(delimiter, ignore_nulls);
+        *out = make_expr(expr);
+        std::ptr::null()
+    })
 }
 
 /// Named-capture-group regex extraction into a `Struct` column (one field per named group).
@@ -1713,10 +1756,12 @@ pub unsafe extern "C" fn polars_expr_str_extract_groups(
     pat_len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let pat = tri!(read_str(pat, pat_len));
-    let expr = tri!((*a).inner.clone().str().extract_groups(pat));
-    *out = make_expr(expr);
-    std::ptr::null()
+    guard_error(|| {
+        let pat = tri!(read_str(pat, pat_len));
+        let expr = tri!((*a).inner.clone().str().extract_groups(pat));
+        *out = make_expr(expr);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -1767,17 +1812,19 @@ pub unsafe extern "C" fn polars_expr_str_pad_start(
     fill_char: u32,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let fill_char = match char::from_u32(fill_char) {
-        Some(c) => c,
-        None => return make_error(format!("{fill_char} is not a valid Unicode scalar value")),
-    };
-    let expr = (*a)
-        .inner
-        .clone()
-        .str()
-        .pad_start((*length).inner.clone(), fill_char);
-    *out = make_expr(expr);
-    std::ptr::null()
+    guard_error(|| {
+        let fill_char = match char::from_u32(fill_char) {
+            Some(c) => c,
+            None => return make_error(format!("{fill_char} is not a valid Unicode scalar value")),
+        };
+        let expr = (*a)
+            .inner
+            .clone()
+            .str()
+            .pad_start((*length).inner.clone(), fill_char);
+        *out = make_expr(expr);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -1787,17 +1834,19 @@ pub unsafe extern "C" fn polars_expr_str_pad_end(
     fill_char: u32,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let fill_char = match char::from_u32(fill_char) {
-        Some(c) => c,
-        None => return make_error(format!("{fill_char} is not a valid Unicode scalar value")),
-    };
-    let expr = (*a)
-        .inner
-        .clone()
-        .str()
-        .pad_end((*length).inner.clone(), fill_char);
-    *out = make_expr(expr);
-    std::ptr::null()
+    guard_error(|| {
+        let fill_char = match char::from_u32(fill_char) {
+            Some(c) => c,
+            None => return make_error(format!("{fill_char} is not a valid Unicode scalar value")),
+        };
+        let expr = (*a)
+            .inner
+            .clone()
+            .str()
+            .pad_end((*length).inner.clone(), fill_char);
+        *out = make_expr(expr);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -1874,16 +1923,18 @@ pub unsafe extern "C" fn polars_expr_str_to_date(
     exact: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let format = tri!(read_opt_str(format, format_len));
-    let options = StrptimeOptions {
-        format,
-        strict,
-        exact,
-        cache: true,
-    };
-    let result = (*expr).inner.clone().str().to_date(options);
-    *out = make_expr(result);
-    std::ptr::null()
+    guard_error(|| {
+        let format = tri!(read_opt_str(format, format_len));
+        let options = StrptimeOptions {
+            format,
+            strict,
+            exact,
+            cache: true,
+        };
+        let result = (*expr).inner.clone().str().to_date(options);
+        *out = make_expr(result);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -1896,22 +1947,24 @@ pub unsafe extern "C" fn polars_expr_str_to_datetime(
     exact: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let format = tri!(read_opt_str(format, format_len));
-    let options = StrptimeOptions {
-        format,
-        strict,
-        exact,
-        cache: true,
-    };
-    let time_unit = tri!(time_unit.to_time_unit());
-    let result = (*expr).inner.clone().str().to_datetime(
-        Some(time_unit),
-        None,
-        options,
-        string_literal("raise"),
-    );
-    *out = make_expr(result);
-    std::ptr::null()
+    guard_error(|| {
+        let format = tri!(read_opt_str(format, format_len));
+        let options = StrptimeOptions {
+            format,
+            strict,
+            exact,
+            cache: true,
+        };
+        let time_unit = tri!(time_unit.to_time_unit());
+        let result = (*expr).inner.clone().str().to_datetime(
+            Some(time_unit),
+            None,
+            options,
+            string_literal("raise"),
+        );
+        *out = make_expr(result);
+        std::ptr::null()
+    })
 }
 
 macro_rules! gen_impl_expr_dt {
@@ -1983,15 +2036,17 @@ pub unsafe extern "C" fn polars_expr_dt_convert_time_zone(
     tz_len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let tz = tri!(read_str(tz, tz_len));
-    let time_zone = match TimeZone::opt_try_new(Some(tz)) {
-        Ok(Some(time_zone)) => time_zone,
-        Ok(None) => return make_error("invalid time zone"),
-        Err(err) => return make_error(err),
-    };
-    let result = (*expr).inner.clone().dt().convert_time_zone(time_zone);
-    *out = make_expr(result);
-    std::ptr::null()
+    guard_error(|| {
+        let tz = tri!(read_str(tz, tz_len));
+        let time_zone = match TimeZone::opt_try_new(Some(tz)) {
+            Ok(Some(time_zone)) => time_zone,
+            Ok(None) => return make_error("invalid time zone"),
+            Err(err) => return make_error(err),
+        };
+        let result = (*expr).inner.clone().dt().convert_time_zone(time_zone);
+        *out = make_expr(result);
+        std::ptr::null()
+    })
 }
 
 /// `replace_time_zone`: attaches/strips/re-attaches a time zone label to the *same* local
@@ -2006,15 +2061,17 @@ pub unsafe extern "C" fn polars_expr_dt_replace_time_zone(
     non_existent: polars_non_existent_t,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let tz = tri!(read_opt_str(tz, tz_len));
-    let time_zone = tri!(TimeZone::opt_try_new(tz));
-    let result = (*expr).inner.clone().dt().replace_time_zone(
-        time_zone,
-        (*ambiguous).inner.clone(),
-        non_existent.to_non_existent(),
-    );
-    *out = make_expr(result);
-    std::ptr::null()
+    guard_error(|| {
+        let tz = tri!(read_opt_str(tz, tz_len));
+        let time_zone = tri!(TimeZone::opt_try_new(tz));
+        let result = (*expr).inner.clone().dt().replace_time_zone(
+            time_zone,
+            (*ambiguous).inner.clone(),
+            non_existent.to_non_existent(),
+        );
+        *out = make_expr(result);
+        std::ptr::null()
+    })
 }
 
 /// Fallible since `polars_time_unit_t` mirrors a Julia-side `@cenum` and must reject an
@@ -2025,10 +2082,12 @@ pub unsafe extern "C" fn polars_expr_dt_timestamp(
     unit: polars_time_unit_t,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let unit = tri!(unit.to_time_unit());
-    let result = (*expr).inner.clone().dt().timestamp(unit);
-    *out = make_expr(result);
-    std::ptr::null()
+    guard_error(|| {
+        let unit = tri!(unit.to_time_unit());
+        let result = (*expr).inner.clone().dt().timestamp(unit);
+        *out = make_expr(result);
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -2038,10 +2097,12 @@ pub unsafe extern "C" fn polars_expr_dt_strftime(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let format = tri!(read_str(format, len));
-    let result = (*expr).inner.clone().dt().strftime(format);
-    *out = make_expr(result);
-    std::ptr::null()
+    guard_error(|| {
+        let format = tri!(read_str(format, len));
+        let result = (*expr).inner.clone().dt().strftime(format);
+        *out = make_expr(result);
+        std::ptr::null()
+    })
 }
 
 /// `total_*` Duration-decomposition family (`total_days`/`total_hours`/`total_minutes`/
@@ -2096,9 +2157,11 @@ pub unsafe extern "C" fn polars_expr_struct_field_by_name(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let name = tri!(read_str(name, len));
-    *out = make_expr((*a).inner.clone().struct_().field_by_name(name));
-    std::ptr::null()
+    guard_error(|| {
+        let name = tri!(read_str(name, len));
+        *out = make_expr((*a).inner.clone().struct_().field_by_name(name));
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -2118,11 +2181,13 @@ pub unsafe extern "C" fn polars_expr_struct_rename_fields(
     num_names: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    // `read_names` validates UTF-8; this previously used `from_utf8_unchecked`, which is UB on
-    // invalid input rather than the error every peer function returns.
-    let names = tri!(read_names(names, lens, num_names));
-    *out = make_expr((*a).inner.clone().struct_().rename_fields(names));
-    std::ptr::null()
+    guard_error(|| {
+        // `read_names` validates UTF-8 and returns the same error every peer function does;
+        // `from_utf8_unchecked` in its place is UB on invalid input.
+        let names = tri!(read_names(names, lens, num_names));
+        *out = make_expr((*a).inner.clone().struct_().rename_fields(names));
+        std::ptr::null()
+    })
 }
 
 gen_impl_expr!(polars_expr_struct_json_encode, |e: Expr| e
@@ -2281,9 +2346,11 @@ pub unsafe extern "C" fn polars_expr_selector_by_name(
     strict: bool,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let names = tri!(read_names(names, lens, n));
-    *out = make_expr(Expr::Selector(selector_by_name(names, strict)));
-    std::ptr::null()
+    guard_error(|| {
+        let names = tri!(read_names(names, lens, n));
+        *out = make_expr(Expr::Selector(selector_by_name(names, strict)));
+        std::ptr::null()
+    })
 }
 
 /// Selects columns by 0-based index; negative indices count back from the end.
@@ -2357,23 +2424,25 @@ pub unsafe extern "C" fn polars_expr_selector_matches(
     len: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let pattern = tri!(read_str(pattern, len));
-    let regex_str = match kind {
-        polars_selector_match_kind_t::PolarsSelectorMatchKindRegex => pattern.to_string(),
-        polars_selector_match_kind_t::PolarsSelectorMatchKindStartsWith => {
-            format!("^{}", escape_regex_literal(pattern))
-        }
-        polars_selector_match_kind_t::PolarsSelectorMatchKindEndsWith => {
-            format!("{}$", escape_regex_literal(pattern))
-        }
-        polars_selector_match_kind_t::PolarsSelectorMatchKindContains => {
-            escape_regex_literal(pattern)
-        }
-    };
-    *out = make_expr(Expr::Selector(Selector::Matches(PlSmallStr::from_string(
-        regex_str,
-    ))));
-    std::ptr::null()
+    guard_error(|| {
+        let pattern = tri!(read_str(pattern, len));
+        let regex_str = match kind {
+            polars_selector_match_kind_t::PolarsSelectorMatchKindRegex => pattern.to_string(),
+            polars_selector_match_kind_t::PolarsSelectorMatchKindStartsWith => {
+                format!("^{}", escape_regex_literal(pattern))
+            }
+            polars_selector_match_kind_t::PolarsSelectorMatchKindEndsWith => {
+                format!("{}$", escape_regex_literal(pattern))
+            }
+            polars_selector_match_kind_t::PolarsSelectorMatchKindContains => {
+                escape_regex_literal(pattern)
+            }
+        };
+        *out = make_expr(Expr::Selector(Selector::Matches(PlSmallStr::from_string(
+            regex_str,
+        ))));
+        std::ptr::null()
+    })
 }
 
 /// Zero-argument `DataTypeSelector` leaves. `Datetime`/`Duration`/`List`/`Array` match any
@@ -2440,16 +2509,18 @@ pub unsafe extern "C" fn polars_expr_selector_dtype_any_of(
     n: usize,
     out: *mut *const polars_expr_t,
 ) -> *const polars_error_t {
-    let mut dtypes: Vec<DataType> = Vec::with_capacity(n);
-    if n > 0 {
-        for vt in std::slice::from_raw_parts(value_types, n) {
-            dtypes.push(tri!(vt.to_dtype()));
+    guard_error(|| {
+        let mut dtypes: Vec<DataType> = Vec::with_capacity(n);
+        if n > 0 {
+            for vt in std::slice::from_raw_parts(value_types, n) {
+                dtypes.push(tri!(vt.to_dtype()));
+            }
         }
-    }
-    *out = make_expr(Expr::Selector(Selector::ByDType(DataTypeSelector::AnyOf(
-        dtypes.into(),
-    ))));
-    std::ptr::null()
+        *out = make_expr(Expr::Selector(Selector::ByDType(DataTypeSelector::AnyOf(
+            dtypes.into(),
+        ))));
+        std::ptr::null()
+    })
 }
 
 /// Extracts the `Selector` inside an `Expr::Selector(...)`, or a clear error otherwise. Backs the
@@ -2480,13 +2551,15 @@ macro_rules! gen_selector_combinator {
             b: *const polars_expr_t,
             out: *mut *const polars_expr_t,
         ) -> *const polars_error_t {
-            let sa = tri!(expect_selector(a));
-            let sb = tri!(expect_selector(b));
-            *out = make_expr(Expr::Selector(Selector::$variant(
-                Arc::new(sa),
-                Arc::new(sb),
-            )));
-            std::ptr::null()
+            guard_error(|| {
+                let sa = tri!(expect_selector(a));
+                let sb = tri!(expect_selector(b));
+                *out = make_expr(Expr::Selector(Selector::$variant(
+                    Arc::new(sa),
+                    Arc::new(sb),
+                )));
+                std::ptr::null()
+            })
         }
     };
 }

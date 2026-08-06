@@ -120,9 +120,9 @@ pub(crate) fn make_lazy_group_by(gb: LazyGroupBy) -> *mut polars_lazy_group_by_t
     polars_lazy_group_by_t { inner: gb }.into_handle()
 }
 
-/// Counterpart to `make_dataframe`/`make_series`/... for the one handle that had no factory --
-/// `polars_value_t` was constructed inline at its two call sites (`polars_series_get`,
-/// `polars_value_struct_get`). See the type's own docs for the borrow contract it carries.
+/// Counterpart to `make_dataframe`/`make_series`/... for `polars_value_t`, which is built at two
+/// call sites (`polars_series_get`, `polars_value_struct_get`). See the type's own docs for the
+/// borrow contract it carries.
 pub(crate) fn make_value(value: AnyValue<'_>) -> *mut polars_value_t<'_> {
     polars_value_t { inner: value }.into_handle()
 }

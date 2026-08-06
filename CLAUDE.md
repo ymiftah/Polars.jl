@@ -26,8 +26,13 @@ Julia wrapper clones first, so no caller observes it. `*_destroy` does `Box::fro
 
 **Errors.** Fallible functions return `*const polars_error_t` (null = success), the result coming via
 an out-param (`out: *mut *mut polars_foo_t`); Julia follows every such ccall with `polars_error(err)`.
-A panic unwinding across `extern "C"` is UB, so **anything that can fail — including parses — must use
-this shape, never `.unwrap()`/`.expect()`/`panic!`** (see `plans/ffi_panic_safety.md`).
+A panic unwinding across `extern "C"` aborts the host process (a defined abort since Rust 1.81, not
+UB — you get SIGABRT and the panic message on stderr, uncatchable from Julia), so **anything that can
+fail — including parses — must use this shape, never `.unwrap()`/`.expect()`/`panic!`** (see
+`plans/ffi_panic_safety.md`). Every fallible entry point is additionally wrapped in `guard_error`,
+which catches an upstream panic and returns it as a `polars_error_t`; the entry points that return a
+handle/`usize`/`bool` or void have no error channel and so cannot be covered — do not expose an
+operation that can panic through one of those.
 
 **Marshalling.** `Vec<Expr>` args → `*const *const polars_expr_t` + length under `GC.@preserve`
 (convert incoming `String`/`Symbol` to `col(...)` first). Optional scalars → nullable pointers

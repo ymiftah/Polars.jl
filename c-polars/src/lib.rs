@@ -18,6 +18,12 @@
 //! Note that argument handles are always borrowed, never consumed: `polars_lazy_frame_filter`
 //! clones the `Expr` it is given, and the caller still owns (and must destroy) that `Expr`.
 //!
+//! One further category takes `&mut (*handle).inner` without being an in-place mutator in the
+//! sense above: `polars_dataframe_write_parquet`/`write_csv`/`write_ipc`. Upstream's writers take
+//! `&mut DataFrame` and align/rechunk it as they serialize, so writing a frame can change its
+//! *representation* (chunk layout) even though its value is untouched. No caller observes a
+//! different result, but the handle is genuinely mutated -- it is not a read-only borrow.
+//!
 //! # C ABI trust boundary
 //!
 //! Every `#[repr(C)]` enum crossing this boundary is passed/returned by value and matched against
@@ -28,15 +34,21 @@
 //! read from caller memory (e.g. `descending` arrays) are read as bytes and normalized rather than
 //! reinterpreted as `&[bool]` (see `ffi_util::read_bool_mask`) precisely to avoid that UB.
 //!
-//! Handle pointers (`*const`/`*mut polars_foo_t`) are non-null unless a function's own doc
-//! explicitly says otherwise -- e.g. `replace_strict`'s `default` handle and `sample_n`/
-//! `sample_frac`'s `seed` pointer are the documented exceptions, where null means "argument
-//! omitted". A null handle passed anywhere else is caller error, not a supported "optional" input.
-//! The scattered `assert!(!x.is_null())` calls are a best-effort debug trap on that contract, not
-//! an enforced one -- most call sites dereference the pointer directly with no check at all, and
-//! even where an assert is present, a failed assertion still unwinds and aborts the process across
-//! `extern "C"` just like any other panic (see `guard_error` below for where that unwind is
-//! caught; the assert sites are not wrapped in it and so are not currently recoverable).
+//! Handle pointers (`*const`/`*mut polars_foo_t`) are non-null, and **this is unchecked**: every
+//! entry point dereferences its handle arguments directly, so passing null is undefined behavior,
+//! not a reportable error. A `debug_assert`-style null trap is deliberately *not* used here -- it
+//! would fire on well under half the surface, and a failed assertion aborts the process across
+//! `extern "C"` anyway (see `guard_error`, which the destructors and the infallible entry points
+//! do not run inside), so it neither enforces the contract nor degrades gracefully. The Julia
+//! wrapper is the layer that guarantees non-null, via one finalizer-owned handle per object.
+//!
+//! Individual arguments *may* be nullable where a function's own doc says so -- optional scalars
+//! (`sample_n`'s `seed`, `fill_null_with_strategy`'s `limit`, every `*const usize`/`*const i32`
+//! knob in `io.rs`), optional handles (`replace_strict`'s `default`, `over`'s `order_by`,
+//! `cloud_options`), and optional strings (null pointer or zero length; see
+//! `ffi_util::read_opt_str`). That set is large and grows with the API, so each function documents
+//! its own rather than this list trying to stay exhaustive: if a pointer's own doc does not call it
+//! optional, it must be non-null.
 #![allow(non_camel_case_types)]
 #![allow(clippy::missing_safety_doc)]
 // The hand-written `#[repr(C)]` enum mirrors (see CLAUDE.md's "Rust enums crossing the
@@ -98,10 +110,23 @@ fn make_error<E: ToString>(err: E) -> *const polars_error_t {
 }
 
 /// Runs `f`, converting a Rust panic into a `polars_error_t` instead of letting it unwind across
-/// the `extern "C"` boundary (which aborts the whole host process). Wrap the fallible entry points
-/// where a panic can realistically originate -- query *execution* (`collect`, `sink_*`, `write_*`):
-/// upstream polars still `panic!`s for some feature-gated / codec paths (see CLAUDE.md), and this
-/// turns those into a catchable error on the Julia side rather than a hard crash.
+/// the `extern "C"` boundary (which aborts the whole host process). Upstream polars still
+/// `panic!`s for some feature-gated / codec paths (see CLAUDE.md), and this turns those into a
+/// catchable error on the Julia side rather than a hard crash.
+///
+/// **Every entry point returning `*const polars_error_t` is wrapped in this** -- the rule is the
+/// signature, not a per-function judgement about which upstream calls look risky. `catch_unwind`
+/// costs nothing when nothing panics, so there is no reason to spend judgement here, and a rule
+/// stated as "wherever a panic seems likely" is not one anybody can check. `check_panic_guards.py`
+/// enforces the signature rule in CI.
+///
+/// What this *cannot* cover is the entry points with no error channel: those returning a handle,
+/// `usize`, `bool`, or a `#[repr(C)]` enum by value, plus the void in-place mutators. A panic in
+/// any of those still aborts the host process. That is why `polars_value_type_t::from_any_value`
+/// and `polars_value_list_type` guard `AnyValue::dtype()`'s known Categorical/Enum panic by hand:
+/// both return an enum by value, so there is nothing to report an error through. Giving such a
+/// function an error channel is an ABI change -- until then, an operation known to be able to
+/// panic must not be exposed through an infallible signature.
 pub(crate) fn guard_error<F>(f: F) -> *const polars_error_t
 where
     F: FnOnce() -> *const polars_error_t,
@@ -125,9 +150,6 @@ pub unsafe extern "C" fn polars_error_message(
     err: *const polars_error_t,
     data: *mut *const u8,
 ) -> usize {
-    assert!(!err.is_null());
-    assert!(!data.is_null());
-
     let str = &(*err).msg;
     let len = str.len();
 

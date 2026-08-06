@@ -44,6 +44,9 @@ jobs:
       - name: Check the Arrow C Data Interface structs match their Julia mirrors
         run: python3 c-polars/check_header_drift.py --arrow
 
+      - name: Check every fallible C ABI entry point is panic-guarded
+        run: python3 c-polars/check_panic_guards.py
+
       - name: Check generated API bindings are up to date
         run: |
           julia --project=gen -e 'import Pkg; Pkg.instantiate()'

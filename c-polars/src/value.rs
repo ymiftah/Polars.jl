@@ -3,7 +3,7 @@ use std::io::Write;
 
 use polars::prelude::*;
 
-use crate::{ffi_util::*, make_error, polars_error_t, series::make_series, types::*};
+use crate::{ffi_util::*, guard_error, make_error, polars_error_t, series::make_series, types::*};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -81,9 +81,9 @@ impl polars_value_type_t {
         }
     }
 
-    /// Maps an inbound type code to a `DataType`. Fallible: this backs `polars_expr_cast`, and
-    /// the un-encodable arms previously became `Unknown(UnknownKind::Any)` silently, which turned
-    /// e.g. `cast(col, Datetime)` into a cast-to-unknown rather than an error.
+    /// Maps an inbound type code to a `DataType`. Fallible: this backs `polars_expr_cast`, where
+    /// mapping an un-encodable arm to `Unknown(UnknownKind::Any)` would silently turn e.g.
+    /// `cast(col, Datetime)` into a cast-to-unknown rather than an error.
     pub(crate) fn to_dtype(&self) -> PolarsResult<DataType> {
         use polars_value_type_t::*;
         Ok(match self {
@@ -258,11 +258,13 @@ macro_rules! gen_value_get {
             value: *mut polars_value_t,
             out: *mut $t,
         ) -> *const polars_error_t {
-            match (*value).inner {
-                AnyValue::$rt(value) => *out = value,
-                _ => return make_error(concat!("value is not of type ", stringify!($rt))),
-            }
-            std::ptr::null()
+            guard_error(|| {
+                match (*value).inner {
+                    AnyValue::$rt(value) => *out = value,
+                    _ => return make_error(concat!("value is not of type ", stringify!($rt))),
+                }
+                std::ptr::null()
+            })
         }
     };
 }
@@ -285,11 +287,13 @@ pub unsafe extern "C" fn polars_value_list_get(
     value: *mut polars_value_t,
     out: *mut *mut polars_series_t,
 ) -> *const polars_error_t {
-    match &(*value).inner {
-        AnyValue::List(series) => *out = make_series(series.clone()),
-        _ => return make_error("value is not of type list"),
-    }
-    std::ptr::null()
+    guard_error(|| {
+        match &(*value).inner {
+            AnyValue::List(series) => *out = make_series(series.clone()),
+            _ => return make_error("value is not of type list"),
+        }
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -298,16 +302,18 @@ pub unsafe extern "C" fn polars_value_string_get(
     user: *const c_void,
     callback: IOCallback,
 ) -> *const polars_error_t {
-    let mut w = UserIOCallback(callback, user);
-    // get_str() also resolves Categorical/Enum values to their string representation.
-    let Some(s) = (*value).inner.get_str() else {
-        return make_error("value is not of type string");
-    };
-    // write_all, not write: a single write() may report a short count and silently drop the tail.
-    match w.write_all(s.as_bytes()) {
-        Ok(()) => std::ptr::null(),
-        Err(err) => make_error(err),
-    }
+    guard_error(|| {
+        let mut w = UserIOCallback(callback, user);
+        // get_str() also resolves Categorical/Enum values to their string representation.
+        let Some(s) = (*value).inner.get_str() else {
+            return make_error("value is not of type string");
+        };
+        // write_all, not write: a single write() may report a short count and silently drop the tail.
+        match w.write_all(s.as_bytes()) {
+            Ok(()) => std::ptr::null(),
+            Err(err) => make_error(err),
+        }
+    })
 }
 
 /// Get the underlying int64 for this duration value.
@@ -316,12 +322,14 @@ pub unsafe extern "C" fn polars_value_duration_get(
     value: *mut polars_value_t,
     out: *mut i64,
 ) -> *const polars_error_t {
-    match (*value).inner {
-        AnyValue::Duration(i, _) => *out = i,
-        _ => return make_error("value is not of type duration"),
-    }
+    guard_error(|| {
+        match (*value).inner {
+            AnyValue::Duration(i, _) => *out = i,
+            _ => return make_error("value is not of type duration"),
+        }
 
-    std::ptr::null()
+        std::ptr::null()
+    })
 }
 
 /// Get the underlying int64 for this datetime value.
@@ -330,12 +338,14 @@ pub unsafe extern "C" fn polars_value_datetime_get(
     value: *mut polars_value_t,
     out: *mut i64,
 ) -> *const polars_error_t {
-    match (*value).inner {
-        AnyValue::Datetime(i, _, _) => *out = i,
-        _ => return make_error("value is not of type datetime"),
-    }
+    guard_error(|| {
+        match (*value).inner {
+            AnyValue::Datetime(i, _, _) => *out = i,
+            _ => return make_error("value is not of type datetime"),
+        }
 
-    std::ptr::null()
+        std::ptr::null()
+    })
 }
 
 /// Get the underlying int32 (days since UNIX epoch) for this date value.
@@ -344,12 +354,14 @@ pub unsafe extern "C" fn polars_value_date_get(
     value: *mut polars_value_t,
     out: *mut i32,
 ) -> *const polars_error_t {
-    match (*value).inner {
-        AnyValue::Date(i) => *out = i,
-        _ => return make_error("value is not of type date"),
-    }
+    guard_error(|| {
+        match (*value).inner {
+            AnyValue::Date(i) => *out = i,
+            _ => return make_error("value is not of type date"),
+        }
 
-    std::ptr::null()
+        std::ptr::null()
+    })
 }
 
 /// Get the underlying int64 for this time value. `DataType::Time` is always nanoseconds since
@@ -360,12 +372,14 @@ pub unsafe extern "C" fn polars_value_time_get(
     value: *mut polars_value_t,
     out: *mut i64,
 ) -> *const polars_error_t {
-    match (*value).inner {
-        AnyValue::Time(i) => *out = i,
-        _ => return make_error("value is not of type time"),
-    }
+    guard_error(|| {
+        match (*value).inner {
+            AnyValue::Time(i) => *out = i,
+            _ => return make_error("value is not of type time"),
+        }
 
-    std::ptr::null()
+        std::ptr::null()
+    })
 }
 
 #[no_mangle]
@@ -374,15 +388,17 @@ pub unsafe extern "C" fn polars_value_binary_get(
     user: *const c_void,
     callback: IOCallback,
 ) -> *const polars_error_t {
-    let mut w = UserIOCallback(callback, user);
-    let AnyValue::Binary(s) = (*value).inner else {
-        return make_error("value is not of type binary");
-    };
-    // write_all, not write: a single write() may report a short count and silently drop the tail.
-    match w.write_all(s) {
-        Ok(()) => std::ptr::null(),
-        Err(err) => make_error(err),
-    }
+    guard_error(|| {
+        let mut w = UserIOCallback(callback, user);
+        let AnyValue::Binary(s) = (*value).inner else {
+            return make_error("value is not of type binary");
+        };
+        // write_all, not write: a single write() may report a short count and silently drop the tail.
+        match w.write_all(s) {
+            Ok(()) => std::ptr::null(),
+            Err(err) => make_error(err),
+        }
+    })
 }
 
 /// Returns the value of struct field `fieldidx`.
@@ -399,21 +415,23 @@ pub unsafe extern "C" fn polars_value_struct_get<'a>(
     fieldidx: usize,
     out: *mut *mut polars_value_t<'a>,
 ) -> *const polars_error_t {
-    let inner: &'a AnyValue<'a> = &(*value).inner;
-    if !matches!(inner, AnyValue::Struct(_, _, _)) {
-        return make_error("invalid type for value");
-    }
+    guard_error(|| {
+        let inner: &'a AnyValue<'a> = &(*value).inner;
+        if !matches!(inner, AnyValue::Struct(_, _, _)) {
+            return make_error("invalid type for value");
+        }
 
-    // `_iter_struct_av` is an underscore-prefixed polars-core internal (semver-exempt -- may break
-    // on a polars bump; re-check on upgrade). `.nth(fieldidx)` also walks the fields, so repeated
-    // per-field access over one struct is O(n^2); acceptable for the small structs we materialize.
-    let Some(field_value) = inner._iter_struct_av().nth(fieldidx) else {
-        return make_error(format!("invalid field index {fieldidx}"));
-    };
+        // `_iter_struct_av` is an underscore-prefixed polars-core internal (semver-exempt -- may break
+        // on a polars bump; re-check on upgrade). `.nth(fieldidx)` also walks the fields, so repeated
+        // per-field access over one struct is O(n^2); acceptable for the small structs we materialize.
+        let Some(field_value) = inner._iter_struct_av().nth(fieldidx) else {
+            return make_error(format!("invalid field index {fieldidx}"));
+        };
 
-    *out = make_value(field_value);
+        *out = make_value(field_value);
 
-    std::ptr::null()
+        std::ptr::null()
+    })
 }
 
 /// Returns the element type of the provided value which must be a list.
