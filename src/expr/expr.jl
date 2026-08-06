@@ -314,33 +314,65 @@ macro curry(sig)
 end
 
 """
-    @gen_kwpass f(expr::Expr; kw1::T1 = d1, ...) cname desc
+    @gen_expr_fn f(expr::Expr, pos...; kw...) cname desc
 
-Generates the "extra kwargs forwarded straight through as plain positional C args, no
-conversion, non-fallible" primal shape shared by [`cum_sum`](@ref) (and `cum_prod`/`cum_min`/
-`cum_max`/`cum_count`), `Dt.total_days` (and its six siblings), [`skew`](@ref), and others --
+Generates the non-fallible primal shape that most single-`Expr` wrappers share --
 
-    f(expr::Expr; kw1::T1 = d1, ...) = Expr(API.cname(expr, kw1, ...))
+    f(expr::Expr, pos...; kw...) = Expr(API.cname(expr, pos..., kw...))
 
-`desc` becomes the docstring body under a `f(...)::Polars.Expr` header built from `sig` itself.
-Only fits a kwarg that needs *no* wrapping before reaching the ccall (contrast `rolling_std`'s
-`ddof`, which needs `UInt8(ddof)` -- that stays hand-written); the kwarg declaration order here
-must match the C function's actual positional parameter order after `expr`. Not used for a
-Base-colliding name (`Base.all`/`Base.any`) -- those stay hand-written rather than teaching this
-macro the qualification dance `@generate_expr_fns` already carries for that case.
+Every argument after the leading `expr::Expr` is forwarded to the ccall as a plain positional C
+argument, in declaration order (positionals first, then keywords) -- so the declaration order here
+must match the C function's own parameter order after `expr`. Two forwarding rules, matching
+[`@curry`](@ref)'s convention exactly:
+
+- an argument annotated `::Expr` is forwarded as `convert(Expr, ·)`, and the annotation is
+  dropped from the generated signature so the argument still accepts a bare literal
+  (`clip(col("x"), 0, 10)`);
+- anything else is forwarded verbatim, keeping whatever annotation it was given
+  (`gather_every`'s `n::Integer` reaches the ccall as-is).
+
+Only fits an argument needing *no other* wrapping on the way to the ccall: `rolling_std`'s `ddof`
+(`UInt8(ddof)`) and every `Symbol`-to-enum keyword stay hand-written, as does anything fallible
+(an out-param plus `polars_error`) -- see [`@gen_variadic`](@ref) for the fallible vector shape.
+Not used for a Base-colliding name (`Base.all`/`Base.any`/`Base.replace`), which would need the
+`Base.`-qualification dance `@generate_expr_fns` carries for that case.
 """
-macro gen_kwpass(sig, cname, desc)
-    @assert sig isa Base.Expr && sig.head === :call && sig.args[1] isa Symbol &&
-        length(sig.args) == 3 && sig.args[3] == Base.Expr(:(::), :expr, :Expr) &&
-        sig.args[2] isa Base.Expr && sig.args[2].head === :parameters "@gen_kwpass expects e.g. `cum_sum(expr::Expr; reverse::Bool = false)`"
+macro gen_expr_fn(sig, cname, desc)
+    @assert sig isa Base.Expr && sig.head === :call && sig.args[1] isa Symbol "@gen_expr_fn expects a call signature, e.g. `clip(expr::Expr, min::Expr, max::Expr)`"
     fname = sig.args[1]
-    kwparams = sig.args[2]
-    kwnames = Symbol[_curry_arg(kw)[2] for kw in kwparams.args]
+    rest = sig.args[2:end]
+    kwparams = if !isempty(rest) && rest[1] isa Base.Expr && rest[1].head === :parameters
+        p = rest[1]
+        rest = rest[2:end]
+        p.args
+    else
+        ()
+    end
+    @assert !isempty(rest) && rest[1] == Base.Expr(:(::), :expr, :Expr) "@gen_expr_fn's first positional argument must be `expr::Expr` -- got $(isempty(rest) ? "nothing" : rest[1])"
 
-    ccall_expr = Base.Expr(:call, Base.Expr(:(.), :API, QuoteNode(cname)), :expr, kwnames...)
-    fn_def = Base.Expr(:(=), sig, :(Expr($ccall_expr)))
+    # `expr` itself is already an `Expr`: kept verbatim in the signature, forwarded unconverted.
+    decl_args, fwd_args = Any[rest[1]], Any[:expr]
+    for a in rest[2:end]
+        decl, _, fwd = _curry_arg(a)
+        push!(decl_args, decl)
+        push!(fwd_args, fwd)
+    end
+    kwdecls = Any[]
+    for kw in kwparams
+        decl, _, fwd = _curry_arg(kw)
+        push!(kwdecls, decl)
+        push!(fwd_args, fwd)
+    end
 
-    string_sig = replace(string(sig), "Expr" => "Polars.Expr")
+    sig_args = Any[fname]
+    isempty(kwdecls) || push!(sig_args, Base.Expr(:parameters, kwdecls...))
+    append!(sig_args, decl_args)
+    gen_sig = Base.Expr(:call, sig_args...)
+
+    ccall_expr = Base.Expr(:call, Base.Expr(:(.), :API, QuoteNode(cname)), fwd_args...)
+    fn_def = Base.Expr(:(=), gen_sig, :(Expr($ccall_expr)))
+
+    string_sig = replace(string(gen_sig), "Expr" => "Polars.Expr")
     docstring = """
         $(string_sig)::Polars.Expr
 
@@ -349,21 +381,69 @@ macro gen_kwpass(sig, cname, desc)
     return esc(
         quote
             $fn_def
+            Docs.@doc $docstring $gen_sig
+        end
+    )
+end
+
+"""
+    @gen_name_fn f cname desc
+
+Generates the output-name-rewriting shape shared by [`alias`](@ref)/[`prefix`](@ref)/
+[`suffix`](@ref): a fallible ccall taking the expression plus one string, marshalled as the
+`(ptr, ncodeunits)` pair the C ABI expects, together with its `Base.Fix2` curry --
+
+    f(expr::Expr, s::AbstractString)::Expr
+    f(s::AbstractString)::Base.Fix2
+
+Centralising this is a correctness measure as much as a brevity one: `ncodeunits` (bytes) rather
+than `length` (characters) is the whole contract of the `(ptr, len)` marshalling, and getting it
+wrong truncates non-ASCII arguments mid-codepoint -- a mistake that once landed at all 24 sites at
+once. One macro means one place for that to be right.
+"""
+macro gen_name_fn(fname, cname, desc)
+    @assert fname isa Symbol && cname isa Symbol "@gen_name_fn expects (fname::Symbol, cname::Symbol, desc::String)"
+    # Attached to the two-argument *signature*, not the bare function name -- matching both the
+    # hand-written original and `@generate_expr_fns`. `docs/src/reference/expressions.md` lists
+    # these in a `@docs` block by bare name, which pulls in every docstring attached to any method;
+    # documenting the generic function instead would change what Documenter renders.
+    sig = :($fname(expr::Expr, s::AbstractString))
+    docstring = """
+        $(fname)(expr::Polars.Expr, s::AbstractString)::Polars.Expr
+        $(fname)(s::AbstractString)::Base.Fix2{typeof($fname), <:AbstractString}
+
+    $desc
+    """
+    return esc(
+        quote
+            function $sig
+                out = Ref{Ptr{polars_expr_t}}()
+                err = API.$cname(expr, s, ncodeunits(s), out)
+                polars_error(err)
+                return Expr(out[])
+            end
+            $fname(s::AbstractString) = Base.Fix2($fname, s)
             Docs.@doc $docstring $sig
         end
     )
 end
 
 """
-    @gen_horizontal fname cname has_ignore_nulls desc
+    @gen_variadic fname cname has_ignore_nulls desc
 
-Generates one `_horizontal` row-wise reduction -- `fname(exprs...)`, or `fname(exprs...;
-ignore_nulls::Bool=true)` when `has_ignore_nulls` is the literal `true`: `_expr_vector`s `exprs`,
-marshals pointers under `GC.@preserve`, calls the fallible `cname` ccall, and returns
-`Expr(out[])`. `desc` becomes the docstring body.
+Generates the variadic shape that takes any number of column references and folds them into one
+expression -- `fname(exprs...)`, or `fname(exprs...; ignore_nulls::Bool=true)` when
+`has_ignore_nulls` is the literal `true`. The body `_expr_vector`s the arguments, marshals their
+pointers under `GC.@preserve`, calls the fallible `cname` ccall, and returns `Expr(out[])`.
+
+Covers the six `_horizontal` row-wise reductions and [`as_struct`](@ref), which is the same shape
+despite not being a reduction. `Base.coalesce` is deliberately left hand-written: it needs both
+`Base.`-qualification and a `(first::Expr, rest::Expr...)` signature (to reject the zero-argument
+call this macro's plain `exprs...` would accept), and teaching the macro two features for one call
+site buys nothing.
 """
-macro gen_horizontal(fname, cname, has_ignore_nulls, desc)
-    @assert fname isa Symbol && has_ignore_nulls isa Bool "@gen_horizontal expects (fname::Symbol, cname::Symbol, has_ignore_nulls::Bool, desc::String) -- got ($fname, $cname, $has_ignore_nulls, $desc)"
+macro gen_variadic(fname, cname, has_ignore_nulls, desc)
+    @assert fname isa Symbol && has_ignore_nulls isa Bool "@gen_variadic expects (fname::Symbol, cname::Symbol, has_ignore_nulls::Bool, desc::String) -- got ($fname, $cname, $has_ignore_nulls, $desc)"
 
     ccall_args = Any[Base.Expr(:(.), :API, QuoteNode(cname)), :ptrs, :(length(ptrs))]
     has_ignore_nulls && push!(ccall_args, :ignore_nulls)
@@ -438,65 +518,9 @@ function element()
     return Expr(API.polars_expr_element())
 end
 
-"""
-    alias(expr::Polars.Expr, alias::String)::Polars.Expr
-    alias(alias::String)::Base.Fix2{typeof(alias), String}
-
-Renames the result of this expression to a new name.
-"""
-function alias(expr, alias)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_alias(expr, alias, ncodeunits(alias), out)
-    polars_error(err)
-    return Expr(out[])
-end
-alias(new_name) = Base.Fix2(alias, new_name)
-
-"""
-    prefix(expr::Polars.Expr, pref::String)::Polars.Expr
-    prefix(pref::String)::Base.Fix2{typeof(prefix), String}
-
-Adds a prefix to the name of the resulting expression.
-"""
-function prefix(expr, pref)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_prefix(expr, pref, ncodeunits(pref), out)
-    polars_error(err)
-    return Expr(out[])
-end
-prefix(pref) = Base.Fix2(prefix, pref)
-
-"""
-    suffix(expr::Polars.Expr, suf::String)::Polars.Expr
-    suffix(suf::String)::Base.Fix2{typeof(suffix), String}
-
-Adds a suffix to the name of the resulting expression.
-"""
-function suffix(expr, suf)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_suffix(expr, suf, ncodeunits(suf), out)
-    polars_error(err)
-    return Expr(out[])
-end
-suffix(suf) = Base.Fix2(suffix, suf)
-
-"""
-    to_lowercase(expr::Polars.Expr)::Polars.Expr
-
-Lowercases the name of the resulting expression.
-"""
-function to_lowercase(expr)
-    return Expr(polars_expr_to_lowercase(expr))
-end
-
-"""
-    to_uppercase(expr::Polars.Expr)::Polars.Expr
-
-Uppercases the name of the resulting expression.
-"""
-function to_uppercase(expr)
-    return Expr(polars_expr_to_uppercase(expr))
-end
+@gen_name_fn alias polars_expr_alias "Renames the result of this expression to a new name."
+@gen_name_fn prefix polars_expr_prefix "Adds a prefix to the name of the resulting expression."
+@gen_name_fn suffix polars_expr_suffix "Adds a suffix to the name of the resulting expression."
 
 """
     lit(x)::Polars.Expr
@@ -832,6 +856,8 @@ end
 # We just copy the rust code here and generate functions on the fly.
 @generate_expr_fns begin
     gen_impl_expr!(polars_expr_keep_name, Expr::keep_name, "Keeps `expr`'s original column name, overriding any rename that would otherwise result from the operation it's applied to (e.g. after an arithmetic operator or a namespaced function call).")
+    gen_impl_expr!(polars_expr_to_lowercase, Expr::to_lowercase, "Lowercases the name of the resulting expression.")
+    gen_impl_expr!(polars_expr_to_uppercase, Expr::to_uppercase, "Uppercases the name of the resulting expression.")
 
     gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values of `expr`, one result per group (or a single overall value outside a `group_by`).")
     gen_impl_expr!(polars_expr_min, Expr::min, "Returns the minimum non-null value of `expr`, one result per group (or a single overall value outside a `group_by`). Like other aggregations, `NaN` values are ignored -- see [`nan_min`](@ref) to propagate `NaN` into the result instead.")
@@ -913,7 +939,7 @@ end
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
 
-@gen_kwpass flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true) polars_expr_flatten "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref). `empty_as_null`: an empty list produces one `null` row when `true` (default), rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true` (default), rather than disappearing."
+@gen_expr_fn flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true) polars_expr_flatten "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref). `empty_as_null`: an empty list produces one `null` row when `true` (default), rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true` (default), rather than disappearing."
 export flatten
 
 """
@@ -1056,16 +1082,7 @@ backward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(
 
 export forward_fill, backward_fill
 
-"""
-    shift_and_fill(expr::Polars.Expr, n, fill_value)::Polars.Expr
-
-Like [`shift`](@ref), but the positions vacated by the shift are filled with `fill_value`
-instead of `missing`.
-"""
-function shift_and_fill(expr::Expr, n, fill_value)
-    out = API.polars_expr_shift_and_fill(expr, convert(Expr, n), convert(Expr, fill_value))
-    return Expr(out)
-end
+@gen_expr_fn shift_and_fill(expr::Expr, n::Expr, fill_value::Expr) polars_expr_shift_and_fill "Like [`shift`](@ref), but the positions vacated by the shift are filled with `fill_value` instead of `missing`."
 export shift_and_fill
 
 """
@@ -1085,42 +1102,14 @@ function Base.round(expr::Expr, decimals::Integer = 0; mode::Symbol = :half_to_e
     return Expr(out)
 end
 
-"""
-    clip(expr::Polars.Expr, min, max)::Polars.Expr
-
-Clips the values to the `[min, max]` range (values outside are set to the nearest bound).
-"""
-function clip(expr::Expr, min, max)
-    min = convert(Expr, min)
-    max = convert(Expr, max)
-    out = API.polars_expr_clip(expr, min, max)
-    return Expr(out)
-end
-
+@gen_expr_fn clip(expr::Expr, min::Expr, max::Expr) polars_expr_clip "Clips the values to the `[min, max]` range (values outside are set to the nearest bound)."
 @curry clip(min, max)
-
 export clip
 
-"""
-    clip_min(expr::Polars.Expr, min)::Polars.Expr
-
-Clips values below `min` up to `min` (values `>= min`, and any `missing`, pass through
-unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_max`](@ref) for the
-upper-bound-only form.
-"""
-clip_min(expr::Expr, min) = Expr(API.polars_expr_clip_min(expr, convert(Expr, min)))
-
+@gen_expr_fn clip_min(expr::Expr, min::Expr) polars_expr_clip_min "Clips values below `min` up to `min` (values `>= min`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_max`](@ref) for the upper-bound-only form."
 @curry clip_min(min)
 
-"""
-    clip_max(expr::Polars.Expr, max)::Polars.Expr
-
-Clips values above `max` down to `max` (values `<= max`, and any `missing`, pass through
-unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_min`](@ref) for the
-lower-bound-only form.
-"""
-clip_max(expr::Expr, max) = Expr(API.polars_expr_clip_max(expr, convert(Expr, max)))
-
+@gen_expr_fn clip_max(expr::Expr, max::Expr) polars_expr_clip_max "Clips values above `max` down to `max` (values `<= max`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_min`](@ref) for the lower-bound-only form."
 @curry clip_max(max)
 
 export clip_min, clip_max
@@ -1311,43 +1300,16 @@ end
 
 export arg_sort
 
-"""
-    gather(expr::Polars.Expr, idx; null_on_oob::Bool=false)::Polars.Expr
-
-Take values by index. `idx` is an expression, or an integer vector promoted via [`lit`](@ref).
-
-`null_on_oob` sets the behaviour when an index is out of bounds: `true` gives `missing`, `false`
-(the default) raises a [`PolarsError`](@ref) when the result is collected.
-
-!!! note "Indices are 0-based"
-    `idx` is 0-based, and negative indices count from the end. This differs from
-    [`Polars.nth`](@ref) and `Selectors.by_index`, which are 1-based: those select a column from a
-    position the caller writes literally, whereas `idx` here is data, and usually comes from
-    [`arg_sort`](@ref), `arg_min` or `arg_max`, which return 0-based positions. Sharing one
-    convention lets `gather(x, arg_sort(y))` compose without an offset.
-"""
-function gather(expr::Expr, idx; null_on_oob::Bool = false)
-    idx = convert(Expr, idx)
-    out = API.polars_expr_gather(expr, idx, null_on_oob)
-    return Expr(out)
-end
+@gen_expr_fn gather(expr::Expr, idx::Expr; null_on_oob::Bool = false) polars_expr_gather "Take values by index. `idx` is an expression, or an integer vector promoted via [`lit`](@ref).\n\n`null_on_oob` sets the behaviour when an index is out of bounds: `true` gives `missing`, `false` (the default) raises a [`PolarsError`](@ref) when the result is collected.\n\n!!! note \"Indices are 0-based\"\n    `idx` is 0-based, and negative indices count from the end. This differs from [`Polars.nth`](@ref) and `Selectors.by_index`, which are 1-based: those select a column from a position the caller writes literally, whereas `idx` here is data, and usually comes from [`arg_sort`](@ref), `arg_min` or `arg_max`, which return 0-based positions. Sharing one convention lets `gather(x, arg_sort(y))` compose without an offset."
 
 export gather
 
-"""
-    gather_every(expr::Polars.Expr, n::Integer; offset::Integer=0)::Polars.Expr
-
-Take every `n`th value. `offset` is the starting index, 0-based.
-"""
-function gather_every(expr::Expr, n::Integer; offset::Integer = 0)
-    out = API.polars_expr_gather_every(expr, n, offset)
-    return Expr(out)
-end
+@gen_expr_fn gather_every(expr::Expr, n::Integer; offset::Integer = 0) polars_expr_gather_every "Take every `n`th value. `offset` is the starting index, 0-based."
 
 export gather_every
 
 
-@gen_kwpass item(expr::Expr; allow_empty::Bool = false) polars_expr_item "The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a `DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation)."
+@gen_expr_fn item(expr::Expr; allow_empty::Bool = false) polars_expr_item "The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a `DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation)."
 
 
 """Coerces an iterable of column references (names, `Expr`s, `Selector`s) into a `Vector{Expr}`
@@ -1373,32 +1335,16 @@ function Base.coalesce(first::Expr, rest::Expr...)
     return Expr(out[])
 end
 
-"""
-    as_struct(exprs...)::Polars.Expr
-
-Collects `exprs` (columns or expressions) into a single `Struct`-typed expression, one field per
-input (named after each input's own output name). The write-side counterpart to
-[`Structs.field_by_name`](@ref)/[`Structs.field_by_index`](@ref).
-"""
-function as_struct(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_as_struct(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
+@gen_variadic as_struct polars_expr_as_struct false "Collects `exprs` (columns or expressions) into a single `Struct`-typed expression, one field per input (named after each input's own output name). The write-side counterpart to [`Structs.field_by_name`](@ref)/[`Structs.field_by_index`](@ref)."
 
 export as_struct
 
-@gen_horizontal all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
-@gen_horizontal any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."
-@gen_horizontal min_horizontal polars_expr_min_horizontal false "Row-wise (horizontal) minimum across `exprs`. The output column is named `\"min\"` unless [`alias`](@ref)ed."
-@gen_horizontal max_horizontal polars_expr_max_horizontal false "Row-wise (horizontal) maximum across `exprs`. The output column is named `\"max\"` unless [`alias`](@ref)ed."
-@gen_horizontal sum_horizontal polars_expr_sum_horizontal true "Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are treated as `0`; if `false`, any null in a row makes that row's sum `null`."
-@gen_horizontal mean_horizontal polars_expr_mean_horizontal true "Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are excluded from the average; if `false`, any null in a row makes that row's mean `null`."
+@gen_variadic all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
+@gen_variadic any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."
+@gen_variadic min_horizontal polars_expr_min_horizontal false "Row-wise (horizontal) minimum across `exprs`. The output column is named `\"min\"` unless [`alias`](@ref)ed."
+@gen_variadic max_horizontal polars_expr_max_horizontal false "Row-wise (horizontal) maximum across `exprs`. The output column is named `\"max\"` unless [`alias`](@ref)ed."
+@gen_variadic sum_horizontal polars_expr_sum_horizontal true "Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are treated as `0`; if `false`, any null in a row makes that row's sum `null`."
+@gen_variadic mean_horizontal polars_expr_mean_horizontal true "Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are excluded from the average; if `false`, any null in a row makes that row's mean `null`."
 
 export all_horizontal, any_horizontal, min_horizontal, max_horizontal, sum_horizontal, mean_horizontal
 
