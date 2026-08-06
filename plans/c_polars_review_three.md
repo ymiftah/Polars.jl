@@ -2,15 +2,63 @@
 
 ## Status
 
-**Partially done** (branch `claude/c-polars-hardening-review`). Everything reachable without
-touching the C ABI surface is landed; the remaining items all change `include/polars.h` and are
-listed under "Deferred" below, unstarted.
+**In progress — handed off for local verification.** Branch `claude/c-polars-hardening-review`,
+three commits on top of `main`:
 
-Verification for the landed half: `rustfmt --check` clean on all 9 files,
-`check_header_drift.py` reports the same 382 exported symbols as before (so the ABI is provably
-unchanged), and `check_panic_guards.py` — added by this branch — passes. **Neither `cargo build`
-nor `cargo clippy` nor the Julia suite was run**: the review environment had no cargo registry
-cache, and a cold polars build is the OOM hazard `CLAUDE.md` documents. CI is the check.
+| commit | what |
+| --- | --- |
+| `5536b99` | `guard_error` on every fallible entry point, + `check_panic_guards.py` and its CI step |
+| `98d85f1` | `polars_value_t` owns its data (`AnyValue::into_static`) |
+| `0d41c9b` | CLAUDE.md: the dependency tree needs stable ≥ 1.95 |
+
+No PR is open, so **CI has not run on any of this**.
+
+### What is and is not verified
+
+> **The Rust changes have never been compiled.** Treat that as the headline. Everything below is
+> the honest boundary of what was checked.
+
+Checked:
+
+- `rustfmt --check` clean on all 9 files. This proves the sources *parse*; it is not a typecheck.
+- `check_header_drift.py` — same 382 exported symbols as `main`, so the C ABI is provably
+  unchanged and no regeneration is owed. This is what makes the branch safe to land incrementally.
+- `check_panic_guards.py` passes, and was tested against a deliberately broken function to
+  confirm it actually fails rather than passing vacuously.
+
+Not checked: `cargo build`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`,
+`cargo test`, and the whole Julia suite.
+
+A local build was attempted and abandoned on cost grounds (two full ~35-minute dependency
+compiles, the second forced by the toolchain update below). It ran far enough to be worth
+recording: reading the vendored polars source is what surfaced the `_iter_struct_av` panic
+described under "Landed", which no amount of static review would have caught.
+
+### Resuming locally
+
+```sh
+rustup update stable            # ≥ 1.95 required; see CLAUDE.md and commit 0d41c9b
+cd c-polars && cargo build -j 4
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+cargo test
+cd .. && julia --project=test -e 'import Pkg; Pkg.test()'   # restart any live REPL first
+```
+
+Where trouble is most likely, in order:
+
+1. **`value.rs` / `types.rs` / `series.rs`** — the ownership change is the only one that alters
+   types rather than wrapping existing code. The borrow checker and the match-exhaustiveness
+   check are the real reviewers here.
+2. **Clippy on the 57 rewritten `guard_error(|| { … })` closures.** A body that is now a single
+   expression inside a block may trip a style lint; `cargo clippy --fix` handles that class.
+3. **Julia struct/temporal tests** — `test/datatypes/structs.jl`, `test/datatypes/times.jl`,
+   `test/datatypes/durations.jl`. These exercise exactly the accessors whose matched variant
+   changed (`StructOwned`, `DatetimeOwned`, `BinaryOwned`). If the ownership change is wrong
+   anywhere, this is where it shows.
+
+`src/value.jl`'s `parent` field is deliberately left in place: it is no longer load-bearing, but
+removing it is an optimization that wants the Julia suite green first.
 
 ## Landed
 
@@ -36,6 +84,19 @@ cache, and a cold polars build is the OOM hazard `CLAUDE.md` documents. CI is th
   path in the same edit.
 - **`gen_series_get!`'s error names the expected and actual dtype** instead of
   `"series type is invalid"` for both a dtype mismatch and a null element.
+- **`polars_value_t` owns its data.** It wrapped an `AnyValue<'a>` borrowed from its source, with
+  `'a` chosen by the caller and therefore inferred `'static` — the compiler checked nothing, and
+  "keep the parent alive, destroy the child first" rested entirely on Julia-side rooting, with
+  silent memory corruption as the failure mode. Julia finalizers also run in unspecified order, so
+  the ordering half was never really guaranteed. `AnyValue::into_static` in `make_value` deletes
+  the rule instead of documenting it harder.
+  Two consequences worth knowing: `into_static` *normalizes the variant* (`Struct` →
+  `StructOwned`, `Datetime` → `DatetimeOwned`, `Binary` → `BinaryOwned`), so five accessors had to
+  follow; and polars-core's `_iter_struct_av` — which the old field accessor called — hits an
+  `unreachable!()` on an owned struct, with no greppable message. Indexing the materialized field
+  vector is both the correct match and O(1), so per-field struct access stops being O(n²) as a
+  side effect. This was found by reading the vendored source, not by review.
+  **ABI-neutral**: `polars_value_t` is opaque in the header and lifetimes do not survive into C.
 - **`CLAUDE.md` and `plans/ffi_panic_safety.md` no longer claim unwinding across `extern "C"` is
   UB.** It is a defined abort as of Rust 1.81 and this crate pins stable. The Rust sources were
   already correct; only the guidance docs were stale. The distinction matters: "abort" means you
@@ -49,30 +110,20 @@ Each of these edits `include/polars.h` and `src/api/generated.jl`, which must be
 environment, and hand-editing either file is forbidden. All of them also need a `libpolars`
 version bump before users see them.
 
-1. **`polars_value_t<'a>` launders an unconstrained lifetime** (`series.rs`, `polars_series_get`).
-   `'a` is caller-chosen, so it infers `'static`, while the value it holds borrows from the
-   series. Today the invariant is enforced only by Julia-side rooting discipline, and violating
-   it is silent memory corruption. Making `polars_value_t` own its data (`AnyValue::into_static()`)
-   deletes the contract outright.
-   **Note this one is ABI-neutral** — `polars_value_t` is opaque in the header and lifetimes do
-   not survive into C, so it is a pure Rust-side change and much cheaper than its severity
-   suggests. It was left out here only because it needs a live build to confirm `into_static()`'s
-   signature in polars 0.54.4 and a Julia run to confirm the rooting can then be dropped.
-   Highest value of anything in this list.
-2. **`Meta.root_names` is O(n²)** — `polars_expr_meta_root_names_len` and `_get(i)` each recompute
+1. **`Meta.root_names` is O(n²)** — `polars_expr_meta_root_names_len` and `_get(i)` each recompute
    the entire name vector, and Julia calls `_get` once per name. One new symbol that writes all
    names through the existing callback collapses n+1 tree walks to one.
-3. **`nulls_last` is a scalar where `descending` is a per-column mask**, in both
+2. **`nulls_last` is a scalar where `descending` is a per-column mask**, in both
    `polars_lazy_frame_sort` and `polars_expr_sort_by`. `SortMultipleOptions` takes `Vec<bool>` for
    both and py-polars exposes both as lists, so this caps what the Julia API can express.
-4. **Signature inconsistencies.** 3 of 8 destructors take `*const` and `cast_mut()` internally
+3. **Signature inconsistencies.** 3 of 8 destructors take `*const` and `cast_mut()` internally
    while the other 5 take `*mut`; `make_expr` returns `*const` while every other factory returns
    `*mut`, which propagates through all 142 expr signatures into the Julia bindings.
    `polars_expr_nth` carries the fallible out-param shape but cannot fail.
 
 ## Deferred: needs the Julia suite to land safely
 
-5. **`read_str` accepts `len == 0` as `""`** rather than rejecting it for *required* strings, so
+4. **`read_str` accepts `len == 0` as `""`** rather than rejecting it for *required* strings, so
    `polars_expr_col(ptr, 0)` builds `col("")` instead of erroring. A blanket change is wrong —
    empty is legitimate for `group_by_dynamic`'s `offset` and `str_join`'s delimiter — so this
    needs a separate `read_required_str` applied per call site, and new error paths should not be
