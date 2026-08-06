@@ -75,6 +75,13 @@ path is safe — exercise every option combination live.**
   invisible to `cargo tree -e features`. `regen_header.sh` therefore sets `RUSTC_BOOTSTRAP=1` on
   stable to unlock `-Zunpretty=expanded` (cbindgen can't see the ~48% of the FFI surface that's
   macro-generated); **do not "fix" that with `cargo +nightly`** — it re-arms the hazard.
+- **Stable, but a *recent* stable** — `rust-toolchain` names the channel and nothing pins a floor,
+  and no crate in the tree declares `rust-version`, so cargo cannot warn. `polars-ooc` calls
+  `std::hint::cold_path` and `AtomicU64::try_update` as stable APIs, which needs **≥ 1.95**; an
+  older stable fails with four `E0658 use of unstable library feature` errors inside
+  `polars-ooc`, naming a crate you have never heard of and no toolchain hint at all. CI installs
+  whatever stable is current and so never sees this — it only bites locally. `rustup update
+  stable` is the fix; budget a full rebuild after, since changing rustc invalidates every artifact.
 - **A running Julia session doesn't pick up a rebuild** — the `.so` is already mapped. Restart the
   REPL (Kaimon `manage_repl` `command="restart"`) after every `cargo build`.
 - Tests: `test/Project.toml` carries all deps, so `Pkg.test()` / `julia-runtest` works directly.
