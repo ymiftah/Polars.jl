@@ -36,11 +36,11 @@ end
 end
 
 @testset "LazyFrame/LazyGroupBy show (P2.5)" begin
-    # Used to dump the raw `mutable struct` with its `Ptr` field (e.g.
+    # `LazyFrame` shows its column names via the cheap, non-executing `collect_schema`, rather
+    # than the default dump of the raw `mutable struct` with its `Ptr` field (e.g.
     # `Polars.LazyFrame(Ptr{...}(0x...))`) -- meaningless to a user and non-reproducible between
-    # runs. `LazyFrame` now shows its column names via the cheap, non-executing
-    # `collect_schema`; `LazyGroupBy` has no resolved schema of its own to show (that depends on
-    # the `agg()` call that hasn't happened yet) so it gets a minimal placeholder instead.
+    # runs. `LazyGroupBy` has no resolved schema of its own to show (that depends on the `agg()`
+    # call that hasn't happened yet) so it gets a minimal placeholder instead.
     df = DataFrame((; x = [1, 2, 3], y = ["a", "b", "c"]))
     lf = lazy(df)
 

@@ -108,6 +108,11 @@ function load_value(value::Value{NT}) where {NT <: NamedTuple}
 
         # NOTE: Polars cannot figure the type of a single value whose type is null?
         if polars_value_type(field_value) == PolarsValueTypeUnknown
+            # `polars_value_struct_get` hands back a freshly `Box`ed, owned value. Every other
+            # path here transfers that ownership to a `Value{T}` (whose finalizer destroys it),
+            # but this one returns before any wrapper exists -- so it has to be destroyed by hand,
+            # or a null-typed struct field leaks one `polars_value_t` per element read.
+            API.polars_value_destroy(field_value)
             return missing
         end
 

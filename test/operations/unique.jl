@@ -41,13 +41,11 @@ end
         x -> agg(x, n_unique(col("x")) |> alias("n_unique_x")) |>
         collect
 
-    # Check that distinct count is correct for each group
     by_y = Dict(zip(result[:y], result[:n_unique_x]))
     @test by_y["a"] == 1  # group "a" has only value 1
     @test by_y["b"] == 1  # group "b" has only value 2
     @test by_y["c"] == 1  # group "c" has only value 3
 
-    # Test on full column
     df_vals = DataFrame((; vals = [1, 1, 2, 2, 3, missing, missing]))
     n_uniq = select(lazy(df_vals), n_unique(col("vals")) |> alias("nuniq")) |> collect
     @test n_uniq[:nuniq][1] == 4  # distinct values: 1, 2, 3, missing

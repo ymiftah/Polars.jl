@@ -245,8 +245,8 @@ end
 
     # new_col_names of the WRONG length (relative to numeric's row count, 3) -- a clean
     # PolarsError (ShapeMismatch from transpose_impl's own polars_ensure!), not an
-    # index-out-of-bounds panic (live-verified: this was flagged as a real panic-risk candidate,
-    # see plans/definitive_guide_gap_closure.md)
+    # index-out-of-bounds panic (live-verified; flagged as a real panic-risk candidate in
+    # plans/definitive_guide_gap_closure.md)
     @test_throws PolarsError transpose(numeric; new_col_names = ["only_one", "two"])
     @test_throws PolarsError transpose(numeric; new_col_names = ["a", "b", "c", "d", "e"])
 

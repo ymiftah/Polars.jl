@@ -6,6 +6,7 @@ include("fixtures.jl")
     include("aqua.jl")
 
     include("dataframe/construction.jl")
+    include("dataframe/tables_interface.jl")
     include("dataframe/gc.jl")
     include("dataframe/io.jl")
     include("dataframe/describe.jl")

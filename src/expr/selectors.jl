@@ -95,7 +95,7 @@ accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`
 | `date()`, `time()`, `datetime()`, `duration()` | temporal dtypes (`datetime`/`duration` match any time unit/zone) |
 | `temporal()` | any of the above temporal dtypes |
 | `categorical()`, `decimal()` | Categorical/Decimal columns |
-| `struct_()`, `list()`, `nested()` | nested dtypes (`struct_`/`list` match any inner type; `array()` errors in this build — `dtype-array` off, see below) |
+| `struct_()`, `list()`, `array()`, `nested()` | nested dtypes (`struct_`/`list`/`array` match any inner type) |
 | `by_dtype(dtypes...)` | explicit Julia dtype(s), e.g. `by_dtype(Int64, String)` |
 | `by_name(names...; strict=true)` | explicit column names |
 | `by_index(indices...; strict=true)` | explicit column positions (1-based, see below) |
@@ -106,12 +106,6 @@ accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`
     1-based indexing is the convention everywhere else in this package, matching
     [`Polars.nth`](@ref). Negative indices count back from the end (`by_index(-1)` is the last
     column, same as `nth(-1)`).
-
-!!! note "Scope: no per-unit/zone temporal matching, no recursive nested-selector composition"
-    `datetime()`/`duration()` match *any* time unit/time zone (no `cs.datetime(time_unit="ms")`
-    equivalent), and `list()` matches *any* inner dtype (no `cs.list(cs.numeric())` nesting) -- both
-    are real, deliberate scope cuts for this first cut, not oversights. (`array()` errors entirely in
-    this build -- `dtype-array` is off; see its own docstring.)
 """
 module Selectors
 
@@ -232,24 +226,12 @@ module Selectors
     """
         array()::Selector
 
-    Selects Array-dtype columns. **Currently errors in this build** (see the warning below), so it
-    can't actually be constructed yet.
-
-    !!! warning "Currently errors in this build"
-        `dtype-array` is not in `c-polars/Cargo.toml`'s feature list, so upstream's own
-        `DataTypeSelector::Array` matcher compiles to its safe `#[cfg(not(feature = "dtype-array"))]`
-        fallback (always `false`) rather than a real check -- it would silently match *zero* columns
-        rather than crash. To avoid that footgun, `array()` raises an `ErrorException` instead of
-        handing back a selector that can never match anything. Enabling `dtype-array` is out of scope
-        for this phase (it would force a full dependency rebuild), and this package has no write-side
-        support for constructing an Array-dtype column at all yet either. See [Limitations](@ref) for
-        the tracked entry. (The Rust `DataTypeSelector::Array` primitive still exists and is exercised
-        by the combinators/tests; only this public Julia constructor is gated off.)
+    Selects Array (fixed-size list)-dtype columns, matching any inner dtype/width. Composing a
+    selector over the inner dtype is not supported -- see [`Selectors`](@ref)'s scope note. There
+    is no write-side path for building an Array column directly from Julia data yet; construct one
+    via `Lists.to_array` over an existing List column.
     """
-    array() = error(
-        "Selectors.array() is unavailable in this build: the `dtype-array` Cargo feature is not " *
-            "enabled, so it would otherwise silently match zero columns. See the Limitations page.",
-    )
+    array() = _dtype_simple(API.PolarsDtypeSelectorKindArray)
 
     """Builds a single-dtype selector directly from an already-resolved `polars_value_type_t` enum
     value (as opposed to [`by_dtype`](@ref), which maps *Julia types* to that enum -- these fixed
@@ -356,9 +338,9 @@ module Selectors
     """
     function by_name(names::Vector{String}; strict::Bool = true)
         out = Ref{Ptr{polars_expr_t}}()
-        GC.@preserve names begin
-            ptrs, lens = _name_ptrs(names)
-            err = API.polars_expr_selector_by_name(ptrs, lens, length(ptrs), strict, out)
+        owned, ptrs, lens = _name_ptrs(names)
+        err = GC.@preserve owned begin
+            API.polars_expr_selector_by_name(ptrs, lens, length(ptrs), strict, out)
         end
         polars_error(err)
         return _wrap(out[])
@@ -378,7 +360,7 @@ module Selectors
         out = API.polars_expr_selector_by_index(zero_based, length(zero_based), strict)
         return _wrap(out)
     end
-    by_index(indices::Integer...; strict::Bool = true) = by_index(collect(Integer, indices); strict)
+    by_index(indices::Integer...; strict::Bool = true) = by_index(collect(Int, indices); strict)
 
     function _matches_kind(kind, pattern::AbstractString)
         out = Ref{Ptr{polars_expr_t}}()

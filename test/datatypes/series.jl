@@ -5,18 +5,15 @@
 end
 
 @testset "Series name" begin
-    # Test name on directly constructed Series
     s = Series(:test_col, [1, 2, 3])
     @test Polars.name(s) == "test_col"
 
-    # Test name on Series obtained via DataFrame column access
     df = DataFrame((; x = [10, 20, 30], y = ["a", "b", "c"]))
     s_x = df[:x]
     @test Polars.name(s_x) == "x"
     s_y = df[:y]
     @test Polars.name(s_y) == "y"
 
-    # Test name consistency after operations (e.g., via select)
     result = select(df, col("x") |> alias("renamed"))
     s_renamed = result[:renamed]
     @test Polars.name(s_renamed) == "renamed"
@@ -160,13 +157,12 @@ end
         @test arr == collect(s)
 
         # the borrowed buffer must stay valid (and correct) after the source Series/DataFrame
-        # are dropped and GC'd -- the whole point of the release-on-finalize keeper. Regression
-        # test for a real use-after-free: `_dispatch_read` used to release the exported buffers
-        # unconditionally right after building `arr`, regardless of whether `arr` was a zero-copy
-        # alias of them -- freeing the very memory `arr` still pointed at. A single
-        # non-forced `GC.gc()` doesn't reliably surface this (the freed pages often still hold
-        # their old bytes), so force full collections and churn the heap with fresh allocations in
-        # between to encourage the freed memory to actually be reused before checking.
+        # are dropped and GC'd -- the whole point of the release-on-finalize keeper. Releasing the
+        # exported buffers as soon as `arr` is built would free the very memory a zero-copy `arr`
+        # still points at, so this guards against a use-after-free. A single non-forced `GC.gc()`
+        # doesn't reliably surface such a bug (the freed pages often still hold their old bytes),
+        # so force full collections and churn the heap with fresh allocations in between to
+        # encourage the freed memory to actually be reused before checking.
         s = nothing
         GC.gc(true)
         junk = [rand(Int64, 64) for _ in 1:20_000]
@@ -185,7 +181,7 @@ end
 
     @testset "List: bulk read (leaf child) vs per-element agreement" begin
         # A List<Int64> column IS a read_series bulk-read target (leaf child format) -- elements
-        # materialize as plain Vectors now, not nested Series (see arrow/read.jl's _read_list).
+        # materialize as plain Vectors, not nested Series (see arrow/read.jl's _read_list).
         df = DataFrame((; x = [[1, 2, 3], [4, 5]]))
         s = df[:x]
         @test Polars.read_series(s) !== nothing
@@ -219,57 +215,88 @@ end
     end
 end
 
-@testset "Series getindex out-of-bounds (regression: FFI panic in polars_series_get)" begin
-    # `polars_series_get` backs the Date/DateTime/Duration/String/List/Struct getindex methods
-    # (unlike the numeric/bool methods, which go through the already-fallible `gen_series_get!`
-    # family) -- an out-of-bounds index here used to `.unwrap()` a Rust panic straight across the
-    # FFI boundary, crashing the whole Julia process instead of raising a catchable error.
+@testset "Series getindex out-of-bounds raises BoundsError" begin
+    # `Series{T} <: AbstractVector{T}`, so an out-of-range scalar index must raise `BoundsError`
+    # like any other Julia array -- `getindex` `checkbounds` first and never reaches the FFI, so
+    # the failure is a `BoundsError` rather than a `PolarsError` carrying a Rust-flavoured message.
+    # (See the testset below for the separate, still-load-bearing guarantee that the C ABI itself
+    # stays fallible rather than panicking.)
     s_str = Series(:names, ["a", "b"])
-    @test_throws PolarsError s_str[5]
-    @test s_str[1] == "a" # in-bounds access still correct after the fix
+    @test_throws BoundsError s_str[5]
+    @test s_str[1] == "a" # in-bounds access still correct
 
     s_date = Series(:dates, [Date(2024, 1, 1)])
-    @test_throws PolarsError s_date[5]
+    @test_throws BoundsError s_date[5]
     @test s_date[1] == Date(2024, 1, 1)
 
     s_dt = Series(:dts, [DateTime(2024, 1, 1)])
-    @test_throws PolarsError s_dt[5]
+    @test_throws BoundsError s_dt[5]
     @test s_dt[1] == DateTime(2024, 1, 1)
 
     df_list = DataFrame((; x = [1, 2, 3]))
     s_list = select(df_list, implode(col("x")) |> alias("l"))[:l]
-    @test_throws PolarsError s_list[5]
+    @test_throws BoundsError s_list[5]
     @test s_list[1] isa Vector
 
     df_struct = DataFrame((; a = [1], b = ["x"]))
     s_struct = select(df_struct, as_struct(col("a"), col("b")) |> alias("s"))[:s]
-    @test_throws PolarsError s_struct[5]
+    @test_throws BoundsError s_struct[5]
     @test s_struct[1].a == 1
-end
 
-@testset "Series getindex out-of-bounds on the numeric/bool path" begin
-    # gen_series_get!-backed getters (numeric/bool) are a separate code path from
-    # polars_series_get (Date/String/List/Struct, covered above) -- confirm they're
-    # independently fallible on out-of-bounds too, not just in-bounds-correct.
+    # numeric/bool go through the separate `gen_series_get!`-backed getters
     s_num = Series(:nums, [1, 2, 3])
-    @test_throws PolarsError s_num[5]
+    @test_throws BoundsError s_num[5]
     @test s_num[1] == 1
 
     s_bool = Series(:flags, [true, false])
-    @test_throws PolarsError s_bool[5]
+    @test_throws BoundsError s_bool[5]
     @test s_bool[1] == true
+
+    # the all-null (Null dtype) series has its own getindex method, which checks bounds too
+    s_null = select(DataFrame((; x = [1, 2])), alias(lit(missing), "n"))[:n]
+    @test ismissing(s_null[1])
+    @test_throws BoundsError s_null[5]
+end
+
+@testset "polars_series_get stays fallible out-of-bounds" begin
+    # `checkbounds` in `getindex` (above) stops an out-of-range index before it reaches the C ABI,
+    # so drive the ABI directly to cover it: an out-of-bounds `polars_series_get` must return an
+    # error pointer, never `.unwrap()` a Rust panic across the `extern "C"` boundary (which aborts
+    # the whole Julia process, uncatchably).
+    s_str = Series(:names, ["a", "b"])
+    out = Ref{Ptr{Polars.polars_value_t}}()
+    err = Polars.API.polars_series_get(s_str, 99, out)
+    @test err != C_NULL
+    Polars.API.polars_error_destroy(err)
+
+    # ... and so must the numeric getter family
+    s_num = Series(:nums, [1, 2, 3])
+    num_out = Ref{Int64}()
+    num_err = Polars.API.polars_series_get_i64(s_num, 99, num_out)
+    @test num_err != C_NULL
+    Polars.API.polars_error_destroy(num_err)
+
+    # `polars_series_is_null` is documented to answer `false` (not error) out of bounds
+    @test Polars.API.polars_series_is_null(s_num, 99) == false
 end
 
 @testset "Series getindex with negative/zero index" begin
     # No negative-index support (no wraparound-from-end semantics) -- these are simply
-    # invalid indices and error, across both getindex code paths.
+    # invalid indices, and raise `BoundsError` like any other Julia array.
     s_num = Series(:nums, [1, 2, 3])
-    @test_throws Exception s_num[-1]
-    @test_throws Exception s_num[0]
+    @test_throws BoundsError s_num[-1]
+    @test_throws BoundsError s_num[0]
 
     s_str = Series(:names, ["a", "b"])
-    @test_throws Exception s_str[-1]
-    @test_throws Exception s_str[0]
+    @test_throws BoundsError s_str[-1]
+    @test_throws BoundsError s_str[0]
+end
+
+@testset "Series declares IndexLinear" begin
+    # `getindex` takes a single linear index; without this declaration `Series` would inherit
+    # `AbstractArray`'s `IndexCartesian` default and generic Base code would take the slow path.
+    @test IndexStyle(Polars.Series) == IndexLinear()
+    @test IndexStyle(Series(:nums, [1, 2, 3])) == IndexLinear()
 end
 
 @testset "Series slicing" begin
@@ -302,7 +329,7 @@ end
 
     # scalar indexing is unaffected by the new UnitRange method
     @test s[1] == 1
-    @test_throws PolarsError s[100]
+    @test_throws BoundsError s[100]
 end
 
 @testset "Boolean Series all/any with nulls" begin

@@ -65,11 +65,11 @@ end
     # Time)" testset -- both exercise polars-ops' `take_chunked_unchecked`, which has a
     # `#[cfg(feature = "dtype-duration")]`-gated `Duration` arm falling through to
     # `_ => unreachable!()` (a process abort, not a catchable error) if that feature were ever
-    # off. Unlike `dtype-time` historically, `dtype-duration` was confirmed (via
+    # off. `dtype-duration` reaches polars-ops transitively as part of `dtype-slim`, itself part
+    # of the `polars` crate's own `default` features -- confirmed via
     # `cargo tree -e features -i polars-ops` and the actual build fingerprints, not just the
-    # declared `features = [...]` list) to already be transitively active before this task's
-    # Cargo.toml change -- it's part of `dtype-slim`, itself part of the `polars` crate's own
-    # `default` features. Kept as an explicit regression guard regardless.
+    # declared `features = [...]` list (contrast `dtype-time`, which reaches polars-ops only
+    # because c-polars/Cargo.toml names it). Kept as an explicit guard regardless.
     ns = Int64[500, 100, 300, 200]
     df = select(DataFrame((; n = ns, i = collect(1:4))), cast(col("n"), Dates.Nanosecond) |> alias("d"), col("i"))
     durations = collect(df[:d])

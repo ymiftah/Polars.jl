@@ -108,11 +108,11 @@ end
 end
 
 @testset "cloud IO (Phase 1: aws/gcp/azure Cargo features enabled)" begin
-    @testset "s3:// scheme is recognized -- 'aws' feature must be enabled no longer fires" begin
-        # Regression guard for c-polars/Cargo.toml's `polars` dependency feature list: before the
-        # "aws"/"gcp"/"azure" features were added, any s3:// path failed with the clean
+    @testset "s3:// scheme is recognized, no 'aws' feature must be enabled error" begin
+        # Guards c-polars/Cargo.toml's `polars` dependency feature list: without the
+        # "aws"/"gcp"/"azure" features, any s3:// path fails with the clean
         # `PolarsError: feature 'aws' must be enabled in order to use 'Aws' cloud urls` message
-        # (cloud/async/http were already transitively on, so this was never a process abort -- see
+        # (cloud/async/http are transitively on regardless, so this is never a process abort -- see
         # CLAUDE.md/plans/cloud_io.md). This attempts a real connection and can be run with or
         # without network access -- the assertion is only about the error message, not a
         # successful round-trip, so it stays hermetic either way.

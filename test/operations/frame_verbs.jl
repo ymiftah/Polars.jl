@@ -176,7 +176,6 @@ end
 
     # stable=false: allow unstable ordering among upsampled rows
     r_unstable = upsample(df, "time"; every = "1h", stable = false)
-    # Just verify it runs and produces correct values (row order may vary)
     @test size(r_unstable) == (4, 2)
     @test r_unstable[:time] |> collect |> sort == r[:time] |> collect |> sort
 end
@@ -194,10 +193,10 @@ end
 end
 
 @testset "Symbol column identifiers (verbs.jl/reshape.jl)" begin
-    # regression test for a bug found in review: with_row_index(df, :idx) used to raise
-    # `MethodError: ncodeunits(::Symbol)` -- every other verb below routed Symbol args through
-    # `_name_ptrs`, which converts to String first, but with_row_index passed `name` straight to
-    # `ncodeunits`.
+    # Every verb here accepts a `Symbol` wherever it accepts a column name. The verbs taking a
+    # list of names route through `_name_ptrs`, which converts to `String` first; a single-name
+    # verb like `with_row_index` has to do the same conversion itself before `ncodeunits`, which
+    # has no `Symbol` method.
     df = DataFrame((; g = ["a", "a", "b", "b"], x = [1, 2, 3, 4]))
 
     r_idx = with_row_index(df, :idx)

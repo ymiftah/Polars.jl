@@ -20,8 +20,8 @@ end
 end
 
 @testset "literal convert overloads (Base.convert(::Type{Expr}, ...))" begin
-    # one case per Base.convert(::Type{Expr}, ...) method in src/expr/expr.jl -- only Int64
-    # (via lit(99) above) had direct coverage before this
+    # one case per Base.convert(::Type{Expr}, ...) method in src/expr/expr.jl; the Int64 case is
+    # also covered via lit(99) above
     df = DataFrame((; a = [1, 2, 3]))
 
     # lit(v) alone doesn't broadcast to the frame's row count -- it needs a sibling column

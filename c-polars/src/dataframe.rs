@@ -564,7 +564,7 @@ pub unsafe extern "C" fn polars_lazy_frame_collect_schema(
             false,
         );
         // `out` points at caller-allocated but *uninitialized* memory (the Julia side passes
-        // `Ref{ArrowSchema}()`, never a previously-valid schema) -- `*out = ...` would first run
+        // `Ref{ArrowSchema}()`, never an already-initialized schema) -- `*out = ...` would first run
         // `ArrowSchema`'s `Drop` impl (it has a `release` callback) on whatever garbage bytes are
         // already there before overwriting them, which is UB: on one allocator's leftover
         // garbage that's a harmless no-op, on another's it's a segfault deep in the drop glue.

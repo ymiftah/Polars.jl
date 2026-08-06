@@ -48,3 +48,26 @@ end
     r_curried3 = select(df, alias(col("t") |> Dt.replace_time_zone("UTC"; non_existent = :null), "t"))
     @test collect(r_direct3[:t]) == collect(r_curried3[:t])
 end
+
+@testset "null in a timezone-aware struct field (PolarsTimeZonesExt.load_value)" begin
+    # Same shape as the P0.9 guard covered in test/datatypes/structs.jl, for the `ZonedDateTime`
+    # loader the TimeZones extension supplies. A null *column* element never reaches `load_value`
+    # (`getindex` short-circuits on the validity bitmap first), but a null in a schema-typed
+    # struct field does: it reports its real dtype even while null, so it slips past the
+    # NamedTuple loader's `PolarsValueTypeUnknown` check and lands here. Without the null guard
+    # every other `load_value` method has, this failed with polars' own "value is not of type
+    # datetime" instead of yielding `missing`.
+    df = DataFrame((; t = [DateTime(2024, 6, 15, 12), missing], i = [1, 2]))
+    zoned = select(df, alias(Dt.replace_time_zone(col("t"), "UTC"), "t"), col("i"))
+    s = select(zoned, alias(as_struct(col("t"), col("i")), "s"))[:s]
+
+    r = collect(s)
+    @test r[1].t isa ZonedDateTime
+    @test Dates.hour(r[1].t) == 12
+    @test r[1].i == 1
+    @test ismissing(r[2].t)
+    @test r[2].i == 2
+
+    # the plain column path (short-circuited by the validity bitmap) still agrees
+    @test ismissing(collect(zoned[:t])[2])
+end

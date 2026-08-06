@@ -1,3 +1,13 @@
+# Element types for the "unmappable column type" testset at the bottom of this file. Defined at
+# top level because a `struct` cannot be declared inside a `@testset` block.
+mutable struct MutableColumnElement
+    x::Int
+end
+
+struct ImmutableColumnElement
+    x::Int
+end
+
 @testset "Create from C Data interface" begin
     table = (; x = randn(Float32, 100))
 
@@ -29,7 +39,6 @@ end
     df_wide = DataFrame(cols)
     show_str_wide = repr("text/plain", df_wide)
     @test !isempty(show_str_wide)
-    # Check that at least some column names appear
     @test contains(show_str_wide, "col1") || contains(show_str_wide, "col")
 end
 
@@ -66,6 +75,27 @@ end
     @test collect(df_rows[:b]) == ["x", "y", "z"]
 end
 
+@testset "DataFrame(series::AbstractVector{<:Series})" begin
+    a = Series("a", [1, 2, 3])
+    b = Series("b", ["x", "y", "z"])
+    df = DataFrame([a, b])
+    @test size(df) == (3, 2)
+    @test Polars.names(df) == ["a", "b"]
+    @test collect(df[:a]) == [1, 2, 3]
+    @test collect(df[:b]) == ["x", "y", "z"]
+
+    # the input series are cloned, not consumed -- both the DataFrame and the originals stay usable
+    @test collect(a) == [1, 2, 3]
+
+    # an empty-named series falls back to "column_i" (0-based)
+    unnamed = Series("", [true, false])
+    df_unnamed = DataFrame([unnamed])
+    @test Polars.names(df_unnamed) == ["column_0"]
+
+    # duplicate resulting names raise, same as any other DataFrame constructor
+    @test_throws PolarsError DataFrame([Series("dup", [1]), Series("dup", [2])])
+end
+
 @testset "mixed-type column coercion" begin
     # Int/Float64 mix in a single column literal promotes to Float64 (plain Julia array
     # promotion, not a Polars-specific coercion path)
@@ -80,18 +110,18 @@ end
 end
 
 @testset "bare all-missing column (Vector{Missing}) builds a genuine Null-dtype column, not a crash (see plans/parity/gap_closure_scope.md A2)" begin
-    # `DataFrame((; x = [missing, missing]))` used to raise `UndefVarError: T not defined in
-    # static parameter matching` from deep inside Arrow-schema resolution -- Missing's own
-    # `MaybeMissing{Missing}` == `Union{Missing,Missing}` collapse hit the same hazard already
-    # guarded for `Any` (src/arrow/array.jl), but without an equivalent guard. Fixed with a
-    # concrete `format(::Type{Missing})` method; live-verified end-to-end (not just that
-    # construction no longer crashes) across schema, group_by, filter, and a parquet round-trip.
+    # `MaybeMissing{Missing}` == `Union{Missing,Missing}` collapses to the literal type `Missing`,
+    # the same hazard guarded for `Any` (src/arrow/array.jl) one level down: without the concrete
+    # `format(::Type{Missing})` method, `DataFrame((; x = [missing, missing]))` raises
+    # `UndefVarError: T not defined in static parameter matching` from deep inside Arrow-schema
+    # resolution. Exercised end-to-end -- not just that construction succeeds -- across schema,
+    # group_by, filter, and a parquet round-trip.
     df = DataFrame((; x = Vector{Missing}(missing, 2)))
     @test size(df) == (2, 1)
     @test isequal(collect(df[:x]), [missing, missing])
     @test Polars.schema(df).types == (Union{Missing, Nothing},)
 
-    # bare untyped literal (the exact form from the original crash report) works the same way
+    # a bare untyped literal, which infers as `Vector{Missing}`, works the same way
     df_lit = DataFrame((; x = [missing, missing]))
     @test isequal(collect(df_lit[:x]), [missing, missing])
 
@@ -108,10 +138,9 @@ end
 end
 
 @testset "Base.names/Tables.columnnames read only the schema, no query (P1.3)" begin
-    # `Tables.columnnames`/`Tables.getcolumn(df, ::Int)` used to call `schema(df)`, which runs a
-    # null-count `select` over every column just to answer "what are the names" -- cheap on tiny
-    # test frames, but a real cost on a wide/long one. `Base.names`/`Tables.columnnames` now read
-    # only the Arrow schema.
+    # `Base.names`/`Tables.columnnames` read only the Arrow schema. Going through `schema(df)`
+    # instead would run a null-count `select` over every column just to answer "what are the
+    # names" -- cheap on tiny test frames, but a real cost on a wide/long one.
     df = DataFrame((; a = [1, 2, 3], b = ["x", "y", "z"], c = [1.5, missing, 3.5]))
     @test Polars.names(df) == ["a", "b", "c"]
     @test Tables.columnnames(df) == (:a, :b, :c)
@@ -123,4 +152,77 @@ end
     sch = Tables.schema(df)
     @test sch.names == (:a, :b, :c)
     @test sch.types == (Int64, String, Union{Missing, Float64})
+end
+
+@testset "columns that aren't `Vector`s (Tables.jl only promises AbstractVector)" begin
+    # `arrowvector`'s methods all require a concrete `Vector`, so `arrowtable` normalizes each
+    # column through `_as_vector` after fetching it by name via the Tables.jl `AbstractColumns`
+    # interface. Anything else -- a range, a `SubArray`, another package's column type -- must
+    # therefore still build.
+
+    # a range
+    df_range = DataFrame((; a = 1:3, b = ["x", "y", "z"]))
+    @test size(df_range) == (3, 2)
+    @test collect(df_range[:a]) == [1, 2, 3]
+
+    # a view
+    backing = [10, 20, 30, 40]
+    df_view = DataFrame((; a = view(backing, 2:4)))
+    @test collect(df_view[:a]) == [20, 30, 40]
+
+    # a reinterpreted/lazily-mapped column
+    df_step = DataFrame((; a = 0:2:4))
+    @test collect(df_step[:a]) == [0, 2, 4]
+
+    # columns are fetched by name, in schema order, rather than by iteration order
+    @test names(DataFrame((; z = [1], a = [2], m = [3]))) == ["z", "a", "m"]
+end
+
+@testset "round-tripping a Polars DataFrame back through the constructor" begin
+    # `Tables.columns(::DataFrame)` returns a `DataFrameColumns`, which defines no `iterate`, so
+    # feeding a `DataFrame` back in only works if the constructor goes through the Tables.jl
+    # `AbstractColumns` interface rather than iterating the columns object.
+    original = DataFrame(
+        (;
+            i = [1, 2, 3],
+            s = ["a", "b", "c"],
+            f = [1.5, 2.5, 3.5],
+            n = [1, missing, 3],
+            d = [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3)],
+        )
+    )
+
+    copy_of = DataFrame(original)
+    @test names(copy_of) == names(original)
+    @test size(copy_of) == size(original)
+    @test collect(copy_of[:i]) == [1, 2, 3]
+    @test collect(copy_of[:s]) == ["a", "b", "c"]
+    @test collect(copy_of[:f]) == [1.5, 2.5, 3.5]
+    @test isequal(collect(copy_of[:n]), [1, missing, 3])
+    @test collect(copy_of[:d]) == [Date(2024, 1, 1), Date(2024, 1, 2), Date(2024, 1, 3)]
+    @test copy_of == original
+
+    # ... and through the columns object explicitly, the way a generic Tables.jl sink would
+    @test DataFrame(Tables.columns(original)) == original
+    @test DataFrame(Tables.columntable(original)) == original
+end
+
+@testset "an unmappable column type raises a catchable error" begin
+    # An unmappable column type must raise a real `Exception`: `throw("...")` throws a bare
+    # `String`, which can't be caught as one and prints as a stray string rather than an error.
+    # A mutable struct column must go through the same path rather than an `@assert` -- the Julia
+    # manual is explicit that assertions must not validate arguments, since they may be disabled.
+    @test_throws ErrorException Polars.format(MutableColumnElement)
+    @test_throws ErrorException DataFrame((; x = [MutableColumnElement(1)]))
+
+    err = try
+        Polars.format(MutableColumnElement)
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test contains(err.msg, "MutableColumnElement")
+
+    # an immutable struct is still mapped to Arrow's Struct layout
+    @test Polars.format(ImmutableColumnElement) == "+s"
 end

@@ -88,22 +88,22 @@ function validitybuffer(vm::ValidityMap)
 end
 
 function format(T)
-    # `T <: Vector` is the real dispatch path for every list column (`Vector{Int}`,
-    # `Vector{Vector{Int}}`, ...): a `format(::Type{Vector{<:Any}})` method below looks like it
-    # should take priority for concrete `Vector{X}` types, but `Vector{<:Any}` collapses to the
-    # bare UnionAll `Vector`, so `Type{Vector{<:Any}}` only matches the literal unparameterized
-    # `Vector` value -- never a concrete `Vector{X}` -- and was silently dead code. This fallback
-    # is what every real list column actually goes through.
+    # A subtype test in this untyped fallback, rather than a `format(::Type{Vector{<:Any}})`
+    # method, is what catches every list column (`Vector{Int}`, `Vector{Vector{Int}}`, ...):
+    # `Vector{<:Any}` collapses to the bare UnionAll `Vector`, so a `Type{Vector{<:Any}}` signature
+    # matches only the literal unparameterized `Vector` value, never a concrete `Vector{X}`.
     if T <: Vector
         return "+L" # large-list (Int64 offsets) -- see the arrowvector methods below for why
     end
 
-    @assert !ismutabletype(T)
-    if isstructtype(T)
+    # An immutable struct type maps to Arrow's Struct layout; a *mutable* one deliberately does
+    # not (its fields can change under the buffers this package builds from them). An error ensures
+    # this invariant is checked at runtime for user input, not disabled via assertions.
+    if isstructtype(T) && !ismutabletype(T)
         return "+s"
     end
 
-    throw("cannot find a arrow format for type $T")
+    error("cannot find an Arrow format for type $T")
 end
 format(::Type{MaybeMissing{T}}) where {T} = format(T)
 # `MaybeMissing{Any}` (i.e. `Union{Any, Union{Any,Missing}}`) collapses to the literal type `Any`
@@ -187,8 +187,7 @@ call their own release callbacks, MUST free any data area it owns directly, and 
 structure released (`release = NULL`). Recursion through the whole tree falls out for free here:
 every `ArrowArray` this package builds shares this same callback, so invoking a child's callback
 walks *its* children in turn, all the way down to the leaves -- no explicit recursion needed on
-the Julia side (contrast with the old `release_array!`, which had to recurse because every level
-used to root itself independently in `LIVE_ARRAYS`).
+the Julia side.
 """
 function base_release_array(carray_ptr::Ptr{CArrowArray})
     carray = unsafe_load(carray_ptr)
@@ -240,8 +239,7 @@ Registers `array` in `LIVE_ARRAYS`, keeping it (and everything reachable through
 field) alive from the Julia GC's perspective until Rust invokes its release callback. Only ever
 needed for the top-level array handed across the FFI boundary (see `arrowtable`) -- children are
 kept alive transitively through their parent's `children::Vector{ArrowArray}` field, so rooting
-every nesting level independently (the old behavior) was both unnecessary and the reason
-`release_array!` used to have to recurse.
+every nesting level independently would be redundant.
 """
 function root!(array::ArrowArray)
     lock(LIVE_ARRAYS_LOCK) do
@@ -288,9 +286,12 @@ Base.cconvert(::Type{CArrowArray}, array::ArrowArray) = array
 Base.unsafe_convert(::Type{CArrowArray}, array::ArrowArray) = array.carrow_array
 
 function Base.unsafe_convert(::Type{Ptr{CArrowArray}}, array::ArrowArray)
+    # `Base.fieldindex` (as in `_mark_released!`) rather than `findfirst` over `fieldnames`: with
+    # both arguments constant it folds away at compile time instead of searching on every single
+    # conversion -- and this is the hot path every ccall taking an array goes through.
     return Ptr{CArrowArray}(
         Ptr{UInt8}(Base.pointer_from_objref(array)) +
-            fieldoffset(ArrowArray, findfirst(==(:carrow_array), fieldnames(ArrowArray)))
+            fieldoffset(ArrowArray, Base.fieldindex(ArrowArray, :carrow_array))
     )
 end
 
@@ -472,6 +473,19 @@ function column_schema(name, type)
 end
 
 """
+    _as_vector(column)::Vector
+
+Normalizes one Tables.jl column to a concrete `Vector`. Tables.jl only promises its columns are
+`AbstractVector`s, but every `arrowvector` method above is written against a real `Vector` buffer
+(it takes `pointer`s into it, or indexes it directly), so anything else -- a range, a `SubArray`,
+another package's column type, or one of this package's own `Series` -- is materialized once here.
+Done at the call site rather than as an `arrowvector(::AbstractVector)` fallback, which would
+recurse forever for a `Vector` element type that has no method.
+"""
+_as_vector(column::Vector) = column
+_as_vector(column::AbstractVector) = collect(column)
+
+"""
     arrowtable(table, table_name)::Tuple{ArrowArray, ArrowSchema}
 
 Encodes `table` (any Tables.jl-compatible source) into a top-level `ArrowArray`/`ArrowSchema` pair,
@@ -496,11 +510,16 @@ function arrowtable(table, table_name)
         children
     )
 
-    ℓ = Tables.rowcount(Tables.columns(table))
+    # Fetch each column by *name*, through the Tables.jl `AbstractColumns` interface, so the
+    # columns line up with the schema children built above regardless of the source's own ordering.
+    # Iterating a columns object directly is not part of that interface: it happens to work for a
+    # `NamedTuple` and fails for anything else, including this package's own `DataFrameColumns`.
+    cols = Tables.columns(table)
+    ℓ = Tables.rowcount(cols)
     array = ArrowArray(
         ValidityMap(ℓ, 0, UInt8[]), [], [
-            arrowvector(t)
-                for t in Tables.columns(table)
+            arrowvector(_as_vector(Tables.getcolumn(cols, name)))
+                for name in tschema.names
         ]
     )
 

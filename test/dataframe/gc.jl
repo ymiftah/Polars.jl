@@ -6,11 +6,10 @@
 end
 
 @testset "GC releases depth-≥2 nested schemas/arrays (P0.6)" begin
-    # `release_schema!`/`release_array!` used to unroot only the *immediate* children of the
-    # top-level column schema/array; every nesting level registers itself independently in
-    # `set_private_data!`, so a list-of-list-of-list or struct-with-a-struct-field left its
-    # grandchildren permanently rooted in `LIVE_SCHEMAS`/`LIVE_ARRAYS`. Build both shapes, drop
-    # every reference, and force collection.
+    # Nesting deeper than one level must not leave anything rooted in
+    # `LIVE_SCHEMAS`/`LIVE_ARRAYS`: a list-of-list-of-list and a struct-with-a-struct-field both
+    # have grandchildren, which are reachable only transitively through their parents. Build both
+    # shapes, drop every reference, and force collection.
     for _ in 1:20
         df = DataFrame((; x = [[[1, 2], [3]], [[4]], Vector{Vector{Int}}()]))
         df = nothing
@@ -27,10 +26,11 @@ end
 end
 
 @testset "arrowtable does not leak LIVE_ARRAYS/LIVE_SCHEMAS on partial construction failure" begin
-    # Regression test: `arrowtable` used to root every nesting level (not just the top-level
-    # array/schema), so a throw partway through column construction (a column built before the
-    # failing one, or a partially built schema tree) left already-rooted entries with no owner to
-    # ever release them -- a permanent leak, since nothing else references them. Exercise several
+    # `arrowtable` roots only the top-level array/schema, and only once every column has been
+    # built without error, so a throw partway through column construction (a column built before
+    # the failing one, or a partially built schema tree) leaves nothing rooted that no owner will
+    # ever release -- such an entry would leak permanently, since nothing else references it.
+    # Exercise several
     # distinct failure shapes: an out-of-range `DateTime` (ms->ns `InexactError` in `arrowvector`),
     # a bare-`Any` column (the deliberate `format(::Type{Any})` error), and a column type with no
     # `arrowvector` method at all.

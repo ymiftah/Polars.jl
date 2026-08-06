@@ -120,7 +120,9 @@ function parse_format(schema)
     # arrow/read.jl for the bulk reader and its docstring for why this is the right contract
     # (consistent with Struct materializing as a plain `NamedTuple` just above, not a `Series`).
     if fmt in ("+l", "+L")
-        @assert schema.n_children == 1
+        schema.n_children == 1 || error(
+            "malformed Arrow List schema: expected exactly 1 child, got $(schema.n_children)"
+        )
         children = unsafe_load(schema.children) |> unsafe_load
         T = parse_format(children)
         return MaybeMissing{Vector{T}}
@@ -172,15 +174,19 @@ end
     the function
 """
 function load_dataframe_schema(schema::CArrowSchema)
+    # Real errors rather than `@assert`s: these validate data that just crossed the FFI boundary
+    # (the one place a silently-disabled check would turn a malformed schema into a segfault),
+    # not an invariant this package establishes itself.
     fmt = unsafe_string(schema.format)
-    @assert fmt == "+s" "invalid polars schema"
+    fmt == "+s" || error("invalid polars schema: expected a struct format \"+s\", got \"$fmt\"")
 
     name = unsafe_string(schema.name)
-    @assert name == "polars.dataframe" "invalid polars schema"
+    name == "polars.dataframe" ||
+        error("invalid polars schema: expected the name \"polars.dataframe\", got \"$name\"")
 
     NT = parse_format(schema)
     NT = nomissing(NT)
-    @assert NT <: NamedTuple
+    NT <: NamedTuple || error("invalid polars schema: expected a NamedTuple type, got $NT")
     names, types = NT.parameters
 
     # Explicitely release after reading the schema names and types
@@ -285,8 +291,7 @@ call their own release callbacks, MUST free any data area it owns directly, and 
 structure released (`release = NULL`). Recursion through the whole tree falls out for free here:
 every `ArrowSchema` this package builds shares this same callback, so invoking a child's callback
 walks *its* children in turn, all the way down to the leaves -- no explicit recursion needed on
-the Julia side (contrast with the old `release_schema!`, which had to recurse because every level
-used to root itself independently in `LIVE_SCHEMAS`).
+the Julia side.
 """
 function base_release_schema(schema_ptr::Ptr{CArrowSchema})
     cschema = unsafe_load(schema_ptr)
@@ -336,8 +341,7 @@ Registers `schema` in `LIVE_SCHEMAS`, keeping it (and everything reachable throu
 field) alive from the Julia GC's perspective until Rust invokes its release callback. Only ever
 needed for the top-level schema handed across the FFI boundary (see `arrowtable`) -- children are
 kept alive transitively through their parent's `children::Vector{ArrowSchema}` field, so rooting
-every nesting level independently (the old behavior) was both unnecessary and the reason
-`release_schema!` used to have to recurse.
+every nesting level independently would be redundant.
 """
 function root!(schema::ArrowSchema)
     lock(LIVE_SCHEMAS_LOCK) do
@@ -375,7 +379,7 @@ function ArrowSchema(; format, name, metadata = nothing, flags = 0, children = A
             flags,
             length(children),
             pointer(children_pointers),
-            isnothing(dictionary) ? C_NULL : throw("unsupported dictionary"),
+            isnothing(dictionary) ? C_NULL : error("unsupported dictionary"),
             C_NULL,
             C_NULL,
         )
@@ -385,9 +389,11 @@ function ArrowSchema(; format, name, metadata = nothing, flags = 0, children = A
 end
 
 function Base.unsafe_convert(::Type{Ptr{CArrowSchema}}, schema::ArrowSchema)
+    # See the matching comment on `unsafe_convert(::Type{Ptr{CArrowArray}}, ...)` in arrow/array.jl
+    # for why this is `Base.fieldindex` rather than a runtime `findfirst`.
     return Ptr{CArrowSchema}(
         Ptr{UInt8}(Base.pointer_from_objref(schema)) +
-            fieldoffset(ArrowSchema, findfirst(==(:carrow_schema), fieldnames(ArrowSchema)))
+            fieldoffset(ArrowSchema, Base.fieldindex(ArrowSchema, :carrow_schema))
     )
 end
 

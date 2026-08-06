@@ -1,8 +1,6 @@
 function _join(a::LazyFrame, b::LazyFrame, exprs_a::Vector, exprs_b::Vector, how)
-    exprs_a = map(_as_expr, exprs_a)
-    exprs_a = convert(Vector{Expr}, exprs_a)
-    exprs_b = map(_as_expr, exprs_b)
-    exprs_b = convert(Vector{Expr}, exprs_b)
+    exprs_a = _expr_vector(exprs_a)
+    exprs_b = _expr_vector(exprs_b)
     GC.@preserve exprs_a exprs_b begin
         exprs_a_ptr = Ptr{polars_expr_t}[expr.ptr for expr in exprs_a]
         exprs_b_ptr = Ptr{polars_expr_t}[expr.ptr for expr in exprs_b]
@@ -107,9 +105,9 @@ function join_asof(
     else
         error("unknown asof strategy $strategy, expected one of (:backward, :forward, :nearest)")
     end
-    GC.@preserve by_left by_right begin
-        by_left_ptrs, by_left_lens = _name_ptrs(by_left)
-        by_right_ptrs, by_right_lens = _name_ptrs(by_right)
+    by_left_names, by_left_ptrs, by_left_lens = _name_ptrs(by_left)
+    by_right_names, by_right_ptrs, by_right_lens = _name_ptrs(by_right)
+    GC.@preserve by_left_names by_right_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_join_asof(
             a, b, on_a, on_b,

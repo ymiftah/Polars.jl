@@ -13,7 +13,7 @@ mutable struct Series{T} <: AbstractVector{T}
     fmt::String
 
     function Series(ptr)
-        @assert ptr != C_NULL
+        ptr == C_NULL && error("cannot build a Series from a null pointer")
 
         # No finalizer is registered yet at this point, so an error anywhere below (e.g.
         # `load_series_schema`/`parse_format` throwing on an unsupported dtype such as a
@@ -51,6 +51,11 @@ Base.unsafe_convert(::Type{Ptr{polars_series_t}}, series::Series) = series.ptr
 
 Base.size(series::Series) = (series.length,)
 
+# `getindex` below takes a single linear index, which is what `IndexLinear` declares -- without it
+# `Series` inherits `AbstractArray`'s `IndexCartesian` default and generic Base code goes through
+# the (slower, and for a vector entirely pointless) cartesian machinery.
+Base.IndexStyle(::Type{<:Series}) = IndexLinear()
+
 """
     Polars.item(series::Series)
 
@@ -60,30 +65,31 @@ function item(series::Series)
     length(series) == 1 || error("item() requires a Series of length 1, got length $(length(series))")
     return series[1]
 end
-# No `Base.eltype(::Series{T}) where {T} = T` needed: `Series{T} <: AbstractVector{T}` already
-# gets this for free from `AbstractArray`'s own default (`eltype(::Type{<:AbstractArray{T}}) where
-# T = T`), which resolves identically -- verified via `@code_typed`, both fold to the same
-# `Core.Const` field-type extraction. The explicit method here was pure duplication.
+# No `Base.eltype(::Series{T}) where {T} = T` method is needed: `Series{T} <: AbstractVector{T}`
+# gets it for free from `AbstractArray`'s own default (`eltype(::Type{<:AbstractArray{T}}) where
+# T = T`), which folds to the same `Core.Const` field-type extraction.
 
+# Defined explicitly so generic code calling `copy` (rather than `collect`) on an
+# `AbstractVector` still hits the bulk `read_series` path, instead of falling back to the default
+# `AbstractArray` `copy`, which loops over `getindex` one element at a time.
+#
+# The comment sits above the docstring, not between it and the definition, to ensure Documenter
+# can locate the docstring.
 """
     Base.copy(series::Series)
 
 Materializes `series` into a native Julia `Vector`, same as [`collect`](@ref).
 """
-# Defined explicitly so generic code calling `copy` (rather than `collect`) on an
-# `AbstractVector` still hits the bulk `read_series` path, instead of falling back to the default
-# `AbstractArray` `copy`, which loops over `getindex` one element at a time.
 Base.copy(series::Series) = collect(series)
 
 """
     _series_getter(::Type{T})
 
 Compile-time dispatch table from a physical dtype `T` to its `polars_series_get_*` ccall
-wrapper, one method per type. This replaces building a `Symbol` from string pieces and resolving
-it via `getproperty(API, name)` at every single element access -- that was a dynamic (runtime)
-global lookup returning an un-inferred `Function`, so the actual ccall couldn't be inlined or
-specialized. Since `T` is known at compile time inside each `getindex` specialization (see below),
-this call constant-folds to a direct, inlinable reference to the right ccall wrapper instead.
+wrapper, one method per type. `T` is known at compile time inside each `getindex` specialization
+(see below), so this call constant-folds to a direct, inlinable reference to the right ccall
+wrapper -- unlike a name-based `getproperty(API, name)` lookup, which is a runtime global
+resolution returning an un-inferred `Function` that can be neither inlined nor specialized.
 """
 _series_getter(::Type{Bool}) = API.polars_series_get_bool
 _series_getter(::Type{Int8}) = API.polars_series_get_i8
@@ -98,6 +104,7 @@ _series_getter(::Type{Float32}) = API.polars_series_get_f32
 _series_getter(::Type{Float64}) = API.polars_series_get_f64
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Integer}, MaybeMissing{AbstractFloat}}}
+    checkbounds(series, index)
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -114,6 +121,7 @@ function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{Ma
 end
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Dates.TimeType}, Dates.TimeType, MaybeMissing{Dates.Period}, Dates.Period}}
+    checkbounds(series, index)
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)
@@ -132,6 +140,7 @@ end
 
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Vector}, MaybeMissing{String}, MaybeMissing{NamedTuple}}}
+    checkbounds(series, index)
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)

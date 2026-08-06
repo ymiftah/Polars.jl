@@ -29,8 +29,7 @@ The values for the group-by can be aggregated using the [`agg`](@ref) function.
 """
 group_by(df::LazyFrame, exprs...) = groupby(df, collect(exprs)::Vector)
 function groupby(df::LazyFrame, exprs::Vector)
-    exprs = map(_as_expr, exprs)
-    exprs = convert(Vector{Expr}, exprs)
+    exprs = _expr_vector(exprs)
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
         out = polars_lazy_frame_group_by(df, exprs_ptrs, length(exprs_ptrs))
@@ -45,8 +44,7 @@ Aggregates the value over the group-by object and return a resulting [`LazyFrame
 """
 agg(gb::LazyGroupBy, exprs...) = agg(gb, collect(exprs)::Vector)
 function agg(gb::LazyGroupBy, exprs::Vector)
-    exprs = map(_as_expr, exprs)
-    exprs = convert(Vector{Expr}, exprs)
+    exprs = _expr_vector(exprs)
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
         out = polars_lazy_group_by_agg(gb, exprs_ptrs, length(exprs_ptrs))
@@ -86,7 +84,7 @@ function group_by_dynamic(
         start_by::Symbol = :window_bound,
     )
     index_expr = _as_expr(index_column)
-    group_by = convert(Vector{Expr}, map(_as_expr, group_by))
+    group_by = _expr_vector(group_by)
     period = something(period, every)
 
     label_cenum = label === :left ? API.PolarsLabelLeft :
@@ -162,7 +160,7 @@ function rolling(
         closed::Symbol = :right,
     )
     index_expr = _as_expr(index_column)
-    group_by = convert(Vector{Expr}, map(_as_expr, group_by))
+    group_by = _expr_vector(group_by)
 
     closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
         closed === :right ? API.PolarsClosedWindowRight :

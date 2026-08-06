@@ -58,10 +58,10 @@ Some polars capabilities are gated behind Cargo features that aren't enabled by 
   `string_reverse`. Neither is enabled by default — add the feature name to
   `c-polars/Cargo.toml`'s `polars` dependency and rebuild to enable.
 - `Dt.month_start`/`Dt.month_end` require Cargo features not enabled by default; same fix as above.
-- `Array` (fixed-size list) support needs the `dtype-array` feature, which isn't enabled.
-  Upstream's own `Array`-dtype selector matcher compiles to an always-`false` fallback when the
-  feature is off, which would otherwise make `Selectors.array()` silently match zero columns
-  rather than fail — this wrapper raises an explicit error instead to avoid that footgun.
+- `Array` (fixed-size list) *selection* works (`dtype-array` is enabled, and
+  `Selectors.array()`/`Lists.to_array` are wrapped) -- but there's no `.arr` namespace (no
+  operations on an Array column once built) and no write-side path from raw Julia nested data
+  directly to an Array column (only via `Lists.to_array` over an existing List column).
 - `Decimal` columns can be cast/queried but not materialized back into Julia — the Arrow C Data
   Interface format-string decoder (`parse_format` in `src/arrow/schema.jl`) doesn't yet handle the
   Decimal format code.
@@ -113,9 +113,9 @@ gets scanned first, so ordering matters when relying on this option.
 ## API design rationale
 
 `Base.lt` is bound under that qualified name because the bare `lt` collides with an *unexported*
-internal `Base` binding. The product aggregation used to have the same problem
-(`Base.product`/an unexported internal `Base` binding) but was renamed to `prod`, an exported
-`Base` name, so it now resolves unqualified like `sum`/`mean`.
+internal `Base` binding. The product aggregation faces the same collision under the name
+`product`, so it is instead exposed as `prod` — an exported `Base` name — and resolves unqualified
+like `sum`/`mean`.
 
 Most binary `Expr` functions have a curried form for pipe-based composition, but five —
 `log`, `rem`, `replace`, `diff`, `round` — deliberately don't. These are `Base`-qualified names,

@@ -1,8 +1,21 @@
-"""Builds `(ptrs, lens)` pointer/length arrays for a `Vector{String}`, to pass across the C ABI
-under `GC.@preserve names`."""
+"""
+    _name_ptrs(names)::Tuple{Vector{String}, Vector{Ptr{UInt8}}, Vector{Csize_t}}
+
+Builds the `(owned, ptrs, lens)` triple for passing a list of column names across the C ABI.
+
+`owned` is the `Vector{String}` that `ptrs`' raw pointers point into, and is what the caller must
+name in its `GC.@preserve` -- **not** the argument passed in here. For a `Vector{String}` input
+`owned === names`, but for any other `ColId` vector (`Vector{Symbol}`, most commonly) it is a
+freshly converted copy that nothing else references: preserving only the caller's own argument
+would leave every pointer in `ptrs` dangling the instant the GC runs between this call and the
+ccall that consumes it -- and the `Ref` allocation each call site makes in between is exactly such
+a safepoint. Returning the owner (rather than hiding it inside this function) is what makes that
+rooting impossible to forget; `_cut_labels` in expr/statistics.jl already used this shape.
+"""
 _name_ptrs(names::Vector{String}) =
-    (Ptr{UInt8}[pointer(s) for s in names], Csize_t[ncodeunits(s) for s in names])
-_name_ptrs(names::Vector{<:ColId}) = _name_ptrs(String.(names))
+    (names, Ptr{UInt8}[pointer(s) for s in names], Csize_t[ncodeunits(s) for s in names])
+_name_ptrs(names::AbstractVector{<:ColId}) = _name_ptrs(String[String(name) for name in names])
+
 """
     unique(lf::LazyFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::LazyFrame
     unique(df::DataFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::DataFrame
@@ -25,8 +38,8 @@ function Base.unique(lf::LazyFrame, subset::Vector{<:ColId} = String[]; keep::Sy
     else
         error("unknown keep strategy $keep, expected one of (:first, :last, :none, :any)")
     end
-    GC.@preserve subset begin
-        ptrs, lens = _name_ptrs(subset)
+    owned_names, ptrs, lens = _name_ptrs(subset)
+    GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_unique(lf, ptrs, lens, length(ptrs), keep_enum, out)
         polars_error(err)
@@ -48,8 +61,8 @@ Removes the given columns from the frame.
 """
 drop(df::DataFrame, columns::Vector{<:ColId}) = drop(lazy(df), columns) |> collect
 function drop(lf::LazyFrame, columns::Vector{<:ColId})
-    GC.@preserve columns begin
-        ptrs, lens = _name_ptrs(columns)
+    owned_names, ptrs, lens = _name_ptrs(columns)
+    GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_drop(lf, ptrs, lens, length(ptrs), out)
         polars_error(err)
@@ -71,9 +84,9 @@ Base.rename(df::DataFrame, existing::Vector{<:ColId}, new::Vector{<:ColId}; stri
     Base.rename(lazy(df), existing, new; strict) |> collect
 function Base.rename(lf::LazyFrame, existing::Vector{<:ColId}, new::Vector{<:ColId}; strict::Bool = true)
     length(existing) == length(new) || error("existing and new must have the same length")
-    GC.@preserve existing new begin
-        existing_ptrs, existing_lens = _name_ptrs(existing)
-        new_ptrs, new_lens = _name_ptrs(new)
+    existing_names, existing_ptrs, existing_lens = _name_ptrs(existing)
+    new_names, new_ptrs, new_lens = _name_ptrs(new)
+    GC.@preserve existing_names new_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_rename(
             lf, existing_ptrs, existing_lens, new_ptrs, new_lens, length(existing_ptrs), strict, out
@@ -99,8 +112,8 @@ Removes rows containing a `null` in any of the `subset` columns (all columns if 
 """
 drop_nulls(df::DataFrame, subset::Vector{<:ColId} = String[]) = drop_nulls(lazy(df), subset) |> collect
 function drop_nulls(lf::LazyFrame, subset::Vector{<:ColId} = String[])
-    GC.@preserve subset begin
-        ptrs, lens = _name_ptrs(subset)
+    owned_names, ptrs, lens = _name_ptrs(subset)
+    GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_drop_nulls(lf, ptrs, lens, length(ptrs), out)
         polars_error(err)

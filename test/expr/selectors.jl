@@ -162,12 +162,21 @@ end
     @test names(select(dfl, S.list())) == ["l"]
     @test names(select(dfl, S.nested())) == ["l"]
 
-    # Array: `dtype-array` is not enabled in this build's Cargo features (unlike the other
-    # DataTypeSelector kinds), so `DataTypeSelector::Array`'s own upstream matcher would compile to
-    # an unconditional `false` -- it would silently match *zero* columns rather than crash. To avoid
-    # that footgun, `array()` errors loudly instead of handing back a selector that can never match
-    # anything (see its docstring / Limitations). Regression guard: this must stay a clean error.
-    @test_throws ErrorException S.array()
+    # Array (fixed-size list): a genuine positive assertion, not just "doesn't throw" -- the
+    # feature's own upstream matcher silently compiles to an unconditional `false` when
+    # `dtype-array` is off, so a selector that merely fails to error could still be matching zero
+    # columns. Uniform-width lists so `Lists.to_array` succeeds (it requires every row to already
+    # be exactly `width` long). Like Decimal above, `names()` itself can't introspect an Array
+    # column's schema (a separate, pre-existing gap -- see `Lists.to_array`'s own docstring), so
+    # check via `size` instead.
+    dfa = DataFrame((; a = [[1, 2], [3, 4]], n = [1, 2]))
+    dfa = select(dfa, Lists.to_array(col("a"), 2) |> alias("a"), col("n"))
+    @test size(select(dfa, S.array())) == (2, 1)
+    @test size(select(dfa, S.nested())) == (2, 1)
+    # and that it's not accidentally matching everything -- `list()` must not also see the Array
+    # column. A zero-column selection collapses to (0, 0), not (2, 0) -- same convention already
+    # established above by `S.by_name()`'s own zero-match case.
+    @test size(select(dfa, S.list())) == (0, 0)
 end
 
 @testset "Selectors.by_dtype: explicit dtypes and the parametrized-dtype error path" begin
@@ -258,4 +267,19 @@ end
 
     @test hasmethod(Selectors.by_dtype, Tuple{}) # sanity: by_dtype() itself IS a valid call
     @test_throws MethodError Selectors.empty() # resolves to Base.empty, not a Selectors constructor
+end
+
+@testset "Selectors.by_index accepts any Integer width" begin
+    # The varargs form collects to a concrete `Vector{Int}` (rather than a `Vector{Integer}`,
+    # whose abstract element type boxes every index), so it still has to accept a narrower
+    # `Integer` on the way in.
+    df = DataFrame((; a = [1], b = [2], c = [3]))
+
+    @test names(select(df, S.by_index(Int32(1), Int32(3)))) == ["a", "c"]
+    @test names(select(df, S.by_index(Int8(2)))) == ["b"]
+    @test names(select(df, S.by_index(UInt16(1)))) == ["a"]
+    @test names(select(df, S.by_index(Int32(-1)))) == ["c"]
+
+    # the vector form keeps working for any Integer element type
+    @test names(select(df, S.by_index(Int32[1, 2]))) == ["a", "b"]
 end

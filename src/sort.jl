@@ -57,12 +57,19 @@ Base.sort(df::DataFrame, exprs...; rev = false, stable = true, nulls_last = true
 function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
     nexprs = length(exprs)
     descending = rev isa Bool ? fill(rev, nexprs) : rev
-    @assert length(descending) == nexprs "the rev array should be the same size as the number of exprs (got $nexprs expressions and $(length(rev)) rev)"
+    # A real exception, not an `@assert`: this validates a user-supplied argument, which the Julia
+    # manual explicitly says assertions (removable, and semantically "this cannot happen") must
+    # not be used for.
+    length(descending) == nexprs || throw(
+        ArgumentError(
+            "rev must have one entry per sort expression (got $nexprs expressions and " *
+                "$(length(descending)) rev)"
+        )
+    )
 
     maintain_order = stable
 
-    exprs = map(_as_expr, exprs)
-    exprs = convert(Vector{Expr}, exprs)
+    exprs = Expr[_as_expr(e) for e in exprs]
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
         API.polars_lazy_frame_sort(
