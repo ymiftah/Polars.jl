@@ -659,7 +659,7 @@ end
 """
     polars_expr_strict_cast(expr, dtype, out)
 
-Strict cast: raises on overflow/loss instead of [`polars_expr_cast`](@ref)'s non-strict "overflow becomes null" behavior (our `cast()` was hardwired non-strict; upstream `Expr.cast(dtype, strict=True)` defaults to strict -- this exposes the other branch as an explicit function rather than a mode switch on `cast` itself, matching `Expr::strict\\_cast`/`Expr::cast`'s own split upstream).
+Strict cast: raises on overflow/loss instead of [`polars_expr_cast`](@ref)'s non-strict "overflow becomes null" behavior. The two modes are separate functions rather than one function with a mode flag, mirroring upstream's own `Expr::strict\\_cast`/`Expr::cast` split (note upstream's *Python* `Expr.cast(dtype, strict=True)` defaults to the strict branch, so `cast` here is the non-default one).
 """
 function polars_expr_strict_cast(expr, dtype, out)
     return @ccall libpolars.polars_expr_strict_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
@@ -2108,9 +2108,7 @@ end
 """
     polars_value_struct_get(value, fieldidx, out)
 
-Returns the value of struct field `fieldidx`.
-
-# Safety The returned value borrows into the parent struct's backing memory (as every [`polars_value_t`](@ref) does -- it wraps an `AnyValue<'a>`). Lifetime parameters on a `#[no\\_mangle] extern "C"` fn enforce nothing across the C boundary, so this is a *caller invariant*, not a compiler-checked one: **the caller must keep `value` (and its parent Series) alive until it is done with `*out`, and must destroy `*out` before `value`.** The Julia side roots the parent accordingly.
+Returns the value of struct field `fieldidx`. The result owns its data (see [`polars_value_t`](@ref)), so it may outlive `value` and be destroyed in any order relative to it.
 """
 function polars_value_struct_get(value, fieldidx, out)
     return @ccall libpolars.polars_value_struct_get(value::Ptr{polars_value_t}, fieldidx::Csize_t, out::Ptr{Ptr{polars_value_t}})::Ptr{polars_error_t}

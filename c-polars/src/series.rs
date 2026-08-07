@@ -14,19 +14,16 @@ pub unsafe extern "C" fn polars_series_destroy(series: *mut polars_series_t) {
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_type(series: *mut polars_series_t) -> polars_value_type_t {
-    assert!(!series.is_null());
     polars_value_type_t::from_dtype((*series).inner.dtype())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_length(series: *mut polars_series_t) -> usize {
-    assert!(!series.is_null());
     (*series).inner.len()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_null_count(series: *mut polars_series_t) -> usize {
-    assert!(!series.is_null());
     (*series).inner.null_count()
 }
 
@@ -35,7 +32,6 @@ pub unsafe extern "C" fn polars_series_schema(
     series: *mut polars_series_t,
     out: *mut ArrowSchema,
 ) -> *const polars_error_t {
-    assert!(!series.is_null());
     guard_error(|| {
         out.write(ffi::export_field_to_c(
             &(*series).inner.field().to_arrow(CompatLevel::newest()),
@@ -53,7 +49,6 @@ pub unsafe extern "C" fn polars_series_export_carray(
     series: *mut polars_series_t,
     out: *mut ArrowArray,
 ) -> *const polars_error_t {
-    assert!(!series.is_null());
     guard_error(|| {
         let rechunked = (*series).inner.rechunk();
         let Some(chunk) = rechunked.chunks().first() else {
@@ -68,7 +63,6 @@ pub unsafe extern "C" fn polars_series_export_carray(
 /// bounds.
 #[no_mangle]
 pub unsafe extern "C" fn polars_series_is_null(series: *mut polars_series_t, index: usize) -> bool {
-    assert!(!series.is_null());
     match (*series).inner.get(index) {
         Ok(AnyValue::Null) => true,
         Ok(_) => false,
@@ -84,7 +78,6 @@ pub unsafe extern "C" fn polars_series_slice(
     offset: i64,
     length: usize,
 ) -> *mut polars_series_t {
-    assert!(!series.is_null());
     make_series((*series).inner.slice(offset, length))
 }
 
@@ -94,22 +87,22 @@ pub unsafe extern "C" fn polars_series_name(
     series: *mut polars_series_t,
     out: *mut *const u8,
 ) -> usize {
-    assert!(!series.is_null());
     let name = (*series).inner.name();
     *out = name.as_ptr();
     name.len()
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_series_get<'a>(
+pub unsafe extern "C" fn polars_series_get(
     series: *mut polars_series_t,
     index: usize,
-    out: *mut *mut polars_value_t<'a>,
+    out: *mut *mut polars_value_t,
 ) -> *const polars_error_t {
-    assert!(!series.is_null());
-    let value = tri!((*series).inner.get(index));
-    *out = make_value(value);
-    std::ptr::null()
+    guard_error(|| {
+        let value = tri!((*series).inner.get(index));
+        *out = make_value(value);
+        std::ptr::null()
+    })
 }
 
 macro_rules! gen_series_get {
@@ -120,15 +113,21 @@ macro_rules! gen_series_get {
             index: usize,
             out: *mut $t,
         ) -> *const polars_error_t {
-            assert!(!series.is_null());
-            match (*series).inner.get(index) {
+            guard_error(|| match (*series).inner.get(index) {
                 Ok(AnyValue::$rt(value)) => {
                     *out = value;
                     std::ptr::null()
                 }
-                Ok(_) => make_error("series type is invalid"),
+                // Reached both when the element's dtype is not `$rt` and when it is null (the
+                // Julia side checks `polars_series_is_null` first, so the latter is a direct-ABI
+                // caller's path) -- name both the expectation and what was actually there.
+                Ok(other) => make_error(format!(
+                    "expected a {} value at index {index}, got {:?}",
+                    stringify!($rt),
+                    other
+                )),
                 Err(err) => make_error(err),
-            }
+            })
         }
     };
 }

@@ -1,8 +1,12 @@
 """
     Polars.Value{T}
 
-Internal type which represents a reference to a value of type `T` in a series or as a field to
-a struct.
+Internal type holding a single value of type `T` read out of a series, or out of a struct field.
+
+The Rust-side handle owns its data (`polars_value_t` runs `AnyValue::into_static`), so a `Value`
+does not point into its source's buffers and the two can be finalized in either order. `parent` is
+kept anyway: it costs one reference, and it keeps the source reachable for as long as anything
+derived from it is, which is what a reader of this type would expect.
 """
 mutable struct Value{T}
     ptr::Ptr{polars_value_t}
@@ -128,7 +132,7 @@ function load_value(value::Value{TT}) where {TT <: Dates.Period}
     # NamedTuple loader), a null value in a *schema-typed* slot -- e.g. a struct field declared
     # Duration -- reports its real dtype even while null, so this guard (present on every other
     # `load_value` method) is required here too; without it, `polars_value_duration_get` errors
-    # with a confusing "value is not of type duration" instead of returning `missing`.
+    # with a confusing "expected a duration value, got Null" instead of returning `missing`.
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int64}()

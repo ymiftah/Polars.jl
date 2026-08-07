@@ -7,9 +7,9 @@ regression test added, full suite passes (594/594, 3 pre-existing broken unrelat
 
 Found during a memory-safety review of `src/API.jl` / `c-polars/src/*.rs` on the
 `scan-parquet` branch. Two Rust `extern "C"` functions panicked instead of returning a catchable
-error, violating the convention `CLAUDE.md` documents explicitly: "a Rust panic unwinding across
-`extern "C"` is UB... any fallible parse *must* go through this out-param + error-pointer
-convention instead of an API that panics."
+error, violating the convention `CLAUDE.md` documents explicitly: a Rust panic unwinding across
+`extern "C"` aborts the host process, so any fallible parse *must* go through this out-param +
+error-pointer convention instead of an API that panics.
 
 ## Findings recap
 
