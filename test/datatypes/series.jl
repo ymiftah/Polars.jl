@@ -20,15 +20,17 @@ end
 end
 
 @testset "Series dtype" begin
-    df = DataFrame((;
-        i = Int64[1, 2, 3],
-        f = Float64[1.0, 2.0, 3.0],
-        s = ["a", "b", "c"],
-        bo = [true, false, true],
-        d = [Date(2020, 1, 1), Date(2020, 1, 2), Date(2020, 1, 3)],
-        dt = [DateTime(2020, 1, 1), DateTime(2020, 1, 2), DateTime(2020, 1, 3)],
-        bin = [UInt8[1, 2], UInt8[3], UInt8[]],
-    ))
+    df = DataFrame(
+        (;
+            i = Int64[1, 2, 3],
+            f = Float64[1.0, 2.0, 3.0],
+            s = ["a", "b", "c"],
+            bo = [true, false, true],
+            d = [Date(2020, 1, 1), Date(2020, 1, 2), Date(2020, 1, 3)],
+            dt = [DateTime(2020, 1, 1), DateTime(2020, 1, 2), DateTime(2020, 1, 3)],
+            bin = [UInt8[1, 2], UInt8[3], UInt8[]],
+        )
+    )
 
     @test Polars.dtype(df[:i]) == Polars.API.PolarsValueTypeInt64
     @test Polars.dtype(df[:f]) == Polars.API.PolarsValueTypeFloat64
