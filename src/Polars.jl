@@ -138,7 +138,7 @@ include("./io/parquet.jl")
 include("./io/csv.jl")
 include("./io/ipc.jl")
 
-# `Expr` methods (both the `@generate_expr_fns`-generated ones and the hand-written ones needing
+# `Expr` methods (both the `@wrap_simple_ops`-generated ones and the hand-written ones needing
 # extra args the macro's plain shape can't express, e.g. `mean`/`median`/`std`/`var`/`quantile`)
 # export themselves inline in src/expr/expr.jl, next to their definitions, rather than here --
 # see that file for the full list. The `Lists`/`Strings`/`Dt`/`Structs` namespace submodules

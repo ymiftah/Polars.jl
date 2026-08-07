@@ -1,8 +1,8 @@
 module Lists
-using ..Polars: @generate_expr_fns, @gen_expr_fn, @curry,
+using ..Polars: @wrap_simple_ops, @wrap_expr_method, @curry,
     API, polars_expr_t, Expr, polars_error, _null_behavior_enum
 
-@generate_expr_fns begin
+@wrap_simple_ops begin
     gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths, "Length of each list in `expr` (`null` list entries count, and a `null` list itself gives a `null` length -- an empty list gives `0`).")
     gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max, "Maximum value within each list of `expr`.")
     gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min, "Minimum value within each list of `expr`.")
@@ -19,13 +19,13 @@ using ..Polars: @generate_expr_fns, @gen_expr_fn, @curry,
     gen_impl_expr_list!(polars_expr_list_drop_nulls, ListNameSpace::drop_nulls, "Removes `null` elements from each list of `expr`, shortening the lists.")
     gen_impl_expr_list!(polars_expr_list_n_unique, ListNameSpace::n_unique, "Counts the number of distinct elements within each list of `expr` (`null` counts as one distinct value).")
 
-    gen_impl_expr_binary_list_curried!(polars_expr_list_union, ListNameSpace::union, "Set union between each row's list in `a` and the corresponding list in `b`.")
-    gen_impl_expr_binary_list_curried!(polars_expr_list_set_difference, ListNameSpace::set_difference, "Set difference (elements in `a`'s list but not `b`'s) between each row's lists.")
-    gen_impl_expr_binary_list_curried!(polars_expr_list_set_intersection, ListNameSpace::set_intersection, "Set intersection between each row's list in `a` and the corresponding list in `b`.")
-    gen_impl_expr_binary_list_curried!(polars_expr_list_set_symmetric_difference, ListNameSpace::set_symmetric_difference, "Set symmetric difference (elements in exactly one of the two lists) between each row's lists.")
+    gen_impl_expr_binary_list!(polars_expr_list_union, ListNameSpace::union, "Set union between each row's list in `a` and the corresponding list in `b`."; curried = true)
+    gen_impl_expr_binary_list!(polars_expr_list_set_difference, ListNameSpace::set_difference, "Set difference (elements in `a`'s list but not `b`'s) between each row's lists."; curried = true)
+    gen_impl_expr_binary_list!(polars_expr_list_set_intersection, ListNameSpace::set_intersection, "Set intersection between each row's list in `a` and the corresponding list in `b`."; curried = true)
+    gen_impl_expr_binary_list!(polars_expr_list_set_symmetric_difference, ListNameSpace::set_symmetric_difference, "Set symmetric difference (elements in exactly one of the two lists) between each row's lists."; curried = true)
 end
 
-# `head` is pulled out of the `@generate_expr_fns` block (rather than generated via
+# `head` is pulled out of the `@wrap_simple_ops` block (rather than generated via
 # `gen_impl_expr_binary_list!`, like the other binary ops above) because it collides with
 # `Polars`'s own top-level `head` (for `DataFrame`/`LazyFrame`) -- not a Base name, so the macro's
 # own Base-collision check can't catch it, and it must never be exported: it's designed for
@@ -71,7 +71,7 @@ function shift(a::Expr, b::Expr)
 end
 shift(n) = Base.Fix2(shift, convert(Expr, n))
 
-@gen_expr_fn get(expr::Expr, index::Expr; null_on_oob::Bool = false) polars_expr_list_get "Get items in every sublist by index. If `null_on_oob` is `false` (default), an out-of-bounds index raises an error; if `true`, it returns `null` instead (more expensive, per the polars documentation)."
+@wrap_expr_method get(expr::Expr, index::Expr; null_on_oob::Bool = false) polars_expr_list_get "Get items in every sublist by index. If `null_on_oob` is `false` (default), an out-of-bounds index raises an error; if `true`, it returns `null` instead (more expensive, per the polars documentation)."
 @curry get(index; null_on_oob::Bool = false)
 
 """
@@ -90,7 +90,7 @@ function gather(expr::Expr, index::Expr; null_on_oob::Bool = false)
     return Expr(out)
 end
 
-@gen_expr_fn gather_every(expr::Expr, n::Expr; offset::Expr = 0) polars_expr_list_gather_every "Within each list of `expr`, keeps every `n`-th element starting at `offset`. Distinct from the top-level [`gather_every`](@ref) (row-level, across the whole column)."
+@wrap_expr_method gather_every(expr::Expr, n::Expr; offset::Expr = 0) polars_expr_list_gather_every "Within each list of `expr`, keeps every `n`-th element starting at `offset`. Distinct from the top-level [`gather_every`](@ref) (row-level, across the whole column)."
 
 """
     sample_n(expr::Polars.Expr, n; with_replacement::Bool=false, shuffle::Bool=false,
@@ -127,20 +127,20 @@ function sample_fraction(
 end
 export sample_fraction
 
-@gen_expr_fn contains(expr::Expr, other::Expr; nulls_equal::Bool = true) polars_expr_list_contains "Check if the list array contains an element. If `nulls_equal` is `true` (default), `null` values are considered equal for the containment check."
+@wrap_expr_method contains(expr::Expr, other::Expr; nulls_equal::Bool = true) polars_expr_list_contains "Check if the list array contains an element. If `nulls_equal` is `true` (default), `null` values are considered equal for the containment check."
 @curry contains(other; nulls_equal::Bool = true)
 
-@gen_expr_fn count_matches(expr::Expr, element::Expr) polars_expr_list_count_matches "Counts occurrences of `element` within each list of `expr`."
+@wrap_expr_method count_matches(expr::Expr, element::Expr) polars_expr_list_count_matches "Counts occurrences of `element` within each list of `expr`."
 count_matches(element) = Base.Fix2(count_matches, convert(Expr, element))
 export count_matches
 
-@gen_expr_fn sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false) polars_expr_list_sort "Sorts the elements within each list of `expr` independently (list order/row count is unchanged -- compare the top-level `sort` (see [DataFrame](@ref)/[LazyFrame](@ref)), which reorders whole rows instead)."
+@wrap_expr_method sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false) polars_expr_list_sort "Sorts the elements within each list of `expr` independently (list order/row count is unchanged -- compare the top-level `sort` (see [DataFrame](@ref)/[LazyFrame](@ref)), which reorders whole rows instead)."
 @curry sort(; descending::Bool = false, nulls_last::Bool = false)
 
-@gen_expr_fn join(expr::Expr, separator::Expr; ignore_nulls::Bool = true) polars_expr_list_join "Joins the string elements of each list in `expr` into a single string, separated by `separator`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, a `null` element makes that list's whole result `null` instead. Distinct from [`Strings.join`](@ref) (an aggregation across *all* rows into one value) -- this joins each row's own list independently."
+@wrap_expr_method join(expr::Expr, separator::Expr; ignore_nulls::Bool = true) polars_expr_list_join "Joins the string elements of each list in `expr` into a single string, separated by `separator`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, a `null` element makes that list's whole result `null` instead. Distinct from [`Strings.join`](@ref) (an aggregation across *all* rows into one value) -- this joins each row's own list independently."
 @curry join(separator; ignore_nulls::Bool = true)
 
-@gen_expr_fn slice(expr::Expr, offset::Expr, length::Expr) polars_expr_list_slice "Extracts a sublist of each list in `expr`, starting at `offset` (0-indexed; negative indexes from the end of the list) with the given `length` (extends to the end of the list if `length` is `null`). See [`head`](@ref)/[`tail`](@ref) for the fixed-endpoint special cases."
+@wrap_expr_method slice(expr::Expr, offset::Expr, length::Expr) polars_expr_list_slice "Extracts a sublist of each list in `expr`, starting at `offset` (0-indexed; negative indexes from the end of the list) with the given `length` (extends to the end of the list if `length` is `null`). See [`head`](@ref)/[`tail`](@ref) for the fixed-endpoint special cases."
 @curry slice(offset, length)
 export slice
 
@@ -159,13 +159,13 @@ function diff(expr::Expr, n::Integer = 1; null_behavior::Symbol = :ignore)
 end
 
 
-# `n_unique` and the four set operations are exported by `@generate_expr_fns` itself (generated in
+# `n_unique` and the four set operations are exported by `@wrap_simple_ops` itself (generated in
 # the block at the top of this file), so they are deliberately absent from the manual lists here;
 # `slice` is already exported above.
 
-@gen_expr_fn any(expr::Expr; ignore_nulls::Bool = true) polars_expr_list_any "Whether any element within each list of `expr` is `true`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, three-valued (Kleene) logic applies: a list with no `true` element but at least one `null` gives `null` instead of `false`."
+@wrap_expr_method any(expr::Expr; ignore_nulls::Bool = true) polars_expr_list_any "Whether any element within each list of `expr` is `true`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, three-valued (Kleene) logic applies: a list with no `true` element but at least one `null` gives `null` instead of `false`."
 
-@gen_expr_fn all(expr::Expr; ignore_nulls::Bool = true) polars_expr_list_all "Whether every element within each list of `expr` is `true`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, three-valued (Kleene) logic applies: a list with no `false` element but at least one `null` gives `null` instead of `true`."
+@wrap_expr_method all(expr::Expr; ignore_nulls::Bool = true) polars_expr_list_all "Whether every element within each list of `expr` is `true`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, three-valued (Kleene) logic applies: a list with no `false` element but at least one `null` gives `null` instead of `true`."
 
 
 """
@@ -186,9 +186,9 @@ var(expr::Expr; ddof::Integer = 1) = Expr(API.polars_expr_list_var(expr, UInt8(d
 # Named `apply` rather than upstream's `eval` -- `eval`/`include` are reserved per-module names
 # in Julia and cannot be redefined. `reverse`/`unique`/`unique_stable` above are built from this
 # internally.
-@gen_expr_fn apply(expr::Expr, evaluation::Expr) polars_expr_list_eval "Runs `evaluation` once per row, with [`element`](@ref) bound to that row's list values, staying list-shaped -- e.g. `Lists.apply(col(\"x\"), unique(element()))`. `filter` has no dedicated `Lists` function and is only reachable this way. For a per-row *reduction* to a single scalar, prefer a dedicated function ([`any`](@ref)/[`all`](@ref)/[`n_unique`](@ref)) or [`agg`](@ref Polars.Lists.agg) instead -- `apply` always keeps the list shape even when `evaluation` itself produces one value per row (e.g. `Lists.apply(x, all(element()))` gives a length-1 list per row, not a bare `Bool`)."
+@wrap_expr_method apply(expr::Expr, evaluation::Expr) polars_expr_list_eval "Runs `evaluation` once per row, with [`element`](@ref) bound to that row's list values, staying list-shaped -- e.g. `Lists.apply(col(\"x\"), unique(element()))`. `filter` has no dedicated `Lists` function and is only reachable this way. For a per-row *reduction* to a single scalar, prefer a dedicated function ([`any`](@ref)/[`all`](@ref)/[`n_unique`](@ref)) or [`agg`](@ref Polars.Lists.agg) instead -- `apply` always keeps the list shape even when `evaluation` itself produces one value per row (e.g. `Lists.apply(x, all(element()))` gives a length-1 list per row, not a bare `Bool`)."
 
-@gen_expr_fn agg(expr::Expr, evaluation::Expr) polars_expr_list_agg "Like [`apply`](@ref Polars.Lists.apply), but `evaluation` is expected to reduce to a single scalar per row and the result is unwrapped to that scalar. `any`/`all`/`n_unique` above are the dedicated form of this for their own reducers; `agg` is for anything else that doesn't have one."
+@wrap_expr_method agg(expr::Expr, evaluation::Expr) polars_expr_list_agg "Like [`apply`](@ref Polars.Lists.apply), but `evaluation` is expected to reduce to a single scalar per row and the result is unwrapped to that scalar. `any`/`all`/`n_unique` above are the dedicated form of this for their own reducers; `agg` is for anything else that doesn't have one."
 
 """
     to_array(expr::Polars.Expr, width::Integer)::Polars.Expr

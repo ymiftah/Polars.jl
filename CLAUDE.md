@@ -89,7 +89,7 @@ path is safe — exercise every option combination live.**
 
 ## Known sharp edges
 
-- **`@generate_expr_fns` qualifies by `isdefined(Base, f)`, not `isexported`** — colliding with an
+- **`@wrap_simple_ops` qualifies by `isdefined(Base, f)`, not `isexported`** — colliding with an
   unexported Base name (e.g. `product`) makes the wrapper unreachable via `UndefVarError`; hand-write
   it under the exported name (`prod`), as `std`/`var`/`quantile`/`rank` already are. It also passes
   args in source order, so an op whose polars arg order differs from its Base binding must be

@@ -94,7 +94,7 @@ function Base.convert(::Type{Expr}, dt::DateTime)
 end
 
 # Derived comparison DSL primitives -- polars' C ABI only wraps `eq`/`lt`/`gt` directly (see
-# `@generate_expr_fns` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
+# `@wrap_simple_ops` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
 # propagation correctly (`not` of a null is null, matching what `<=`/`>=`/`!=` must do when an
 # operand is incomparable). Not exported -- these are an internal implementation detail of the
 # operators below, unlike `eq`/`gt`/`lt`, which mirror real `polars::Expr` methods 1:1.
@@ -227,9 +227,9 @@ function element()
     return Expr(API.polars_expr_element())
 end
 
-@gen_name_fn alias polars_expr_alias "Renames the result of this expression to a new name."
-@gen_name_fn prefix polars_expr_prefix "Adds a prefix to the name of the resulting expression."
-@gen_name_fn suffix polars_expr_suffix "Adds a suffix to the name of the resulting expression."
+@wrap_rename_method alias polars_expr_alias "Renames the result of this expression to a new name."
+@wrap_rename_method prefix polars_expr_prefix "Adds a prefix to the name of the resulting expression."
+@wrap_rename_method suffix polars_expr_suffix "Adds a suffix to the name of the resulting expression."
 
 """
     lit(x)::Polars.Expr
@@ -455,7 +455,7 @@ function when(pairs::Pair...; otherwise)
 end
 
 # We just copy the rust code here and generate functions on the fly.
-@generate_expr_fns begin
+@wrap_simple_ops begin
     gen_impl_expr!(polars_expr_keep_name, Expr::keep_name, "Keeps `expr`'s original column name, overriding any rename that would otherwise result from the operation it's applied to (e.g. after an arithmetic operator or a namespaced function call).")
     gen_impl_expr!(polars_expr_to_lowercase, Expr::to_lowercase, "Lowercases the name of the resulting expression.")
     gen_impl_expr!(polars_expr_to_uppercase, Expr::to_uppercase, "Uppercases the name of the resulting expression.")
@@ -530,17 +530,17 @@ end
     # it needs literal-argument `convert` overloads the macro's plain `(Expr, Expr)` shape can't
     # express (mirroring `is_in`/`fill_null`'s own curried forms further down).
 
-    gen_impl_expr_binary_curried!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression).\n\n!!! note \"Has a curried form\"\n    `fill_null(value)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_curried!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`.\n\n!!! note \"Has a curried form\"\n    `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_curried!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column); see the `lit(::Vector)` section below for how to build `b`.\n\n!!! note \"Has a curried form\"\n    `is_in(values)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression).\n\n!!! note \"Has a curried form\"\n    `fill_null(value)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`.\n\n!!! note \"Has a curried form\"\n    `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column); see the `lit(::Vector)` section below for how to build `b`.\n\n!!! note \"Has a curried form\"\n    `is_in(values)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
 
-    gen_impl_expr_binary_curried!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`.\n\n!!! note \"Has a curried form\"\n    `shift(n)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_curried!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`.\n\n!!! note \"Has a curried form\"\n    `shift(n)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
 
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
 
-@gen_expr_fn flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true) polars_expr_flatten "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref). `empty_as_null`: an empty list produces one `null` row when `true` (default), rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true` (default), rather than disappearing."
+@wrap_expr_method flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true) polars_expr_flatten "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref). `empty_as_null`: an empty list produces one `null` row when `true` (default), rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true` (default), rather than disappearing."
 export flatten
 
 """
@@ -597,8 +597,8 @@ has_nulls(expr::Expr) = null_count(expr) > 0
 export has_nulls
 
 # The plain `Fix2`-style curries for `is_in`/`fill_null`/`fill_nan`/`shift`/`pct_change` are
-# generated by `@generate_expr_fns`'s `curried` variant, right next to each primal above (search
-# `_curried!`). This is the one exception -- `is_in` also needs an `AbstractVector`-specific
+# generated by `@wrap_simple_ops` from each primal's own `curried = true` option, right next to it
+# in the block above. This is the one exception -- `is_in` also needs an `AbstractVector`-specific
 # overload (more specific than the macro-generated `is_in(b) = Base.Fix2(is_in, convert(Expr,
 # b))`, so it dispatches ahead of it) that `implode`s the vector into a single list-typed `Expr`
 # first: the plain `convert(Expr, ::AbstractVector)` above builds a per-row *Series* literal
@@ -683,7 +683,7 @@ backward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(
 
 export forward_fill, backward_fill
 
-@gen_expr_fn shift_and_fill(expr::Expr, n::Expr, fill_value::Expr) polars_expr_shift_and_fill "Like [`shift`](@ref), but the positions vacated by the shift are filled with `fill_value` instead of `missing`."
+@wrap_expr_method shift_and_fill(expr::Expr, n::Expr, fill_value::Expr) polars_expr_shift_and_fill "Like [`shift`](@ref), but the positions vacated by the shift are filled with `fill_value` instead of `missing`."
 export shift_and_fill
 
 """
@@ -703,14 +703,14 @@ function Base.round(expr::Expr, decimals::Integer = 0; mode::Symbol = :half_to_e
     return Expr(out)
 end
 
-@gen_expr_fn clip(expr::Expr, min::Expr, max::Expr) polars_expr_clip "Clips the values to the `[min, max]` range (values outside are set to the nearest bound)."
+@wrap_expr_method clip(expr::Expr, min::Expr, max::Expr) polars_expr_clip "Clips the values to the `[min, max]` range (values outside are set to the nearest bound)."
 @curry clip(min, max)
 export clip
 
-@gen_expr_fn clip_min(expr::Expr, min::Expr) polars_expr_clip_min "Clips values below `min` up to `min` (values `>= min`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_max`](@ref) for the upper-bound-only form."
+@wrap_expr_method clip_min(expr::Expr, min::Expr) polars_expr_clip_min "Clips values below `min` up to `min` (values `>= min`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_max`](@ref) for the upper-bound-only form."
 @curry clip_min(min)
 
-@gen_expr_fn clip_max(expr::Expr, max::Expr) polars_expr_clip_max "Clips values above `max` down to `max` (values `<= max`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_min`](@ref) for the lower-bound-only form."
+@wrap_expr_method clip_max(expr::Expr, max::Expr) polars_expr_clip_max "Clips values above `max` down to `max` (values `<= max`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_min`](@ref) for the lower-bound-only form."
 @curry clip_max(max)
 
 export clip_min, clip_max
@@ -901,16 +901,16 @@ end
 
 export arg_sort
 
-@gen_expr_fn gather(expr::Expr, idx::Expr; null_on_oob::Bool = false) polars_expr_gather "Take values by index. `idx` is an expression, or an integer vector promoted via [`lit`](@ref).\n\n`null_on_oob` sets the behaviour when an index is out of bounds: `true` gives `missing`, `false` (the default) raises a [`PolarsError`](@ref) when the result is collected.\n\n!!! note \"Indices are 0-based\"\n    `idx` is 0-based, and negative indices count from the end. This differs from [`Polars.nth`](@ref) and `Selectors.by_index`, which are 1-based: those select a column from a position the caller writes literally, whereas `idx` here is data, and usually comes from [`arg_sort`](@ref), `arg_min` or `arg_max`, which return 0-based positions. Sharing one convention lets `gather(x, arg_sort(y))` compose without an offset."
+@wrap_expr_method gather(expr::Expr, idx::Expr; null_on_oob::Bool = false) polars_expr_gather "Take values by index. `idx` is an expression, or an integer vector promoted via [`lit`](@ref).\n\n`null_on_oob` sets the behaviour when an index is out of bounds: `true` gives `missing`, `false` (the default) raises a [`PolarsError`](@ref) when the result is collected.\n\n!!! note \"Indices are 0-based\"\n    `idx` is 0-based, and negative indices count from the end. This differs from [`Polars.nth`](@ref) and `Selectors.by_index`, which are 1-based: those select a column from a position the caller writes literally, whereas `idx` here is data, and usually comes from [`arg_sort`](@ref), `arg_min` or `arg_max`, which return 0-based positions. Sharing one convention lets `gather(x, arg_sort(y))` compose without an offset."
 
 export gather
 
-@gen_expr_fn gather_every(expr::Expr, n::Integer; offset::Integer = 0) polars_expr_gather_every "Take every `n`th value. `offset` is the starting index, 0-based."
+@wrap_expr_method gather_every(expr::Expr, n::Integer; offset::Integer = 0) polars_expr_gather_every "Take every `n`th value. `offset` is the starting index, 0-based."
 
 export gather_every
 
 
-@gen_expr_fn item(expr::Expr; allow_empty::Bool = false) polars_expr_item "The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a `DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation)."
+@wrap_expr_method item(expr::Expr; allow_empty::Bool = false) polars_expr_item "The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a `DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation)."
 
 
 """Coerces an iterable of column references (names, `Expr`s, `Selector`s) into a `Vector{Expr}`
@@ -936,16 +936,16 @@ function Base.coalesce(first::Expr, rest::Expr...)
     return Expr(out[])
 end
 
-@gen_variadic as_struct polars_expr_as_struct false "Collects `exprs` (columns or expressions) into a single `Struct`-typed expression, one field per input (named after each input's own output name). The write-side counterpart to [`Structs.field_by_name`](@ref)/[`Structs.field_by_index`](@ref)."
+@wrap_multi_expr_function as_struct polars_expr_as_struct false "Collects `exprs` (columns or expressions) into a single `Struct`-typed expression, one field per input (named after each input's own output name). The write-side counterpart to [`Structs.field_by_name`](@ref)/[`Structs.field_by_index`](@ref)."
 
 export as_struct
 
-@gen_variadic all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
-@gen_variadic any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."
-@gen_variadic min_horizontal polars_expr_min_horizontal false "Row-wise (horizontal) minimum across `exprs`. The output column is named `\"min\"` unless [`alias`](@ref)ed."
-@gen_variadic max_horizontal polars_expr_max_horizontal false "Row-wise (horizontal) maximum across `exprs`. The output column is named `\"max\"` unless [`alias`](@ref)ed."
-@gen_variadic sum_horizontal polars_expr_sum_horizontal true "Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are treated as `0`; if `false`, any null in a row makes that row's sum `null`."
-@gen_variadic mean_horizontal polars_expr_mean_horizontal true "Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are excluded from the average; if `false`, any null in a row makes that row's mean `null`."
+@wrap_multi_expr_function all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
+@wrap_multi_expr_function any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."
+@wrap_multi_expr_function min_horizontal polars_expr_min_horizontal false "Row-wise (horizontal) minimum across `exprs`. The output column is named `\"min\"` unless [`alias`](@ref)ed."
+@wrap_multi_expr_function max_horizontal polars_expr_max_horizontal false "Row-wise (horizontal) maximum across `exprs`. The output column is named `\"max\"` unless [`alias`](@ref)ed."
+@wrap_multi_expr_function sum_horizontal polars_expr_sum_horizontal true "Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are treated as `0`; if `false`, any null in a row makes that row's sum `null`."
+@wrap_multi_expr_function mean_horizontal polars_expr_mean_horizontal true "Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are excluded from the average; if `false`, any null in a row makes that row's mean `null`."
 
 export all_horizontal, any_horizontal, min_horizontal, max_horizontal, sum_horizontal, mean_horizontal
 

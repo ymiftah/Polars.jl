@@ -1,37 +1,33 @@
 module Strings
-using ..Polars: @generate_expr_fns, @gen_expr_fn, @curry,
+using ..Polars: @wrap_simple_ops, @wrap_expr_method, @curry,
     API, polars_expr_t, Expr, polars_error, _time_unit_enum
 
-@generate_expr_fns begin
+@wrap_simple_ops begin
     gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase, "Converts each string of `expr` to uppercase.")
     gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase, "Converts each string of `expr` to lowercase.")
     gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes, "Length of each string of `expr`, in bytes. Differs from [`len_chars`](@ref) for non-ASCII text (a multi-byte UTF-8 character counts as more than one byte but one char).")
     gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars, "Length of each string of `expr`, in Unicode characters. Differs from [`len_bytes`](@ref) for non-ASCII text.")
     # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
-    gen_impl_expr_binary_str_curried!(polars_expr_str_starts_with, StringNameSpace::starts_with, "Row-wise boolean flag: `true` where `a` starts with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `starts_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str_curried!(polars_expr_str_ends_with, StringNameSpace::ends_with, "Row-wise boolean flag: `true` where `a` ends with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `ends_with(pat)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str_curried!(
-        polars_expr_str_contains_literal,
-        StringNameSpace::contains_literal,
-        "Row-wise boolean flag: `true` where `a` contains the literal (non-regex) substring `b`. For a regex match, use [`contains`](@ref).\n\n!!! note \"Has a curried form\"\n    `contains_literal(pat)` -- see [Curried forms for pipe-based composition](@ref)."
-    )
+    gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with, "Row-wise boolean flag: `true` where `a` starts with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `starts_with(pat)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with, "Row-wise boolean flag: `true` where `a` ends with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `ends_with(pat)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary_str!(polars_expr_str_contains_literal, StringNameSpace::contains_literal, "Row-wise boolean flag: `true` where `a` contains the literal (non-regex) substring `b`. For a regex match, use [`contains`](@ref).\n\n!!! note \"Has a curried form\"\n    `contains_literal(pat)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
 
-    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_chars, StringNameSpace::strip_chars, "Removes any leading/trailing characters of `a` that appear in `b` (a string of characters to strip, not a substring to match).\n\n!!! note \"Has a curried form\"\n    `strip_chars(chars)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_chars_start, StringNameSpace::strip_chars_start, "Like [`strip_chars`](@ref), but only strips leading characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_start(chars)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_chars_end, StringNameSpace::strip_chars_end, "Like [`strip_chars`](@ref), but only strips trailing characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_end(chars)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix, "Removes the literal prefix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_prefix(prefix)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str_curried!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix, "Removes the literal suffix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_suffix(suffix)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str_curried!(polars_expr_str_split, StringNameSpace::split, "Splits each string of `a` on the literal (non-regex) substring `b`, returning a `List` of substrings (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `split(by)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str_curried!(polars_expr_str_extract_all, StringNameSpace::extract_all, "Extracts every non-overlapping match of the regex `b` from `a`, returning a `List` of matches per row (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `extract_all(pat)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary_str_curried!(polars_expr_str_zfill, StringNameSpace::zfill, "Left-pads each string of `a` with `'0'` up to a total width of `b` characters (a leading `+`/`-` sign, if present, stays before the padding).\n\n!!! note \"Has a curried form\"\n    `zfill(width)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary_str!(polars_expr_str_strip_chars, StringNameSpace::strip_chars, "Removes any leading/trailing characters of `a` that appear in `b` (a string of characters to strip, not a substring to match).\n\n!!! note \"Has a curried form\"\n    `strip_chars(chars)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_start, StringNameSpace::strip_chars_start, "Like [`strip_chars`](@ref), but only strips leading characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_start(chars)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary_str!(polars_expr_str_strip_chars_end, StringNameSpace::strip_chars_end, "Like [`strip_chars`](@ref), but only strips trailing characters.\n\n!!! note \"Has a curried form\"\n    `strip_chars_end(chars)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary_str!(polars_expr_str_strip_prefix, StringNameSpace::strip_prefix, "Removes the literal prefix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_prefix(prefix)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary_str!(polars_expr_str_strip_suffix, StringNameSpace::strip_suffix, "Removes the literal suffix `b` from `a` if present (no-op otherwise).\n\n!!! note \"Has a curried form\"\n    `strip_suffix(suffix)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split, "Splits each string of `a` on the literal (non-regex) substring `b`, returning a `List` of substrings (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `split(by)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary_str!(polars_expr_str_extract_all, StringNameSpace::extract_all, "Extracts every non-overlapping match of the regex `b` from `a`, returning a `List` of matches per row (see [List](@ref expr-list)).\n\n!!! note \"Has a curried form\"\n    `extract_all(pat)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary_str!(polars_expr_str_zfill, StringNameSpace::zfill, "Left-pads each string of `a` with `'0'` up to a total width of `b` characters (a leading `+`/`-` sign, if present, stays before the padding).\n\n!!! note \"Has a curried form\"\n    `zfill(width)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
 end
 
-# `head`/`tail` are pulled out of the `@generate_expr_fns` block (rather than generated via
-# `gen_impl_expr_binary_str_curried!`, like the other binary ops above) because they collide with
-# `Polars`'s own top-level `head`/`tail` (for `DataFrame`/`LazyFrame`) -- not Base names, so the
-# macro's own Base-collision check can't catch them, and they must never be exported: designed for
-# qualified use (`Strings.head`), matching `contains`/`replace` below.
+# `head`/`tail` are pulled out of the `@wrap_simple_ops` block (rather than declared as
+# `gen_impl_expr_binary_str!(...; curried = true)`, like the other binary ops above) because they
+# collide with `Polars`'s own top-level `head`/`tail` (for `DataFrame`/`LazyFrame`) -- not Base
+# names, so the macro's own Base-collision check can't catch them, and they must never be exported:
+# designed for qualified use (`Strings.head`), matching `contains`/`replace` below.
 """
     head(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
 
@@ -69,40 +65,40 @@ function titlecase(::Expr)
 end
 
 # The `Fix2`-style curries for the binary namespace ops above (e.g. `col("s") |>
-# Strings.starts_with("foo")`) are generated by `@generate_expr_fns`'s `curried` variant, right
+# Strings.starts_with("foo")`) are generated by `@wrap_simple_ops`'s `curried` variant, right
 # next to each primal in the block above. `head`/`tail` are the exception, hand-written both
 # above and here since they're pulled out of the macro block entirely (see the comment there).
 head(n) = Base.Fix2(head, convert(Expr, n))
 tail(n) = Base.Fix2(tail, convert(Expr, n))
 
-@gen_expr_fn contains(expr::Expr, pat::Expr; strict::Bool = true) polars_expr_str_contains "Check if the string contains a match for the regex `pat`. If `strict` is `true` (default), an invalid regex raises an error; if `false`, it returns `null` instead. For a plain substring (non-regex) check, use [`contains_literal`](@ref)."
+@wrap_expr_method contains(expr::Expr, pat::Expr; strict::Bool = true) polars_expr_str_contains "Check if the string contains a match for the regex `pat`. If `strict` is `true` (default), an invalid regex raises an error; if `false`, it returns `null` instead. For a plain substring (non-regex) check, use [`contains_literal`](@ref)."
 @curry contains(pat; strict::Bool = true)
 
-@gen_expr_fn find(expr::Expr, pat::Expr; strict::Bool = true) polars_expr_str_find "Index of the start of the first match of the regex `pat` in each string of `expr` (`null` if there is no match). If `strict` is `true` (default), an invalid regex raises an error; if `false`, it returns `null` instead. For a plain substring (non-regex) search, build the literal-search equivalent via [`contains_literal`](@ref) instead."
+@wrap_expr_method find(expr::Expr, pat::Expr; strict::Bool = true) polars_expr_str_find "Index of the start of the first match of the regex `pat` in each string of `expr` (`null` if there is no match). If `strict` is `true` (default), an invalid regex raises an error; if `false`, it returns `null` instead. For a plain substring (non-regex) search, build the literal-search equivalent via [`contains_literal`](@ref) instead."
 @curry find(pat; strict::Bool = true)
 
-@gen_expr_fn slice(expr::Expr, offset::Expr, length::Expr) polars_expr_str_slice "Extracts a substring starting at `offset` (0-indexed; negative indexes from the end) with the given `length` (extends to the end of the string if `length` is `null`)."
+@wrap_expr_method slice(expr::Expr, offset::Expr, length::Expr) polars_expr_str_slice "Extracts a substring starting at `offset` (0-indexed; negative indexes from the end) with the given `length` (extends to the end of the string if `length` is `null`)."
 @curry slice(offset, length)
 
-@gen_expr_fn pad_start(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_start "Pads each string of `expr` on the left with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
+@wrap_expr_method pad_start(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_start "Pads each string of `expr` on the left with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
 @curry pad_start(length; fill_char::Char = ' ')
 
-@gen_expr_fn pad_end(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_end "Pads each string of `expr` on the right with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
+@wrap_expr_method pad_end(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_end "Pads each string of `expr` on the right with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
 @curry pad_end(length; fill_char::Char = ' ')
 
-@gen_expr_fn replace(expr::Expr, pat::Expr, value::Expr; literal::Bool = false) polars_expr_str_replace "Replaces the first match of `pat` with `value`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
+@wrap_expr_method replace(expr::Expr, pat::Expr, value::Expr; literal::Bool = false) polars_expr_str_replace "Replaces the first match of `pat` with `value`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
 @curry replace(pat, value; literal::Bool = false)
 
-@gen_expr_fn replace_all(expr::Expr, pat::Expr, value::Expr; literal::Bool = false) polars_expr_str_replace_all "Replaces all matches of `pat` with `value`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
+@wrap_expr_method replace_all(expr::Expr, pat::Expr, value::Expr; literal::Bool = false) polars_expr_str_replace_all "Replaces all matches of `pat` with `value`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
 @curry replace_all(pat, value; literal::Bool = false)
 
-@gen_expr_fn extract(expr::Expr, pat::Expr, group_index::Integer) polars_expr_str_extract "Extracts the capture group numbered `group_index` (0 = the whole match) from the first match of the regex `pat`."
+@wrap_expr_method extract(expr::Expr, pat::Expr, group_index::Integer) polars_expr_str_extract "Extracts the capture group numbered `group_index` (0 = the whole match) from the first match of the regex `pat`."
 @curry extract(pat, group_index::Integer)
 
-@gen_expr_fn count_matches(expr::Expr, pat::Expr; literal::Bool = false) polars_expr_str_count_matches "Counts the number of non-overlapping matches of `pat`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
+@wrap_expr_method count_matches(expr::Expr, pat::Expr; literal::Bool = false) polars_expr_str_count_matches "Counts the number of non-overlapping matches of `pat`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
 @curry count_matches(pat; literal::Bool = false)
 
-# Everything below stays hand-written: each needs marshalling `@gen_expr_fn`'s annotation-driven
+# Everything below stays hand-written: each needs marshalling `@wrap_expr_method`'s annotation-driven
 # table (see `_marshal_arg`) deliberately does not cover.
 #   - `to_date`/`to_datetime`: `format` is `Union{Nothing,String}`, collapsed to `""` via
 #     `something(format, "")` before the `(ptr, len)` pair is taken -- the length must come from
@@ -232,7 +228,7 @@ Curried form of [`split_exact`](@ref) for use with `|>`.
 """
 split_exact(by, n::Integer) = expr -> split_exact(expr, convert(Expr, by), n)
 
-@gen_expr_fn join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true) polars_expr_str_join "Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from [`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows)."
+@wrap_expr_method join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true) polars_expr_str_join "Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from [`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows)."
 
 """
     to_integer(expr::Polars.Expr; base::Integer=10, strict::Bool=true)::Polars.Expr
@@ -249,7 +245,7 @@ function to_integer(::Expr; base::Integer = 10, strict::Bool = true)
     )
 end
 
-@gen_expr_fn extract_groups(expr::Expr, pat::AbstractString) polars_expr_str_extract_groups "Extracts every named capture group of the regex `pat` from the first match within each string of `expr`, into a `Struct` (see [Struct](@ref expr-struct)) with one field per named group. `pat` must be a plain string (not an `Expr`): the regex is compiled once, at plan time, to determine the output `Struct`'s field names."
+@wrap_expr_method extract_groups(expr::Expr, pat::AbstractString) polars_expr_str_extract_groups "Extracts every named capture group of the regex `pat` from the first match within each string of `expr`, into a `Struct` (see [Struct](@ref expr-struct)) with one field per named group. `pat` must be a plain string (not an `Expr`): the regex is compiled once, at plan time, to determine the output `Struct`'s field names."
 
 """
     reverse(expr::Polars.Expr)::Polars.Expr

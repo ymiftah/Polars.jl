@@ -6,18 +6,80 @@
 # for a `(ptr, len)` pair, `polars_error` after every fallible call, `GC.@preserve` around every
 # pointer vector. A generated wrapper cannot get those wrong; a hand-written one can, and has.
 #
-# The macros, roughly in order of how specific they are:
 #
-# | macro                      | shape                                                          |
-# |:---------------------------|:---------------------------------------------------------------|
-# | `@generate_expr_fns`       | 1:1 unary/binary ops, declared in bulk from the Rust names      |
-# | `@gen_expr_fn`             | `f(expr, args...)`; fallible or not, read off the header        |
-# | `@gen_name_fn`             | `alias`/`prefix`/`suffix`: one string arg, plus a `Fix2` curry  |
-# | `@gen_variadic`            | `f(exprs...)`: vector of `Expr`s under `GC.@preserve`           |
-# | `@curry`                   | the `|>`-friendly sibling of any of the above                   |
+# ## Which macro do I use?
 #
-# Not yet covered, and so still hand-written -- the natural places to extend next, in rough order
-# of how often they recur:
+# Pick the row matching the *polars* method you are wrapping -- what you already know when you
+# start -- rather than the Julia signature you want out. Take the first row that fits.
+#
+# | the polars method...                             | example                         | use                            |
+# |:-------------------------------------------------|:--------------------------------|:-------------------------------|
+# | takes nothing beyond `self`                      | `Expr::sum`, `.str.len_bytes`   | `@wrap_simple_ops` block       |
+# | takes exactly one other expression, nothing else | `Expr::is_in`, `.str.split`     | `@wrap_simple_ops` block       |
+# | takes further arguments or options               | `.str.contains(pat, strict)`    | `@wrap_expr_method`            |
+# | only renames the output column                   | `Expr::alias`/`prefix`/`suffix` | `@wrap_rename_method`          |
+# | is a free function over N expressions            | `sum_horizontal`, `as_struct`   | `@wrap_multi_expr_function`    |
+# | -- and you also want a pipe form                 | `col("x") \|> round(2)`         | `@curry`, on top of the above  |
+#
+# The first two rows are one macro: it is a bulk declarative block, so a no-argument op and a
+# one-other-expression op are two entry shapes inside it (see "The block DSL" below). The last row
+# is not an alternative to the others -- `@curry` generates the pipe-friendly *sibling* of a primal
+# that one of the other macros (or a hand-written definition) has already produced.
+#
+#
+# ## Adding a new polars function
+#
+# The Julia half of CLAUDE.md's "Workflow: adding a wrapped operation":
+#
+#   1. Write the Rust `extern "C"` shim in the matching `c-polars/src/*.rs`. For the two simple
+#      shapes that is one line invoking a `gen_impl_expr*!` macro there; anything else is a
+#      hand-written `pub unsafe extern "C" fn`.
+#   2. Regenerate: `c-polars/regen_header.sh`, then `julia --project=gen gen/generate.jl`, then
+#      `runic -i src/api/generated.jl`. Until that runs there is no `API.polars_<your_fn>` binding,
+#      and every macro below fails at expansion with "no binding `API....`".
+#   3. Pick the macro from the table above and add one line to the file matching the operation's
+#      *category* (`src/expr/string.jl` for a `.str` method, `list.jl` for `.list`, and so on).
+#   4. Build, restart the REPL, and exercise it live before writing tests.
+#   5. Add tests under the matching `test/<category>/`.
+#
+# You never state whether the C function is fallible: that is read off the generated bindings at
+# expansion time (see `_api_signature`), so the `polars_error` check can be neither forgotten nor
+# attached to a function that doesn't need it.
+#
+#
+# ## The block DSL
+#
+# Inside `@wrap_simple_ops begin ... end` each entry names one of the `macro_rules!` macros in
+# `c-polars/src/expr.rs`. That is deliberate: the Rust declaration can be pasted across and given
+# a description.
+#
+#     // c-polars/src/expr.rs
+#     gen_impl_expr!(polars_expr_sum, Expr::sum);
+#
+#     # src/expr/expr.jl
+#     gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values of `expr`...")
+#
+# Three things to know about an entry:
+#
+#   - **`_binary` is the only part of the name that changes what is generated.** A plain entry
+#     generates `f(expr::Expr)`; a `_binary` one generates `f(a::Expr, b::Expr)`.
+#   - **The namespace suffix (`_list`/`_str`/`_dt`) is ignored by the Julia macro.** The namespace
+#     really comes from the submodule the block sits in, and the docstring's link from the
+#     `ListNameSpace::max` argument. The suffix is still parsed, and still worth spelling to match
+#     Rust, purely so the entry keeps mirroring its Rust counterpart.
+#   - **`curried = true` is Julia-only** -- Rust has no `_curried` macro. It asks for the extra
+#     `Base.Fix2` pipe form (`col("s") |> Strings.split(",")`), and applies only to a `_binary`
+#     entry:
+#
+#     gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split, "..."; curried = true)
+#
+# The description (third positional) is optional; without it the docstring is a bare link to the
+# polars Rust docs. Prefer writing one.
+#
+#
+# ## Not yet covered
+#
+# Still hand-written -- the natural places to extend next, in rough order of how often they recur:
 #
 #   - the nullable-scalar shape, `x === nothing ? Ptr{T}(C_NULL) : Ref(T(x))` handed to the ccall
 #     under `GC.@preserve` (`sample_n`, `sample_frac`, `Lists.sample_n`, `Lists.sample_fraction`,
@@ -74,6 +136,9 @@ end
 
 """
     @curry f(args...; kwargs...)
+
+**Use this when** a wrapper already exists and you want its `|>` pipe form as well -- it is the
+sibling of the other macros here, never an alternative to them.
 
 Generates the curried (pipe-with-`|>`) sibling of `f`, whose primary method takes the piped
 `Polars.Expr` as its first (unnamed here) argument -- i.e. expands to
@@ -143,9 +208,9 @@ end
 """
     _marshal_arg(node) -> (decl, fwds)
 
-Marshalling rule for one argument of a `@gen_expr_fn`/`@gen_name_fn` signature. `decl` is
-the node to put in the generated signature; `fwds` is the (possibly two-element) list of C
-arguments it expands into. The declared *type annotation* selects the rule, so a signature written
+Marshalling rule for one argument of a `@wrap_expr_method`/`@wrap_rename_method` signature.
+`decl` is the node to put in the generated signature; `fwds` is the (possibly two-element) list of
+C arguments it expands into. The declared *type annotation* selects the rule, so a signature written
 the way it should read to a caller already says how to marshal it:
 
 | annotation        | generated signature | forwarded to the ccall     |
@@ -179,15 +244,15 @@ function _marshal_arg(node::Base.Expr)
         inner_decl, fwds = _marshal_arg(node.args[1])
         return Base.Expr(:kw, inner_decl, node.args[2]), fwds
     else
-        error("@gen_expr_fn: can't process argument node $node")
+        error("@wrap_expr_method: can't process argument node $node")
     end
 end
 
 """
     _gen_expr_parts(macro_name, sig) -> (gen_sig, fwd_args)
 
-Shared signature processing for [`@gen_expr_fn`](@ref) and [`@gen_name_fn`](@ref): splits
-`sig` into its keyword and positional parts, checks it leads with `expr::Expr`, and runs every
+Shared signature processing for [`@wrap_expr_method`](@ref) and [`@wrap_rename_method`](@ref):
+splits `sig` into its keyword and positional parts, checks it leads with `expr::Expr`, and runs every
 other argument through [`_marshal_arg`](@ref). Returns the signature to generate and the C
 argument list, in declaration order (positionals first, then keywords) -- which is therefore the
 order the C function's own parameters must be in after `expr`.
@@ -225,7 +290,7 @@ function _gen_expr_parts(macro_name, sig)
     return Base.Expr(:call, sig_args...), fwd_args
 end
 
-"""Builds the `Docs.@doc` call every `@gen_expr_fn`-family macro attaches, documenting `gen_sig`
+"""Builds the `Docs.@doc` call every `@wrap_expr_method`-family macro attaches, documenting `gen_sig`
 under a `sig::Polars.Expr` header derived from the signature itself."""
 function _gen_expr_doc(gen_sig, desc)
     string_sig = replace(string(gen_sig), "Expr" => "Polars.Expr")
@@ -267,7 +332,7 @@ function _api_signature(cname::Symbol)
     return arity, only(Base.return_types(f, NTuple{arity, Any})) === Ptr{polars_error_t}
 end
 
-"""Decides which body [`@gen_expr_fn`](@ref) should emit for `cname`, given that the signature it
+"""Decides which body [`@wrap_expr_method`](@ref) should emit for `cname`, given that the signature it
 was handed marshals to `nargs` C arguments. Every mismatch is an error naming what was expected,
 so a wrong argument list or a misspelled symbol fails at expansion rather than at the ccall."""
 function _resolve_fallible(macro_name, cname, nargs)
@@ -290,8 +355,8 @@ function _resolve_fallible(macro_name, cname, nargs)
 end
 
 """Emits the function definition for `gen_sig`, choosing the fallible or infallible body from
-what the header says about `cname`. Shared by [`@gen_expr_fn`](@ref) and [`@gen_name_fn`](@ref)
-so there is one definition of each body rather than one per macro."""
+what the header says about `cname`. Shared by [`@wrap_expr_method`](@ref) and
+[`@wrap_rename_method`](@ref) so there is one definition of each body rather than one per macro."""
 function _gen_expr_body(macro_name, gen_sig, cname, fwd_args)
     api_fn = Base.Expr(:(.), :API, QuoteNode(cname))
     if _resolve_fallible(macro_name, cname, length(fwd_args))
@@ -299,7 +364,7 @@ function _gen_expr_body(macro_name, gen_sig, cname, fwd_args)
         # Built with `Expr(:function, ...)` rather than `quote function $gen_sig ... end end`:
         # a whole signature cannot be interpolated into the syntactic position after `function`,
         # since the parser has to read a call shape there before any interpolation happens
-        # ("invalid signature in function definition"). `@generate_expr_fns` builds its
+        # ("invalid signature in function definition"). `@wrap_simple_ops` builds its
         # definitions the same way for the same reason.
         body = quote
             out = Ref{Ptr{polars_expr_t}}()
@@ -313,7 +378,12 @@ function _gen_expr_body(macro_name, gen_sig, cname, fwd_args)
 end
 
 """
-    @gen_expr_fn f(expr::Expr, pos...; kw...) cname desc
+    @wrap_expr_method f(expr::Expr, pos...; kw...) cname desc
+
+**Use this when** the polars method is called on an expression and takes further arguments or
+options -- `.str.contains(pat, strict)`, `Expr::clip(min, max)`. If it takes nothing beyond one
+other expression, the `@wrap_simple_ops` block is the shorter route; if all it does is rename the
+output column, use [`@wrap_rename_method`](@ref).
 
 Generates the primal shape that most single-`Expr` wrappers share. Every argument after the
 leading `expr::Expr` is forwarded to the ccall as a positional C argument, marshalled according to
@@ -340,11 +410,11 @@ Only fits arguments whose marshalling `_marshal_arg` covers: `rolling_std`'s `dd
 (`UInt8(ddof)`), `splitn`'s `n` (`Csize_t(n)`), every `Symbol`-to-enum keyword, and
 `Strings.replace_n` (whose C parameter order differs from the Julia one) all stay hand-written.
 Not used for a Base-colliding name (`Base.all`/`Base.any`/`Base.replace`), which would need the
-`Base.`-qualification dance `@generate_expr_fns` carries for that case.
+`Base.`-qualification dance `@wrap_simple_ops` carries for that case.
 """
-macro gen_expr_fn(sig, cname, desc)
-    gen_sig, fwd_args = _gen_expr_parts("@gen_expr_fn", sig)
-    fn_def = _gen_expr_body("@gen_expr_fn", gen_sig, cname, fwd_args)
+macro wrap_expr_method(sig, cname, desc)
+    gen_sig, fwd_args = _gen_expr_parts("@wrap_expr_method", sig)
+    fn_def = _gen_expr_body("@wrap_expr_method", gen_sig, cname, fwd_args)
     return esc(
         quote
             $fn_def
@@ -354,10 +424,13 @@ macro gen_expr_fn(sig, cname, desc)
 end
 
 """
-    @gen_name_fn f cname desc
+    @wrap_rename_method f cname desc
+
+**Use this when** the polars method does nothing but rename the output column from a single
+string -- there are exactly three, and a fourth would go here too.
 
 The output-name-rewriting shape shared by [`alias`](@ref)/[`prefix`](@ref)/[`suffix`](@ref):
-exactly [`@gen_expr_fn`](@ref) over the fixed signature `f(expr::Expr, s::AbstractString)`
+exactly [`@wrap_expr_method`](@ref) over the fixed signature `f(expr::Expr, s::AbstractString)`
 (so the `(ptr, ncodeunits)` marshalling comes from the same [`_marshal_arg`](@ref) rule as
 everywhere else), plus two things that shape needs and the general macro does not emit:
 
@@ -365,12 +438,12 @@ everywhere else), plus two things that shape needs and the general macro does no
   something legible in the REPL;
 - one docstring covering *both* signatures, matching what the hand-written originals carried.
 """
-macro gen_name_fn(fname, cname, desc)
-    @assert fname isa Symbol && cname isa Symbol "@gen_name_fn expects (fname::Symbol, cname::Symbol, desc::String)"
-    gen_sig, fwd_args = _gen_expr_parts("@gen_name_fn", :($fname(expr::Expr, s::AbstractString)))
-    fn_def = _gen_expr_body("@gen_name_fn", gen_sig, cname, fwd_args)
+macro wrap_rename_method(fname, cname, desc)
+    @assert fname isa Symbol && cname isa Symbol "@wrap_rename_method expects (fname::Symbol, cname::Symbol, desc::String)"
+    gen_sig, fwd_args = _gen_expr_parts("@wrap_rename_method", :($fname(expr::Expr, s::AbstractString)))
+    fn_def = _gen_expr_body("@wrap_rename_method", gen_sig, cname, fwd_args)
     # Attached to the two-argument *signature*, not the bare function name -- matching both the
-    # hand-written original and `@generate_expr_fns`. `docs/src/reference/expressions.md` lists
+    # hand-written original and `@wrap_simple_ops`. `docs/src/reference/expressions.md` lists
     # these in a `@docs` block by bare name, which pulls in every docstring attached to any method;
     # documenting the generic function instead would change what Documenter renders.
     docstring = """
@@ -389,7 +462,11 @@ macro gen_name_fn(fname, cname, desc)
 end
 
 """
-    @gen_variadic fname cname has_ignore_nulls desc
+    @wrap_multi_expr_function fname cname has_ignore_nulls desc
+
+**Use this when** the polars function is a *free* function over any number of expressions rather
+than a method on one -- `sum_horizontal(a, b, c)`, `as_struct(...)`. Anything called on a single
+leading expression belongs to [`@wrap_expr_method`](@ref) or the `@wrap_simple_ops` block instead.
 
 Generates the variadic shape that takes any number of column references and folds them into one
 expression -- `fname(exprs...)`, or `fname(exprs...; ignore_nulls::Bool=true)` when
@@ -402,8 +479,8 @@ despite not being a reduction. `Base.coalesce` is deliberately left hand-written
 call this macro's plain `exprs...` would accept), and teaching the macro two features for one call
 site buys nothing.
 """
-macro gen_variadic(fname, cname, has_ignore_nulls, desc)
-    @assert fname isa Symbol && has_ignore_nulls isa Bool "@gen_variadic expects (fname::Symbol, cname::Symbol, has_ignore_nulls::Bool, desc::String) -- got ($fname, $cname, $has_ignore_nulls, $desc)"
+macro wrap_multi_expr_function(fname, cname, has_ignore_nulls, desc)
+    @assert fname isa Symbol && has_ignore_nulls isa Bool "@wrap_multi_expr_function expects (fname::Symbol, cname::Symbol, has_ignore_nulls::Bool, desc::String) -- got ($fname, $cname, $has_ignore_nulls, $desc)"
 
     ccall_args = Any[Base.Expr(:(.), :API, QuoteNode(cname)), :ptrs, :(length(ptrs))]
     has_ignore_nulls && push!(ccall_args, :ignore_nulls)
@@ -453,22 +530,55 @@ macro gen_variadic(fname, cname, has_ignore_nulls, desc)
     )
 end
 
-macro generate_expr_fns(ex)
+"""
+    @wrap_simple_ops begin
+        gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values of `expr`...")
+        gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split, "..."; curried = true)
+    end
+
+**Use this when** the polars method takes nothing beyond `self`, or exactly one other expression
+and nothing else -- `Expr::sum`, `.str.len_bytes`, `Expr::is_in`, `.str.split`. The moment it takes
+a third thing (an option, a count, a fill character), it belongs to [`@wrap_expr_method`](@ref).
+
+A bulk declarative block: one line per wrapper, generating the function, its docstring, its export
+(unless the name collides with `Base`), and optionally its `Base.Fix2` curry. Each entry name
+mirrors a `macro_rules!` macro in `c-polars/src/expr.rs`, so the Rust declaration can be pasted
+across and given a description. See "The block DSL" at the top of this file for what each part of
+an entry does -- in short: `_binary` selects `f(a::Expr, b::Expr)` over `f(expr::Expr)`, the
+`_list`/`_str`/`_dt` suffix is documentary, and `curried = true` is a Julia-only request for the
+pipe form.
+
+The bodies here are the infallible shape (`Expr(API.cname(expr))`), because the Rust
+`gen_impl_expr*!` macros return the handle directly -- they marshal nothing that can be rejected.
+A fallible C function belongs to [`@wrap_expr_method`](@ref) instead, which derives the
+`polars_error` check from the header rather than taking your word for it.
+"""
+macro wrap_simple_ops(ex)
     @assert ex.head === :block
     out = Base.Expr(:block)
     for call in ex.args
         call isa Base.Expr || continue
-        cname = call.args[2]
-        # Fixed position, not `last(call.args)`: an optional 4th arg (the description below)
-        # would otherwise become `last(call.args)` itself once present, silently corrupting
-        # `orig_fname`/`namespace` extraction below (this broke once already -- see
-        # plans/docstring_and_examples_coverage.md's "Rebaseline" section).
-        ns_fname_node = call.args[3]
+        # Split the entry into `curried = true`-style options and the positional arguments. The
+        # options come first in the AST (Julia puts `f(a, b; k = v)`'s `:parameters` node at
+        # `args[2]`), so everything positional is read *after* stripping them -- indexing
+        # `call.args` directly would shift by one the moment an entry takes an option.
+        entry_args = call.args[2:end]
+        opts = Dict{Symbol, Any}()
+        if !isempty(entry_args) && entry_args[1] isa Base.Expr && entry_args[1].head === :parameters
+            for kw in entry_args[1].args
+                @assert kw isa Base.Expr && kw.head === :kw "@wrap_simple_ops: expected `name = value` options, got $kw"
+                opts[kw.args[1]] = kw.args[2]
+            end
+            entry_args = entry_args[2:end]
+        end
+        @assert length(entry_args) in (2, 3) "@wrap_simple_ops: expected `cname, Namespace::method[, \"description\"]`, got $(length(entry_args)) arguments"
+        cname = entry_args[1]
+        ns_fname_node = entry_args[2]
         orig_fname = last(ns_fname_node.args)
-        # Optional 4th call arg: a hand-written description, e.g.
+        # Optional third positional: a hand-written description, e.g.
         # `gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values...")`, threaded
         # into the docstring below instead of the bare Rust-doc-link fallback.
-        desc = length(call.args) >= 4 ? call.args[4] : nothing
+        desc = length(entry_args) >= 3 ? entry_args[3] : nothing
         # A name colliding with an existing Base binding is never exported here -- for the
         # top-level `Polars` module that's because the function below is instead defined as a new
         # `Base.fname` method (which already works unqualified via Base's own export, see
@@ -481,25 +591,37 @@ macro generate_expr_fns(ex)
         base_qualified = __module__ == Polars && base_collision
         fname = base_qualified ? Base.Expr(:(.), :Base, QuoteNode(orig_fname)) : orig_fname
         sig = Base.Expr(:call, fname)
-        gen_name = string(first(call.args))
-        @assert occursin("gen", gen_name)
-        # "curried" is opt-in on top of "binary" (e.g. `gen_impl_expr_binary_curried!`): besides
-        # the plain `(a::Expr, b::Expr)` method, also emits `orig_fname(b) = Base.Fix2(orig_fname,
-        # convert(Expr, b))` -- the `Base.Fix2`-style curry every binary op with a natural
-        # "value to curry in" needs for `|>` pipelines (`col("x") |> is_in([1, 2])`), previously
-        # hand-written next to each macro-generated primal. Guarded against `base_qualified`, not
-        # the weaker `base_collision`: a namespace submodule (`split` in `Strings`, `round` in
-        # `Dt`) can collide with a Base name and still curry unqualified fine, since its primal
-        # is already its own wholly local binding there (see the base-collision note above) that
-        # the unqualified `orig_fname` in the curry correctly picks up; only the top-level
-        # `Polars`-module + collision case (`base_qualified`) would need `Base.orig_fname`
-        # qualification this curry doesn't attempt, so it's excluded instead.
-        curried = occursin("curried", gen_name)
+        # The entry name is one of the `macro_rules!` names in `c-polars/src/expr.rs`, so a Rust
+        # declaration can be pasted here and given a description. Matched against the shape of
+        # that family rather than a substring search: `occursin("binary", ...)` would misfire on
+        # any future polars method whose own name contains "binary", and a typo would silently
+        # generate the unary form. Only `_binary` changes what is generated -- the namespace part
+        # is documentary (the real namespace comes from the `ListNameSpace::max` argument), and is
+        # matched here purely so the entry keeps mirroring Rust.
+        entry_name = string(call.args[1])
+        entry = match(r"^gen_impl_expr(_binary)?(_list|_str|_dt)?!$", entry_name)
+        @assert entry !== nothing "@wrap_simple_ops: `$entry_name` is not one of the `gen_impl_expr*!` names from c-polars/src/expr.rs (did you mean to pass `curried = true` instead of a `_curried` suffix?)"
+        is_binary = entry.captures[1] !== nothing
+        # `curried = true` additionally emits `orig_fname(b) = Base.Fix2(orig_fname,
+        # convert(Expr, b))` -- the `Base.Fix2` curry a binary op needs for `|>` pipelines
+        # (`col("x") |> is_in([1, 2])`). It is an option rather than part of the entry name
+        # because Rust has no `_curried` macro: currying is purely a Julia-side concern, and
+        # spelling it as a suffix made four Julia-only inventions look like part of the mirror.
+        # Guarded against `base_qualified`, not the weaker `base_collision`: a namespace submodule
+        # (`split` in `Strings`, `round` in `Dt`) can collide with a Base name and still curry
+        # unqualified fine, since its primal is already its own wholly local binding there (see
+        # the base-collision note above) that the unqualified `orig_fname` in the curry correctly
+        # picks up; only the top-level `Polars`-module + collision case (`base_qualified`) would
+        # need `Base.orig_fname` qualification this curry doesn't attempt, so it's excluded.
+        curried = get(opts, :curried, false) === true
+        for k in keys(opts)
+            @assert k === :curried "@wrap_simple_ops: unknown option `$k` (the only option is `curried = true`)"
+        end
         if curried
-            @assert occursin("binary", gen_name) "the curried variant is only defined for binary generators"
+            @assert is_binary "@wrap_simple_ops: `curried = true` only applies to a `_binary` entry"
             @assert !base_qualified "curried Fix2 form not supported for a Base-qualified name ($orig_fname); write it by hand"
         end
-        if occursin("binary", gen_name)
+        if is_binary
             push!(sig.args, Base.Expr(:(::), :a, :Expr), Base.Expr(:(::), :b, :Expr))
             body = quote
                 out = API.$(cname)(a, b)

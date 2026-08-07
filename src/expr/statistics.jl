@@ -121,22 +121,22 @@ end
 
 export spearman_rank_corr
 
-@gen_expr_fn skew(expr::Expr; bias::Bool = true) polars_expr_skew "Compute the sample skewness of the values.\n\nFor normally distributed data, the skewness should be about zero. For unimodal continuous distributions, a skewness value greater than zero means that there is more weight in the right tail of the distribution.\n\nThe sample skewness is computed as the Fisher-Pearson coefficient of skewness. If `bias` is `false`, the calculation is corrected for statistical bias."
+@wrap_expr_method skew(expr::Expr; bias::Bool = true) polars_expr_skew "Compute the sample skewness of the values.\n\nFor normally distributed data, the skewness should be about zero. For unimodal continuous distributions, a skewness value greater than zero means that there is more weight in the right tail of the distribution.\n\nThe sample skewness is computed as the Fisher-Pearson coefficient of skewness. If `bias` is `false`, the calculation is corrected for statistical bias."
 
 @curry skew(; bias::Bool = true)
 
 export skew
 
-@gen_expr_fn kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true) polars_expr_kurtosis "Compute the kurtosis (Fisher or Pearson) of the values.\n\nKurtosis is the fourth central moment divided by the square of the variance. If `fisher` is `true` (default), `3.0` is subtracted from the result so that a normal distribution gives `0.0`; if `false`, Pearson's definition is used (`3.0` for a normal distribution). If `bias` is `false`, the calculation is corrected for statistical bias.\n\nA constant (zero-variance) input gives `NaN`, not an error.\n\nWith StatsBase.jl loaded, the bare `kurtosis(expr)`/`skewness(expr)` also work."
+@wrap_expr_method kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true) polars_expr_kurtosis "Compute the kurtosis (Fisher or Pearson) of the values.\n\nKurtosis is the fourth central moment divided by the square of the variance. If `fisher` is `true` (default), `3.0` is subtracted from the result so that a normal distribution gives `0.0`; if `false`, Pearson's definition is used (`3.0` for a normal distribution). If `bias` is `false`, the calculation is corrected for statistical bias.\n\nA constant (zero-variance) input gives `NaN`, not an error.\n\nWith StatsBase.jl loaded, the bare `kurtosis(expr)`/`skewness(expr)` also work."
 
 @curry kurtosis(; fisher::Bool = true, bias::Bool = true)
 
 
-@gen_expr_fn top_k(expr::Expr, k::Expr) polars_expr_top_k "Returns the `k` largest elements of `expr` (not necessarily sorted; combine with [`sort_by`](@ref) if order matters)."
+@wrap_expr_method top_k(expr::Expr, k::Expr) polars_expr_top_k "Returns the `k` largest elements of `expr` (not necessarily sorted; combine with [`sort_by`](@ref) if order matters)."
 @curry top_k(k)
 export top_k
 
-@gen_expr_fn bottom_k(expr::Expr, k::Expr) polars_expr_bottom_k "Returns the `k` smallest elements of `expr` (not necessarily sorted; combine with [`sort_by`](@ref) if order matters). The complement of [`top_k`](@ref)."
+@wrap_expr_method bottom_k(expr::Expr, k::Expr) polars_expr_bottom_k "Returns the `k` smallest elements of `expr` (not necessarily sorted; combine with [`sort_by`](@ref) if order matters). The complement of [`top_k`](@ref)."
 @curry bottom_k(k)
 export bottom_k
 
@@ -205,11 +205,11 @@ end
 export sample_frac
 
 
-@gen_expr_fn cum_sum(expr::Expr; reverse::Bool = false) polars_expr_cum_sum "Cumulative sum of the values. If `reverse` is `true`, accumulates from the last value to the first."
-@gen_expr_fn cum_prod(expr::Expr; reverse::Bool = false) polars_expr_cum_prod "Cumulative product of the values. If `reverse` is `true`, accumulates from the last value to the first."
-@gen_expr_fn cum_min(expr::Expr; reverse::Bool = false) polars_expr_cum_min "Cumulative minimum of the values. If `reverse` is `true`, accumulates from the last value to the first."
-@gen_expr_fn cum_max(expr::Expr; reverse::Bool = false) polars_expr_cum_max "Cumulative maximum of the values. If `reverse` is `true`, accumulates from the last value to the first."
-@gen_expr_fn cum_count(expr::Expr; reverse::Bool = false) polars_expr_cum_count "Cumulative count of non-null values. If `reverse` is `true`, accumulates from the last value to the first."
+@wrap_expr_method cum_sum(expr::Expr; reverse::Bool = false) polars_expr_cum_sum "Cumulative sum of the values. If `reverse` is `true`, accumulates from the last value to the first."
+@wrap_expr_method cum_prod(expr::Expr; reverse::Bool = false) polars_expr_cum_prod "Cumulative product of the values. If `reverse` is `true`, accumulates from the last value to the first."
+@wrap_expr_method cum_min(expr::Expr; reverse::Bool = false) polars_expr_cum_min "Cumulative minimum of the values. If `reverse` is `true`, accumulates from the last value to the first."
+@wrap_expr_method cum_max(expr::Expr; reverse::Bool = false) polars_expr_cum_max "Cumulative maximum of the values. If `reverse` is `true`, accumulates from the last value to the first."
+@wrap_expr_method cum_count(expr::Expr; reverse::Bool = false) polars_expr_cum_count "Cumulative count of non-null values. If `reverse` is `true`, accumulates from the last value to the first."
 
 @curry cum_sum(; reverse::Bool = false)
 @curry cum_prod(; reverse::Bool = false)
@@ -602,7 +602,7 @@ end
 
 export qcut_uniform
 
-# `to_lowercase`/`to_uppercase` are exported by `@generate_expr_fns` itself (they're generated in
+# `to_lowercase`/`to_uppercase` are exported by `@wrap_simple_ops` itself (they're generated in
 # expr.jl's block alongside `keep_name`), so they are deliberately absent here.
 export col, alias, prefix, suffix, lit, cast, when, element,
     cast_datetime, cast_duration, cast_decimal, cast_categorical,
