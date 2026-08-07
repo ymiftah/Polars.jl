@@ -1,5 +1,5 @@
 module Strings
-using ..Polars: @generate_expr_fns, @gen_expr_fn, @gen_expr_fn_fallible, @curry,
+using ..Polars: @generate_expr_fns, @gen_expr_fn, @curry,
     API, polars_expr_t, Expr, polars_error, _time_unit_enum
 
 @generate_expr_fns begin
@@ -84,10 +84,10 @@ tail(n) = Base.Fix2(tail, convert(Expr, n))
 @gen_expr_fn slice(expr::Expr, offset::Expr, length::Expr) polars_expr_str_slice "Extracts a substring starting at `offset` (0-indexed; negative indexes from the end) with the given `length` (extends to the end of the string if `length` is `null`)."
 @curry slice(offset, length)
 
-@gen_expr_fn_fallible pad_start(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_start "Pads each string of `expr` on the left with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
+@gen_expr_fn pad_start(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_start "Pads each string of `expr` on the left with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
 @curry pad_start(length; fill_char::Char = ' ')
 
-@gen_expr_fn_fallible pad_end(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_end "Pads each string of `expr` on the right with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
+@gen_expr_fn pad_end(expr::Expr, length::Expr; fill_char::Char = ' ') polars_expr_str_pad_end "Pads each string of `expr` on the right with `fill_char` until it reaches `length` characters (no-op for a string already at least that long). `length` is an integer literal or an expression (e.g. another column), giving a per-row target length."
 @curry pad_end(length; fill_char::Char = ' ')
 
 @gen_expr_fn replace(expr::Expr, pat::Expr, value::Expr; literal::Bool = false) polars_expr_str_replace "Replaces the first match of `pat` with `value`. If `literal` is `true`, `pat` is treated as a plain substring rather than a regex."
@@ -232,7 +232,7 @@ Curried form of [`split_exact`](@ref) for use with `|>`.
 """
 split_exact(by, n::Integer) = expr -> split_exact(expr, convert(Expr, by), n)
 
-@gen_expr_fn_fallible join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true) polars_expr_str_join "Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from [`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows)."
+@gen_expr_fn join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true) polars_expr_str_join "Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from [`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows)."
 
 """
     to_integer(expr::Polars.Expr; base::Integer=10, strict::Bool=true)::Polars.Expr
@@ -249,7 +249,7 @@ function to_integer(::Expr; base::Integer = 10, strict::Bool = true)
     )
 end
 
-@gen_expr_fn_fallible extract_groups(expr::Expr, pat::AbstractString) polars_expr_str_extract_groups "Extracts every named capture group of the regex `pat` from the first match within each string of `expr`, into a `Struct` (see [Struct](@ref expr-struct)) with one field per named group. `pat` must be a plain string (not an `Expr`): the regex is compiled once, at plan time, to determine the output `Struct`'s field names."
+@gen_expr_fn extract_groups(expr::Expr, pat::AbstractString) polars_expr_str_extract_groups "Extracts every named capture group of the regex `pat` from the first match within each string of `expr`, into a `Struct` (see [Struct](@ref expr-struct)) with one field per named group. `pat` must be a plain string (not an `Expr`): the regex is compiled once, at plan time, to determine the output `Struct`'s field names."
 
 """
     reverse(expr::Polars.Expr)::Polars.Expr
