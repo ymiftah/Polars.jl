@@ -296,14 +296,18 @@ function _gen_expr_body(macro_name, gen_sig, cname, fwd_args)
     api_fn = Base.Expr(:(.), :API, QuoteNode(cname))
     if _resolve_fallible(macro_name, cname, length(fwd_args))
         ccall_expr = Base.Expr(:call, api_fn, fwd_args..., :out)
-        return quote
-            function $gen_sig
-                out = Ref{Ptr{polars_expr_t}}()
-                err = $ccall_expr
-                polars_error(err)
-                return Expr(out[])
-            end
+        # Built with `Expr(:function, ...)` rather than `quote function $gen_sig ... end end`:
+        # a whole signature cannot be interpolated into the syntactic position after `function`,
+        # since the parser has to read a call shape there before any interpolation happens
+        # ("invalid signature in function definition"). `@generate_expr_fns` builds its
+        # definitions the same way for the same reason.
+        body = quote
+            out = Ref{Ptr{polars_expr_t}}()
+            err = $ccall_expr
+            polars_error(err)
+            return Expr(out[])
         end
+        return Base.Expr(:function, gen_sig, body)
     end
     return Base.Expr(:(=), gen_sig, :(Expr($(Base.Expr(:call, api_fn, fwd_args...)))))
 end

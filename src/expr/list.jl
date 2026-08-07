@@ -168,9 +168,6 @@ end
 @gen_expr_fn all(expr::Expr; ignore_nulls::Bool = true) polars_expr_list_all "Whether every element within each list of `expr` is `true`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, three-valued (Kleene) logic applies: a list with no `false` element but at least one `null` gives `null` instead of `true`."
 
 
-
-
-
 """
     std(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
