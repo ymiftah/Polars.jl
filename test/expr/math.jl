@@ -79,7 +79,7 @@ end
     @test out_sqrt[3] == 0.0 && out_sqrt[4] == 3.0 && isinf(out_sqrt[5]) && out_sqrt[5] > 0
 
     # log domain edges: log(0) -> -Inf, log(negative) -> NaN (base e via lit(exp(1.0)); note the
-    # base comes first, matching Base.log(b, x) -- see CLAUDE.md's `@generate_expr_fns` note)
+    # base comes first, matching Base.log(b, x) -- see CLAUDE.md's `@wrap_simple_ops` note)
     df_log = DataFrame((; x = [0.0, -1.0, exp(1.0)]))
     r_log = select(df_log, alias(Base.log(lit(exp(1.0)), col("x")), "ln"))
     out_log = collect(r_log[:ln])

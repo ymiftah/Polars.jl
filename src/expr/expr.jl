@@ -94,7 +94,7 @@ function Base.convert(::Type{Expr}, dt::DateTime)
 end
 
 # Derived comparison DSL primitives -- polars' C ABI only wraps `eq`/`lt`/`gt` directly (see
-# `@generate_expr_fns` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
+# `@wrap_simple_ops` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
 # propagation correctly (`not` of a null is null, matching what `<=`/`>=`/`!=` must do when an
 # operand is incomparable). Not exported -- these are an internal implementation detail of the
 # operators below, unlike `eq`/`gt`/`lt`, which mirror real `polars::Expr` methods 1:1.
@@ -185,6 +185,23 @@ _as_expr(x::AbstractString) = col(String(x))
 _as_expr(x::Symbol) = col(String(x))
 _as_expr(x::Expr) = x
 
+"""Shared `time_unit` resolver (`:ns`/`:us`/`:ms`) for every function accepting one -- `cast`,
+[`cast_datetime`](@ref), [`cast_duration`](@ref) here, plus `Dt.timestamp` and
+`Strings.to_datetime`."""
+_time_unit_enum(time_unit::Symbol) = _enum_lookup(
+    time_unit, "time_unit",
+    :ns => API.PolarsTimeUnitNanosecond,
+    :us => API.PolarsTimeUnitMicrosecond,
+    :ms => API.PolarsTimeUnitMillisecond,
+)
+
+"""Shared `null_behavior` resolver (`:ignore`/`:drop`) for [`diff`](@ref) here and `Lists.diff`."""
+_null_behavior_enum(null_behavior::Symbol) = _enum_lookup(
+    null_behavior, "null_behavior",
+    :ignore => API.PolarsNullBehaviorIgnore,
+    :drop => API.PolarsNullBehaviorDrop,
+)
+
 """
     nth(n::Int64)::Polars.Expr
 
@@ -210,65 +227,9 @@ function element()
     return Expr(API.polars_expr_element())
 end
 
-"""
-    alias(expr::Polars.Expr, alias::String)::Polars.Expr
-    alias(alias::String)::Base.Fix2{typeof(alias), String}
-
-Renames the result of this expression to a new name.
-"""
-function alias(expr, alias)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_alias(expr, alias, ncodeunits(alias), out)
-    polars_error(err)
-    return Expr(out[])
-end
-alias(new_name) = Base.Fix2(alias, new_name)
-
-"""
-    prefix(expr::Polars.Expr, pref::String)::Polars.Expr
-    prefix(pref::String)::Base.Fix2{typeof(prefix), String}
-
-Adds a prefix to the name of the resulting expression.
-"""
-function prefix(expr, pref)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_prefix(expr, pref, ncodeunits(pref), out)
-    polars_error(err)
-    return Expr(out[])
-end
-prefix(pref) = Base.Fix2(prefix, pref)
-
-"""
-    suffix(expr::Polars.Expr, suf::String)::Polars.Expr
-    suffix(suf::String)::Base.Fix2{typeof(suffix), String}
-
-Adds a suffix to the name of the resulting expression.
-"""
-function suffix(expr, suf)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_suffix(expr, suf, ncodeunits(suf), out)
-    polars_error(err)
-    return Expr(out[])
-end
-suffix(suf) = Base.Fix2(suffix, suf)
-
-"""
-    to_lowercase(expr::Polars.Expr)::Polars.Expr
-
-Lowercases the name of the resulting expression.
-"""
-function to_lowercase(expr)
-    return Expr(polars_expr_to_lowercase(expr))
-end
-
-"""
-    to_uppercase(expr::Polars.Expr)::Polars.Expr
-
-Uppercases the name of the resulting expression.
-"""
-function to_uppercase(expr)
-    return Expr(polars_expr_to_uppercase(expr))
-end
+@wrap_rename_method alias polars_expr_alias "Renames the result of this expression to a new name."
+@wrap_rename_method prefix polars_expr_prefix "Adds a prefix to the name of the resulting expression."
+@wrap_rename_method suffix polars_expr_suffix "Adds a suffix to the name of the resulting expression."
 
 """
     lit(x)::Polars.Expr
@@ -399,15 +360,7 @@ implementation. `Datetime` needs its own entry point because `polars_value_type_
 function cast_datetime(
         expr::Expr; time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
     )
-    unit_enum = if time_unit == :ns
-        API.PolarsTimeUnitNanosecond
-    elseif time_unit == :us
-        API.PolarsTimeUnitMicrosecond
-    elseif time_unit == :ms
-        API.PolarsTimeUnitMillisecond
-    else
-        error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms)")
-    end
+    unit_enum = _time_unit_enum(time_unit)
     tz = time_zone === nothing ? "" : String(time_zone)
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_cast_datetime(expr, unit_enum, tz, ncodeunits(tz), out)
@@ -427,21 +380,13 @@ pass `time_unit` as a keyword.
 - `time_unit`: one of `:ns`, `:us` (default), `:ms`
 """
 function cast_duration(expr::Expr; time_unit::Symbol = :us)
-    unit_enum = if time_unit == :ns
-        API.PolarsTimeUnitNanosecond
-    elseif time_unit == :us
-        API.PolarsTimeUnitMicrosecond
-    elseif time_unit == :ms
-        API.PolarsTimeUnitMillisecond
-    else
-        error("unknown time_unit $time_unit, expected one of (:ns, :us, :ms)")
-    end
+    unit_enum = _time_unit_enum(time_unit)
     out = Ref{Ptr{polars_expr_t}}()
     err = API.polars_expr_cast_duration(expr, unit_enum, out)
     polars_error(err)
     return Expr(out[])
 end
-cast_duration(; time_unit::Symbol = :us) = expr -> cast_duration(expr; time_unit)
+@curry cast_duration(; time_unit::Symbol = :us)
 
 """
     cast_decimal(expr::Polars.Expr, precision::Integer, scale::Integer)::Polars.Expr
@@ -458,7 +403,7 @@ function cast_decimal(expr::Expr, precision::Integer, scale::Integer)
     out = API.polars_expr_cast_decimal(expr, Csize_t(precision), Csize_t(scale))
     return Expr(out)
 end
-cast_decimal(precision::Integer, scale::Integer) = expr -> cast_decimal(expr, precision, scale)
+@curry cast_decimal(precision::Integer, scale::Integer)
 
 """
     cast_categorical(expr::Polars.Expr)::Polars.Expr
@@ -509,86 +454,11 @@ function when(pairs::Pair...; otherwise)
     return Expr(out)
 end
 
-macro generate_expr_fns(ex)
-    @assert ex.head === :block
-    out = Base.Expr(:block)
-    for call in ex.args
-        call isa Base.Expr || continue
-        cname = call.args[2]
-        # Fixed position, not `last(call.args)`: an optional 4th arg (the description below)
-        # would otherwise become `last(call.args)` itself once present, silently corrupting
-        # `orig_fname`/`namespace` extraction below (this broke once already -- see
-        # plans/docstring_and_examples_coverage.md's "Rebaseline" section).
-        ns_fname_node = call.args[3]
-        orig_fname = last(ns_fname_node.args)
-        # Optional 4th call arg: a hand-written description, e.g.
-        # `gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values...")`, threaded
-        # into the docstring below instead of the bare Rust-doc-link fallback.
-        desc = length(call.args) >= 4 ? call.args[4] : nothing
-        # A name colliding with an existing Base binding is never exported here -- for the
-        # top-level `Polars` module that's because the function below is instead defined as a new
-        # `Base.fname` method (which already works unqualified via Base's own export, see
-        # CLAUDE.md's sharp-edges note); for a namespace submodule (`Lists`/`Strings`/`Dt`), the
-        # function stays a wholly unrelated local binding (never Base-qualified -- extending e.g.
-        # `Base.get`/`Base.max` with unrelated list/string semantics would be actively wrong), just
-        # not exported, since it's designed for qualified use (`Lists.get`) and `using
-        # Polars.Lists` would otherwise clash with Base's own same-named export.
-        base_collision = isdefined(Base, orig_fname)
-        base_qualified = __module__ == Polars && base_collision
-        fname = base_qualified ? Base.Expr(:(.), :Base, QuoteNode(orig_fname)) : orig_fname
-        sig = Base.Expr(:call, fname)
-        gen_name = string(first(call.args))
-        @assert occursin("gen", gen_name)
-        if occursin("binary", gen_name)
-            push!(sig.args, Base.Expr(:(::), :a, :Expr), Base.Expr(:(::), :b, :Expr))
-            body = quote
-                out = API.$(cname)(a, b)
-                Expr(out)
-            end
-        else
-            push!(sig.args, Base.Expr(:(::), :expr, :Expr))
-            body = quote
-                out = API.$(cname)(expr)
-                Expr(out)
-            end
-        end
-        push!(out.args, Base.Expr(:function, sig, body))
-        # Attach a docstring regardless of Base collision -- documented under the plain,
-        # unqualified name (`orig_fname`), not `Base.fname`: that's how `fname` resolves inside
-        # this module anyway (every module sees Base unqualified), and it's what `?fname` in the
-        # REPL expects.
-        namespace = string(first(ns_fname_node.args))
-        namespace_type = namespace == "Expr" ? "enum" : "struct"
-        rust_doc_url = "https://docs.rs/polars/latest/polars/prelude/$(namespace_type).$(namespace).html#method.$orig_fname"
-        string_sig = replace(string(sig), "Expr" => "Polars.Expr")
-        docstring = if desc === nothing
-            """
-                $(string_sig)::Polars.Expr
-
-            Refer to [the polars documentation]($rust_doc_url).
-            """
-        else
-            """
-                $(string_sig)::Polars.Expr
-
-            $desc
-
-            See also [the polars documentation]($rust_doc_url).
-            """
-        end
-        push!(
-            out.args, quote
-                Docs.@doc $docstring $sig
-            end
-        )
-        base_collision || push!(out.args, :(export $orig_fname))
-    end
-    return esc(out)
-end
-
 # We just copy the rust code here and generate functions on the fly.
-@generate_expr_fns begin
+@wrap_simple_ops begin
     gen_impl_expr!(polars_expr_keep_name, Expr::keep_name, "Keeps `expr`'s original column name, overriding any rename that would otherwise result from the operation it's applied to (e.g. after an arithmetic operator or a namespaced function call).")
+    gen_impl_expr!(polars_expr_to_lowercase, Expr::to_lowercase, "Lowercases the name of the resulting expression.")
+    gen_impl_expr!(polars_expr_to_uppercase, Expr::to_uppercase, "Uppercases the name of the resulting expression.")
 
     gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values of `expr`, one result per group (or a single overall value outside a `group_by`).")
     gen_impl_expr!(polars_expr_min, Expr::min, "Returns the minimum non-null value of `expr`, one result per group (or a single overall value outside a `group_by`). Like other aggregations, `NaN` values are ignored -- see [`nan_min`](@ref) to propagate `NaN` into the result instead.")
@@ -660,28 +530,17 @@ end
     # it needs literal-argument `convert` overloads the macro's plain `(Expr, Expr)` shape can't
     # express (mirroring `is_in`/`fill_null`'s own curried forms further down).
 
-    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression).\n\n!!! note \"Has a curried form\"\n    `fill_null(value)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`.\n\n!!! note \"Has a curried form\"\n    `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column); see the `lit(::Vector)` section below for how to build `b`.\n\n!!! note \"Has a curried form\"\n    `is_in(values)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression).\n\n!!! note \"Has a curried form\"\n    `fill_null(value)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`.\n\n!!! note \"Has a curried form\"\n    `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column); see the `lit(::Vector)` section below for how to build `b`.\n\n!!! note \"Has a curried form\"\n    `is_in(values)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
 
-    gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`.\n\n!!! note \"Has a curried form\"\n    `shift(n)` -- see [Curried forms for pipe-based composition](@ref).")
-    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref).")
+    gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`.\n\n!!! note \"Has a curried form\"\n    `shift(n)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
 
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
 end
 
-"""
-    flatten(expr::Polars.Expr; empty_as_null::Bool=true, keep_nulls::Bool=true)::Polars.Expr
-
-Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of
-[`implode`](@ref). `empty_as_null`: an empty list produces one `null` row when `true` (default),
-rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true`
-(default), rather than disappearing.
-"""
-function flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true)
-    out = API.polars_expr_flatten(expr, empty_as_null, keep_nulls)
-    return Expr(out)
-end
+@wrap_expr_method flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true) polars_expr_flatten "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref). `empty_as_null`: an empty list produces one `null` row when `true` (default), rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true` (default), rather than disappearing."
 export flatten
 
 """
@@ -737,13 +596,17 @@ a `group_by`).
 has_nulls(expr::Expr) = null_count(expr) > 0
 export has_nulls
 
-# Curried (`Fix2`-style) forms for the binary namespace-free ops above that have no natural
-# operator equivalent (unlike +/-/*//, which already read fluently as infix). Each promotes a
-# literal second argument via `convert(Expr, ...)`, matching Python polars' `.is_in([1,2,3])`,
-# `.fill_null(0)`, etc.
-#
-# `log`/`rem` (and, elsewhere, `replace`/`diff`/`round`) are deliberately excluded. It isn't a
-# dispatch-ambiguity concern, Julia always prefers Base's own concrete-type methods (e.g.
+# The plain `Fix2`-style curries for `is_in`/`fill_null`/`fill_nan`/`shift`/`pct_change` are
+# generated by `@wrap_simple_ops` from each primal's own `curried = true` option, right next to it
+# in the block above. This is the one exception -- `is_in` also needs an `AbstractVector`-specific
+# overload (more specific than the macro-generated `is_in(b) = Base.Fix2(is_in, convert(Expr,
+# b))`, so it dispatches ahead of it) that `implode`s the vector into a single list-typed `Expr`
+# first: the plain `convert(Expr, ::AbstractVector)` above builds a per-row *Series* literal
+# instead, the wrong shape for `is_in`'s membership check against `b`.
+is_in(other::AbstractVector) = Base.Fix2(is_in, implode(convert(Expr, other)))
+
+# `log`/`rem` (and, elsewhere, `replace`/`diff`/`round`) deliberately get no curry at all. It isn't
+# a dispatch-ambiguity concern, Julia always prefers Base's own concrete-type methods (e.g.
 # `log(::Float64)`) over anything added here, so no ambiguity would occur. It's type piracy: a
 # curry that's actually useful for plain numeric literals needs an untyped or broadly-typed second
 # argument, which means claiming argument-type combinations Base currently leaves undefined (e.g.
@@ -754,10 +617,6 @@ export has_nulls
 # A curry typed narrowly to `Expr` would avoid the piracy, but would then only accept
 # already-constructed `Expr`s, not bare literals -- defeating the ergonomic point of currying at
 # all, so it isn't worth doing either.
-is_in(other::AbstractVector) = Base.Fix2(is_in, implode(convert(Expr, other)))
-is_in(other) = Base.Fix2(is_in, convert(Expr, other))
-fill_null(value) = Base.Fix2(fill_null, convert(Expr, value))
-fill_nan(value) = Base.Fix2(fill_nan, convert(Expr, value))
 
 """
     fill_null(expr::Polars.Expr; strategy::Symbol, limit::Union{Nothing,Integer}=nothing)::Polars.Expr
@@ -778,29 +637,21 @@ Replaces every `null` value in `expr` using a fill *strategy* instead of a fixed
     The keyword-only method above, for `|>` pipelines.
 """
 function fill_null(expr::Expr; strategy::Symbol, limit::Union{Nothing, Integer} = nothing)
-    strategy_enum = if strategy == :backward
-        API.PolarsFillNullStrategyBackward
-    elseif strategy == :forward
-        API.PolarsFillNullStrategyForward
-    elseif strategy == :mean
-        API.PolarsFillNullStrategyMean
-    elseif strategy == :min
-        API.PolarsFillNullStrategyMin
-    elseif strategy == :max
-        API.PolarsFillNullStrategyMax
-    elseif strategy == :zero
-        API.PolarsFillNullStrategyZero
-    elseif strategy == :one
-        API.PolarsFillNullStrategyOne
-    else
-        error("unknown fill_null strategy=$strategy, expected one of (:forward, :backward, :mean, :min, :max, :zero, :one)")
-    end
+    strategy_enum = _enum_lookup(
+        strategy, "fill_null strategy",
+        :backward => API.PolarsFillNullStrategyBackward,
+        :forward => API.PolarsFillNullStrategyForward,
+        :mean => API.PolarsFillNullStrategyMean,
+        :min => API.PolarsFillNullStrategyMin,
+        :max => API.PolarsFillNullStrategyMax,
+        :zero => API.PolarsFillNullStrategyZero,
+        :one => API.PolarsFillNullStrategyOne,
+    )
     limit_ref = limit === nothing ? Ptr{UInt32}(C_NULL) : Ref(UInt32(limit))
     out = GC.@preserve limit_ref API.polars_expr_fill_null_with_strategy(expr, strategy_enum, limit_ref)
     return Expr(out)
 end
-fill_null(; strategy::Symbol, limit::Union{Nothing, Integer} = nothing) =
-    expr -> fill_null(expr; strategy, limit)
+@curry fill_null(; strategy::Symbol, limit::Union{Nothing, Integer} = nothing)
 
 """
     forward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
@@ -814,7 +665,7 @@ how many consecutive nulls a single value may fill (`nothing` for unlimited). Sh
     The keyword-only method above, for `|>` pipelines.
 """
 forward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :forward, limit)
-forward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> forward_fill(expr; limit)
+@curry forward_fill(; limit::Union{Nothing, Integer} = nothing)
 
 """
     backward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
@@ -828,23 +679,11 @@ how many consecutive nulls a single value may fill (`nothing` for unlimited). Sh
     The keyword-only method above, for `|>` pipelines.
 """
 backward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(expr; strategy = :backward, limit)
-backward_fill(; limit::Union{Nothing, Integer} = nothing) = expr -> backward_fill(expr; limit)
+@curry backward_fill(; limit::Union{Nothing, Integer} = nothing)
 
 export forward_fill, backward_fill
 
-shift(n) = Base.Fix2(shift, convert(Expr, n))
-pct_change(n) = Base.Fix2(pct_change, convert(Expr, n))
-
-"""
-    shift_and_fill(expr::Polars.Expr, n, fill_value)::Polars.Expr
-
-Like [`shift`](@ref), but the positions vacated by the shift are filled with `fill_value`
-instead of `missing`.
-"""
-function shift_and_fill(expr::Expr, n, fill_value)
-    out = API.polars_expr_shift_and_fill(expr, convert(Expr, n), convert(Expr, fill_value))
-    return Expr(out)
-end
+@wrap_expr_method shift_and_fill(expr::Expr, n::Expr, fill_value::Expr) polars_expr_shift_and_fill "Like [`shift`](@ref), but the positions vacated by the shift are filled with `fill_value` instead of `missing`."
 export shift_and_fill
 
 """
@@ -854,74 +693,25 @@ Rounds to `decimals` decimal places, breaking ties according to `mode`: one of
 `:half_to_even` (default, banker's rounding), `:half_away_from_zero`, `:to_zero`.
 """
 function Base.round(expr::Expr, decimals::Integer = 0; mode::Symbol = :half_to_even)
-    mode_enum = if mode == :half_to_even
-        API.PolarsRoundModeHalfToEven
-    elseif mode == :half_away_from_zero
-        API.PolarsRoundModeHalfAwayFromZero
-    elseif mode == :to_zero
-        API.PolarsRoundModeToZero
-    else
-        error(
-            "unknown round mode $mode, expected one of " *
-                "(:half_to_even, :half_away_from_zero, :to_zero)"
-        )
-    end
+    mode_enum = _enum_lookup(
+        mode, "round mode",
+        :half_to_even => API.PolarsRoundModeHalfToEven,
+        :half_away_from_zero => API.PolarsRoundModeHalfAwayFromZero,
+        :to_zero => API.PolarsRoundModeToZero,
+    )
     out = API.polars_expr_round(expr, UInt32(decimals), mode_enum)
     return Expr(out)
 end
 
-"""
-    clip(expr::Polars.Expr, min, max)::Polars.Expr
-
-Clips the values to the `[min, max]` range (values outside are set to the nearest bound).
-"""
-function clip(expr::Expr, min, max)
-    min = convert(Expr, min)
-    max = convert(Expr, max)
-    out = API.polars_expr_clip(expr, min, max)
-    return Expr(out)
-end
-
-"""
-    clip(min, max)::Base.Callable
-
-Curried form of [`clip`](@ref) for use with `|>`, e.g. `col("x") |> clip(0, 10)`.
-"""
-clip(min, max) = expr -> clip(expr, min, max)
-
+@wrap_expr_method clip(expr::Expr, min::Expr, max::Expr) polars_expr_clip "Clips the values to the `[min, max]` range (values outside are set to the nearest bound)."
+@curry clip(min, max)
 export clip
 
-"""
-    clip_min(expr::Polars.Expr, min)::Polars.Expr
+@wrap_expr_method clip_min(expr::Expr, min::Expr) polars_expr_clip_min "Clips values below `min` up to `min` (values `>= min`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_max`](@ref) for the upper-bound-only form."
+@curry clip_min(min)
 
-Clips values below `min` up to `min` (values `>= min`, and any `missing`, pass through
-unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_max`](@ref) for the
-upper-bound-only form.
-"""
-clip_min(expr::Expr, min) = Expr(API.polars_expr_clip_min(expr, convert(Expr, min)))
-
-"""
-    clip_min(min)::Base.Callable
-
-Curried form of [`clip_min`](@ref) for use with `|>`.
-"""
-clip_min(min) = expr -> clip_min(expr, min)
-
-"""
-    clip_max(expr::Polars.Expr, max)::Polars.Expr
-
-Clips values above `max` down to `max` (values `<= max`, and any `missing`, pass through
-unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_min`](@ref) for the
-lower-bound-only form.
-"""
-clip_max(expr::Expr, max) = Expr(API.polars_expr_clip_max(expr, convert(Expr, max)))
-
-"""
-    clip_max(max)::Base.Callable
-
-Curried form of [`clip_max`](@ref) for use with `|>`.
-"""
-clip_max(max) = expr -> clip_max(expr, max)
+@wrap_expr_method clip_max(expr::Expr, max::Expr) polars_expr_clip_max "Clips values above `max` down to `max` (values `<= max`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_min`](@ref) for the lower-bound-only form."
+@curry clip_max(max)
 
 export clip_min, clip_max
 
@@ -940,28 +730,18 @@ can satisfy the condition.
 function is_between(expr::Expr, lower_bound, upper_bound; closed::Symbol = :both)
     lower_bound = convert(Expr, lower_bound)
     upper_bound = convert(Expr, upper_bound)
-    closed_enum = if closed == :both
-        API.PolarsClosedIntervalBoth
-    elseif closed == :left
-        API.PolarsClosedIntervalLeft
-    elseif closed == :right
-        API.PolarsClosedIntervalRight
-    elseif closed == :none
-        API.PolarsClosedIntervalNone
-    else
-        error("unknown closed=$closed, expected one of (:both, :left, :right, :none)")
-    end
+    closed_enum = _enum_lookup(
+        closed, "closed",
+        :both => API.PolarsClosedIntervalBoth,
+        :left => API.PolarsClosedIntervalLeft,
+        :right => API.PolarsClosedIntervalRight,
+        :none => API.PolarsClosedIntervalNone,
+    )
     out = API.polars_expr_is_between(expr, lower_bound, upper_bound, closed_enum)
     return Expr(out)
 end
 
-"""
-    is_between(lower_bound, upper_bound; closed::Symbol=:both)
-
-Curried form of [`is_between`](@ref) for use with `|>`.
-"""
-is_between(lower_bound, upper_bound; closed::Symbol = :both) =
-    expr -> is_between(expr, lower_bound, upper_bound; closed)
+@curry is_between(lower_bound, upper_bound; closed::Symbol = :both)
 
 export is_between
 
@@ -995,12 +775,7 @@ function replace_strict(expr::Expr, old, new; default = nothing)
     return Expr(out)
 end
 
-"""
-    replace_strict(old, new; default=nothing)::Base.Callable
-
-Curried form of [`replace_strict`](@ref) for use with `|>`.
-"""
-replace_strict(old, new; default = nothing) = expr -> replace_strict(expr, old, new; default = default)
+@curry replace_strict(old, new; default = nothing)
 
 export replace_strict
 
@@ -1038,15 +813,12 @@ function over(
         nulls_last::Bool = false
     )
     partition_by = _expr_vector(partition_by)
-    mapping_enum = if mapping_strategy == :group_to_rows
-        API.PolarsWindowMappingGroupsToRows
-    elseif mapping_strategy == :explode
-        API.PolarsWindowMappingExplode
-    elseif mapping_strategy == :join
-        API.PolarsWindowMappingJoin
-    else
-        error("unknown over mapping_strategy=$mapping_strategy, expected one of (:group_to_rows, :explode, :join)")
-    end
+    mapping_enum = _enum_lookup(
+        mapping_strategy, "over mapping_strategy",
+        :group_to_rows => API.PolarsWindowMappingGroupsToRows,
+        :explode => API.PolarsWindowMappingExplode,
+        :join => API.PolarsWindowMappingJoin,
+    )
     order_by_expr = order_by === nothing ? nothing : _as_expr(order_by)
     GC.@preserve partition_by order_by_expr begin
         partition_ptrs = Ptr{polars_expr_t}[p.ptr for p in partition_by]
@@ -1125,60 +897,20 @@ function arg_sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false
     return Expr(out)
 end
 
-"""
-    arg_sort(; descending::Bool=false, nulls_last::Bool=false)::Base.Callable
-
-Curried form of [`arg_sort`](@ref) for use with `|>`.
-"""
-arg_sort(; descending::Bool = false, nulls_last::Bool = false) = expr -> arg_sort(expr; descending, nulls_last)
+@curry arg_sort(; descending::Bool = false, nulls_last::Bool = false)
 
 export arg_sort
 
-"""
-    gather(expr::Polars.Expr, idx; null_on_oob::Bool=false)::Polars.Expr
-
-Take values by index. `idx` is an expression, or an integer vector promoted via [`lit`](@ref).
-
-`null_on_oob` sets the behaviour when an index is out of bounds: `true` gives `missing`, `false`
-(the default) raises a [`PolarsError`](@ref) when the result is collected.
-
-!!! note "Indices are 0-based"
-    `idx` is 0-based, and negative indices count from the end. This differs from
-    [`Polars.nth`](@ref) and `Selectors.by_index`, which are 1-based: those select a column from a
-    position the caller writes literally, whereas `idx` here is data, and usually comes from
-    [`arg_sort`](@ref), `arg_min` or `arg_max`, which return 0-based positions. Sharing one
-    convention lets `gather(x, arg_sort(y))` compose without an offset.
-"""
-function gather(expr::Expr, idx; null_on_oob::Bool = false)
-    idx = convert(Expr, idx)
-    out = API.polars_expr_gather(expr, idx, null_on_oob)
-    return Expr(out)
-end
+@wrap_expr_method gather(expr::Expr, idx::Expr; null_on_oob::Bool = false) polars_expr_gather "Take values by index. `idx` is an expression, or an integer vector promoted via [`lit`](@ref).\n\n`null_on_oob` sets the behaviour when an index is out of bounds: `true` gives `missing`, `false` (the default) raises a [`PolarsError`](@ref) when the result is collected.\n\n!!! note \"Indices are 0-based\"\n    `idx` is 0-based, and negative indices count from the end. This differs from [`Polars.nth`](@ref) and `Selectors.by_index`, which are 1-based: those select a column from a position the caller writes literally, whereas `idx` here is data, and usually comes from [`arg_sort`](@ref), `arg_min` or `arg_max`, which return 0-based positions. Sharing one convention lets `gather(x, arg_sort(y))` compose without an offset."
 
 export gather
 
-"""
-    gather_every(expr::Polars.Expr, n::Integer; offset::Integer=0)::Polars.Expr
-
-Take every `n`th value. `offset` is the starting index, 0-based.
-"""
-function gather_every(expr::Expr, n::Integer; offset::Integer = 0)
-    out = API.polars_expr_gather_every(expr, n, offset)
-    return Expr(out)
-end
+@wrap_expr_method gather_every(expr::Expr, n::Integer; offset::Integer = 0) polars_expr_gather_every "Take every `n`th value. `offset` is the starting index, 0-based."
 
 export gather_every
 
 
-"""
-    item(expr::Polars.Expr; allow_empty::Bool=false)::Polars.Expr
-
-The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or
-overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead
-of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a
-`DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation).
-"""
-item(expr::Expr; allow_empty::Bool = false) = Expr(API.polars_expr_item(expr, allow_empty))
+@wrap_expr_method item(expr::Expr; allow_empty::Bool = false) polars_expr_item "The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a `DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation)."
 
 
 """Coerces an iterable of column references (names, `Expr`s, `Selector`s) into a `Vector{Expr}`
@@ -1204,127 +936,16 @@ function Base.coalesce(first::Expr, rest::Expr...)
     return Expr(out[])
 end
 
-"""
-    as_struct(exprs...)::Polars.Expr
-
-Collects `exprs` (columns or expressions) into a single `Struct`-typed expression, one field per
-input (named after each input's own output name). The write-side counterpart to
-[`Structs.field_by_name`](@ref)/[`Structs.field_by_index`](@ref).
-"""
-function as_struct(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_as_struct(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
+@wrap_multi_expr_function as_struct polars_expr_as_struct false "Collects `exprs` (columns or expressions) into a single `Struct`-typed expression, one field per input (named after each input's own output name). The write-side counterpart to [`Structs.field_by_name`](@ref)/[`Structs.field_by_index`](@ref)."
 
 export as_struct
 
-"""
-    all_horizontal(exprs...)::Polars.Expr
-
-Row-wise (horizontal) boolean AND across `exprs`. The output column is named `"all"` unless
-[`alias`](@ref)ed.
-"""
-function all_horizontal(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_all_horizontal(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    any_horizontal(exprs...)::Polars.Expr
-
-Row-wise (horizontal) boolean OR across `exprs`. The output column is named `"any"` unless
-[`alias`](@ref)ed.
-"""
-function any_horizontal(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_any_horizontal(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    min_horizontal(exprs...)::Polars.Expr
-
-Row-wise (horizontal) minimum across `exprs`. The output column is named `"min"` unless
-[`alias`](@ref)ed.
-"""
-function min_horizontal(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_min_horizontal(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    max_horizontal(exprs...)::Polars.Expr
-
-Row-wise (horizontal) maximum across `exprs`. The output column is named `"max"` unless
-[`alias`](@ref)ed.
-"""
-function max_horizontal(exprs...)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_max_horizontal(ptrs, length(ptrs), out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    sum_horizontal(exprs...; ignore_nulls::Bool=true)::Polars.Expr
-
-Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are
-treated as `0`; if `false`, any null in a row makes that row's sum `null`.
-"""
-function sum_horizontal(exprs...; ignore_nulls::Bool = true)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_sum_horizontal(ptrs, length(ptrs), ignore_nulls, out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
-
-"""
-    mean_horizontal(exprs...; ignore_nulls::Bool=true)::Polars.Expr
-
-Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are
-excluded from the average; if `false`, any null in a row makes that row's mean `null`.
-"""
-function mean_horizontal(exprs...; ignore_nulls::Bool = true)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_mean_horizontal(ptrs, length(ptrs), ignore_nulls, out)
-        polars_error(err)
-    end
-    return Expr(out[])
-end
+@wrap_multi_expr_function all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
+@wrap_multi_expr_function any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."
+@wrap_multi_expr_function min_horizontal polars_expr_min_horizontal false "Row-wise (horizontal) minimum across `exprs`. The output column is named `\"min\"` unless [`alias`](@ref)ed."
+@wrap_multi_expr_function max_horizontal polars_expr_max_horizontal false "Row-wise (horizontal) maximum across `exprs`. The output column is named `\"max\"` unless [`alias`](@ref)ed."
+@wrap_multi_expr_function sum_horizontal polars_expr_sum_horizontal true "Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are treated as `0`; if `false`, any null in a row makes that row's sum `null`."
+@wrap_multi_expr_function mean_horizontal polars_expr_mean_horizontal true "Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are excluded from the average; if `false`, any null in a row makes that row's mean `null`."
 
 export all_horizontal, any_horizontal, min_horizontal, max_horizontal, sum_horizontal, mean_horizontal
 
@@ -1336,23 +957,16 @@ Fills `null`s by interpolating between the surrounding non-null values, using `m
 `null`.
 """
 function interpolate(expr::Expr; method::Symbol = :linear)
-    method_enum = if method == :linear
-        API.PolarsInterpolationMethodLinear
-    elseif method == :nearest
-        API.PolarsInterpolationMethodNearest
-    else
-        error("unknown interpolation method $method, expected one of (:linear, :nearest)")
-    end
+    method_enum = _enum_lookup(
+        method, "interpolation method",
+        :linear => API.PolarsInterpolationMethodLinear,
+        :nearest => API.PolarsInterpolationMethodNearest,
+    )
     out = API.polars_expr_interpolate(expr, method_enum)
     return Expr(out)
 end
 
-"""
-    interpolate(; method::Symbol=:linear)::Base.Callable
-
-Curried form of [`interpolate`](@ref) for use with `|>`.
-"""
-interpolate(; method::Symbol = :linear) = expr -> interpolate(expr; method)
+@curry interpolate(; method::Symbol = :linear)
 
 export interpolate
 
@@ -1365,13 +979,7 @@ Computes the first discrete difference between shifted items (`expr[i] - expr[i 
 """
 function Base.diff(expr::Expr, n = 1; null_behavior::Symbol = :ignore)
     n = convert(Expr, n)
-    behavior = if null_behavior == :ignore
-        API.PolarsNullBehaviorIgnore
-    elseif null_behavior == :drop
-        API.PolarsNullBehaviorDrop
-    else
-        error("unknown null_behavior $null_behavior, expected one of (:ignore, :drop)")
-    end
+    behavior = _null_behavior_enum(null_behavior)
     out = API.polars_expr_diff(expr, n, behavior)
     return Expr(out)
 end
