@@ -90,8 +90,8 @@ end
 end
 
 @testset "group_by_dynamic/rolling duration strings survive GC pressure" begin
-    # `every`/`period`/`offset` are passed to the FFI as raw (pointer, len) pairs; the ccall
-    # site used to omit them from `GC.@preserve`, so nothing rooted them past their last "normal"
+    # `every`/`period`/`offset` are passed to the FFI as raw (pointer, len) pairs, so the ccall
+    # site must hold them in `GC.@preserve` -- nothing else roots them past their last "normal"
     # Julia-side use. Build them via `join`/`string` (not literals -- to defeat any accidental
     # string interning) and force collection *between* construction and the ccall to make an
     # unrooted string get freed if it can be.

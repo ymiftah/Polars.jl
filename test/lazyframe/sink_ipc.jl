@@ -79,7 +79,7 @@ end
         @test isempty(readdir(cloud_dir))
         @test !isdir(joinpath(cloud_dir, "s3:"))
 
-        # regression guard: a plain local path still works exactly as before
+        # a plain local path takes the same entry point and still writes normally
         local_path = joinpath(cloud_dir, "regression.arrow")
         write_ipc(local_path, df)
         @test read_ipc(local_path)[:x] == df[:x]

@@ -2,9 +2,9 @@
 # that positional access depends on.
 
 @testset "Tables.rows: the row half of the interface actually exists" begin
-    # `Tables.rowaccess(::DataFrame) = true` declares this method to Tables.jl, but nothing ever
-    # defined it -- row-oriented consumers were relying on Tables.jl's own fallbacks rather than
-    # on anything this package guaranteed.
+    # `Tables.rowaccess(::DataFrame) = true` declares this method to Tables.jl, which takes the
+    # declaration as a promise -- without a definition to back it, row-oriented consumers fall
+    # through to Tables.jl's own fallbacks rather than anything this package guarantees.
     df = DataFrame((; a = [1, 2, 3], b = ["x", "y", "z"]))
 
     rows = collect(Tables.rows(df))
@@ -39,8 +39,8 @@ end
 end
 
 @testset "DataFrameColumns is concretely typed" begin
-    # `names::Tuple{Vararg{Symbol}}` was an abstract field type, so every access boxed. It is
-    # now `NTuple{N,Symbol}`, with `N` a type parameter.
+    # `names` is an `NTuple{N,Symbol}` with `N` a type parameter, rather than an abstract
+    # `Tuple{Vararg{Symbol}}` whose every access would box.
     cols = Tables.columns(DataFrame((; a = [1], b = [2], c = [3])))
     @test isconcretetype(typeof(cols))
     @test typeof(cols) == Polars.DataFrameColumns{3}
@@ -48,9 +48,9 @@ end
 end
 
 @testset "column names are cached per handle" begin
-    # Each `_column_names` call was a ccall plus a full Arrow schema export and parse, so
-    # positional column access was O(ncols) *per column*. The cache is sound because no C entry
-    # point renames/adds/drops a column of an existing frame in place.
+    # An unmemoized `_column_names` call costs a ccall plus a full Arrow schema export and parse,
+    # which would make positional column access O(ncols) *per column*. The cache is sound because
+    # no C entry point renames/adds/drops a column of an existing frame in place.
     df = DataFrame((; a = [1, 2], b = ["x", "y"], c = [1.5, 2.5]))
     @test df.column_names === nothing # nothing computed until asked
 
@@ -76,7 +76,7 @@ end
 
     @test collect(df["abc"]) == [1, 2, 3]
     @test collect(df[:abc]) == [1, 2, 3]
-    # a `SubString` is an `AbstractString` like any other -- it used to be a `MethodError`
+    # a `SubString` is an `AbstractString` like any other, so it indexes the same way
     @test collect(df[SubString("abc_suffix", 1, 3)]) == [1, 2, 3]
     @test collect(get_column(df, SubString("abc_suffix", 1, 3))) == [1, 2, 3]
 

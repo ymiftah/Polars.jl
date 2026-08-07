@@ -2110,10 +2110,10 @@ pub unsafe extern "C" fn polars_expr_dt_strftime(
 /// a `fractional` flag (whole-unit truncation vs. exact fractional value) and is otherwise
 /// identical in shape, so unlike `gen_impl_expr_dt!` above (no extra args) these get their own
 /// small macro rather than 7x hand-written boilerplate. Gated on `dtype-duration` in polars-plan
-/// (see c-polars/Cargo.toml and the gap-closure plan's Phase 5 sweep notes) -- confirmed already
-/// active via `dtype-slim` (part of the `polars` crate's own default features) before this task's
-/// Cargo.toml change, so this is belt-and-suspenders explicitness, not a functional fix (contrast
-/// `dtype-time`, which really was inactive on polars-ops until explicitly added).
+/// (see c-polars/Cargo.toml and the gap-closure plan's Phase 5 sweep notes) -- also reached
+/// transitively via `dtype-slim` (part of the `polars` crate's own default features), so naming it
+/// in Cargo.toml is belt-and-suspenders explicitness (contrast `dtype-time`, which polars-ops does
+/// not get from any default and must be listed).
 macro_rules! gen_impl_expr_dt_fractional {
     ($n: ident, $t: expr) => {
         #[no_mangle]

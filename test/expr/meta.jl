@@ -46,10 +46,9 @@ end
     @test M.root_names(col("x")) == ["x"]
     @test M.root_names(col("x") + col("y")) == ["x", "y"]
     # A literal-only expr has no column reference at all -- an empty Vector{String}, not an
-    # error (this was actually a real bug during development: the Rust-side `_len`/`_get` pair
-    # is correct, but the naive Julia `0:(n - 1)` loop underflowed for `n::Csize_t == 0`, since
-    # `Csize_t` is unsigned -- `0 - 1` wraps around to a huge range instead of the intended empty
-    # one. Caught by exercising this exact case live before writing this test).
+    # error. The Rust-side `_len`/`_get` pair handles this fine; the hazard is on the Julia side,
+    # where a naive `0:(n - 1)` loop underflows for `n::Csize_t == 0` -- `Csize_t` is unsigned, so
+    # `0 - 1` wraps around to a huge range instead of the intended empty one.
     names = M.root_names(lit(1))
     @test names == String[]
     @test names isa Vector{String}
