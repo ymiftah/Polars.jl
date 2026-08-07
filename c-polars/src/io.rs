@@ -630,8 +630,8 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
 /// the destination `path`. `CloudOptions` cannot be constructed without knowing the target cloud
 /// scheme, which is why the handle only stores unparsed key/value pairs (see its own doc comment
 /// in `types.rs`) -- resolution happens here, per call, once `path` is available. A null handle
-/// (the common case: no `storage_options` given) yields `None`, matching every scan/sink
-/// function's pre-existing behavior.
+/// (the common case: no `storage_options` given) yields `None`, which is what every scan/sink
+/// function expects when no cloud configuration applies.
 unsafe fn resolve_cloud_options(
     path: &str,
     cloud_options: *const polars_cloud_options_t,
