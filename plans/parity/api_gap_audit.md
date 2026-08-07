@@ -49,6 +49,32 @@ that merge, this effort additionally closed a "quick wins" batch of no-Cargo-fea
   there and at their own entries (Group 2, Group 3) rather than adding a Cargo change outside a
   dedicated, batched PR per `CLAUDE.md`.
 
+A subsequent `pypolars-test-parity` sweep of this batch (per its own skill) against
+`py-polars/tests/unit/series/test_series.py`, `.../datatypes/test_temporal.py`, and
+`.../expr/test_exprs.py`/`.../operations/test_expansion.py` found the initial tests happy-path-only
+in the ways that skill predicts, and one real API-surface gap:
+
+- **`exclude` was missing the dtype-based form entirely.** Upstream `pl.exclude`'s actual signature
+  is `str | PolarsDataType | Collection[...]`, not name-only — `pl.exclude(pl.Int64)`/
+  `pl.all().exclude(pl.Boolean)` are real, tested upstream calls. **Closed**: `exclude(dtypes::Type...)`
+  now composes `Selectors.all() - Selectors.by_dtype(dtypes...)`, plus an explicit `exclude()`
+  method to resolve the otherwise-ambiguous zero-argument dispatch between the two vararg forms.
+  Mixing a name and a dtype in one call (`exclude("a", Int64)`) is a plain `MethodError` here,
+  matching upstream's own rejection of the same mix (there, a `TypeError`) — deliberately not
+  supported, documented on the docstring. Upstream's `pl.exclude` also accepts a `"^regex$"`
+  string, which this package's `by_name` has never supported (regex goes through the separate
+  `Selectors.matches` instead, per its own docstring) — `exclude` follows that existing precedent
+  and does not add regex support either.
+- Depth gaps closed without a signature change: `cot(π)` (a near-pole finite value,
+  `-8.1656e15`, distinct from `cot(0)`'s exact `+Inf`), the shared `[0.0, π, missing, NaN]`
+  trig fixture cross-checked against `arcsinh`/`arccosh`/`arctanh` (π lands in-domain for
+  `arccosh` but out-of-domain for `arctanh` — the two hand-picked fixtures already in place don't
+  happen to probe that), a `Date`-dtype wrong-dtype check for `arccosh`/`arcsinh`/`arctanh`/`cot`
+  (upstream tests this via `cosh`, not just via `String`) — `cbrt` again silently casts rather
+  than raising, on `Date` same as `String` — and genuine (non-multiple-of-1000) sub-millisecond
+  precision for the `Dt` components via `cast_datetime(...; time_unit=:ns)`, since a
+  `Dates.DateTime` literal can't itself carry that precision.
+
 Everything else in this file was re-checked against `main` after the merge and remains accurate.
 
 Read alongside its two siblings, which cover different slices of the same problem:

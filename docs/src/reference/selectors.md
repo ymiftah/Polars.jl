@@ -72,7 +72,7 @@ exclude
 select(df, Selectors.starts_with("f"))
 ```
 
-`strict` (default `true`) controls what happens when a name/index doesn't exist: `by_name`/`by_index` raise a `PolarsError`; passing `strict=false` silently skips it instead. The top-level `exclude` is the inverse of `by_name` and always behaves as if `strict=false` — a name absent from the frame is silently ignored rather than raising.
+`strict` (default `true`) controls what happens when a name/index doesn't exist: `by_name`/`by_index` raise a `PolarsError`; passing `strict=false` silently skips it instead. The top-level `exclude` is the name-based inverse of `by_name` (always behaving as if `strict=false` — a name absent from the frame is silently ignored rather than raising) and, via a separate method, the dtype-based inverse of [`Selectors.by_dtype`](@ref) — `exclude(Int64)` excludes every `Int64` column. The two forms don't mix in one call (`exclude("a", Int64)` is a `MethodError`); combine two `exclude` calls with `&` instead.
 
 !!! note "`by_index` is 1-based, unlike py-polars' 0-based `cs.by_index`"
     Matches this package's own `nth` (see [Functions](@ref)) — 1-based indexing is the convention everywhere else in this Julia package. Negative indices count back from the end (`by_index(-1)` is the last column, same as `nth(-1)`).

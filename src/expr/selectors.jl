@@ -440,12 +440,25 @@ end # module Selectors
 
 """
     exclude(names::AbstractString...)::Selector
+    exclude(dtypes::Type...)::Selector
+    exclude()::Selector
 
-Selects every column except `names` -- the top-level counterpart to [`Selectors.by_name`](@ref)'s
-inverse, equivalent to `Selectors.all() - Selectors.by_name(names...; strict=false)`. Unlike
-`Selectors.by_name`, a name in `names` that is absent from the frame is silently ignored rather
-than raising, matching upstream `pl.exclude`'s "exclude these if present" semantics -- the
-motivating use case is a name list shared across frames that don't all have every column.
+Selects every column except `names` (by name) or `dtypes` (by dtype, matching
+[`Selectors.by_dtype`](@ref)'s own type set) -- the top-level counterpart to
+[`Selectors.by_name`](@ref)'s inverse and [`Selectors.by_dtype`](@ref)'s inverse, respectively.
+`exclude("a")` is `Selectors.all() - Selectors.by_name("a"; strict=false)`; `exclude(Int64)` is
+`Selectors.all() - Selectors.by_dtype(Int64)`. Unlike `Selectors.by_name`, a name in `names`
+absent from the frame is silently ignored rather than raising, matching upstream `pl.exclude`'s
+"exclude these if present" semantics -- the motivating use case is a name list shared across
+frames that don't all have every column. `exclude()` (no arguments) selects every column, the
+identity for this family.
+
+!!! note "Mixing a name and a dtype in one call is a `MethodError`, not a `TypeError`"
+    Matches upstream, which rejects `pl.exclude("a", pl.Int64)` the same way (there, a
+    `TypeError`). Combine two `exclude` calls with [`&`](@ref Base.:&(::Polars.Selector,
+    ::Polars.Selector)) instead: `exclude("a") & exclude(Int64)`.
 """
 exclude(names::AbstractString...) = Selectors.all() - Selectors.by_name(names...; strict = false)
+exclude(dtypes::Type...) = Selectors.all() - Selectors.by_dtype(dtypes...)
+exclude() = Selectors.all()
 export exclude

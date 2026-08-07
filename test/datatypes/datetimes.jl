@@ -128,6 +128,36 @@ end
     @test ismissing(collect(r2[:ns])[3])
 end
 
+@testset "Dt.millisecond / Dt.microsecond / Dt.nanosecond: genuine sub-millisecond precision (py-polars test_temporal.py's nanosecond fixture)" begin
+    # `Dates.DateTime` literals only carry millisecond precision, so the round-number fixture
+    # above (123ms -> 123_000us -> 123_000_000ns) can't distinguish a correct scaling
+    # implementation from one that's merely consistent at multiples of 1000. Upstream's own
+    # fixture uses genuine microsecond-level values (555555, 986754, 123456), so this builds the
+    # same precision here via an Int64-nanoseconds-since-epoch `cast_datetime(...; time_unit=:ns)`
+    # instead, bypassing `DateTime`'s ms cap -- `datetime(2000, 1, 1, 1, 1, 1, 555555)` from
+    # upstream's `test_data`, at whole-second boundaries so the microsecond count *is* the entire
+    # sub-second part (matching upstream's `v.microsecond` semantics exactly, not an addition to
+    # a nonzero millisecond).
+    whole_seconds = [
+        DateTime(2000, 1, 1, 1, 1, 1), DateTime(2024, 3, 15, 14, 30, 45),
+    ]
+    sub_second_us = [555555, 986754] # upstream's own values (test_temporal.py ~line 320)
+    epoch = DateTime(1970, 1, 1)
+    ns_since_epoch = [
+        Dates.value(s - epoch) * 1_000_000 + us * 1000 for
+        (s, us) in zip(whole_seconds, sub_second_us)
+    ]
+    df = DataFrame((; ns = ns_since_epoch))
+    r = select(df, alias(cast_datetime(col("ns"); time_unit = :ns), "dtm"))
+    r2 = select(
+        r, alias(Dt.millisecond(col("dtm")), "ms"), alias(Dt.microsecond(col("dtm")), "us"),
+        alias(Dt.nanosecond(col("dtm")), "ns")
+    )
+    @test collect(r2[:us]) == sub_second_us
+    @test collect(r2[:ms]) == [us ÷ 1000 for us in sub_second_us] # upstream: v.microsecond // 1000
+    @test collect(r2[:ns]) == [us * 1000 for us in sub_second_us] # upstream: v.microsecond * 1000
+end
+
 @testset "Dt.timestamp / Dt.epoch (py-polars test_epoch_matches_timestamp)" begin
     df = DataFrame((; dt = [DateTime(2001, 1, 1), DateTime(2001, 2, 1, 10, 8, 9)]))
 

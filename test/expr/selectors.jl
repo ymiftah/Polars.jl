@@ -22,7 +22,7 @@ const S = Selectors
     @test size(select(df, S.by_name())) == (0, 0)
 end
 
-@testset "exclude: inverse of by_name, always non-strict (API gap audit quick-win batch)" begin
+@testset "exclude: inverse of by_name, always non-strict (API gap audit quick-win batch; py-polars test_exprs.py::test_exclude / test_expansion.py::test_exclude_selection)" begin
     df = DataFrame((; a = [1, 2, 3], b = [4, 5, 6], c = [7, 8, 9]))
 
     @test sort(names(select(df, exclude("a")))) == ["b", "c"]
@@ -41,6 +41,22 @@ end
 
     # equivalent to the documented `Selectors.all() - Selectors.by_name(...; strict=false)` composition
     @test sort(names(select(df, exclude("a")))) == sort(names(select(df, S.all() - S.by_name("a"; strict = false))))
+end
+
+@testset "exclude: dtype-based form (py-polars test_exprs.py::test_exclude dtype parametrizations)" begin
+    # upstream's own fixture: {a: Int64, b: Int64, c: String}, parametrized over both name- and
+    # dtype-based `exclude`/`Expr.exclude` input -- ported here as the equivalent top-level calls
+    dfdt = DataFrame((; a = Int64[1], b = Int64[2], c = ["x"]))
+
+    @test names(select(dfdt, exclude(Int64))) == ["c"]
+    @test sort(names(select(dfdt, exclude(String, Float32)))) == ["a", "b"]
+
+    # a dtype with zero matching columns is a legitimate selector matching every column, not an error
+    @test sort(names(select(dfdt, exclude(Float64)))) == ["a", "b", "c"]
+
+    # mixing a name and a dtype in one call is a MethodError here (a TypeError upstream) --
+    # documented on the docstring as the deliberate divergence
+    @test_throws MethodError exclude("a", Int64)
 end
 
 @testset "Selectors.by_index: 1-based, negative, cross-checked against nth" begin

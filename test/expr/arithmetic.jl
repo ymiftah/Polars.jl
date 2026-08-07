@@ -289,6 +289,34 @@ end
     @test ismissing(out4[3])
     @test isnan(out4[4])
 
+    # py-polars' own shared fixture (series_test.py::test_trigonometric, parametrized over these
+    # three among others): [0.0, π, None, NaN]. π is out of arctanh's (-1,1) domain but *inside*
+    # arccosh's [1,∞) domain -- upstream's shared parametrization doesn't happen to exercise
+    # arccosh's own domain edge (that's what the dedicated 0.5 fixture above is for), but does
+    # cross-check the in-domain value against `np.arccosh`/`np.arcsinh` directly, which the
+    # hand-picked fixture above doesn't.
+    dftrig_pi = DataFrame((; a = Union{Float64, Missing}[0.0, π, missing, NaN]))
+    r_pi = select(
+        dftrig_pi, alias(arcsinh(col("a")), "asinh"), alias(arccosh(col("a")), "acosh"),
+        alias(arctanh(col("a")), "atanh")
+    )
+    @test collect(r_pi[:asinh])[1:2] ≈ Base.asinh.([0.0, π])
+    @test collect(r_pi[:acosh])[2] ≈ Base.acosh(Float64(π)) # in-domain (π > 1), a real value
+    @test isnan(collect(r_pi[:atanh])[2]) # out-of-domain (π > 1)
+    @test ismissing(collect(r_pi[:asinh])[3]) && ismissing(collect(r_pi[:acosh])[3]) &&
+        ismissing(collect(r_pi[:atanh])[3])
+    @test isnan(collect(r_pi[:asinh])[4]) && isnan(collect(r_pi[:acosh])[4]) &&
+        isnan(collect(r_pi[:atanh])[4])
+
+    # py-polars' own test_trigonometric_cot: cot(π) is a huge finite value, not exactly ±Inf --
+    # π isn't exactly representable in Float64, so sin(π) is a tiny nonzero epsilon rather than
+    # an exact zero, landing near (not at) the pole. Distinct from cot(0)'s exact-zero pole above;
+    # both matter; upstream's expected value is `-8.1656e15` (checked here via Julia's own `cot`
+    # rather than the hardcoded literal, since the two should be bit-for-bit identical Float64 ops).
+    r4b = select(dftrig_pi, alias(Base.cot(col("a")), "cot"))
+    @test collect(r4b[:cot])[2] ≈ Base.cot(Float64(π))
+    @test collect(r4b[:cot])[2] < -1e15 # sanity-check against upstream's literal -8.1656e15
+
     # cbrt: unlike sqrt, has no domain restriction -- a negative input has a real cube root.
     dfcbrt = DataFrame((; a = Union{Float64, Missing}[-8.0, 0.0, missing, NaN]))
     r5 = select(dfcbrt, alias(Base.cbrt(col("a")), "cbrt"))
@@ -315,6 +343,21 @@ end
     dfstr_nonnumeric = DataFrame((; s = ["abc", "def"]))
     r7 = select(dfstr_nonnumeric, alias(Base.cbrt(col("s")), "cbrt"))
     @test all(ismissing, collect(r7[:cbrt]))
+
+    # py-polars' own test_trigonometric_invalid_input also checks a Date column (via `cosh`, as
+    # one representative function), not just String -- ported here across every function closed
+    # in this batch, since a wrapped operation panicking or aborting on an untested dtype is
+    # exactly the failure mode `guard_error` exists to catch (see CLAUDE.md).
+    dfdate = DataFrame((; s = [Date(1990, 2, 28), Date(2022, 7, 26)]))
+    @test_throws PolarsError select(dfdate, arccosh(col("s")))
+    @test_throws PolarsError select(dfdate, arcsinh(col("s")))
+    @test_throws PolarsError select(dfdate, arctanh(col("s")))
+    @test_throws PolarsError select(dfdate, Base.cot(col("s")))
+
+    # cbrt again the outlier: silently casts a Date's physical (days-since-epoch) representation
+    # to Float64 rather than raising, consistent with its String leniency above.
+    r8 = select(dfdate, alias(Base.cbrt(col("s")), "cbrt"))
+    @test !any(ismissing, collect(r8[:cbrt]))
 end
 
 @testset "log1p / log10 (API gap batch four, Phase 1; domain edges per py-polars' test_exp_log1p)" begin
