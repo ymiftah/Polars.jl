@@ -96,6 +96,24 @@ end
     @test_throws PolarsError DataFrame([Series("dup", [1]), Series("dup", [2])])
 end
 
+@testset "native_repr(df::DataFrame) -- polars' own Rust Display formatting" begin
+    df = DataFrame((; a = [1, 2, 3], b = ["x", "y", "z"]))
+    s = Polars.native_repr(df)
+
+    @test s isa String
+    @test !isempty(s)
+    @test contains(s, "a")
+    @test contains(s, "b")
+    @test contains(s, "shape: (3, 2)")
+
+    # Distinct from the PrettyTables-based `Base.show` render -- different formatting engine.
+    @test s != repr("text/plain", df)
+
+    # Empty DataFrame doesn't crash and still reports its shape.
+    empty_df = DataFrame((; a = Int[]))
+    @test contains(Polars.native_repr(empty_df), "shape: (0, 1)")
+end
+
 @testset "mixed-type column coercion" begin
     # Int/Float64 mix in a single column literal promotes to Float64 (plain Julia array
     # promotion, not a Polars-specific coercion path)

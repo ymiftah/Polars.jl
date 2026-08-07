@@ -47,6 +47,13 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
 - **`Strings.titlecase` is broken.** The binding exists but errors at runtime. See
   [Developer](@ref) for why.
 
+- **No `slice` option on any join verb** (`innerjoin`, `leftjoin`, ..., `join_asof`). Verified live
+  that `JoinArgs.slice` panics unconditionally in the current polars version regardless of collect
+  engine (`"impl error: slice is not handled"`) — caught cleanly as a `PolarsError`, not a crash,
+  but there is no working codepath behind it to expose. `head`/`tail` on the joined result cover
+  the common cases (e.g. `head(innerjoin(a, b, "k"), 10)`); there is no offset+length frame-level
+  `slice` yet either (see `plans/parity/api_gap_audit.md`'s Group 6).
+
 - **`Polars.Meta.is_literal` reports `false` for a `Date`/`Time`/`DateTime` literal**
   (`lit(Date(2024, 1, 1))`, etc.), diverging from py-polars. These are built as a cast over an
   integer literal rather than a genuine `Literal` node (see [Literals & casting](@ref)), so

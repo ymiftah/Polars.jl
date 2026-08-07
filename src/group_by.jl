@@ -22,17 +22,21 @@ Prints a short placeholder; a group-by has no resolved schema of its own to show
 Base.show(io::IO, ::LazyGroupBy) = print(io, "LazyGroupBy(...) (call agg(...) to materialize)")
 
 """
-    group_by(df::LazyFrame, exprs...)
+    group_by(df::LazyFrame, exprs...; maintain_order::Bool=false)
 
 Returns a lazy group-by object over the provided [`LazyFrame`](@ref).
 The values for the group-by can be aggregated using the [`agg`](@ref) function.
+
+`maintain_order`: preserve each group's row order, and the order groups first appear in, through
+`agg`'s output (default `false`, which allows more optimizations).
 """
-group_by(df::LazyFrame, exprs...) = groupby(df, collect(exprs)::Vector)
-function groupby(df::LazyFrame, exprs::Vector)
+group_by(df::LazyFrame, exprs...; maintain_order::Bool = false) =
+    groupby(df, collect(exprs)::Vector; maintain_order)
+function groupby(df::LazyFrame, exprs::Vector; maintain_order::Bool = false)
     exprs = _expr_vector(exprs)
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
-        out = polars_lazy_frame_group_by(df, exprs_ptrs, length(exprs_ptrs))
+        out = polars_lazy_frame_group_by(df, exprs_ptrs, length(exprs_ptrs), maintain_order)
     end
     return LazyGroupBy(out)
 end

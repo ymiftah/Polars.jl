@@ -98,6 +98,66 @@ end
     @test ismissing(collect(r3[:q])[4])
 end
 
+@testset "Dt.millisecond / Dt.microsecond / Dt.nanosecond (API gap audit quick-win batch)" begin
+    # Each is the sub-second part of the timestamp expressed at that unit's own resolution (not a
+    # decomposed digit group), so a 123ms sub-second component reads as 123/123_000/123_000_000 at
+    # ms/us/ns resolution respectively -- mirroring the existing `total_milliseconds` family's
+    # scaling convention. `Dates.DateTime` itself only carries millisecond precision, so the
+    # microsecond/nanosecond values below are exact multiples of the millisecond value, not
+    # independent sub-millisecond data.
+    df = DataFrame((; ts = [DateTime(2024, 3, 15, 14, 30, 45, 123), DateTime(2024, 3, 15, 14, 30, 46, 0)]))
+    r = select(
+        df, alias(Dt.millisecond(col("ts")), "ms"),
+        alias(Dt.microsecond(col("ts")), "us"),
+        alias(Dt.nanosecond(col("ts")), "ns")
+    )
+    @test collect(r[:ms]) == [123, 0]
+    @test collect(r[:us]) == [123_000, 0]
+    @test collect(r[:ns]) == [123_000_000, 0]
+
+    # null propagation -- `date` (a plain `Date`, no time-of-day) does not support these accessors
+    # at all (`PolarsError: nanosecond operation not supported for dtype date`), so this uses the
+    # `datetime` column, whose null sits at index 3.
+    ks = kitchen_sink_df()
+    r2 = select(
+        ks, alias(Dt.millisecond(col("datetime")), "ms"), alias(Dt.microsecond(col("datetime")), "us"),
+        alias(Dt.nanosecond(col("datetime")), "ns")
+    )
+    @test ismissing(collect(r2[:ms])[3])
+    @test ismissing(collect(r2[:us])[3])
+    @test ismissing(collect(r2[:ns])[3])
+end
+
+@testset "Dt.millisecond / Dt.microsecond / Dt.nanosecond: genuine sub-millisecond precision (py-polars test_temporal.py's nanosecond fixture)" begin
+    # `Dates.DateTime` literals only carry millisecond precision, so the round-number fixture
+    # above (123ms -> 123_000us -> 123_000_000ns) can't distinguish a correct scaling
+    # implementation from one that's merely consistent at multiples of 1000. Upstream's own
+    # fixture uses genuine microsecond-level values (555555, 986754, 123456), so this builds the
+    # same precision here via an Int64-nanoseconds-since-epoch `cast_datetime(...; time_unit=:ns)`
+    # instead, bypassing `DateTime`'s ms cap -- `datetime(2000, 1, 1, 1, 1, 1, 555555)` from
+    # upstream's `test_data`, at whole-second boundaries so the microsecond count *is* the entire
+    # sub-second part (matching upstream's `v.microsecond` semantics exactly, not an addition to
+    # a nonzero millisecond).
+    whole_seconds = [
+        DateTime(2000, 1, 1, 1, 1, 1), DateTime(2024, 3, 15, 14, 30, 45),
+    ]
+    sub_second_us = [555555, 986754] # upstream's own values (test_temporal.py ~line 320)
+    epoch = DateTime(1970, 1, 1)
+    ns_since_epoch = [
+        Dates.value(s - epoch) * 1_000_000 + us * 1000 for
+            (s, us) in zip(whole_seconds, sub_second_us)
+    ]
+    df = DataFrame((; ns = ns_since_epoch))
+    r = select(df, alias(cast_datetime(col("ns"); time_unit = :ns), "dtm"))
+    r2 = select(
+        r, alias(Dt.millisecond(col("dtm")), "ms"), alias(Dt.microsecond(col("dtm")), "us"),
+        alias(Dt.nanosecond(col("dtm")), "ns")
+    )
+    @test collect(r2[:us]) == sub_second_us
+    @test collect(r2[:ms]) == [us ÷ 1000 for us in sub_second_us] # upstream: v.microsecond // 1000
+    @test collect(r2[:ns]) == [us * 1000 for us in sub_second_us] # upstream: v.microsecond * 1000
+end
+
 @testset "Dt.timestamp / Dt.epoch (py-polars test_epoch_matches_timestamp)" begin
     df = DataFrame((; dt = [DateTime(2001, 1, 1), DateTime(2001, 2, 1, 10, 8, 9)]))
 

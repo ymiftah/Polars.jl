@@ -127,6 +127,22 @@ end
 Base.unsafe_convert(::Type{Ptr{polars_dataframe_t}}, df::DataFrame) = df.ptr
 Base.summary(df::DataFrame) = join(size(df), '×') * " DataFrame"
 
+"""
+    native_repr(df::DataFrame)::String
+
+Renders `df` using polars' own Rust `Display` formatting (the same text `print(df)` produces in
+py-polars), rather than this package's default `PrettyTables.jl`-based `Base.show`. Useful
+for comparing against upstream output or when you specifically want the canonical polars text
+form.
+"""
+function native_repr(df::DataFrame)
+    io = Ref(IOBuffer())
+    callback = _io_callback()
+    err = API.polars_dataframe_show(df, io, callback)
+    polars_error(err)
+    return String(take!(io[]))
+end
+
 function _pretty_tables_highlighter_func(data, i::Integer, j::Integer)
     try
         cell = data[i, j]

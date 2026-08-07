@@ -17,16 +17,20 @@ _name_ptrs(names::Vector{String}) =
 _name_ptrs(names::AbstractVector{<:ColId}) = _name_ptrs(String[String(name) for name in names])
 
 """
-    unique(lf::LazyFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::LazyFrame
-    unique(df::DataFrame, subset::Vector{String}=String[]; keep::Symbol=:any)::DataFrame
+    unique(lf::LazyFrame, subset::Vector{String}=String[]; keep::Symbol=:any, maintain_order::Bool=false)::LazyFrame
+    unique(df::DataFrame, subset::Vector{String}=String[]; keep::Symbol=:any, maintain_order::Bool=false)::DataFrame
 
 Removes duplicate rows, considering only `subset` columns if provided (all columns otherwise).
 `keep` selects which duplicate to retain: `:first`, `:last`, `:none` (drop all duplicates), or
-`:any` (default — no order guarantee, allows more optimization).
+`:any` (default — no order guarantee, allows more optimization). `maintain_order` preserves row
+order in the output (default `false`, which allows more optimization).
 """
-Base.unique(df::DataFrame, subset::Vector{<:ColId} = String[]; keep::Symbol = :any) =
-    unique(lazy(df), subset; keep) |> collect
-function Base.unique(lf::LazyFrame, subset::Vector{<:ColId} = String[]; keep::Symbol = :any)
+Base.unique(df::DataFrame, subset::Vector{<:ColId} = String[]; keep::Symbol = :any, maintain_order::Bool = false) =
+    unique(lazy(df), subset; keep, maintain_order) |> collect
+function Base.unique(
+        lf::LazyFrame, subset::Vector{<:ColId} = String[];
+        keep::Symbol = :any, maintain_order::Bool = false
+    )
     keep_enum = if keep == :first
         API.PolarsUniqueKeepFirst
     elseif keep == :last
@@ -41,17 +45,17 @@ function Base.unique(lf::LazyFrame, subset::Vector{<:ColId} = String[]; keep::Sy
     owned_names, ptrs, lens = _name_ptrs(subset)
     GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
-        err = polars_lazy_frame_unique(lf, ptrs, lens, length(ptrs), keep_enum, out)
+        err = polars_lazy_frame_unique(lf, ptrs, lens, length(ptrs), keep_enum, maintain_order, out)
         polars_error(err)
     end
     return LazyFrame(out[])
 end
 
-function Base.unique(df::LazyFrame, subset::Vararg{ColId}; keep::Symbol = :any)
-    return Base.unique(df, collect(subset); keep = keep)
+function Base.unique(df::LazyFrame, subset::Vararg{ColId}; keep::Symbol = :any, maintain_order::Bool = false)
+    return Base.unique(df, collect(subset); keep, maintain_order)
 end
-Base.unique(df::DataFrame, subset::Vararg{ColId}; keep::Symbol = :any) =
-    Base.unique(lazy(df), subset...; keep = keep) |> collect
+Base.unique(df::DataFrame, subset::Vararg{ColId}; keep::Symbol = :any, maintain_order::Bool = false) =
+    Base.unique(lazy(df), subset...; keep, maintain_order) |> collect
 
 """
     drop(lf::LazyFrame, columns::Vector{String})::LazyFrame
