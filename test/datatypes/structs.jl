@@ -90,7 +90,7 @@ end
     # `lit(missing)`) is caught one level up by the NamedTuple loader's `PolarsValueTypeUnknown`
     # check -- but a null value in a schema-typed struct field reports its real dtype even while
     # null, bypassing that check and reaching these methods directly, so only their own guard makes
-    # it return `missing` rather than erroring with "value is not of type datetime".
+    # it return `missing` rather than erroring with "expected a datetime value, got Null".
     dt_nt = NamedTuple{(:a, :b), Tuple{Union{DateTime, Missing}, Int}}
     df = DataFrame((; s = dt_nt[(a = DateTime(2024, 1, 1), b = 1), (a = missing, b = 2)]))
     r = collect(df[:s])

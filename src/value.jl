@@ -132,7 +132,7 @@ function load_value(value::Value{TT}) where {TT <: Dates.Period}
     # NamedTuple loader), a null value in a *schema-typed* slot -- e.g. a struct field declared
     # Duration -- reports its real dtype even while null, so this guard (present on every other
     # `load_value` method) is required here too; without it, `polars_value_duration_get` errors
-    # with a confusing "value is not of type duration" instead of returning `missing`.
+    # with a confusing "expected a duration value, got Null" instead of returning `missing`.
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int64}()

@@ -268,9 +268,17 @@ macro_rules! gen_value_get {
             out: *mut $t,
         ) -> *const polars_error_t {
             guard_error(|| {
-                match (*value).inner {
-                    AnyValue::$rt(value) => *out = value,
-                    _ => return make_error(concat!("value is not of type ", stringify!($rt))),
+                match &(*value).inner {
+                    AnyValue::$rt(v) => *out = *v,
+                    // Reached both for a dtype mismatch and for a null value (see
+                    // `gen_series_get!` in series.rs, which shares this shape) -- name the
+                    // expectation and what was actually there.
+                    other => {
+                        return make_error(format!(
+                            "expected a {} value, got {other:?}",
+                            stringify!($rt)
+                        ));
+                    }
                 }
                 std::ptr::null()
             })
@@ -299,7 +307,7 @@ pub unsafe extern "C" fn polars_value_list_get(
     guard_error(|| {
         match &(*value).inner {
             AnyValue::List(series) => *out = make_series(series.clone()),
-            _ => return make_error("value is not of type list"),
+            other => return make_error(format!("expected a list value, got {other:?}")),
         }
         std::ptr::null()
     })
@@ -315,7 +323,7 @@ pub unsafe extern "C" fn polars_value_string_get(
         let mut w = UserIOCallback(callback, user);
         // get_str() also resolves Categorical/Enum values to their string representation.
         let Some(s) = (*value).inner.get_str() else {
-            return make_error("value is not of type string");
+            return make_error(format!("expected a string value, got {:?}", (*value).inner));
         };
         // write_all, not write: a single write() may report a short count and silently drop the tail.
         match w.write_all(s.as_bytes()) {
@@ -332,9 +340,9 @@ pub unsafe extern "C" fn polars_value_duration_get(
     out: *mut i64,
 ) -> *const polars_error_t {
     guard_error(|| {
-        match (*value).inner {
-            AnyValue::Duration(i, _) => *out = i,
-            _ => return make_error("value is not of type duration"),
+        match &(*value).inner {
+            AnyValue::Duration(i, _) => *out = *i,
+            other => return make_error(format!("expected a duration value, got {other:?}")),
         }
 
         std::ptr::null()
@@ -348,11 +356,11 @@ pub unsafe extern "C" fn polars_value_datetime_get(
     out: *mut i64,
 ) -> *const polars_error_t {
     guard_error(|| {
-        match (*value).inner {
+        match &(*value).inner {
             // `DatetimeOwned` is what `into_static` produces (see `polars_value_t`); the borrowed
             // `Datetime` arm is kept so the accessor stays correct for a value built another way.
-            AnyValue::DatetimeOwned(i, _, _) | AnyValue::Datetime(i, _, _) => *out = i,
-            _ => return make_error("value is not of type datetime"),
+            AnyValue::DatetimeOwned(i, _, _) | AnyValue::Datetime(i, _, _) => *out = *i,
+            other => return make_error(format!("expected a datetime value, got {other:?}")),
         }
 
         std::ptr::null()
@@ -366,9 +374,9 @@ pub unsafe extern "C" fn polars_value_date_get(
     out: *mut i32,
 ) -> *const polars_error_t {
     guard_error(|| {
-        match (*value).inner {
-            AnyValue::Date(i) => *out = i,
-            _ => return make_error("value is not of type date"),
+        match &(*value).inner {
+            AnyValue::Date(i) => *out = *i,
+            other => return make_error(format!("expected a date value, got {other:?}")),
         }
 
         std::ptr::null()
@@ -384,9 +392,9 @@ pub unsafe extern "C" fn polars_value_time_get(
     out: *mut i64,
 ) -> *const polars_error_t {
     guard_error(|| {
-        match (*value).inner {
-            AnyValue::Time(i) => *out = i,
-            _ => return make_error("value is not of type time"),
+        match &(*value).inner {
+            AnyValue::Time(i) => *out = *i,
+            other => return make_error(format!("expected a time value, got {other:?}")),
         }
 
         std::ptr::null()
@@ -406,7 +414,7 @@ pub unsafe extern "C" fn polars_value_binary_get(
         let s: &[u8] = match &(*value).inner {
             AnyValue::BinaryOwned(v) => v,
             AnyValue::Binary(v) => v,
-            _ => return make_error("value is not of type binary"),
+            other => return make_error(format!("expected a binary value, got {other:?}")),
         };
         // write_all, not write: a single write() may report a short count and silently drop the tail.
         match w.write_all(s) {
