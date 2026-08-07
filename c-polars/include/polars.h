@@ -263,9 +263,19 @@ typedef struct polars_lazy_group_by_t polars_lazy_group_by_t;
 typedef struct polars_series_t polars_series_t;
 
 /**
- * Borrows from its parent (a `Series`, or another `polars_value_t` for struct-field access via
- * `polars_value_struct_get`) rather than owning its data. The caller must keep the parent alive
- * for as long as this value is alive, and must destroy this value before the parent.
+ * Owns its data: `make_value` calls `AnyValue::into_static` on the way in, so a value never
+ * borrows from the `Series` (or parent `polars_value_t`) it came from. It can therefore outlive
+ * its source and be destroyed in any order relative to it.
+ *
+ * A borrowed `AnyValue<'a>` would be the cheaper representation, but the lifetime cannot survive
+ * the C boundary: `polars_series_get`'s `'a` would be chosen by the caller and inferred as
+ * `'static`, so the compiler would check nothing and the "keep the parent alive" rule would rest
+ * entirely on the Julia side rooting correctly -- with silent memory corruption as the failure
+ * mode. Owning the data deletes the rule instead of documenting it.
+ *
+ * Note `into_static` also *normalizes the variant*: `Struct` becomes `StructOwned`, `Datetime`
+ * becomes `DatetimeOwned`, `String`/`Binary` become their `*Owned` forms. Accessors in `value.rs`
+ * match the owned variants accordingly.
  */
 typedef struct polars_value_t polars_value_t;
 
@@ -753,10 +763,10 @@ const struct polars_error_t *polars_expr_cast(const struct polars_expr_t *expr,
 
 /**
  * Strict cast: raises on overflow/loss instead of `polars_expr_cast`'s non-strict "overflow
- * becomes null" behavior (our `cast()` was hardwired non-strict; upstream `Expr.cast(dtype,
- * strict=True)` defaults to strict -- this exposes the other branch as an explicit function
- * rather than a mode switch on `cast` itself, matching `Expr::strict_cast`/`Expr::cast`'s own
- * split upstream).
+ * becomes null" behavior. The two modes are separate functions rather than one function with a
+ * mode flag, mirroring upstream's own `Expr::strict_cast`/`Expr::cast` split (note upstream's
+ * *Python* `Expr.cast(dtype, strict=True)` defaults to the strict branch, so `cast` here is the
+ * non-default one).
  */
 const struct polars_error_t *polars_expr_strict_cast(const struct polars_expr_t *expr,
                                                      enum polars_value_type_t dtype,
@@ -2146,14 +2156,8 @@ const struct polars_error_t *polars_value_binary_get(struct polars_value_t *valu
                                                      IOCallback callback);
 
 /**
- * Returns the value of struct field `fieldidx`.
- *
- * # Safety
- * The returned value borrows into the parent struct's backing memory (as every `polars_value_t`
- * does -- it wraps an `AnyValue<'a>`). Lifetime parameters on a `#[no_mangle] extern "C"` fn
- * enforce nothing across the C boundary, so this is a *caller invariant*, not a compiler-checked
- * one: **the caller must keep `value` (and its parent Series) alive until it is done with `*out`,
- * and must destroy `*out` before `value`.** The Julia side roots the parent accordingly.
+ * Returns the value of struct field `fieldidx`. The result owns its data (see `polars_value_t`),
+ * so it may outlive `value` and be destroyed in any order relative to it.
  */
 const struct polars_error_t *polars_value_struct_get(struct polars_value_t *value,
                                                      uintptr_t fieldidx,

@@ -39,6 +39,14 @@ using .API
 using Dates
 using Statistics
 
+# The wrapper-generating macros, and the argument-marshalling rules they share. Included before
+# anything that wraps a `polars_*` symbol, since Julia resolves a macro at parse time and every
+# later file expands these. See the file header for which shape each macro covers, and prefer
+# extending one over hand-writing a wrapper -- the marshalling it encodes (`ncodeunits` not
+# `length` for a `(ptr, len)` pair, `polars_error` after every fallible call) is the part that
+# goes wrong silently.
+include("./macros.jl")
+
 # Arrow interface
 # TODO Monitor progress of https://github.com/apache/arrow-julia/issues/184
 # which should be considered the "Official" julia arrow implementation
@@ -131,7 +139,7 @@ include("./io/csv.jl")
 include("./io/ipc.jl")
 include("./io/json.jl")
 
-# `Expr` methods (both the `@generate_expr_fns`-generated ones and the hand-written ones needing
+# `Expr` methods (both the `@wrap_simple_ops`-generated ones and the hand-written ones needing
 # extra args the macro's plain shape can't express, e.g. `mean`/`median`/`std`/`var`/`quantile`)
 # export themselves inline in src/expr/expr.jl, next to their definitions, rather than here --
 # see that file for the full list. The `Lists`/`Strings`/`Dt`/`Structs` namespace submodules
