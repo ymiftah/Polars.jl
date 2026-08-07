@@ -2,18 +2,46 @@
 
 ## Status
 
-**In progress — handed off for local verification.** Branch `claude/c-polars-hardening-review`,
-three commits on top of `main`:
+**Done.** Branch `claude/c-polars-hardening-review`, opened as
+[PR #42](https://github.com/ymiftah/Polars.jl/pull/42), merged with `main` and locally verified in
+full (below) after the initial handoff below could only check that the sources parsed.
 
-| commit | what |
-| --- | --- |
-| `5536b99` | `guard_error` on every fallible entry point, + `check_panic_guards.py` and its CI step |
-| `98d85f1` | `polars_value_t` owns its data (`AnyValue::into_static`) |
-| `0d41c9b` | CLAUDE.md: the dependency tree needs stable ≥ 1.95 |
+### Local verification (2026-08-07)
 
-No PR is open, so **CI has not run on any of this**.
+Every item the original handoff below left as "not checked" now passes:
 
-### What is and is not verified
+- `cargo build -j 4` — clean.
+- `cargo fmt --check` — clean.
+- `cargo clippy --all-targets -- -D warnings` — zero warnings.
+- `cargo test` — 17/17 Rust smoke tests pass.
+- `check_panic_guards.py` — 87/87 fallible entry points guarded.
+- `check_header_drift.py` — same 382 exported symbols as `main`.
+- Full `pre-commit run --all-files` (runic, clang-format, cargo fmt/clippy) — clean.
+- `julia --project=. -e 'import Pkg; Pkg.test()'` — 2689 passed, 2 broken (pre-existing), ~4 min.
+  The struct/temporal tests flagged below as the likely trouble spot passed; the suite also
+  independently exercised the panic-guard fix live, hitting the upstream `cut.rs:206` `unwrap()`
+  panic in `polars_expr_cut`/`polars_expr_qcut` (unguarded on `main`, guarded here) and confirming
+  it now surfaces as a `PolarsError` instead of aborting the process (`test/expr/cut_qcut.jl:105`).
+
+Two things the original handoff didn't anticipate, both now fixed:
+
+- **Merge conflict against `main`.** `main` had independently reworded two of the same comments
+  this branch reworded (`c-polars/src/expr.rs`, `c-polars/src/tests.rs`) — wording-only, no logic
+  divergence. Resolved via `git merge origin/main`, keeping this branch's (guarded) version of
+  `polars_expr_struct_rename_fields`.
+- **`include/polars.h` / `src/api/generated.jl` were stale.** cbindgen wasn't available in the
+  environment that made this branch's commits, so the doc-comment rewrites on `polars_value_t` and
+  `polars_value_struct_get` (from the ownership change) never propagated to the generated header/
+  bindings, and CI's `git diff --exit-code` step would have failed on that alone. Regenerated via
+  the normal pipeline (`regen_header.sh` → `gen/generate.jl` → `runic`); `check_header_drift.py`
+  reports the same 382 symbols before and after, so this is doc-comment sync only, not an ABI
+  change.
+
+`src/value.jl`'s `parent` field is still deliberately left in place (see the original handoff
+below) — it is no longer load-bearing now that the Julia suite is green, but removing it is a
+separate optimization.
+
+### Original handoff (pre-verification)
 
 > **The Rust changes have never been compiled.** Treat that as the headline. Everything below is
 > the honest boundary of what was checked.
@@ -34,18 +62,7 @@ compiles, the second forced by the toolchain update below). It ran far enough to
 recording: reading the vendored polars source is what surfaced the `_iter_struct_av` panic
 described under "Landed", which no amount of static review would have caught.
 
-### Resuming locally
-
-```sh
-rustup update stable            # ≥ 1.95 required; see CLAUDE.md and commit 0d41c9b
-cd c-polars && cargo build -j 4
-cargo clippy --all-targets -- -D warnings
-cargo fmt --check
-cargo test
-cd .. && julia --project=test -e 'import Pkg; Pkg.test()'   # restart any live REPL first
-```
-
-Where trouble is most likely, in order:
+Where trouble seemed most likely, in order (all now cleared, see above):
 
 1. **`value.rs` / `types.rs` / `series.rs`** — the ownership change is the only one that alters
    types rather than wrapping existing code. The borrow checker and the match-exhaustiveness
@@ -56,9 +73,6 @@ Where trouble is most likely, in order:
    `test/datatypes/durations.jl`. These exercise exactly the accessors whose matched variant
    changed (`StructOwned`, `DatetimeOwned`, `BinaryOwned`). If the ownership change is wrong
    anywhere, this is where it shows.
-
-`src/value.jl`'s `parent` field is deliberately left in place: it is no longer load-bearing, but
-removing it is an optimization that wants the Julia suite green first.
 
 ## Landed
 
