@@ -29,6 +29,26 @@ Closed by this effort, on top of the merge:
   `ndjson` feature as [Group 10](#group-10) speculated) — that entry is now stale, see its own
   note.
 
+A second merge (bringing in `main`'s macro-generation/`guard_error` refactor, PRs #42/#43) landed
+after the above with no further API-surface change — purely internal, re-checked live. On top of
+that merge, this effort additionally closed a "quick wins" batch of no-Cargo-feature-change gaps:
+
+- **Math (Group 3)**: `cbrt`, `cot`, `arcsinh`, `arccosh`, `arctanh` — five new `polars_expr_*`
+  symbols, all under the already-enabled `trigonometry` feature (`cbrt` itself is ungated). `cbrt`
+  turned out to share polars' `PowFunction` family with `sqrt`: unlike every other function closed
+  here, it implicitly casts a String column to `Float64` (non-numeric strings become `missing`)
+  rather than raising `PolarsError` — verified live, see the test in `test/expr/arithmetic.jl`.
+- **`Dt` sub-second components (Group 4)**: `microsecond`, `millisecond`, `nanosecond` — three new
+  `polars_expr_dt_*` symbols, ungated like their `year`/`month`/`day` siblings.
+- **`exclude` (Group 2)**: needed **zero** new Rust — it's `Selectors.all() -
+  Selectors.by_name(names...; strict=false)` composed from selector primitives that already
+  existed, added as a plain Julia function in `src/expr/selectors.jl`.
+- **Explicitly deferred, not attempted**: `arg_where` and `is_close` looked like the same kind of
+  quick win but turned out to be gated behind Cargo features (`arg_where`, `is_close`) not in
+  `c-polars/Cargo.toml`'s current list — [Group 10](#group-10)'s table missed both; corrected
+  there and at their own entries (Group 2, Group 3) rather than adding a Cargo change outside a
+  dedicated, batched PR per `CLAUDE.md`.
+
 Everything else in this file was re-checked against `main` after the merge and remains accurate.
 
 Read alongside its two siblings, which cover different slices of the same problem:
@@ -113,7 +133,10 @@ mapping — unrelated to `pl.format`, and a name collision to watch when adding 
 **Reductions and folds** — `fold`, `reduce`, `cum_fold`, `cum_reduce`, `cum_sum_horizontal`,
 `approx_n_unique`, `len`.
 
-**Selection and ordering** — `exclude`, `arg_where`, `arg_sort_by`.
+**Selection and ordering** — ~~`exclude`~~ **Closed** (see [Status](#status)); `arg_where`,
+`arg_sort_by`. **`arg_where` is gated behind Cargo's `arg_where` feature** — absent from
+`c-polars/Cargo.toml`'s current feature list and from [Group 10](#group-10)'s table below, which
+was therefore itself incomplete; do not add it without batching the Cargo change per `CLAUDE.md`.
 
 **Windowed correlation** — `rolling_corr`, `rolling_cov`. (Scalar `cov`/`cor` and
 `spearman_rank_corr` do exist, in `src/expr/statistics.jl`.)
@@ -146,11 +169,13 @@ alias for it.
 `rolling_*_by` variant (`rolling_mean_by`, `rolling_sum_by`, …), `ewm_mean_by`, `interpolate_by`.
 
 **Manipulation**: `extend_constant`, `repeat_by`, `reshape`, `shuffle`, `round_sig_figs`,
-`shrink_dtype`, `to_physical`, `reinterpret`, `hist`, `is_close`.
+`shrink_dtype`, `to_physical`, `reinterpret`, `hist`, `is_close`. **`is_close` is gated behind
+Cargo's `is_close` feature** — like `arg_where` above, absent from `c-polars/Cargo.toml` and from
+[Group 10](#group-10)'s table; needs a batched Cargo change, not a thin wrapper.
 
-**Math**: `cbrt`, `cot`, `arcsinh`, `arccosh`, `arctanh`. (`sin`, `cos`, `tan`, `sinh`, `cosh`,
-`tanh`, `arcsin`, `arccos`, `arctan`, `degrees`, `radians`, `exp`, `log`, `log10`, `log1p`, `sqrt`,
-and `sign` all exist.)
+**Math**: ~~`cbrt`, `cot`, `arcsinh`, `arccosh`, `arctanh`~~ **Closed** (see [Status](#status)).
+(`sin`, `cos`, `tan`, `sinh`, `cosh`, `tanh`, `arcsin`, `arccos`, `arctan`, `degrees`, `radians`,
+`exp`, `log`, `log10`, `log1p`, `sqrt`, and `sign` all exist too.)
 
 **UDFs**: `map_elements`, `map_batches` — blocked on [Group 9](#group-9).
 
@@ -165,9 +190,11 @@ and `to_datetime` cover two of its three targets), `decode`/`encode` (base64/hex
 
 ### `Dt` (upstream `.dt`)
 
-Missing **sub-second component extraction — `microsecond`, `millisecond`, `nanosecond`.** Worth
-calling out because the similarly-named *duration totals* (`total_microseconds`,
-`total_milliseconds`, `total_nanoseconds`) all exist, which makes the components look present.
+~~Missing **sub-second component extraction — `microsecond`, `millisecond`, `nanosecond`.**~~
+**Closed** (see [Status](#status)) — each is the sub-second part of the timestamp expressed at
+that unit's own resolution (not a decomposed digit group), mirroring the `total_*` family's own
+scaling convention; only works on `Datetime`/`Time`, not a plain `Date`
+(`` `nanosecond` operation not supported for dtype `date` ``, verified live).
 
 Also: `iso_year`, `is_leap_year`, `century`, `millennium`, `combine`, `datetime`, `cast_time_unit`,
 `with_time_unit`, `base_utc_offset`, `dst_offset`, `dt.replace` (replacing date components),
@@ -313,6 +340,8 @@ option must be exercised live.
 
 | Feature | Unlocks |
 |---|---|
+| `arg_where` | top-level `arg_where` — **verified** (`#[cfg(feature = "arg_where")]` on `polars_plan::dsl::functions::index::arg_where`), unlike the rest of this table; this row was missing entirely until the quick-win batch in [Status](#status) went looking for it. |
+| `is_close` | `Expr.is_close` — **verified** (`#[cfg(feature = "is_close")]` on `Expr::is_close`), same story as `arg_where` above. |
 | `range` | the entire `int_range`/`date_range`/`datetime_range`/`time_range` family |
 | `mode` | `Expr.mode` |
 | `search_sorted` | `Expr.search_sorted` |

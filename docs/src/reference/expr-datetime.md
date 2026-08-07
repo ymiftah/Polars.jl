@@ -15,6 +15,9 @@ Polars.Dt.day
 Polars.Dt.hour
 Polars.Dt.minute
 Polars.Dt.second
+Polars.Dt.millisecond
+Polars.Dt.microsecond
+Polars.Dt.nanosecond
 Polars.Dt.weekday
 Polars.Dt.ordinal_day
 Polars.Dt.date

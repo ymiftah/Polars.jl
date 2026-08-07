@@ -986,6 +986,22 @@ function polars_expr_arctan(expr)
     return @ccall libpolars.polars_expr_arctan(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_arccosh(expr)
+    return @ccall libpolars.polars_expr_arccosh(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_arcsinh(expr)
+    return @ccall libpolars.polars_expr_arcsinh(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_arctanh(expr)
+    return @ccall libpolars.polars_expr_arctanh(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_cot(expr)
+    return @ccall libpolars.polars_expr_cot(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_degrees(expr)
     return @ccall libpolars.polars_expr_degrees(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -996,6 +1012,10 @@ end
 
 function polars_expr_sqrt(expr)
     return @ccall libpolars.polars_expr_sqrt(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_cbrt(expr)
+    return @ccall libpolars.polars_expr_cbrt(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_sign(expr)
@@ -1741,6 +1761,18 @@ end
 
 function polars_expr_dt_quarter(a)
     return @ccall libpolars.polars_expr_dt_quarter(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_millisecond(a)
+    return @ccall libpolars.polars_expr_dt_millisecond(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_microsecond(a)
+    return @ccall libpolars.polars_expr_dt_microsecond(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_nanosecond(a)
+    return @ccall libpolars.polars_expr_dt_nanosecond(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_dt_date(a)

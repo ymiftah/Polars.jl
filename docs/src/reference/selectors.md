@@ -65,13 +65,14 @@ Selectors.matches
 Selectors.starts_with
 Selectors.ends_with
 Selectors.contains
+exclude
 ```
 
 ```@example selectors
 select(df, Selectors.starts_with("f"))
 ```
 
-`strict` (default `true`) controls what happens when a name/index doesn't exist: `by_name`/`by_index` raise a `PolarsError`; passing `strict=false` silently skips it instead.
+`strict` (default `true`) controls what happens when a name/index doesn't exist: `by_name`/`by_index` raise a `PolarsError`; passing `strict=false` silently skips it instead. The top-level `exclude` is the inverse of `by_name` and always behaves as if `strict=false` — a name absent from the frame is silently ignored rather than raising.
 
 !!! note "`by_index` is 1-based, unlike py-polars' 0-based `cs.by_index`"
     Matches this package's own `nth` (see [Functions](@ref)) — 1-based indexing is the convention everywhere else in this Julia package. Negative indices count back from the end (`by_index(-1)` is the last column, same as `nth(-1)`).

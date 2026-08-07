@@ -1033,11 +1033,21 @@ const struct polars_expr_t *polars_expr_arcsin(const struct polars_expr_t *expr)
 
 const struct polars_expr_t *polars_expr_arctan(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_arccosh(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_arcsinh(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_arctanh(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_cot(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_degrees(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_radians(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_sqrt(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_cbrt(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_sign(const struct polars_expr_t *expr);
 
@@ -1630,6 +1640,12 @@ const struct polars_expr_t *polars_expr_dt_ordinal_day(const struct polars_expr_
 const struct polars_expr_t *polars_expr_dt_week(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_dt_quarter(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_millisecond(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_microsecond(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_nanosecond(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_dt_date(const struct polars_expr_t *a);
 

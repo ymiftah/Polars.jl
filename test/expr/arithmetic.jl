@@ -249,6 +249,74 @@ end
     @test_throws PolarsError select(dfstr, arctan(col("s")))
 end
 
+@testset "arccosh / arcsinh / arctanh / cot / cbrt (API gap audit quick-win batch)" begin
+    # arccosh: domain [1, ∞) -- 0.5 is out of domain (NaN, not an error), matching the
+    # arccos/arcsin out-of-domain convention above. Julia's own `acosh` throws a `DomainError`
+    # for out-of-domain input rather than returning NaN, so out-of-domain is asserted directly
+    # rather than compared against a Base call.
+    dfcosh = DataFrame((; a = Union{Float64, Missing}[1.0, 0.5, missing, NaN]))
+    r = select(dfcosh, alias(arccosh(col("a")), "acosh"))
+    out = collect(r[:acosh])
+    @test out[1] ≈ Base.acosh(1.0)
+    @test isnan(out[2]) # out-of-domain (0.5 < 1), not an error
+    @test ismissing(out[3])
+    @test isnan(out[4])
+
+    # arcsinh: no domain restriction.
+    dfsinh = DataFrame((; a = Union{Float64, Missing}[0.0, -1.0, missing, NaN]))
+    r2 = select(dfsinh, alias(arcsinh(col("a")), "asinh"))
+    out2 = collect(r2[:asinh])
+    @test out2[1] ≈ Base.asinh(0.0)
+    @test out2[2] ≈ Base.asinh(-1.0)
+    @test ismissing(out2[3])
+    @test isnan(out2[4])
+
+    # arctanh: domain (-1, 1) -- 2.0 is out of domain (NaN).
+    dftanh = DataFrame((; a = Union{Float64, Missing}[0.0, 2.0, missing, NaN]))
+    r3 = select(dftanh, alias(arctanh(col("a")), "atanh"))
+    out3 = collect(r3[:atanh])
+    @test out3[1] ≈ Base.atanh(0.0)
+    @test isnan(out3[2]) # out-of-domain (|2.0| > 1), not an error
+    @test ismissing(out3[3])
+    @test isnan(out3[4])
+
+    # cot: undefined at multiples of π -- cos/sin -> a division by zero (Inf), not NaN.
+    dfcot = DataFrame((; a = Union{Float64, Missing}[0.5, 0.0, missing, NaN]))
+    r4 = select(dfcot, alias(Base.cot(col("a")), "cot"))
+    out4 = collect(r4[:cot])
+    @test out4[1] ≈ Base.cot(0.5)
+    @test isinf(out4[2]) && out4[2] > 0 # cot(0) -> +Inf, a pole not a domain error
+    @test ismissing(out4[3])
+    @test isnan(out4[4])
+
+    # cbrt: unlike sqrt, has no domain restriction -- a negative input has a real cube root.
+    dfcbrt = DataFrame((; a = Union{Float64, Missing}[-8.0, 0.0, missing, NaN]))
+    r5 = select(dfcbrt, alias(Base.cbrt(col("a")), "cbrt"))
+    out5 = collect(r5[:cbrt])
+    @test out5[1] ≈ -2.0
+    @test out5[2] == 0.0
+    @test ismissing(out5[3])
+    @test isnan(out5[4])
+
+    dfstr = DataFrame((; s = ["1", "2", "3"]))
+    @test_throws PolarsError select(dfstr, arccosh(col("s")))
+    @test_throws PolarsError select(dfstr, arcsinh(col("s")))
+    @test_throws PolarsError select(dfstr, arctanh(col("s")))
+    @test_throws PolarsError select(dfstr, Base.cot(col("s")))
+
+    # cbrt is the one outlier here: unlike every other function in this testset (and unlike
+    # `abs`/`arccos`/`arcsin`/`arctan` above), it shares polars' `PowFunction` family with `sqrt`,
+    # which implicitly casts a String column to Float64 rather than raising -- a non-numeric
+    # string becomes `missing`, not a `PolarsError`. Verified live before writing this assertion;
+    # do not "fix" it to `@test_throws` without re-checking against upstream, since `sqrt` itself
+    # has never been asserted either way in this suite (see `test/expr/math.jl`).
+    r6 = select(dfstr, alias(Base.cbrt(col("s")), "cbrt"))
+    @test collect(r6[:cbrt]) ≈ Base.cbrt.([1.0, 2.0, 3.0])
+    dfstr_nonnumeric = DataFrame((; s = ["abc", "def"]))
+    r7 = select(dfstr_nonnumeric, alias(Base.cbrt(col("s")), "cbrt"))
+    @test all(ismissing, collect(r7[:cbrt]))
+end
+
 @testset "log1p / log10 (API gap batch four, Phase 1; domain edges per py-polars' test_exp_log1p)" begin
     dflog = DataFrame((; x = [0.0, -1.0, -2.0, 1.0, 9.0]))
     r = select(dflog, alias(Base.log1p(col("x")), "log1p"))

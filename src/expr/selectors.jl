@@ -437,3 +437,15 @@ module Selectors
     # use (`Selectors.all()`, etc.) always works regardless.
 
 end # module Selectors
+
+"""
+    exclude(names::AbstractString...)::Selector
+
+Selects every column except `names` -- the top-level counterpart to [`Selectors.by_name`](@ref)'s
+inverse, equivalent to `Selectors.all() - Selectors.by_name(names...; strict=false)`. Unlike
+`Selectors.by_name`, a name in `names` that is absent from the frame is silently ignored rather
+than raising, matching upstream `pl.exclude`'s "exclude these if present" semantics -- the
+motivating use case is a name list shared across frames that don't all have every column.
+"""
+exclude(names::AbstractString...) = Selectors.all() - Selectors.by_name(names...; strict = false)
+export exclude

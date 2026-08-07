@@ -22,6 +22,27 @@ const S = Selectors
     @test size(select(df, S.by_name())) == (0, 0)
 end
 
+@testset "exclude: inverse of by_name, always non-strict (API gap audit quick-win batch)" begin
+    df = DataFrame((; a = [1, 2, 3], b = [4, 5, 6], c = [7, 8, 9]))
+
+    @test sort(names(select(df, exclude("a")))) == ["b", "c"]
+    @test sort(names(select(df, exclude("a", "c")))) == ["b"]
+
+    # unlike `by_name`, a name absent from the frame is silently ignored, not an error
+    @test sort(names(select(df, exclude("nonexistent")))) == ["a", "b", "c"]
+    @test sort(names(select(df, exclude("a", "nonexistent")))) == ["b", "c"]
+
+    # excluding every column is a legitimate selector matching zero columns (same (0, 0) shape as
+    # `S.by_name()`'s own zero-match case above)
+    @test size(select(df, exclude("a", "b", "c"))) == (0, 0)
+
+    # excluding nothing is the identity
+    @test sort(names(select(df, exclude()))) == ["a", "b", "c"]
+
+    # equivalent to the documented `Selectors.all() - Selectors.by_name(...; strict=false)` composition
+    @test sort(names(select(df, exclude("a")))) == sort(names(select(df, S.all() - S.by_name("a"; strict = false))))
+end
+
 @testset "Selectors.by_index: 1-based, negative, cross-checked against nth" begin
     df = DataFrame((; a = [1, 2, 3], b = [4, 5, 6], c = [7, 8, 9]))
 

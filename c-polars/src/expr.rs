@@ -892,10 +892,15 @@ gen_impl_expr!(polars_expr_tanh, Expr::tanh);
 gen_impl_expr!(polars_expr_arccos, Expr::arccos);
 gen_impl_expr!(polars_expr_arcsin, Expr::arcsin);
 gen_impl_expr!(polars_expr_arctan, Expr::arctan);
+gen_impl_expr!(polars_expr_arccosh, Expr::arccosh);
+gen_impl_expr!(polars_expr_arcsinh, Expr::arcsinh);
+gen_impl_expr!(polars_expr_arctanh, Expr::arctanh);
+gen_impl_expr!(polars_expr_cot, Expr::cot);
 gen_impl_expr!(polars_expr_degrees, Expr::degrees);
 gen_impl_expr!(polars_expr_radians, Expr::radians);
 
 gen_impl_expr!(polars_expr_sqrt, Expr::sqrt);
+gen_impl_expr!(polars_expr_cbrt, Expr::cbrt);
 gen_impl_expr!(polars_expr_sign, Expr::sign);
 gen_impl_expr!(polars_expr_exp, Expr::exp);
 gen_impl_expr!(polars_expr_log1p, Expr::log1p);
@@ -2115,6 +2120,9 @@ gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday);
 gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day);
 gen_impl_expr_dt!(polars_expr_dt_week, DateLikeNameSpace::week);
 gen_impl_expr_dt!(polars_expr_dt_quarter, DateLikeNameSpace::quarter);
+gen_impl_expr_dt!(polars_expr_dt_millisecond, DateLikeNameSpace::millisecond);
+gen_impl_expr_dt!(polars_expr_dt_microsecond, DateLikeNameSpace::microsecond);
+gen_impl_expr_dt!(polars_expr_dt_nanosecond, DateLikeNameSpace::nanosecond);
 // Both ungated in polars-plan (no `#[cfg]`) -- unlike the `total_*` family below, no
 // `dtype-duration` feature is needed for these two.
 gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date);
