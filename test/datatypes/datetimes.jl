@@ -145,7 +145,7 @@ end
     epoch = DateTime(1970, 1, 1)
     ns_since_epoch = [
         Dates.value(s - epoch) * 1_000_000 + us * 1000 for
-        (s, us) in zip(whole_seconds, sub_second_us)
+            (s, us) in zip(whole_seconds, sub_second_us)
     ]
     df = DataFrame((; ns = ns_since_epoch))
     r = select(df, alias(cast_datetime(col("ns"); time_unit = :ns), "dtm"))

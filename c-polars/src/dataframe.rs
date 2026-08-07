@@ -293,7 +293,10 @@ pub unsafe extern "C" fn polars_dataframe_write_json(
     guard_error(|| {
         let df = &mut (*df).inner;
         let w = UserIOCallback(callback, user);
-        if let Err(err) = JsonWriter::new(w).with_json_format(JsonFormat::Json).finish(df) {
+        if let Err(err) = JsonWriter::new(w)
+            .with_json_format(JsonFormat::Json)
+            .finish(df)
+        {
             return make_error(err);
         }
         std::ptr::null()
@@ -311,8 +314,9 @@ pub unsafe extern "C" fn polars_dataframe_write_ndjson(
     guard_error(|| {
         let df = &mut (*df).inner;
         let w = UserIOCallback(callback, user);
-        if let Err(err) =
-            JsonWriter::new(w).with_json_format(JsonFormat::JsonLines).finish(df)
+        if let Err(err) = JsonWriter::new(w)
+            .with_json_format(JsonFormat::JsonLines)
+            .finish(df)
         {
             return make_error(err);
         }
@@ -831,7 +835,13 @@ pub unsafe extern "C" fn polars_lazy_frame_join(
             slice,
             ..JoinArgs::new(how.to_join_type())
         };
-        let df = LazyFrame::join((*a).inner.clone(), (*b).inner.clone(), exprs_a, exprs_b, args);
+        let df = LazyFrame::join(
+            (*a).inner.clone(),
+            (*b).inner.clone(),
+            exprs_a,
+            exprs_b,
+            args,
+        );
         *out = make_lazy_frame(df);
         std::ptr::null()
     })
@@ -891,7 +901,13 @@ pub unsafe extern "C" fn polars_lazy_frame_join_asof(
             nulls_equal,
             ..JoinArgs::new(JoinType::AsOf(Box::new(asof_options)))
         };
-        let df = LazyFrame::join((*a).inner.clone(), (*b).inner.clone(), vec![on_a], vec![on_b], args);
+        let df = LazyFrame::join(
+            (*a).inner.clone(),
+            (*b).inner.clone(),
+            vec![on_a],
+            vec![on_b],
+            args,
+        );
         *out = make_lazy_frame(df);
         std::ptr::null()
     })

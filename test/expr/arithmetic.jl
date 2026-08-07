@@ -315,7 +315,7 @@ end
     # rather than the hardcoded literal, since the two should be bit-for-bit identical Float64 ops).
     r4b = select(dftrig_pi, alias(Base.cot(col("a")), "cot"))
     @test collect(r4b[:cot])[2] ≈ Base.cot(Float64(π))
-    @test collect(r4b[:cot])[2] < -1e15 # sanity-check against upstream's literal -8.1656e15
+    @test collect(r4b[:cot])[2] < -1.0e15 # sanity-check against upstream's literal -8.1656e15
 
     # cbrt: unlike sqrt, has no domain restriction -- a negative input has a real cube root.
     dfcbrt = DataFrame((; a = Union{Float64, Missing}[-8.0, 0.0, missing, NaN]))
