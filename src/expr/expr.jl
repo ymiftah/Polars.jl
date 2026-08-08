@@ -887,16 +887,7 @@ end
 
 export sort_by
 
-"""
-    arg_sort(expr::Polars.Expr; descending::Bool=false, nulls_last::Bool=false)::Polars.Expr
-
-Returns the index values that would sort `expr`.
-"""
-function arg_sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false)
-    out = API.polars_expr_arg_sort(expr, descending, nulls_last)
-    return Expr(out)
-end
-
+@wrap_expr_method arg_sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false) polars_expr_arg_sort "Returns the index values that would sort `expr`."
 @curry arg_sort(; descending::Bool = false, nulls_last::Bool = false)
 
 export arg_sort

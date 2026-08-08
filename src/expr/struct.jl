@@ -1,5 +1,5 @@
 module Structs
-using ..Polars: API, polars_expr_t, Expr, polars_error, _name_ptrs
+using ..Polars: @wrap_expr_method, API, polars_expr_t, Expr, polars_error, _name_ptrs
 
 """
     field_by_name(expr::Polars.Expr, name::String)::Polars.Expr
@@ -62,12 +62,7 @@ function with_fields(expr::Expr, fields::Expr...)
     return Expr(out)
 end
 
-"""
-    json_encode(expr::Polars.Expr)::Polars.Expr
-
-Encodes each struct value of `expr` as a JSON string.
-"""
-json_encode(expr::Expr) = Expr(API.polars_expr_struct_json_encode(expr))
+@wrap_expr_method json_encode(expr::Expr) polars_expr_struct_json_encode "Encodes each struct value of `expr` as a JSON string."
 
 export field_by_name, field_by_index, rename_fields, with_fields, json_encode
 
