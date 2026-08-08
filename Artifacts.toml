@@ -1,17 +1,17 @@
 [[libpolars]]
 arch = "aarch64"
-git-tree-sha1 = "ebc699cbfdae771e04772914790906d3802b020e"
+git-tree-sha1 = "ad584c41bdc124ee1f61f6e4496f285299f119fc"
 os = "macos"
 
     [[libpolars.download]]
-    sha256 = "62f97c1ef7d5f1a7fd5cf8f8fb9844057504b2584e79e0b43aeaaa965da02d28"
-    url = "https://github.com/ymiftah/Polars.jl/releases/download/libpolars-v0.4.0/libpolars.v0.4.0.aarch64-apple-darwin.tar.gz"
+    sha256 = "902bf49132af12b4e18fc4744c81bf1ce91213c89a5056acac58018f47ebf979"
+    url = "https://github.com/ymiftah/Polars.jl/releases/download/libpolars-v0.4.1/libpolars.v0.4.1.aarch64-apple-darwin.tar.gz"
 [[libpolars]]
 arch = "x86_64"
-git-tree-sha1 = "2beb9447883f8934d2bc5db1afd6eb88c4b9fb4b"
+git-tree-sha1 = "c1a52bc4e0aba2740c028150edc94874d09a8517"
 libc = "glibc"
 os = "linux"
 
     [[libpolars.download]]
-    sha256 = "dddb925c2ef0fbdacd48163abf0bf1a31720803dc5cbf332fa1918c070db25e4"
-    url = "https://github.com/ymiftah/Polars.jl/releases/download/libpolars-v0.4.0/libpolars.v0.4.0.x86_64-linux-gnu.tar.gz"
+    sha256 = "67a34c5cae94bd663a72a8d8f5be482e336df657ee5114b0dfcb18e94251a0f0"
+    url = "https://github.com/ymiftah/Polars.jl/releases/download/libpolars-v0.4.1/libpolars.v0.4.1.x86_64-linux-gnu.tar.gz"
