@@ -284,6 +284,24 @@ typedef struct polars_value_t polars_value_t;
  */
 typedef intptr_t (*IOCallback)(const void *user, const uint8_t *data, uintptr_t len);
 
+/**
+ * C-compatible mirror of polars_plan::dsl::CastColumnsPolicy
+ * Controls how type mismatches are handled when reading parquet files with schema overrides.
+ */
+typedef struct polars_cast_columns_policy_t {
+  bool integer_upcast;
+  bool integer_to_float_cast;
+  bool float_upcast;
+  bool float_downcast;
+  bool datetime_nanoseconds_downcast;
+  bool datetime_microseconds_downcast;
+  bool datetime_convert_timezone;
+  bool null_upcast;
+  bool categorical_to_string;
+  bool missing_struct_fields_raise;
+  bool extra_struct_fields_raise;
+} polars_cast_columns_policy_t;
+
 uintptr_t polars_version(const uint8_t **out);
 
 /**
@@ -1852,6 +1870,7 @@ const struct polars_error_t *polars_lazy_frame_scan_parquet(
     const uint8_t *include_file_paths,
     uintptr_t include_file_paths_len,
     const bool *hive_partitioning,
+    struct polars_cast_columns_policy_t cast_policy,
     const struct polars_cloud_options_t *cloud_options,
     struct polars_lazy_frame_t **out);
 

@@ -329,6 +329,7 @@ fn scanning_and_collecting_a_malformed_file_returns_an_error_not_a_crash() {
             std::ptr::null(),
             0,
             std::ptr::null(),
+            crate::types::polars_cast_columns_policy_t::default(),
             std::ptr::null(),
             &mut lf,
         );
@@ -434,6 +435,7 @@ fn cloud_options_handle_is_a_no_op_for_local_paths() {
             std::ptr::null(),
             0,
             std::ptr::null(),
+            crate::types::polars_cast_columns_policy_t::default(),
             std::ptr::null(),
             &mut rescanned,
         );

@@ -424,3 +424,69 @@ impl polars_window_mapping_t {
         }
     }
 }
+
+/// C-compatible mirror of polars_plan::dsl::CastColumnsPolicy
+/// Controls how type mismatches are handled when reading parquet files with schema overrides.
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct polars_cast_columns_policy_t {
+    pub integer_upcast: bool,
+    pub integer_to_float_cast: bool,
+    pub float_upcast: bool,
+    pub float_downcast: bool,
+    pub datetime_nanoseconds_downcast: bool,
+    pub datetime_microseconds_downcast: bool,
+    pub datetime_convert_timezone: bool,
+    pub null_upcast: bool,
+    pub categorical_to_string: bool,
+    pub missing_struct_fields_raise: bool, // true = Raise, false = Insert
+    pub extra_struct_fields_raise: bool,   // true = Raise, false = Ignore
+}
+
+impl Default for polars_cast_columns_policy_t {
+    fn default() -> Self {
+        // ERROR_ON_MISMATCH configuration from upstream
+        Self {
+            integer_upcast: false,
+            integer_to_float_cast: false,
+            float_upcast: false,
+            float_downcast: false,
+            datetime_nanoseconds_downcast: false,
+            datetime_microseconds_downcast: false,
+            datetime_convert_timezone: false,
+            null_upcast: true,
+            categorical_to_string: false,
+            missing_struct_fields_raise: true,
+            extra_struct_fields_raise: true,
+        }
+    }
+}
+
+impl polars_cast_columns_policy_t {
+    /// Convert to Rust CastColumnsPolicy for use in scan operations
+    pub(crate) fn to_cast_columns_policy(self) -> polars_plan::dsl::CastColumnsPolicy {
+        use polars_plan::dsl::{CastColumnsPolicy, ExtraColumnsPolicy, MissingColumnsPolicy};
+
+        CastColumnsPolicy {
+            integer_upcast: self.integer_upcast,
+            integer_to_float_cast: self.integer_to_float_cast,
+            float_upcast: self.float_upcast,
+            float_downcast: self.float_downcast,
+            datetime_nanoseconds_downcast: self.datetime_nanoseconds_downcast,
+            datetime_microseconds_downcast: self.datetime_microseconds_downcast,
+            datetime_convert_timezone: self.datetime_convert_timezone,
+            null_upcast: self.null_upcast,
+            categorical_to_string: self.categorical_to_string,
+            missing_struct_fields: if self.missing_struct_fields_raise {
+                MissingColumnsPolicy::Raise
+            } else {
+                MissingColumnsPolicy::Insert
+            },
+            extra_struct_fields: if self.extra_struct_fields_raise {
+                ExtraColumnsPolicy::Raise
+            } else {
+                ExtraColumnsPolicy::Ignore
+            },
+        }
+    }
+}

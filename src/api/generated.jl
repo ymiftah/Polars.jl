@@ -322,6 +322,25 @@ The callback provided for display functions, returns -1 on error.
 """
 const IOCallback = Ptr{Cvoid}
 
+"""
+    polars_cast_columns_policy_t
+
+C-compatible mirror of polars\\_plan::dsl::CastColumnsPolicy Controls how type mismatches are handled when reading parquet files with schema overrides.
+"""
+struct polars_cast_columns_policy_t
+    integer_upcast::Bool
+    integer_to_float_cast::Bool
+    float_upcast::Bool
+    float_downcast::Bool
+    datetime_nanoseconds_downcast::Bool
+    datetime_microseconds_downcast::Bool
+    datetime_convert_timezone::Bool
+    null_upcast::Bool
+    categorical_to_string::Bool
+    missing_struct_fields_raise::Bool
+    extra_struct_fields_raise::Bool
+end
+
 function polars_version(out)
     return @ccall libpolars.polars_version(out::Ptr{Ptr{UInt8}})::Csize_t
 end
@@ -1989,8 +2008,8 @@ function polars_expr_selector_intersect(a, b, out)
     return @ccall libpolars.polars_expr_selector_intersect(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_scan_parquet(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, parallel, low_memory, rechunk, cache, glob, use_statistics, allow_missing_columns, include_file_paths, include_file_paths_len, hive_partitioning, cloud_options, out)
-    return @ccall libpolars.polars_lazy_frame_scan_parquet(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, parallel::polars_parquet_parallel_strategy_t, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool, use_statistics::Bool, allow_missing_columns::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_scan_parquet(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, parallel, low_memory, rechunk, cache, glob, use_statistics, allow_missing_columns, include_file_paths, include_file_paths_len, hive_partitioning, cast_policy, cloud_options, out)
+    return @ccall libpolars.polars_lazy_frame_scan_parquet(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, parallel::polars_parquet_parallel_strategy_t, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool, use_statistics::Bool, allow_missing_columns::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, cast_policy::polars_cast_columns_policy_t, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_scan_csv(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, has_header, separator, quote_char, comment_prefix, comment_prefix_len, skip_rows, skip_rows_after_header, null_value, null_value_len, missing_is_null, truncate_ragged_lines, try_parse_dates, infer_schema_length, ignore_errors, low_memory, rechunk, cache, glob, include_file_paths, include_file_paths_len, allow_missing_columns, cloud_options, out)

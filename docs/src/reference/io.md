@@ -13,6 +13,7 @@ read_parquet
 scan_parquet
 write_parquet
 sink_parquet
+CastPolicy
 ```
 
 `scan_parquet` returns a `LazyFrame` scanning the file (or glob pattern, or directory of
