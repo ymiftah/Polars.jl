@@ -204,10 +204,13 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
             row_count: None,
         };
 
-        let mut lf: LazyFrame =
-            tri!(DslBuilder::scan_parquet(sources, parquet_options, unified_scan_args))
-                .build()
-                .into();
+        let mut lf: LazyFrame = tri!(DslBuilder::scan_parquet(
+            sources,
+            parquet_options,
+            unified_scan_args
+        ))
+        .build()
+        .into();
 
         if let Some(name) = row_index_name {
             lf = lf.with_row_index(name, Some(row_index_offset));

@@ -439,8 +439,8 @@ pub struct polars_cast_columns_policy_t {
     pub datetime_convert_timezone: bool,
     pub null_upcast: bool,
     pub categorical_to_string: bool,
-    pub missing_struct_fields_raise: bool,  // true = Raise, false = Insert
-    pub extra_struct_fields_raise: bool,    // true = Raise, false = Ignore
+    pub missing_struct_fields_raise: bool, // true = Raise, false = Insert
+    pub extra_struct_fields_raise: bool,   // true = Raise, false = Ignore
 }
 
 impl Default for polars_cast_columns_policy_t {
@@ -465,7 +465,7 @@ impl Default for polars_cast_columns_policy_t {
 impl polars_cast_columns_policy_t {
     /// Convert to Rust CastColumnsPolicy for use in scan operations
     pub(crate) fn to_cast_columns_policy(self) -> polars_plan::dsl::CastColumnsPolicy {
-        use polars_plan::dsl::{CastColumnsPolicy, MissingColumnsPolicy, ExtraColumnsPolicy};
+        use polars_plan::dsl::{CastColumnsPolicy, ExtraColumnsPolicy, MissingColumnsPolicy};
 
         CastColumnsPolicy {
             integer_upcast: self.integer_upcast,
