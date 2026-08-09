@@ -44,6 +44,7 @@ end
                  allow_missing_columns::Bool=false,
                  include_file_paths::Union{Nothing,AbstractString}=nothing,
                  hive_partitioning::Union{Nothing,Bool}=nothing,
+                 cast_policy::Union{Nothing,CastPolicy,AbstractDict}=nothing,
                  storage_options::Union{Nothing,AbstractDict{<:AbstractString,<:AbstractString}}=nothing)::LazyFrame
 
 Lazily scans a parquet file, glob pattern, or directory of (optionally Hive-partitioned) parquet
@@ -62,10 +63,25 @@ files, without reading it into memory.
 - `include_file_paths`: if given, adds a column with this name containing each row's source path.
 - `hive_partitioning`: force Hive-style partition-column detection on (`true`) or off (`false`);
   `nothing` (default) auto-detects.
+- `cast_policy`: a [`CastPolicy`](@ref) (or `Dict{Symbol,Bool}` with the same field names) controlling
+  how type mismatches during the scan are handled. `nothing` (default) uses polars' strict
+  `ERROR_ON_MISMATCH` behavior — see [`CastPolicy`](@ref) for the available relaxations.
 - `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
   `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
   (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
   provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
+
+# Examples
+```julia
+# Default: strict mode, errors on any type mismatch
+df = read_parquet("data.parquet")
+
+# Allow specific relaxations
+df = read_parquet("data.parquet"; cast_policy = CastPolicy(integer_upcast = true, float_upcast = true))
+
+# Read Spark-written parquet (nanosecond-precision datetimes)
+df = read_parquet("spark_output.parquet"; cast_policy = CastPolicy(datetime_nanoseconds_downcast = true))
+```
 """
 function scan_parquet(
         path;
@@ -81,6 +97,7 @@ function scan_parquet(
         allow_missing_columns::Bool = false,
         include_file_paths::Union{Nothing, AbstractString} = nothing,
         hive_partitioning::Union{Nothing, Bool} = nothing,
+        cast_policy::Union{Nothing, CastPolicy, AbstractDict} = nothing,
         storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     parallel_enum = parallel == :auto ? API.PolarsParquetParallelAuto :
@@ -98,6 +115,12 @@ function scan_parquet(
     include_file_paths_len = include_file_paths === nothing ? 0 : ncodeunits(include_file_paths)
     hive_partitioning_ref = hive_partitioning === nothing ? Ptr{Bool}(C_NULL) : Ref(hive_partitioning)
 
+    cast_policy_struct = _to_api_struct(
+        cast_policy === nothing ? CastPolicy() :
+        cast_policy isa CastPolicy ? cast_policy :
+        _dict_to_cast_policy(cast_policy)
+    )
+
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = _with_cloud_options(storage_options) do cloud_options
         GC.@preserve n_rows_ref hive_partitioning_ref begin
@@ -105,7 +128,7 @@ function scan_parquet(
                 path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
                 UInt32(row_index_offset), parallel_enum, low_memory, rechunk, cache, glob,
                 use_statistics, allow_missing_columns, include_file_paths_arg, include_file_paths_len,
-                hive_partitioning_ref, cloud_options, out
+                hive_partitioning_ref, cast_policy_struct, cloud_options, out
             )
         end
     end

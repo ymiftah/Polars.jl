@@ -134,6 +134,7 @@ include("./reshape.jl")
 include("./sort.jl")
 include("./describe.jl")
 include("./io/partition.jl")
+include("./io/cast_policy.jl")
 include("./io/parquet.jl")
 include("./io/csv.jl")
 include("./io/ipc.jl")
@@ -143,7 +144,7 @@ include("./io/ipc.jl")
 # export themselves inline in src/expr/expr.jl, next to their definitions, rather than here --
 # see that file for the full list. The `Lists`/`Strings`/`Dt`/`Structs` namespace submodules
 # likewise export their own members from their own files, for qualified use (`Lists.get`, etc.).
-export Series, DataFrame, PolarsError, PartitionByKey,
+export Series, DataFrame, PolarsError, PartitionByKey, CastPolicy,
     read_series, names,
     select, with_columns, head, tail, collect_schema,
     read_parquet, write_parquet, scan_parquet,
