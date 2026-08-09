@@ -1,6 +1,6 @@
 # Input/output
 
-Reading and writing parquet, CSV, and IPC files — the eager functions below read the entire file into memory, while the lazy `scan_*` variants only record a scan plan, letting `collect` choose when (and how efficiently) to read.
+Reading and writing parquet, CSV, IPC, and JSON/NDJSON files — the eager functions below read the entire file into memory, while the lazy `scan_*` variants only record a scan plan, letting `collect` choose when (and how efficiently) to read.
 
 ```@setup io
 using Polars
@@ -75,14 +75,36 @@ sink_ipc
 `write_ipc` keyword options: `compression` (one of `:uncompressed` (default), `:lz4`, `:zstd`),
 `compression_level` (tunes `:zstd` only), `record_batch_size`.
 
+## JSON / NDJSON
+
+```@docs
+read_json
+write_json
+read_ndjson
+scan_ndjson
+write_ndjson
+sink_ndjson
+```
+
+Plain JSON (a single top-level array of objects) is eager-only, matching upstream: there is no
+`scan_json`, since the whole array must be parsed before its shape is known. Newline-delimited
+JSON (NDJSON/JSON Lines) is streamable like Parquet/CSV/IPC, with both a lazy `scan_ndjson` and a
+streaming `sink_ndjson`.
+
+`scan_ndjson` keyword options: `n_rows`, `row_index_name`/`row_index_offset`,
+`infer_schema_length`, `ignore_errors`, `low_memory`, `rechunk`, `include_file_paths`,
+`storage_options`. `read_ndjson` accepts the same keywords. `read_json`/`write_json`/`write_ndjson`
+take no format-specific keywords.
+
 ## Streaming writes
 
-`sink_parquet(lf_or_df, path)`, `sink_csv(lf_or_df, path)`, `sink_ipc(lf_or_df, path)` — execute
-the query through the `:streaming` collect engine (see [LazyFrame](@ref)) and write the result
-directly to disk, without ever materializing the full result in memory. This is the write-side
-counterpart to `scan_*`: the pair together lets a pipeline stay entirely out-of-core, reading and
-writing datasets larger than RAM. All three accept either a `LazyFrame` or a `DataFrame` (the
-`DataFrame` form just wraps `lazy(df)` internally) and return `nothing`.
+`sink_parquet(lf_or_df, path)`, `sink_csv(lf_or_df, path)`, `sink_ipc(lf_or_df, path)`,
+`sink_ndjson(lf_or_df, path)` — execute the query through the `:streaming` collect engine (see
+[LazyFrame](@ref)) and write the result directly to disk, without ever materializing the full
+result in memory. This is the write-side counterpart to `scan_*`: the pair together lets a
+pipeline stay entirely out-of-core, reading and writing datasets larger than RAM. All four accept
+either a `LazyFrame` or a `DataFrame` (the `DataFrame` form just wraps `lazy(df)` internally) and
+return `nothing`. (Plain JSON has no streaming sink, matching upstream — only NDJSON does.)
 
 ```@example io
 df = DataFrame((; x = [1, 2, 3, 4, 5], y = ["a", "b", "c", "d", "e"]))
@@ -95,8 +117,9 @@ Each `sink_*` accepts the same format-specific keywords as its `write_*` counter
 takes `write_parquet`'s `compression`/`compression_level`/`statistics`/`row_group_size`/`data_page_size`;
 `sink_csv` takes `write_csv`'s formatting keywords **plus** its own `compression`
 (`:uncompressed` (default)/`:gzip`/`:zstd`) and `compression_level`, since `write_csv` itself has no
-compression option; `sink_ipc` takes `write_ipc`'s keywords), plus two extra keywords all three
-share: `mkdir` (create missing parent directories, default `false`) and `maintain_order` (preserve
+compression option; `sink_ipc` takes `write_ipc`'s keywords; `sink_ndjson` takes no format-specific
+keywords, same as `write_ndjson`), plus two extra keywords all four share: `mkdir` (create missing
+parent directories, default `false`) and `maintain_order` (preserve
 row order through the streaming pipeline, default `true`).
 
 ## Partitioned parquet sinks

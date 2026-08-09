@@ -91,6 +91,12 @@ typedef enum polars_ipc_compression_t {
   PolarsIpcCompressionZstd,
 } polars_ipc_compression_t;
 
+typedef enum polars_join_coalesce_t {
+  PolarsJoinCoalesceJoinSpecific,
+  PolarsJoinCoalesceCoalesceColumns,
+  PolarsJoinCoalesceKeepColumns,
+} polars_join_coalesce_t;
+
 typedef enum polars_join_type_t {
   PolarsJoinTypeInner,
   PolarsJoinTypeLeft,
@@ -100,6 +106,13 @@ typedef enum polars_join_type_t {
   PolarsJoinTypeAnti,
   PolarsJoinTypeCross,
 } polars_join_type_t;
+
+typedef enum polars_join_validation_t {
+  PolarsJoinValidationManyToMany,
+  PolarsJoinValidationManyToOne,
+  PolarsJoinValidationOneToMany,
+  PolarsJoinValidationOneToOne,
+} polars_join_validation_t;
 
 typedef enum polars_label_t {
   PolarsLabelLeft,
@@ -359,6 +372,44 @@ const struct polars_error_t *polars_dataframe_write_csv(struct polars_dataframe_
                                                         const uintptr_t *float_precision,
                                                         bool decimal_comma);
 
+/**
+ * Reads a JSON file (a single top-level array of objects -- upstream's `JsonFormat::Json`) from
+ * `path` into a `DataFrame`. Unlike Parquet/CSV/IPC, plain JSON has no lazy scan counterpart
+ * upstream either (the whole array must be parsed to know its shape), so this is eager-only --
+ * there is no `polars_lazy_frame_scan_json` to pair it with.
+ */
+const struct polars_error_t *polars_dataframe_read_json(const uint8_t *path,
+                                                        uintptr_t pathlen,
+                                                        struct polars_dataframe_t **out);
+
+/**
+ * Reads a newline-delimited JSON file (upstream's `JsonFormat::JsonLines`) from `path` into a
+ * `DataFrame`. `infer_schema_length` (null = default 100 rows, matching upstream) caps how many
+ * leading rows are scanned to infer the schema; `ignore_errors` turns a per-row parse mismatch
+ * into a `null` instead of a hard error.
+ */
+const struct polars_error_t *polars_dataframe_read_ndjson(const uint8_t *path,
+                                                          uintptr_t pathlen,
+                                                          const uintptr_t *infer_schema_length,
+                                                          bool ignore_errors,
+                                                          struct polars_dataframe_t **out);
+
+/**
+ * Writes `df` as a single top-level JSON array of objects (upstream's `JsonFormat::Json`), via
+ * the same `IOCallback` shape as `polars_dataframe_write_csv`/`_write_parquet`.
+ */
+const struct polars_error_t *polars_dataframe_write_json(struct polars_dataframe_t *df,
+                                                         const void *user,
+                                                         IOCallback callback);
+
+/**
+ * Writes `df` as newline-delimited JSON (upstream's `JsonFormat::JsonLines`), via the same
+ * `IOCallback` shape as `polars_dataframe_write_csv`/`_write_parquet`.
+ */
+const struct polars_error_t *polars_dataframe_write_ndjson(struct polars_dataframe_t *df,
+                                                           const void *user,
+                                                           IOCallback callback);
+
 const struct polars_error_t *polars_dataframe_show(struct polars_dataframe_t *df,
                                                    const void *user,
                                                    IOCallback callback);
@@ -467,7 +518,8 @@ const struct polars_error_t *polars_lazy_frame_collect_schema(struct polars_lazy
 
 struct polars_lazy_group_by_t *polars_lazy_frame_group_by(struct polars_lazy_frame_t *df,
                                                           const struct polars_expr_t *const *exprs,
-                                                          uintptr_t nexprs);
+                                                          uintptr_t nexprs,
+                                                          bool maintain_order);
 
 const struct polars_error_t *polars_lazy_frame_group_by_dynamic(
     struct polars_lazy_frame_t *df,
@@ -498,13 +550,21 @@ const struct polars_error_t *polars_lazy_frame_rolling(
     enum polars_closed_window_t closed_window,
     struct polars_lazy_group_by_t **out);
 
-struct polars_lazy_frame_t *polars_lazy_frame_join(struct polars_lazy_frame_t *a,
-                                                   struct polars_lazy_frame_t *b,
-                                                   const struct polars_expr_t *const *exprs_a,
-                                                   uintptr_t exprs_a_len,
-                                                   const struct polars_expr_t *const *exprs_b,
-                                                   uintptr_t exprs_b_len,
-                                                   enum polars_join_type_t how);
+const struct polars_error_t *polars_lazy_frame_join(struct polars_lazy_frame_t *a,
+                                                    struct polars_lazy_frame_t *b,
+                                                    const struct polars_expr_t *const *exprs_a,
+                                                    uintptr_t exprs_a_len,
+                                                    const struct polars_expr_t *const *exprs_b,
+                                                    uintptr_t exprs_b_len,
+                                                    enum polars_join_type_t how,
+                                                    const uint8_t *suffix,
+                                                    uintptr_t suffix_len,
+                                                    enum polars_join_coalesce_t coalesce,
+                                                    enum polars_join_validation_t validate,
+                                                    bool nulls_equal,
+                                                    const int64_t *slice_offset,
+                                                    const uintptr_t *slice_len,
+                                                    struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_join_asof(struct polars_lazy_frame_t *a,
                                                          struct polars_lazy_frame_t *b,
@@ -517,6 +577,13 @@ const struct polars_error_t *polars_lazy_frame_join_asof(struct polars_lazy_fram
                                                          const uintptr_t *by_b_lens,
                                                          uintptr_t by_b_len,
                                                          enum polars_asof_strategy_t strategy,
+                                                         const uint8_t *tolerance,
+                                                         uintptr_t tolerance_len,
+                                                         bool allow_eq,
+                                                         bool check_sortedness,
+                                                         const uint8_t *suffix,
+                                                         uintptr_t suffix_len,
+                                                         bool nulls_equal,
                                                          struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_unique(struct polars_lazy_frame_t *lf,
@@ -524,6 +591,7 @@ const struct polars_error_t *polars_lazy_frame_unique(struct polars_lazy_frame_t
                                                       const uintptr_t *lens,
                                                       uintptr_t n,
                                                       enum polars_unique_keep_t keep,
+                                                      bool maintain_order,
                                                       struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_drop(struct polars_lazy_frame_t *lf,
@@ -983,11 +1051,21 @@ const struct polars_expr_t *polars_expr_arcsin(const struct polars_expr_t *expr)
 
 const struct polars_expr_t *polars_expr_arctan(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_arccosh(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_arcsinh(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_arctanh(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_cot(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_degrees(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_radians(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_sqrt(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_cbrt(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_sign(const struct polars_expr_t *expr);
 
@@ -1021,6 +1099,8 @@ const struct polars_expr_t *polars_expr_replace_strict(const struct polars_expr_
 const struct polars_expr_t *polars_expr_n_unique(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_unique(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_unique_stable(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_is_duplicated(const struct polars_expr_t *expr);
 
@@ -1210,6 +1290,66 @@ const struct polars_expr_t *polars_expr_gather(const struct polars_expr_t *expr,
 const struct polars_expr_t *polars_expr_gather_every(const struct polars_expr_t *expr,
                                                      uintptr_t n,
                                                      uintptr_t offset);
+
+/**
+ * `Expr::filter` -- filters `expr`'s own values by `predicate`, both evaluated in the same
+ * context (typically inside `agg`, e.g. `col("x").filter(col("x") > 0).sum()`). Distinct from
+ * `polars_lazy_frame_filter`, which filters a whole frame's rows.
+ */
+const struct polars_expr_t *polars_expr_filter(const struct polars_expr_t *expr,
+                                               const struct polars_expr_t *predicate);
+
+/**
+ * `Expr::sort` -- sorts `expr`'s own values (as opposed to `polars_expr_sort_by`, which sorts by
+ * a different key).
+ */
+const struct polars_expr_t *polars_expr_sort(const struct polars_expr_t *expr,
+                                             bool descending,
+                                             bool nulls_last,
+                                             bool multithreaded,
+                                             bool maintain_order);
+
+/**
+ * `Expr::head` -- the first `length` elements of `expr`'s result (`length: null` = upstream's
+ * own default of 10).
+ */
+const struct polars_expr_t *polars_expr_head(const struct polars_expr_t *expr,
+                                             const uintptr_t *length);
+
+/**
+ * `Expr::tail` -- the last `length` elements of `expr`'s result (`length: null` = upstream's own
+ * default of 10).
+ */
+const struct polars_expr_t *polars_expr_tail(const struct polars_expr_t *expr,
+                                             const uintptr_t *length);
+
+/**
+ * `Expr::slice` -- both `offset` and `length` are themselves expressions (typically `lit`s);
+ * `offset` may be negative (counts from the end).
+ */
+const struct polars_expr_t *polars_expr_slice(const struct polars_expr_t *expr,
+                                              const struct polars_expr_t *offset,
+                                              const struct polars_expr_t *length);
+
+/**
+ * `Expr::get` -- a scalar counterpart to `polars_expr_gather` (which takes a vector of indices);
+ * `index` is itself an expression (typically a `lit`), 0-based, and may be negative.
+ */
+const struct polars_expr_t *polars_expr_get(const struct polars_expr_t *expr,
+                                            const struct polars_expr_t *index,
+                                            bool null_on_oob);
+
+const struct polars_expr_t *polars_expr_top_k_by(const struct polars_expr_t *expr,
+                                                 const struct polars_expr_t *k,
+                                                 const struct polars_expr_t *const *by,
+                                                 uintptr_t n_by,
+                                                 const bool *descending);
+
+const struct polars_expr_t *polars_expr_bottom_k_by(const struct polars_expr_t *expr,
+                                                    const struct polars_expr_t *k,
+                                                    const struct polars_expr_t *const *by,
+                                                    uintptr_t n_by,
+                                                    const bool *descending);
 
 const struct polars_expr_t *polars_expr_list_lengths(const struct polars_expr_t *a);
 
@@ -1519,6 +1659,12 @@ const struct polars_expr_t *polars_expr_dt_week(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_dt_quarter(const struct polars_expr_t *a);
 
+const struct polars_expr_t *polars_expr_dt_millisecond(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_microsecond(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_nanosecond(const struct polars_expr_t *a);
+
 const struct polars_expr_t *polars_expr_dt_date(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_dt_time(const struct polars_expr_t *a);
@@ -1776,6 +1922,22 @@ const struct polars_error_t *polars_lazy_frame_scan_ipc(
     const struct polars_cloud_options_t *cloud_options,
     struct polars_lazy_frame_t **out);
 
+const struct polars_error_t *polars_lazy_frame_scan_ndjson(
+    const uint8_t *path,
+    uintptr_t pathlen,
+    const uintptr_t *n_rows,
+    const uint8_t *row_index_name,
+    uintptr_t row_index_name_len,
+    uint32_t row_index_offset,
+    const uintptr_t *infer_schema_length,
+    bool ignore_errors,
+    bool low_memory,
+    bool rechunk,
+    const uint8_t *include_file_paths,
+    uintptr_t include_file_paths_len,
+    const struct polars_cloud_options_t *cloud_options,
+    struct polars_lazy_frame_t **out);
+
 const struct polars_error_t *polars_lazy_frame_sink_parquet(
     struct polars_lazy_frame_t *lf,
     const uint8_t *path,
@@ -1843,6 +2005,15 @@ const struct polars_error_t *polars_lazy_frame_sink_ipc(
     enum polars_ipc_compression_t compression,
     const int32_t *compression_level,
     const uintptr_t *record_batch_size,
+    bool mkdir,
+    bool maintain_order,
+    const struct polars_cloud_options_t *cloud_options,
+    struct polars_lazy_frame_t **out);
+
+const struct polars_error_t *polars_lazy_frame_sink_ndjson(
+    struct polars_lazy_frame_t *lf,
+    const uint8_t *path,
+    uintptr_t pathlen,
     bool mkdir,
     bool maintain_order,
     const struct polars_cloud_options_t *cloud_options,

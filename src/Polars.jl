@@ -138,6 +138,7 @@ include("./io/cast_policy.jl")
 include("./io/parquet.jl")
 include("./io/csv.jl")
 include("./io/ipc.jl")
+include("./io/json.jl")
 
 # `Expr` methods (both the `@wrap_simple_ops`-generated ones and the hand-written ones needing
 # extra args the macro's plain shape can't express, e.g. `mean`/`median`/`std`/`var`/`quantile`)
@@ -145,11 +146,12 @@ include("./io/ipc.jl")
 # see that file for the full list. The `Lists`/`Strings`/`Dt`/`Structs` namespace submodules
 # likewise export their own members from their own files, for qualified use (`Lists.get`, etc.).
 export Series, DataFrame, PolarsError, PartitionByKey, CastPolicy,
-    read_series, names,
+    read_series, names, dtype, native_repr,
     select, with_columns, head, tail, collect_schema,
     read_parquet, write_parquet, scan_parquet,
     read_csv, write_csv, scan_csv, sink_parquet,
     read_ipc, write_ipc, scan_ipc, sink_csv, sink_ipc,
+    read_json, write_json, read_ndjson, write_ndjson, scan_ndjson, sink_ndjson,
     lazy, group_by, group_by_dynamic, rolling, agg, concat,
     innerjoin, leftjoin, rightjoin, outerjoin, semijoin, antijoin, crossjoin, join_asof,
     drop, rename, drop_nulls, with_row_index, explode, unpivot, unnest, nth,

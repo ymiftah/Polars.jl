@@ -85,6 +85,57 @@ end
     @test collect(leftjoin(lazy(a), lazy(b), col("id")))[:val] |> collect |> x -> isequal(x, [missing, 20, 30])
 end
 
+@testset "join options: suffix, coalesce, validate, nulls_equal" begin
+    a = DataFrame((; id = [1, 2, 3], name = ["x", "y", "z"]))
+    b = DataFrame((; id = [2, 3, 4], val = [20, 30, 40]))
+
+    # suffix: default is "_right"; a custom suffix is honored
+    r_default = outerjoin(a, b, col("id"))
+    @test "id_right" in Polars.names(r_default)
+
+    r_suffix = outerjoin(a, b, col("id"); suffix = "_b")
+    @test "id_b" in Polars.names(r_suffix)
+    @test !("id_right" in Polars.names(r_suffix))
+
+    # coalesce: default (:join_specific) coalesces the join key for inner/left/right, but *not*
+    # for outer (matches upstream's own `JoinCoalesce::coalesce` table -- Full only coalesces
+    # under :coalesce_columns, not :join_specific)
+    r_coalesce_default = innerjoin(a, b, col("id"))
+    @test Polars.names(r_coalesce_default) == ["id", "name", "val"]
+    @test "id_right" in Polars.names(outerjoin(a, b, col("id")))
+
+    # :keep_columns keeps both id columns even for a join type that would otherwise coalesce
+    r_keep = innerjoin(a, b, col("id"); coalesce = :keep_columns)
+    @test "id_right" in Polars.names(r_keep)
+
+    # :coalesce_columns forces coalescing, including for outer (where :join_specific doesn't)
+    r_force_coalesce = innerjoin(a, b, col("id"); coalesce = :coalesce_columns)
+    @test Polars.names(r_force_coalesce) == ["id", "name", "val"]
+    r_outer_force_coalesce = outerjoin(a, b, col("id"); coalesce = :coalesce_columns)
+    @test !("id_right" in Polars.names(r_outer_force_coalesce))
+
+    @test_throws Exception innerjoin(a, b, col("id"); coalesce = :bogus)
+
+    # validate: :many_to_many (default) never raises; :one_to_one raises when a key repeats
+    dup_a = DataFrame((; id = [1, 1, 2], v = [1, 2, 3]))
+    dup_b = DataFrame((; id = [1, 2], w = [10, 20]))
+    @test size(innerjoin(dup_a, dup_b, col("id"); validate = :many_to_many)) == (3, 3)
+    @test_throws PolarsError innerjoin(dup_a, dup_b, col("id"); validate = :one_to_one)
+    @test_throws PolarsError innerjoin(dup_a, dup_b, col("id"); validate = :one_to_many)
+    # dup_b's key is unique, so many_to_one (checks uniqueness on the right) passes
+    @test size(innerjoin(dup_a, dup_b, col("id"); validate = :many_to_one)) == (3, 3)
+    @test_throws Exception innerjoin(a, b, col("id"); validate = :bogus)
+
+    # nulls_equal: default false means a null key on both sides never matches
+    a_null = DataFrame((; id = [1, missing], v = [10, 20]))
+    b_null = DataFrame((; id = [1, missing], w = [100, 200]))
+    r_no_match = innerjoin(a_null, b_null, col("id"))
+    @test size(r_no_match) == (1, 3)
+
+    r_match = innerjoin(a_null, b_null, col("id"); nulls_equal = true)
+    @test size(r_match) == (2, 3)
+end
+
 @testset "crossjoin" begin
     a = DataFrame((; id = [1, 2], v = ["x", "y"]))
     b = DataFrame((; bid = [10, 20, 30]))
@@ -154,4 +205,53 @@ end
     # equidistant from 9:00:00/9:00:02, 9:00:03 from 9:00:02/9:00:04) break toward the later quote
     r_nearest = join_asof(trades, quotes, "time"; strategy = :nearest)
     @test r_nearest[:bid] == [11.0, 12.0, 13.0]
+end
+
+@testset "join_asof options: tolerance, allow_eq, suffix, nulls_equal" begin
+    trades = DataFrame(
+        (;
+            time = [DateTime(2024, 1, 1, 9, 0, 1), DateTime(2024, 1, 1, 9, 0, 3), DateTime(2024, 1, 1, 9, 0, 7)],
+            price = [100.0, 101.0, 102.0],
+        )
+    )
+    quotes = DataFrame(
+        (;
+            time = [DateTime(2024, 1, 1, 9, 0, 0), DateTime(2024, 1, 1, 9, 0, 2)],
+            bid = [10.0, 11.0],
+        )
+    )
+
+    # no tolerance (default): every left row matches the nearest earlier quote, however far
+    r_no_tolerance = join_asof(trades, quotes, "time")
+    @test r_no_tolerance[:bid] == [10.0, 11.0, 11.0]
+
+    # tolerance caps how far a match may be: the third trade (9:00:07) is >2s past its nearest
+    # quote (9:00:02), so it gets `missing` instead
+    r_tolerance = join_asof(trades, quotes, "time"; tolerance = "2s")
+    @test isequal(collect(r_tolerance[:bid]), [10.0, 11.0, missing])
+
+    # an invalid tolerance string raises a catchable PolarsError, not a crash
+    @test_throws PolarsError join_asof(trades, quotes, "time"; tolerance = "not_a_duration")
+
+    # allow_eq = false: an exact key match no longer counts, so a trade must match a *strictly
+    # earlier* quote
+    exact = DataFrame((; time = [DateTime(2024, 1, 1, 9, 0, 0)], v = [1]))
+    quotes_exact = DataFrame((; time = [DateTime(2024, 1, 1, 9, 0, 0)], bid = [99.0]))
+    r_allow_eq = join_asof(exact, quotes_exact, "time"; allow_eq = true)
+    @test r_allow_eq[:bid] == [99.0]
+    r_no_allow_eq = join_asof(exact, quotes_exact, "time"; allow_eq = false)
+    @test isequal(collect(r_no_allow_eq[:bid]), [missing])
+
+    # suffix: default "_right" on a colliding non-key column name
+    a_collide = DataFrame((; time = [DateTime(2024, 1, 1, 9, 0, 1)], bid = [1.0]))
+    r_suffix_default = join_asof(a_collide, quotes, "time")
+    @test "bid_right" in Polars.names(r_suffix_default)
+    r_suffix_custom = join_asof(a_collide, quotes, "time"; suffix = "_q")
+    @test "bid_q" in Polars.names(r_suffix_custom)
+    @test !("bid_right" in Polars.names(r_suffix_custom))
+
+    # nulls_equal: a null asof key matches nothing regardless (asof needs an orderable value),
+    # but nulls_equal is exercised here for API-surface coverage/no-crash, matching the other
+    # join verbs' own convention
+    @test join_asof(trades, quotes, "time"; nulls_equal = true)[:bid] == r_no_tolerance[:bid]
 end

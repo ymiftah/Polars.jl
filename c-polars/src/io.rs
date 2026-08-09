@@ -363,6 +363,56 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_scan_ndjson(
+    path: *const u8,
+    pathlen: usize,
+    n_rows: *const usize,
+    row_index_name: *const u8,
+    row_index_name_len: usize,
+    row_index_offset: u32,
+    infer_schema_length: *const usize,
+    ignore_errors: bool,
+    low_memory: bool,
+    rechunk: bool,
+    include_file_paths: *const u8,
+    include_file_paths_len: usize,
+    cloud_options: *const polars_cloud_options_t,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    // See the matching comment on `polars_lazy_frame_scan_parquet` above: `reader.finish()` is
+    // also purely lazy DSL node construction, but is guarded as defense-in-depth the same way.
+    guard_error(|| {
+        let path = tri!(read_str(path, pathlen));
+        let row_index_name = tri!(read_opt_str(row_index_name, row_index_name_len));
+        let include_file_paths = tri!(read_opt_str(include_file_paths, include_file_paths_len));
+        let cloud_options = tri!(resolve_cloud_options(path, cloud_options));
+        let infer_schema_length = match infer_schema_length.as_ref().copied() {
+            Some(n) => Some(tri!(NonZeroUsize::new(n).ok_or_else(|| {
+                PolarsError::InvalidOperation("infer_schema_length must be positive".into())
+            }))),
+            None => None,
+        };
+
+        let reader = LazyJsonLineReader::new(PlRefPath::new(path))
+            .with_n_rows(n_rows.as_ref().copied())
+            .with_row_index(row_index_name.map(|name| RowIndex {
+                name,
+                offset: row_index_offset,
+            }))
+            .with_infer_schema_length(infer_schema_length)
+            .with_ignore_errors(ignore_errors)
+            .low_memory(low_memory)
+            .with_rechunk(rechunk)
+            .with_include_file_paths(include_file_paths)
+            .with_cloud_options(cloud_options);
+
+        let lf = tri!(reader.finish());
+        *out = make_lazy_frame(lf);
+        std::ptr::null()
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
     lf: *mut polars_lazy_frame_t,
     path: *const u8,
@@ -649,6 +699,36 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
             target: SinkTarget::Path(PlRefPath::new(path)),
         };
         let file_format = FileWriteFormat::Ipc(options);
+        let sink_args = UnifiedSinkArgs {
+            mkdir,
+            maintain_order,
+            cloud_options: cloud_options.map(Arc::new),
+            ..Default::default()
+        };
+        let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
+        *out = make_lazy_frame(sunk);
+        std::ptr::null()
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_sink_ndjson(
+    lf: *mut polars_lazy_frame_t,
+    path: *const u8,
+    pathlen: usize,
+    mkdir: bool,
+    maintain_order: bool,
+    cloud_options: *const polars_cloud_options_t,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let path = tri!(read_str(path, pathlen));
+        let cloud_options = tri!(resolve_cloud_options(path, cloud_options));
+        let lf = (*lf).inner.clone();
+        let sink_type = SinkDestination::File {
+            target: SinkTarget::Path(PlRefPath::new(path)),
+        };
+        let file_format = FileWriteFormat::NDJson(NDJsonWriterOptions::default());
         let sink_args = UnifiedSinkArgs {
             mkdir,
             maintain_order,

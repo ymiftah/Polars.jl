@@ -23,11 +23,15 @@ df[:x]
 
 ```@docs
 Polars.name
+Polars.dtype
 ```
 
 `Polars.name(series)` returns its column name as a `String`. `Polars.item(series)` (see
 [DataFrame](@ref), documented there alongside its `DataFrame` methods) likewise returns the sole
-value of a length-1 `series` — a clear `error(...)` for any other length.
+value of a length-1 `series` — a clear `error(...)` for any other length. `Polars.dtype(series)`
+returns its raw polars dtype code (an `API.PolarsValueType*` enum value) -- for plain dtypes this
+agrees with `eltype(series)` (modulo `missing`-wrapping), but it also distinguishes cases the
+`Series{T}` type parameter can't represent on its own (e.g. Datetime, Categorical).
 
 ## Manipulation/selection
 

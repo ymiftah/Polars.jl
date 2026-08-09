@@ -124,6 +124,17 @@ module Selectors
     """
     all() = _wrap(API.polars_expr_selector_all())
 
+    """
+        empty()::Selector
+
+    Selects no columns at all -- the identity element for [`Base.:|`](@ref) (`empty() | s == s`)
+    and the annihilator for [`Base.:&`](@ref) (`empty() & s == empty()`). Has no dedicated name in
+    py-polars' own `selectors` module (there, `cs.by_name()` with no names is the equivalent), but
+    is included here for completeness of the selector algebra -- the underlying Rust primitive
+    already backs every other combinator in this module.
+    """
+    empty() = _wrap(API.polars_expr_selector_empty())
+
     _dtype_simple(kind) = _wrap(API.polars_expr_selector_dtype_simple(kind))
 
     """
@@ -418,11 +429,36 @@ module Selectors
     export numeric, integer, unsigned_integer, signed_integer, boolean, binary,
         temporal, categorical, date, datetime, duration, decimal, struct_, list, array, nested,
         by_dtype, by_name, by_index, matches, starts_with, ends_with
-    # `all`/`float`/`string`/`time`/`contains` are deliberately *not* exported -- each collides with
-    # an exported `Base` binding (`Base.all`/`Base.float`/`Base.string`/`Base.time`/`Base.contains`),
-    # so `using Polars.Selectors` would otherwise clash with those (same reasoning as `Lists`'
-    # `get`/`contains`/`head`, `Strings`' none, `Dt`'s none -- this namespace collides the most since
-    # it mirrors so much of `Base`'s own vocabulary). Qualified use (`Selectors.all()`, etc.) always
-    # works regardless.
+    # `all`/`float`/`string`/`time`/`contains`/`empty` are deliberately *not* exported -- each
+    # collides with an exported `Base` binding (`Base.all`/`Base.float`/`Base.string`/`Base.time`/
+    # `Base.contains`/`Base.empty`), so `using Polars.Selectors` would otherwise clash with those
+    # (same reasoning as `Lists`' `get`/`contains`/`head`, `Strings`' none, `Dt`'s none -- this
+    # namespace collides the most since it mirrors so much of `Base`'s own vocabulary). Qualified
+    # use (`Selectors.all()`, etc.) always works regardless.
 
 end # module Selectors
+
+"""
+    exclude(names::AbstractString...)::Selector
+    exclude(dtypes::Type...)::Selector
+    exclude()::Selector
+
+Selects every column except `names` (by name) or `dtypes` (by dtype, matching
+[`Selectors.by_dtype`](@ref)'s own type set) -- the top-level counterpart to
+[`Selectors.by_name`](@ref)'s inverse and [`Selectors.by_dtype`](@ref)'s inverse, respectively.
+`exclude("a")` is `Selectors.all() - Selectors.by_name("a"; strict=false)`; `exclude(Int64)` is
+`Selectors.all() - Selectors.by_dtype(Int64)`. Unlike `Selectors.by_name`, a name in `names`
+absent from the frame is silently ignored rather than raising, matching upstream `pl.exclude`'s
+"exclude these if present" semantics -- the motivating use case is a name list shared across
+frames that don't all have every column. `exclude()` (no arguments) selects every column, the
+identity for this family.
+
+!!! note "Mixing a name and a dtype in one call is a `MethodError`, not a `TypeError`"
+    Matches upstream, which rejects `pl.exclude("a", pl.Int64)` the same way (there, a
+    `TypeError`). Combine two `exclude` calls with [`&`](@ref Base.:&(::Polars.Selector,
+    ::Polars.Selector)) instead: `exclude("a") & exclude(Int64)`.
+"""
+exclude(names::AbstractString...) = Selectors.all() - Selectors.by_name(names...; strict = false)
+exclude(dtypes::Type...) = Selectors.all() - Selectors.by_dtype(dtypes...)
+exclude() = Selectors.all()
+export exclude
