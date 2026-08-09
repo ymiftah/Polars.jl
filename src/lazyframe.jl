@@ -15,6 +15,9 @@ end
 
 Base.unsafe_convert(::Type{Ptr{polars_lazy_frame_t}}, df::LazyFrame) = df.ptr
 
+# lazy is a no-op on a LazyFrame, same as in py-polars
+lazy(df::LazyFrame) = identity(df)
+
 """
     Base.show(io::IO, lf::LazyFrame)
 
@@ -39,7 +42,7 @@ Returns a lazy frame over the provided dataframe.
 
 See also [`collect`](@ref).
 """
-function lazy(df)
+function lazy(df::DataFrame)
     out = polars_dataframe_lazy(df)
     return LazyFrame(out)
 end
