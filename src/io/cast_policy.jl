@@ -65,7 +65,7 @@ struct CastPolicy
             missing_struct_fields_raise::Bool = true,
             extra_struct_fields_raise::Bool = true
         )
-        new(
+        return new(
             integer_upcast, integer_to_float_cast, float_upcast, float_downcast,
             datetime_nanoseconds_downcast, datetime_microseconds_downcast,
             datetime_convert_timezone, null_upcast, categorical_to_string,

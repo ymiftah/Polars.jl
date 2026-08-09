@@ -117,8 +117,8 @@ function scan_parquet(
 
     cast_policy_struct = _to_api_struct(
         cast_policy === nothing ? CastPolicy() :
-        cast_policy isa CastPolicy ? cast_policy :
-        _dict_to_cast_policy(cast_policy)
+            cast_policy isa CastPolicy ? cast_policy :
+            _dict_to_cast_policy(cast_policy)
     )
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
