@@ -22,6 +22,43 @@ const S = Selectors
     @test size(select(df, S.by_name())) == (0, 0)
 end
 
+@testset "exclude: inverse of by_name, always non-strict (API gap audit quick-win batch; py-polars test_exprs.py::test_exclude / test_expansion.py::test_exclude_selection)" begin
+    df = DataFrame((; a = [1, 2, 3], b = [4, 5, 6], c = [7, 8, 9]))
+
+    @test sort(names(select(df, exclude("a")))) == ["b", "c"]
+    @test sort(names(select(df, exclude("a", "c")))) == ["b"]
+
+    # unlike `by_name`, a name absent from the frame is silently ignored, not an error
+    @test sort(names(select(df, exclude("nonexistent")))) == ["a", "b", "c"]
+    @test sort(names(select(df, exclude("a", "nonexistent")))) == ["b", "c"]
+
+    # excluding every column is a legitimate selector matching zero columns (same (0, 0) shape as
+    # `S.by_name()`'s own zero-match case above)
+    @test size(select(df, exclude("a", "b", "c"))) == (0, 0)
+
+    # excluding nothing is the identity
+    @test sort(names(select(df, exclude()))) == ["a", "b", "c"]
+
+    # equivalent to the documented `Selectors.all() - Selectors.by_name(...; strict=false)` composition
+    @test sort(names(select(df, exclude("a")))) == sort(names(select(df, S.all() - S.by_name("a"; strict = false))))
+end
+
+@testset "exclude: dtype-based form (py-polars test_exprs.py::test_exclude dtype parametrizations)" begin
+    # upstream's own fixture: {a: Int64, b: Int64, c: String}, parametrized over both name- and
+    # dtype-based `exclude`/`Expr.exclude` input -- ported here as the equivalent top-level calls
+    dfdt = DataFrame((; a = Int64[1], b = Int64[2], c = ["x"]))
+
+    @test names(select(dfdt, exclude(Int64))) == ["c"]
+    @test sort(names(select(dfdt, exclude(String, Float32)))) == ["a", "b"]
+
+    # a dtype with zero matching columns is a legitimate selector matching every column, not an error
+    @test sort(names(select(dfdt, exclude(Float64)))) == ["a", "b", "c"]
+
+    # mixing a name and a dtype in one call is a MethodError here (a TypeError upstream) --
+    # documented on the docstring as the deliberate divergence
+    @test_throws MethodError exclude("a", Int64)
+end
+
 @testset "Selectors.by_index: 1-based, negative, cross-checked against nth" begin
     df = DataFrame((; a = [1, 2, 3], b = [4, 5, 6], c = [7, 8, 9]))
 
@@ -254,19 +291,39 @@ end
     @test_throws MethodError xor(col("x"), S.numeric())
 end
 
-@testset "Selectors: Enum/Object have no public constructor; empty() is not part of the public surface" begin
+@testset "Selectors: Enum/Object have no public constructor" begin
     # First-cut scope: the Rust primitive supports a strict superset of `DataTypeSelector` kinds
-    # (including Enum/Object), and `polars_expr_selector_empty` exists as the combinators'
-    # identity element -- neither is meant to be reachable as a public `Selectors.*` constructor.
+    # (including Enum/Object), neither of which is meant to be reachable as a public
+    # `Selectors.*` constructor.
 
-    # Enum/Object: no binding of either name exists in the `Selectors` module at all (unlike
-    # `empty` below, neither is a `Base` name, so a plain `isdefined` check is real proof here --
-    # not just "not exported", genuinely absent).
+    # No binding of either name exists in the `Selectors` module at all -- a plain `isdefined`
+    # check is real proof here, not just "not exported", genuinely absent.
     @test !isdefined(Selectors, :enum_)
     @test !isdefined(Selectors, :object)
 
     @test hasmethod(Selectors.by_dtype, Tuple{}) # sanity: by_dtype() itself IS a valid call
-    @test_throws MethodError Selectors.empty() # resolves to Base.empty, not a Selectors constructor
+end
+
+@testset "Selectors.empty: identity for |, annihilator for &, not exported (collides with Base.empty)" begin
+    df = DataFrame((; a = Int64[1, 2], b = Float64[3.0, 4.0], x = ["p", "q"]))
+
+    # Not exported -- `empty` collides with `Base.empty`, so only qualified `Selectors.empty()`
+    # resolves to the selector constructor; a bare `empty()` still resolves to `Base.empty`.
+    @test_throws MethodError empty()
+
+    @test size(select(df, S.empty())) == (0, 0)
+
+    # identity element for `|`
+    @test sort(names(select(df, S.empty() | S.numeric()))) == ["a", "b"]
+    @test sort(names(select(df, S.numeric() | S.empty()))) == ["a", "b"]
+
+    # annihilator for `&`
+    @test size(select(df, S.empty() & S.numeric())) == (0, 0)
+    @test size(select(df, S.numeric() & S.empty())) == (0, 0)
+
+    # `-` and `xor` against empty() are no-ops on the non-empty side
+    @test sort(names(select(df, S.numeric() - S.empty()))) == ["a", "b"]
+    @test sort(names(select(df, xor(S.numeric(), S.empty())))) == ["a", "b"]
 end
 
 @testset "Selectors.by_index accepts any Integer width" begin

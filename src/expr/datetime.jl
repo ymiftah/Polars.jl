@@ -12,6 +12,9 @@ using ..Polars: @wrap_simple_ops, @wrap_expr_method, @curry, API, polars_expr_t,
     gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day, "Day of the year (1-366) for each Date/Datetime value in `expr`.")
     gen_impl_expr_dt!(polars_expr_dt_week, DateLikeNameSpace::week, "ISO week number (1-53) for each Date/Datetime value in `expr`.")
     gen_impl_expr_dt!(polars_expr_dt_quarter, DateLikeNameSpace::quarter, "Quarter of the year (1-4) for each Date/Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_millisecond, DateLikeNameSpace::millisecond, "Extracts the millisecond component (0-999, the sub-second part) of each Datetime/Time value in `expr`. See [`total_milliseconds`](@ref) for the Duration-typed equivalent.")
+    gen_impl_expr_dt!(polars_expr_dt_microsecond, DateLikeNameSpace::microsecond, "Extracts the microsecond component (0-999999, the sub-second part) of each Datetime/Time value in `expr`. See [`total_microseconds`](@ref) for the Duration-typed equivalent.")
+    gen_impl_expr_dt!(polars_expr_dt_nanosecond, DateLikeNameSpace::nanosecond, "Extracts the nanosecond component (0-999999999, the sub-second part) of each Datetime/Time value in `expr`. See [`total_nanoseconds`](@ref) for the Duration-typed equivalent.")
     gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date, "Extracts the `Date` component of each Datetime value in `expr` (drops the time-of-day).")
     gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time, "Extracts the `Dates.Time` component of each Datetime value in `expr` (drops the date).")
 

@@ -174,6 +174,20 @@ function Base.getindex(series::Series, r::UnitRange)
 end
 
 """
+    dtype(series::Series)::API.polars_value_type_t
+
+Returns the raw polars dtype code of `series`, as one of the `API.PolarsValueType*` enum values
+(e.g. `API.PolarsValueTypeInt64`). This is the low-level dtype code, not a Julia `Type` -- for
+plain dtypes it agrees with `eltype(series)` (modulo `missing`-wrapping), but it also distinguishes
+cases the `Series{T}` type parameter can't represent on its own, e.g. Datetime (no time
+unit/timezone) or Categorical (no `T` at all, since categorical columns don't materialize to
+Julia -- see `docs/src/limitations.md`).
+"""
+function dtype(series)
+    return API.polars_series_type(series)
+end
+
+"""
     name(series::Series)::String
 
 Returns the name of this polars series.

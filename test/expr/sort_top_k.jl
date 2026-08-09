@@ -169,6 +169,60 @@ end
         [("c", UInt32(3)), ("b", UInt32(2)), ("d", UInt32(2)), ("a", UInt32(1))]
 end
 
+@testset "sort(expr): sorts expr's own values, not by a different key" begin
+    df = DataFrame((; x = [3, 1, 4, 1, 5]))
+
+    r = select(df, alias(sort(col("x")), "s"))
+    @test collect(r[:s]) == [1, 1, 3, 4, 5]
+
+    r_rev = select(df, alias(sort(col("x"); rev = true), "s"))
+    @test collect(r_rev[:s]) == [5, 4, 3, 1, 1]
+
+    # per-group sort of the expression's own values (distinct from frame-level sort)
+    df2 = DataFrame((; g = ["a", "a", "b", "b"], x = [3, 1, 4, 2]))
+    r2 = collect(agg(group_by(lazy(df2), "g"), alias(sort(col("x")), "sorted_x")))
+    r2 = Base.sort(r2, col("g"))
+    @test collect(r2[:sorted_x][1]) == [1, 3]
+    @test collect(r2[:sorted_x][2]) == [2, 4]
+end
+
+@testset "sort(expr) nulls_last" begin
+    df = DataFrame((; a = Union{Missing, Float64}[3.0, missing, 1.0, missing, 2.0]))
+
+    r_last = select(df, alias(sort(col("a"); nulls_last = true), "s"))
+    @test isequal(collect(r_last[:s]), [1.0, 2.0, 3.0, missing, missing])
+
+    r_first = select(df, alias(sort(col("a"); nulls_last = false), "s"))
+    @test isequal(collect(r_first[:s]), [missing, missing, 1.0, 2.0, 3.0])
+end
+
+@testset "top_k_by / bottom_k_by: the k rows with the largest/smallest by-key" begin
+    df = DataFrame((; g = ["a", "a", "b", "b", "b"], x = [3, 1, 10, 20, 5]))
+
+    r_top = collect(agg(group_by(lazy(df), "g"), alias(top_k_by(col("x"), 1, col("x")), "top1")))
+    r_top = Base.sort(r_top, col("g"))
+    @test collect(r_top[:top1][1]) == [3]
+    @test collect(r_top[:top1][2]) == [20]
+
+    r_bottom = collect(agg(group_by(lazy(df), "g"), alias(bottom_k_by(col("x"), 1, col("x")), "bottom1")))
+    r_bottom = Base.sort(r_bottom, col("g"))
+    @test collect(r_bottom[:bottom1][1]) == [1]
+    @test collect(r_bottom[:bottom1][2]) == [5]
+
+    # multi-key with per-key rev
+    df2 = DataFrame((; x = [1, 2, 3, 4], y = [2, 1, 2, 1], z = [3, 5, 1, 2]))
+    r2 = select(df2, alias(top_k_by(col("x"), 4, col("y"), col("z"); rev = [false, true]), "t"))
+    r2_bottom = select(df2, alias(bottom_k_by(col("x"), 4, col("y"), col("z"); rev = [false, true]), "b"))
+    @test sort(collect(r2[:t])) == sort(collect(r2_bottom[:b])) == [1, 2, 3, 4]
+end
+
+@testset "top_k_by / bottom_k_by: a wrong-length `rev` raises ArgumentError" begin
+    df = DataFrame((; x = [1, 2, 3], y = [3, 2, 1], z = [1, 1, 1]))
+
+    @test_throws ArgumentError select(df, top_k_by(col("x"), 2, col("y"), col("z"); rev = [true]))
+    @test_throws ArgumentError select(df, bottom_k_by(col("x"), 2, col("y"), col("z"); rev = [true]))
+end
+
 @testset "sort_by: a wrong-length `rev` raises ArgumentError" begin
     # Matches `sort`'s own frame-level validation -- see test/operations/sort.jl.
     df = DataFrame((; x = [1, 2, 3], y = [3, 2, 1], z = [1, 1, 1]))

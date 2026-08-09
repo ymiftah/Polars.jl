@@ -45,6 +45,19 @@
     @test size(result_empty) == (0, 2)
 end
 
+@testset "group_by: maintain_order preserves each group's first-appearance order" begin
+    df = DataFrame((; g = ["b", "a", "b", "a", "c"], x = [1, 2, 3, 4, 5]))
+
+    # without maintain_order, group order in the output isn't guaranteed
+    r_unordered = collect(agg(group_by(lazy(df), "g"), Polars.sum(col("x"))))
+    @test Set(collect(r_unordered[:g])) == Set(["a", "b", "c"])
+
+    # with maintain_order, groups appear in the order their key first occurs
+    r_ordered = collect(agg(group_by(lazy(df), "g"; maintain_order = true), Polars.sum(col("x"))))
+    @test collect(r_ordered[:g]) == ["b", "a", "c"]
+    @test collect(r_ordered[:x]) == [1 + 3, 2 + 4, 5]
+end
+
 @testset "group_by with additional agg scenarios" begin
     lf = lazy(
         DataFrame(

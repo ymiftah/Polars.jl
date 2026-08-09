@@ -80,6 +80,18 @@ is always a concrete `Bool`). `Base.summary(df::DataFrame)` returns a one-line s
 `"3×2 DataFrame"`); `Base.show` renders the full table with PrettyTables formatting. Both are
 automatic in the REPL/Pluto.jl.
 
+```@docs
+Polars.native_repr
+```
+
+```@example dataframe
+print(Polars.native_repr(orders))
+```
+
+`Polars.native_repr` renders `df` using polars' own Rust `Display` formatting -- the same text
+`print(df)` produces in py-polars -- as an alternative to the `PrettyTables.jl`-based default
+render above.
+
 ## Manipulation/selection
 
 `select` keeps only the given expressions; `with_columns` keeps the existing columns and adds the
@@ -141,6 +153,9 @@ dup = DataFrame((; store = ["a", "a", "b"], product = ["x", "x", "x"]))
 unique(dup; keep = :first)
 ```
 
+`maintain_order = true` preserves the original row order among the kept rows (the default,
+`false`, allows more optimization but gives no order guarantee).
+
 ```@docs
 drop
 Base.rename
@@ -178,6 +193,10 @@ agg
     collect
 end
 ```
+
+`group_by(...; maintain_order = true)` preserves each group's row order, and the order groups
+first appear in, through `agg`'s output (the default, `false`, allows more optimization but gives
+no order guarantee).
 
 ### Time-window variants
 
@@ -242,6 +261,11 @@ innerjoin(orders, stores, col("store"))
 
 `join_asof` is the workhorse for aligning time series that don't share tick timestamps — see the
 [Time-Series Analytics](@ref) tutorial for a full example.
+
+Every join verb accepts `suffix`, `coalesce`, `validate`, and `nulls_equal` (see each function's
+own docstring above for the exact semantics); `join_asof` additionally accepts `tolerance`,
+`allow_eq`, and `check_sortedness`. None currently accepts `slice` -- see
+[Limitations](@ref) for why.
 
 ## Combining frames
 

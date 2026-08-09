@@ -65,13 +65,14 @@ Selectors.matches
 Selectors.starts_with
 Selectors.ends_with
 Selectors.contains
+exclude
 ```
 
 ```@example selectors
 select(df, Selectors.starts_with("f"))
 ```
 
-`strict` (default `true`) controls what happens when a name/index doesn't exist: `by_name`/`by_index` raise a `PolarsError`; passing `strict=false` silently skips it instead.
+`strict` (default `true`) controls what happens when a name/index doesn't exist: `by_name`/`by_index` raise a `PolarsError`; passing `strict=false` silently skips it instead. The top-level `exclude` is the name-based inverse of `by_name` (always behaving as if `strict=false` — a name absent from the frame is silently ignored rather than raising) and, via a separate method, the dtype-based inverse of [`Selectors.by_dtype`](@ref) — `exclude(Int64)` excludes every `Int64` column. The two forms don't mix in one call (`exclude("a", Int64)` is a `MethodError`); combine two `exclude` calls with `&` instead.
 
 !!! note "`by_index` is 1-based, unlike py-polars' 0-based `cs.by_index`"
     Matches this package's own `nth` (see [Functions](@ref)) — 1-based indexing is the convention everywhere else in this Julia package. Negative indices count back from the end (`by_index(-1)` is the last column, same as `nth(-1)`).
@@ -98,6 +99,12 @@ select(df, Selectors.all() - Selectors.numeric())
     Python's `cs.numeric() ^ cs.string()` maps to Julia's `xor(a, b)`/`a ⊻ b` — see its docs on the
     [Expressions](@ref) page, in [Boolean](@ref) — **not** `^`, which always means exponentiation
     in Julia.
+
+`Selectors.empty()` selects no columns at all — the identity element for `|` and the annihilator
+for `&`. It has no dedicated name in py-polars' own `selectors` module (there, `cs.by_name()` with
+no names is the equivalent), but rounds out the algebra here since the underlying Rust primitive
+already backs every other combinator. Like `Selectors.all`, it collides with a `Base` export
+(`Base.empty`), so it's reachable only as `Selectors.empty()`, never via `using Polars.Selectors`.
 
 !!! warning "Mixing a `Selector` with a plain `Expr` is a `MethodError`"
     `Selectors.numeric() | col("x")` has genuinely ambiguous intent — does `col("x")` mean "the column named x" or "select by name x"? No method exists for the mixed case, in either argument order, on purpose: combine two `Selector`s (e.g. `Selectors.numeric() | Selectors.by_name("x")`), not a `Selector` and a bare `Expr`.
