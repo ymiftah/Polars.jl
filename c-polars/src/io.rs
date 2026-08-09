@@ -3,9 +3,13 @@ use std::sync::Arc;
 
 use polars::io::cloud::CloudOptions;
 use polars::io::ipc::IpcScanOptions;
+use polars::io::parquet::read::ParquetOptions;
 use polars::prelude::*;
 use polars_plan::dsl::sink::{PartitionStrategy, SinkDestination, SinkTarget, UnifiedSinkArgs};
-use polars_plan::dsl::{FileWriteFormat, MissingColumnsPolicy, UnifiedScanArgs};
+use polars_plan::dsl::{
+    DslBuilder, ExtraColumnsPolicy, FileWriteFormat, MissingColumnsPolicy, ScanSources,
+    UnifiedScanArgs,
+};
 use polars_utils::compression::{BrotliLevel, GzipLevel, ZstdLevel};
 use polars_utils::pl_path::CloudScheme;
 use polars_utils::slice_enum::Slice;
@@ -134,6 +138,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
     include_file_paths: *const u8,
     include_file_paths_len: usize,
     hive_partitioning: *const bool,
+    cast_policy: polars_cast_columns_policy_t,
     cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
@@ -145,41 +150,71 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
     // defense-in-depth: unlike a plain `col()`/`select()`-style DSL constructor, it *does*
     // resolve `hive_partitioning`/path arguments eagerly, and upstream's scan-builder chain is
     // less audited for panic-freedom than the simple expression constructors.
+    //
+    // This bypasses `ScanArgsParquet`/`LazyFrame::scan_parquet` (which hardcodes
+    // `cast_columns_policy: CastColumnsPolicy::ERROR_ON_MISMATCH`) and instead reimplements what
+    // `LazyParquetReader::finish()` does internally (polars-lazy-0.54.4/src/scan/parquet.rs),
+    // substituting our own `cast_columns_policy`. Every other field below is a direct
+    // transcription of that upstream method, not a new default.
     guard_error(|| {
         let path = tri!(read_str(path, pathlen));
         let row_index_name = tri!(read_opt_str(row_index_name, row_index_name_len));
         let include_file_paths = tri!(read_opt_str(include_file_paths, include_file_paths_len));
         let cloud_options = tri!(resolve_cloud_options(path, cloud_options));
 
-        let args = ScanArgsParquet {
-            n_rows: n_rows.as_ref().copied(),
+        let sources = ScanSources::Paths(std::iter::once(PlRefPath::new(path)).collect());
+
+        let parquet_options = ParquetOptions {
+            schema: None,
             parallel: parallel.to_parallel_strategy(),
-            row_index: row_index_name.map(|name| RowIndex {
-                name,
-                offset: row_index_offset,
-            }),
+            low_memory,
+            use_statistics,
+        };
+
+        let unified_scan_args = UnifiedScanArgs {
+            schema: None,
             cloud_options,
             hive_options: HiveOptions {
                 enabled: hive_partitioning.as_ref().copied(),
                 ..Default::default()
             },
-            use_statistics,
-            schema: None,
-            low_memory,
             rechunk,
             cache,
             glob,
+            hidden_file_prefix: None,
+            projection: None,
+            column_mapping: None,
+            default_values: None,
+            // Row index is applied via `with_row_index()` below, matching upstream's own approach.
+            row_index: None,
+            pre_slice: n_rows
+                .as_ref()
+                .copied()
+                .map(|len| Slice::Positive { offset: 0, len }),
+            cast_columns_policy: cast_policy.to_cast_columns_policy(),
+            missing_columns_policy: if allow_missing_columns {
+                MissingColumnsPolicy::Insert
+            } else {
+                MissingColumnsPolicy::Raise
+            },
+            extra_columns_policy: ExtraColumnsPolicy::Raise,
             include_file_paths,
-            allow_missing_columns,
+            deletion_files: None,
+            table_statistics: None,
+            row_count: None,
         };
 
-        match LazyFrame::scan_parquet(PlRefPath::new(path), args) {
-            Ok(lf) => {
-                *out = make_lazy_frame(lf);
-                std::ptr::null()
-            }
-            Err(err) => make_error(err),
+        let mut lf: LazyFrame =
+            tri!(DslBuilder::scan_parquet(sources, parquet_options, unified_scan_args))
+                .build()
+                .into();
+
+        if let Some(name) = row_index_name {
+            lf = lf.with_row_index(name, Some(row_index_offset));
         }
+
+        *out = make_lazy_frame(lf);
+        std::ptr::null()
     })
 }
 
