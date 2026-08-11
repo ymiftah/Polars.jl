@@ -11,13 +11,8 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   present in the reference schema, not files with an *extra* column beyond it.** The reference
   schema is whichever file/fragment gets scanned first, so ordering matters when relying on this
   option. `scan_parquet` additionally takes `allow_extra_columns` for the converse case (an extra
-  column is silently dropped rather than raising). **Neither `scan_csv` nor `scan_ipc` has an
-  equivalent, for two different reasons**: `LazyCsvReader::finish()` hardcodes its extra-columns
-  policy internally with no builder method to override it (the same class of gap as the
-  `hive_partitioning` one above); `scan_ipc` threads `ExtraColumnsPolicy` through identically to
-  `scan_parquet`, but verified live that polars' IPC multi-scan source still raises even with it
-  set to `Ignore` — an upstream inconsistency between formats in this polars version, not
-  something `c-polars` can fix without patching vendored polars.
+  column is silently dropped rather than raising) — **`scan_csv`/`scan_ipc` have no equivalent.**
+  See [Developer](@ref) for why.
 
 - **A `Decimal`-typed column can be queried/cast (`cast_decimal`, `Selectors.decimal()`) but not
   materialized back into Julia.** Reading its values (`df[:col]`) raises an error — there's no

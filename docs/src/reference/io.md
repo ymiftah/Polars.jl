@@ -27,8 +27,13 @@ lf = scan_parquet("/tmp/example.parquet")
 Keyword options (see the docstring above for the full list): `n_rows`,
 `row_index_name`/`row_index_offset` (add a row-index column), `parallel`
 (`:auto`/`:none`/`:columns`/`:row_groups`), `low_memory`, `rechunk`, `cache`, `glob`,
-`use_statistics`, `allow_missing_columns`, `include_file_paths`, `hive_partitioning`
-(`true`/`false`/`nothing` to auto-detect). `read_parquet` accepts the same keywords.
+`use_statistics`, `allow_missing_columns`, `allow_extra_columns`, `include_file_paths`,
+`hive_partitioning` (`true`/`false`/`nothing` to auto-detect). `read_parquet` accepts the same
+keywords.
+
+`allow_extra_columns` (a column present in a scanned file but absent from the reference schema is
+silently dropped, rather than raising) is **parquet-only** — `scan_csv`/`scan_ipc` have no
+equivalent. See [Developer](@ref) for why.
 
 `write_parquet` keyword options: `compression` (one of `:zstd` (default), `:snappy`, `:gzip`,
 `:brotli`, `:lz4_raw`, `:uncompressed`), `compression_level` (only valid for

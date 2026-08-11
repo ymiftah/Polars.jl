@@ -545,6 +545,8 @@ category) is not implemented for any of the three.
 alias
 prefix
 suffix
+prefix_fields
+suffix_fields
 to_lowercase
 to_uppercase
 keep_name
@@ -553,6 +555,14 @@ keep_name
 ```@example expressions
 dfk = DataFrame((; x = [1, 2, 3]))
 select(dfk, keep_name(alias(col("x"), "renamed")))
+```
+
+`prefix_fields`/`suffix_fields` rename every *field* of a Struct-typed expression, unlike
+`prefix`/`suffix`, which rename the expression's own output name:
+
+```@example expressions
+dfs = DataFrame((; x = [(a = 1, b = 2)]))
+select(dfs, prefix_fields(col("x"), "p_"))
 ```
 
 ## [Casting](@id casting)
