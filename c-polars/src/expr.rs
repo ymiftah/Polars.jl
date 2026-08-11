@@ -2170,7 +2170,10 @@ gen_impl_expr_dt!(polars_expr_dt_century, DateLikeNameSpace::century);
 gen_impl_expr_dt!(polars_expr_dt_millennium, DateLikeNameSpace::millennium);
 // Gated `#[cfg(feature = "timezones")]` in polars-plan, not by anything of ours -- `timezones` is
 // already active (`c-polars/Cargo.toml`), same as `convert_time_zone`/`replace_time_zone` below.
-gen_impl_expr_dt!(polars_expr_dt_base_utc_offset, DateLikeNameSpace::base_utc_offset);
+gen_impl_expr_dt!(
+    polars_expr_dt_base_utc_offset,
+    DateLikeNameSpace::base_utc_offset
+);
 gen_impl_expr_dt!(polars_expr_dt_dst_offset, DateLikeNameSpace::dst_offset);
 
 macro_rules! gen_impl_expr_binary_dt {
@@ -2316,7 +2319,11 @@ pub unsafe extern "C" fn polars_expr_dt_combine(
 ) -> *const polars_error_t {
     guard_error(|| {
         let unit = tri!(unit.to_time_unit());
-        let result = (*expr).inner.clone().dt().combine((*time).inner.clone(), unit);
+        let result = (*expr)
+            .inner
+            .clone()
+            .dt()
+            .combine((*time).inner.clone(), unit);
         *out = make_expr(result);
         std::ptr::null()
     })
