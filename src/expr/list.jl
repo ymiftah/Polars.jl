@@ -231,3 +231,5 @@ export to_struct
 # `sample_n`/`sort`/`join`/`union`/`std`/`var`/`apply`/`agg`/`gather`/`gather_every` follow the
 # same rule (each collides with either `Base` or a top-level `Polars` export of the same name).
 end # module Lists
+
+export Lists

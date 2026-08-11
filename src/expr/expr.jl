@@ -1178,3 +1178,8 @@ function Base.diff(expr::Expr, n = 1; null_behavior::Symbol = :ignore)
     out = API.polars_expr_diff(expr, n, behavior)
     return Expr(out)
 end
+
+# `to_lowercase`/`to_uppercase` are exported by `@wrap_simple_ops` itself (they're generated in
+# this file's block alongside `keep_name`), so they are deliberately absent here.
+export col, alias, prefix, suffix, prefix_fields, suffix_fields, lit, cast, when, element,
+    cast_datetime, cast_duration, cast_decimal, cast_categorical

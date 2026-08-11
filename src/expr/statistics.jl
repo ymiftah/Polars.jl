@@ -601,9 +601,3 @@ end
 )
 
 export qcut_uniform
-
-# `to_lowercase`/`to_uppercase` are exported by `@wrap_simple_ops` itself (they're generated in
-# expr.jl's block alongside `keep_name`), so they are deliberately absent here.
-export col, alias, prefix, suffix, prefix_fields, suffix_fields, lit, cast, when, element,
-    cast_datetime, cast_duration, cast_decimal, cast_categorical,
-    Lists, Strings, Dt, Structs, Selectors

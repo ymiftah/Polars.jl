@@ -268,3 +268,5 @@ end
 export slice, replace_all, extract, count_matches, to_date, to_datetime,
     pad_start, pad_end, find, replace_n, splitn, split_exact, extract_groups
 end # module Strings
+
+export Strings

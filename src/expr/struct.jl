@@ -72,3 +72,5 @@ json_encode(expr::Expr) = Expr(API.polars_expr_struct_json_encode(expr))
 export field_by_name, field_by_index, rename_fields, with_fields, json_encode
 
 end # module Structs
+
+export Structs
