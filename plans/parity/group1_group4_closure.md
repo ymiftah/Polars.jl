@@ -2,16 +2,41 @@
 
 ## Status
 
-**Scoping done, live-verified against `polars-plan-0.54.4`'s actual vendored source (not
-`Cargo.toml`'s declared list) and the active feature closure (`cargo tree -e features -i
-polars-plan`/`polars-ops`); implementation not started.** Method matches `gap_closure_scope.md`'s:
-grep the `#[cfg(feature = ...)]` gate on each target method in
+**In progress, on branch `parity-group1-group4`.** Scoping (below) is done, live-verified against
+`polars-plan-0.54.4`'s actual vendored source (not `Cargo.toml`'s declared list) and the active
+feature closure (`cargo tree -e features -i polars-plan`/`polars-ops`). Method matches
+`gap_closure_scope.md`'s: grep the `#[cfg(feature = ...)]` gate on each target method in
 `~/.cargo/registry/src/*/polars-plan-0.54.4/src/dsl/{string,dt,list,struct_,name,mod}.rs`, then
 check that feature name against the active set, not against `Cargo.toml`'s comment-derived guesses.
 
 Per user direction: Group 1 items were verified live rather than fixed (most are inherent design
-limitations, correctly documented already). Group 4 will be closed one namespace at a time,
+limitations, correctly documented already). Group 4 is being closed one namespace at a time,
 no-Cargo-change functions first, per `CLAUDE.md`'s batching rule for Cargo feature changes.
+
+**Closed so far, each with its own commit on this branch:**
+
+- **Group 1's closable item** — `scan_parquet` gained `allow_extra_columns` (the converse of
+  `allow_missing_columns`), same `ExtraColumnsPolicy` plumbing as the existing
+  `MissingColumnsPolicy` support. **Live-verified finding not anticipated at scoping time**:
+  `scan_ipc` threads the identical FFI parameter, but polars' IPC multi-scan source in this version
+  ignores `ExtraColumnsPolicy::Ignore` (ships as a threaded-but-always-`false` FFI param instead,
+  mirroring the existing `join`'s `slice` precedent) — `scan_csv` remains a flat no per
+  `LazyCsvReader::finish()`'s hardcoding, as scoped. See `docs/src/limitations.md` and `CLAUDE.md`.
+- **`Dt` namespace** — `iso_year`, `is_leap_year`, `century`, `millennium`, `datetime`,
+  `base_utc_offset`, `dst_offset` (all via `gen_impl_expr_dt!`), plus hand-written
+  `cast_time_unit`/`with_time_unit`/`combine`/`replace`. All as scoped, zero Cargo changes.
+  `Dt.replace` surfaced a genuine upstream polars-time panic for replacement years outside the
+  `:ns` range — confirmed caught cleanly as `PolarsError`, pinned with its own regression test, not
+  a blocker. `Dt.to_string` was **not** added: turned out to be the same underlying primitive as
+  the already-wrapped `strftime` (`to_string` is upstream's real name; `strftime` literally calls
+  `self.to_string(format)`), so the scoping doc's "closable" listing for it was itself stale —
+  corrected here rather than adding a duplicate wrapper.
+- **`.name`** — `prefix_fields`/`suffix_fields`, confirmed **not** blocked on Group 9's callback
+  infra as the original `api_gap_audit.md` claimed (only `.name.map`/`map_fields` need that).
+
+**Still open**: `Strings`'s four no-Cargo functions (`strptime`, `to_time`, `to_decimal`,
+`escape_regex`); the `Lists`/`Structs` research pass (`concat`/`explode`/`unnest`/`fields`/`schema`
+— likely mostly stale audit entries, per the scoping below); the batched Cargo-gated PR.
 
 ---
 

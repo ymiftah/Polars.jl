@@ -135,6 +135,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
     glob: bool,
     use_statistics: bool,
     allow_missing_columns: bool,
+    allow_extra_columns: bool,
     include_file_paths: *const u8,
     include_file_paths_len: usize,
     hive_partitioning: *const bool,
@@ -197,7 +198,11 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
             } else {
                 MissingColumnsPolicy::Raise
             },
-            extra_columns_policy: ExtraColumnsPolicy::Raise,
+            extra_columns_policy: if allow_extra_columns {
+                ExtraColumnsPolicy::Ignore
+            } else {
+                ExtraColumnsPolicy::Raise
+            },
             include_file_paths,
             deletion_files: None,
             table_statistics: None,
@@ -315,6 +320,7 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
     include_file_paths_len: usize,
     hive_partitioning: *const bool,
     allow_missing_columns: bool,
+    allow_extra_columns: bool,
     cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
@@ -345,6 +351,11 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_ipc(
                 MissingColumnsPolicy::Insert
             } else {
                 MissingColumnsPolicy::Raise
+            },
+            extra_columns_policy: if allow_extra_columns {
+                ExtraColumnsPolicy::Ignore
+            } else {
+                ExtraColumnsPolicy::Raise
             },
             include_file_paths,
             cloud_options,

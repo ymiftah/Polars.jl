@@ -51,6 +51,12 @@ function scan_ipc(
         allow_missing_columns::Bool = false,
         storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
+    # No `allow_extra_columns` keyword: verified live that polars' IPC multi-scan source ignores
+    # `extra_columns_policy` (it still raises with `ExtraColumnsPolicy::Ignore` set) in this
+    # polars version, unlike `scan_parquet`'s identical plumbing, which works correctly -- an
+    # upstream inconsistency between formats, not something fixable from `c-polars` without
+    # patching vendored polars. The FFI parameter stays (always `false` here) so a future polars
+    # upgrade that fixes this needs only a Julia-side change.
     n_rows_ref = n_rows === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n_rows))
     row_index_name_arg = row_index_name === nothing ? Ptr{UInt8}(C_NULL) : row_index_name
     row_index_name_len = row_index_name === nothing ? 0 : ncodeunits(row_index_name)
@@ -65,7 +71,7 @@ function scan_ipc(
                 path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
                 UInt32(row_index_offset), rechunk, cache, glob, include_file_paths_arg,
                 include_file_paths_len, hive_partitioning_ref, allow_missing_columns,
-                cloud_options, out
+                false, cloud_options, out
             )
         end
     end

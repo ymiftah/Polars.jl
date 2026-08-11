@@ -42,6 +42,7 @@ end
                  glob::Bool=true,
                  use_statistics::Bool=true,
                  allow_missing_columns::Bool=false,
+                 allow_extra_columns::Bool=false,
                  include_file_paths::Union{Nothing,AbstractString}=nothing,
                  hive_partitioning::Union{Nothing,Bool}=nothing,
                  cast_policy::Union{Nothing,CastPolicy,AbstractDict}=nothing,
@@ -60,6 +61,10 @@ files, without reading it into memory.
 - `glob`: expand `path` as a glob pattern.
 - `use_statistics`: use row-group statistics to skip reading unneeded row groups.
 - `allow_missing_columns`: allow columns present in some files but not others (filled with nulls).
+- `allow_extra_columns`: allow columns present in a scanned file but absent from the reference
+  schema (the first file scanned) to be silently dropped, rather than raising. The converse of
+  `allow_missing_columns` — see [Limitations](@ref) for the CSV caveat (this option has no
+  `scan_csv` equivalent).
 - `include_file_paths`: if given, adds a column with this name containing each row's source path.
 - `hive_partitioning`: force Hive-style partition-column detection on (`true`) or off (`false`);
   `nothing` (default) auto-detects.
@@ -95,6 +100,7 @@ function scan_parquet(
         glob::Bool = true,
         use_statistics::Bool = true,
         allow_missing_columns::Bool = false,
+        allow_extra_columns::Bool = false,
         include_file_paths::Union{Nothing, AbstractString} = nothing,
         hive_partitioning::Union{Nothing, Bool} = nothing,
         cast_policy::Union{Nothing, CastPolicy, AbstractDict} = nothing,
@@ -127,8 +133,8 @@ function scan_parquet(
             polars_lazy_frame_scan_parquet(
                 path, ncodeunits(path), n_rows_ref, row_index_name_arg, row_index_name_len,
                 UInt32(row_index_offset), parallel_enum, low_memory, rechunk, cache, glob,
-                use_statistics, allow_missing_columns, include_file_paths_arg, include_file_paths_len,
-                hive_partitioning_ref, cast_policy_struct, cloud_options, out
+                use_statistics, allow_missing_columns, allow_extra_columns, include_file_paths_arg,
+                include_file_paths_len, hive_partitioning_ref, cast_policy_struct, cloud_options, out
             )
         end
     end
