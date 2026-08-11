@@ -17,6 +17,13 @@ using ..Polars: @wrap_simple_ops, @wrap_expr_method, @curry, API, polars_expr_t,
     gen_impl_expr_dt!(polars_expr_dt_nanosecond, DateLikeNameSpace::nanosecond, "Extracts the nanosecond component (0-999999999, the sub-second part) of each Datetime/Time value in `expr`. See [`total_nanoseconds`](@ref) for the Duration-typed equivalent.")
     gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date, "Extracts the `Date` component of each Datetime value in `expr` (drops the time-of-day).")
     gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time, "Extracts the `Dates.Time` component of each Datetime value in `expr` (drops the date).")
+    gen_impl_expr_dt!(polars_expr_dt_datetime, DateLikeNameSpace::datetime, "Returns the local (wall-clock) `DateTime` value of each value in `expr`, stripping any time zone label without changing the wall-clock value -- identical to `Dt.replace_time_zone(expr, nothing)`. Deprecated upstream in favor of `replace_time_zone`; kept here since it costs nothing extra to wrap.")
+    gen_impl_expr_dt!(polars_expr_dt_iso_year, DateLikeNameSpace::iso_year, "ISO 8601 year of each Date/Datetime value in `expr` -- may differ from the calendar year for dates near a year boundary.")
+    gen_impl_expr_dt!(polars_expr_dt_is_leap_year, DateLikeNameSpace::is_leap_year, "Whether the calendar year of each Date/Datetime value in `expr` is a leap year.")
+    gen_impl_expr_dt!(polars_expr_dt_century, DateLikeNameSpace::century, "Century (e.g. `21` for years 2001-2100) of each Date/Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_millennium, DateLikeNameSpace::millennium, "Millennium (e.g. `3` for years 2001-3000) of each Date/Datetime value in `expr`.")
+    gen_impl_expr_dt!(polars_expr_dt_base_utc_offset, DateLikeNameSpace::base_utc_offset, "The base (non-DST) UTC offset of each Datetime value in `expr`, as a `Dates.Millisecond`-valued Duration. Requires a time-zone-aware Datetime; see [`replace_time_zone`](@ref).")
+    gen_impl_expr_dt!(polars_expr_dt_dst_offset, DateLikeNameSpace::dst_offset, "The additional daylight-saving-time UTC offset of each Datetime value in `expr` (zero outside DST), as a `Dates.Millisecond`-valued Duration. Requires a time-zone-aware Datetime; see [`replace_time_zone`](@ref).")
 
     gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate, "Truncates each Date/Datetime value of `a` down to the start of the enclosing interval named by the duration string `b` (e.g. `\"1h\"` zeroes out minutes/seconds)."; curried = true)
     gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round, "Rounds each Date/Datetime value of `a` to the nearest interval named by the duration string `b`, rather than always truncating down like [`truncate`](@ref)."; curried = true)
@@ -71,6 +78,77 @@ Curried form of [`timestamp`](@ref) for use with `|>`.
 timestamp(; time_unit::Symbol = :us) = expr -> timestamp(expr; time_unit)
 
 export timestamp
+
+"""
+    cast_time_unit(expr::Polars.Expr; time_unit::Symbol)::Polars.Expr
+
+Changes the underlying `time_unit` (one of `:ns`, `:us`, `:ms`) of `expr` and **rescales the
+data** accordingly (e.g. casting `:ms` to `:ns` multiplies each value by `1_000_000`). Compare
+[`with_time_unit`](@ref), which relabels without rescaling.
+"""
+function cast_time_unit(expr::Expr; time_unit::Symbol)
+    time_unit_enum = _time_unit_enum(time_unit)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_dt_cast_time_unit(expr, time_unit_enum, out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+"""
+    cast_time_unit(; time_unit::Symbol)::Base.Callable
+
+Curried form of [`cast_time_unit`](@ref) for use with `|>`.
+"""
+cast_time_unit(; time_unit::Symbol) = expr -> cast_time_unit(expr; time_unit)
+
+export cast_time_unit
+
+"""
+    with_time_unit(expr::Polars.Expr; time_unit::Symbol)::Polars.Expr
+
+Relabels the underlying `time_unit` (one of `:ns`, `:us`, `:ms`) of `expr` **without touching the
+data** -- e.g. reinterpreting values already at `:ms` as if they were `:ns`, changing what they
+mean rather than converting them. Compare [`cast_time_unit`](@ref), which rescales.
+"""
+function with_time_unit(expr::Expr; time_unit::Symbol)
+    time_unit_enum = _time_unit_enum(time_unit)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_dt_with_time_unit(expr, time_unit_enum, out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+"""
+    with_time_unit(; time_unit::Symbol)::Base.Callable
+
+Curried form of [`with_time_unit`](@ref) for use with `|>`.
+"""
+with_time_unit(; time_unit::Symbol) = expr -> with_time_unit(expr; time_unit)
+
+export with_time_unit
+
+"""
+    combine(expr::Polars.Expr, time::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr
+
+Combines a Date/Datetime `expr` with a Time `time`, producing a new Datetime at the given
+`time_unit` (one of `:ns`, `:us` (default), `:ms`).
+"""
+function combine(expr::Expr, time::Expr; time_unit::Symbol = :us)
+    time_unit_enum = _time_unit_enum(time_unit)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_dt_combine(expr, time, time_unit_enum, out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+"""
+    combine(time::Polars.Expr; time_unit::Symbol=:us)::Base.Callable
+
+Curried form of [`combine`](@ref) for use with `|>`.
+"""
+combine(time::Expr; time_unit::Symbol = :us) = expr -> combine(expr, time; time_unit)
+
+export combine
 
 """
     epoch(expr::Polars.Expr, time_unit::Symbol=:us)::Polars.Expr
@@ -228,4 +306,19 @@ function replace_time_zone(
 end
 
 export replace_time_zone
+
+@wrap_expr_method replace(
+    expr::Expr;
+    year::Expr = convert(Expr, missing), month::Expr = convert(Expr, missing),
+    day::Expr = convert(Expr, missing), hour::Expr = convert(Expr, missing),
+    minute::Expr = convert(Expr, missing), second::Expr = convert(Expr, missing),
+    microsecond::Expr = convert(Expr, missing), ambiguous::Expr = convert(Expr, "raise")
+) polars_expr_dt_replace "Replaces the given date/time components of each value in `expr` with new ones. Each of `year`/`month`/`day`/`hour`/`minute`/`second`/`microsecond` may be a plain integer or a full column expression; the default `missing` keeps that component's existing value unchanged. `ambiguous` controls how a resulting local time that occurs twice (e.g. a DST fall-back) is resolved, same values as [`replace_time_zone`](@ref)'s `ambiguous`."
+@curry replace(;
+    year::Expr = convert(Expr, missing), month::Expr = convert(Expr, missing),
+    day::Expr = convert(Expr, missing), hour::Expr = convert(Expr, missing),
+    minute::Expr = convert(Expr, missing), second::Expr = convert(Expr, missing),
+    microsecond::Expr = convert(Expr, missing), ambiguous::Expr = convert(Expr, "raise")
+)
+export replace
 end # module Dt

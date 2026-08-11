@@ -1802,6 +1802,34 @@ function polars_expr_dt_time(a)
     return @ccall libpolars.polars_expr_dt_time(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_dt_datetime(a)
+    return @ccall libpolars.polars_expr_dt_datetime(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_iso_year(a)
+    return @ccall libpolars.polars_expr_dt_iso_year(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_is_leap_year(a)
+    return @ccall libpolars.polars_expr_dt_is_leap_year(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_century(a)
+    return @ccall libpolars.polars_expr_dt_century(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_millennium(a)
+    return @ccall libpolars.polars_expr_dt_millennium(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_base_utc_offset(a)
+    return @ccall libpolars.polars_expr_dt_base_utc_offset(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_dst_offset(a)
+    return @ccall libpolars.polars_expr_dt_dst_offset(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_dt_truncate(a, b)
     return @ccall libpolars.polars_expr_dt_truncate(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1843,6 +1871,42 @@ out-of-range value rather than let `to_time_unit` panic across the FFI boundary.
 """
 function polars_expr_dt_timestamp(expr, unit, out)
     return @ccall libpolars.polars_expr_dt_timestamp(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_cast_time_unit(expr, unit, out)
+
+Changes the underlying `TimeUnit` and rescales the data accordingly (e.g. `:ms` -> `:ns` multiplies by 1e6). Compare [[`polars_expr_dt_with_time_unit`](@ref)], which relabels without rescaling. Fallible for the same reason as [[`polars_expr_dt_timestamp`](@ref)] above.
+"""
+function polars_expr_dt_cast_time_unit(expr, unit, out)
+    return @ccall libpolars.polars_expr_dt_cast_time_unit(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_with_time_unit(expr, unit, out)
+
+Relabels the underlying `TimeUnit` without touching the data (e.g. reinterpreting `:ms` values as `:ns` without rescaling). Compare [[`polars_expr_dt_cast_time_unit`](@ref)], which rescales. Fallible for the same reason as [[`polars_expr_dt_timestamp`](@ref)] above.
+"""
+function polars_expr_dt_with_time_unit(expr, unit, out)
+    return @ccall libpolars.polars_expr_dt_with_time_unit(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_combine(expr, time, unit, out)
+
+Combines a Date/Datetime `expr` with a Time `time`, producing a new Datetime at the given `TimeUnit`. Fallible for the same reason as [[`polars_expr_dt_timestamp`](@ref)] above.
+"""
+function polars_expr_dt_combine(expr, time, unit, out)
+    return @ccall libpolars.polars_expr_dt_combine(expr::Ptr{polars_expr_t}, time::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_replace(expr, year, month, day, hour, minute, second, microsecond, ambiguous)
+
+Replaces the named date/time components of a Date/Datetime `expr` with the values from the given expressions (each may be a full column expression, not just a scalar). `ambiguous` controls how a resulting local time that occurs twice (e.g. a DST fall-back) is resolved -- same string values as [`polars_expr_dt_replace_time_zone`](@ref)'s `ambiguous` parameter. Infallible: unlike `combine`/`cast_time_unit`/`with_time_unit` above, every argument here is already an `Expr`, with no C-enum conversion that could reject an out-of-range value.
+"""
+function polars_expr_dt_replace(expr, year, month, day, hour, minute, second, microsecond, ambiguous)
+    return @ccall libpolars.polars_expr_dt_replace(expr::Ptr{polars_expr_t}, year::Ptr{polars_expr_t}, month::Ptr{polars_expr_t}, day::Ptr{polars_expr_t}, hour::Ptr{polars_expr_t}, minute::Ptr{polars_expr_t}, second::Ptr{polars_expr_t}, microsecond::Ptr{polars_expr_t}, ambiguous::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_dt_strftime(expr, format, len, out)
