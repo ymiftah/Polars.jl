@@ -277,6 +277,42 @@ pub unsafe extern "C" fn polars_expr_suffix(
     })
 }
 
+/// Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+/// contrast [`polars_expr_prefix`], which does that). Gated `#[cfg(feature = "dtype-struct")]` in
+/// polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_prefix_fields(
+    expr: *const polars_expr_t,
+    name: *const u8,
+    len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let name = tri!(read_str(name, len));
+        let aliased = (*expr).inner.clone().name().prefix_fields(name);
+        *out = make_expr(aliased);
+        std::ptr::null()
+    })
+}
+
+/// Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+/// contrast [`polars_expr_suffix`], which does that). Same feature gate as
+/// [`polars_expr_prefix_fields`] above.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_suffix_fields(
+    expr: *const polars_expr_t,
+    name: *const u8,
+    len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let name = tri!(read_str(name, len));
+        let aliased = (*expr).inner.clone().name().suffix_fields(name);
+        *out = make_expr(aliased);
+        std::ptr::null()
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_keep_name(expr: *const polars_expr_t) -> *const polars_expr_t {
     let aliased = (*expr).inner.clone().name().keep();

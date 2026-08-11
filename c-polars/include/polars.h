@@ -769,6 +769,26 @@ const struct polars_error_t *polars_expr_suffix(const struct polars_expr_t *expr
                                                 uintptr_t len,
                                                 const struct polars_expr_t **out);
 
+/**
+ * Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+ * contrast [`polars_expr_prefix`], which does that). Gated `#[cfg(feature = "dtype-struct")]` in
+ * polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
+ */
+const struct polars_error_t *polars_expr_prefix_fields(const struct polars_expr_t *expr,
+                                                       const uint8_t *name,
+                                                       uintptr_t len,
+                                                       const struct polars_expr_t **out);
+
+/**
+ * Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+ * contrast [`polars_expr_suffix`], which does that). Same feature gate as
+ * [`polars_expr_prefix_fields`] above.
+ */
+const struct polars_error_t *polars_expr_suffix_fields(const struct polars_expr_t *expr,
+                                                       const uint8_t *name,
+                                                       uintptr_t len,
+                                                       const struct polars_expr_t **out);
+
 const struct polars_expr_t *polars_expr_keep_name(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_to_lowercase(const struct polars_expr_t *expr);

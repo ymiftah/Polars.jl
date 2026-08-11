@@ -708,6 +708,24 @@ function polars_expr_suffix(expr, name, len, out)
     return @ccall libpolars.polars_expr_suffix(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_prefix_fields(expr, name, len, out)
+
+Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name -- contrast [[`polars_expr_prefix`](@ref)], which does that). Gated `#[cfg(feature = "dtype-struct")]` in polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
+"""
+function polars_expr_prefix_fields(expr, name, len, out)
+    return @ccall libpolars.polars_expr_prefix_fields(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_suffix_fields(expr, name, len, out)
+
+Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name -- contrast [[`polars_expr_suffix`](@ref)], which does that). Same feature gate as [[`polars_expr_prefix_fields`](@ref)] above.
+"""
+function polars_expr_suffix_fields(expr, name, len, out)
+    return @ccall libpolars.polars_expr_suffix_fields(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
 function polars_expr_keep_name(expr)
     return @ccall libpolars.polars_expr_keep_name(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end

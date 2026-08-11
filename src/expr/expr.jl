@@ -231,6 +231,8 @@ end
 @wrap_rename_method alias polars_expr_alias "Renames the result of this expression to a new name."
 @wrap_rename_method prefix polars_expr_prefix "Adds a prefix to the name of the resulting expression."
 @wrap_rename_method suffix polars_expr_suffix "Adds a suffix to the name of the resulting expression."
+@wrap_rename_method prefix_fields polars_expr_prefix_fields "Adds a prefix to every *field name* of a Struct-typed expression (contrast [`prefix`](@ref), which renames the expression's own output name, not its fields)."
+@wrap_rename_method suffix_fields polars_expr_suffix_fields "Adds a suffix to every *field name* of a Struct-typed expression (contrast [`suffix`](@ref), which renames the expression's own output name, not its fields)."
 
 """
     lit(x)::Polars.Expr
