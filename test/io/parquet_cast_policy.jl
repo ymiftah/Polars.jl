@@ -4,7 +4,7 @@ using Test
 @testset "scan_parquet cast_policy" begin
     @testset "default cast_policy=nothing behaves as before" begin
         path = mktempdir()
-        Pl.write_parquet("$path/a.parquet", Pl.DataFrame(x = Int32[1, 2, 3]))
+        Pl.write_parquet("$path/a.parquet", Pl.DataFrame((; x = Int32[1, 2, 3])))
 
         result = Pl.collect(Pl.scan_parquet("$path/a.parquet"))
         @test size(result) == (3, 1)
@@ -12,7 +12,7 @@ using Test
 
     @testset "cast_policy accepts a CastPolicy struct" begin
         path = mktempdir()
-        Pl.write_parquet("$path/a.parquet", Pl.DataFrame(x = Int32[1, 2, 3]))
+        Pl.write_parquet("$path/a.parquet", Pl.DataFrame((; x = Int32[1, 2, 3])))
 
         policy = Pl.CastPolicy(integer_upcast = true)
         result = Pl.collect(Pl.scan_parquet("$path/a.parquet"; cast_policy = policy))
@@ -21,7 +21,7 @@ using Test
 
     @testset "cast_policy accepts a Dict" begin
         path = mktempdir()
-        Pl.write_parquet("$path/a.parquet", Pl.DataFrame(x = Int32[1, 2, 3]))
+        Pl.write_parquet("$path/a.parquet", Pl.DataFrame((; x = Int32[1, 2, 3])))
 
         result = Pl.collect(
             Pl.scan_parquet("$path/a.parquet"; cast_policy = Dict(:float_upcast => true))
@@ -31,7 +31,7 @@ using Test
 
     @testset "read_parquet forwards cast_policy" begin
         path = mktempdir()
-        Pl.write_parquet("$path/a.parquet", Pl.DataFrame(x = Int32[1, 2, 3]))
+        Pl.write_parquet("$path/a.parquet", Pl.DataFrame((; x = Int32[1, 2, 3])))
 
         result = Pl.read_parquet("$path/a.parquet"; cast_policy = Pl.CastPolicy(integer_upcast = true))
         @test size(result) == (3, 1)

@@ -1950,7 +1950,7 @@ const struct polars_error_t *polars_lazy_frame_scan_parquet(
     const uint8_t *include_file_paths,
     uintptr_t include_file_paths_len,
     const bool *hive_partitioning,
-    struct polars_cast_columns_policy_t cast_policy,
+    const struct polars_cast_columns_policy_t *cast_policy,
     const struct polars_cloud_options_t *cloud_options,
     struct polars_lazy_frame_t **out);
 
