@@ -337,6 +337,11 @@ end
     @test collect(r_ns[:d1]) == collect(r[:d1])
 end
 
+@testset "Dt.combine on a Time-typed column raises cleanly (py-polars test_combine_unsupported_types)" begin
+    df = DataFrame((; t = [Time(1, 2)]))
+    @test_throws PolarsError collect(select(df, alias(Dt.combine(col("t"), lit(Time(3, 4))), "x")))
+end
+
 @testset "Dt.replace (py-polars test_replace_expr_datetime / test_replace_expr_date / test_replace_int_datetime)" begin
     # upstream's own fixture uses replacement years/base years as low as 1-9 AD, which our
     # `:ns`-only DateTime column construction can't represent (~1678-2262 range, see

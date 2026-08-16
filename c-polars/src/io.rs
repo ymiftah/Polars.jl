@@ -139,6 +139,9 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
     include_file_paths: *const u8,
     include_file_paths_len: usize,
     hive_partitioning: *const bool,
+    // By pointer, not by value: an 11-byte all-`bool` struct passed by value here corrupted the
+    // ABI-adjacent `cloud_options`/`out` args when marshalled through Julia's `@ccall` -- see
+    // `plans/cast_policy_abi_fix.md`.
     cast_policy: *const polars_cast_columns_policy_t,
     cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
@@ -192,7 +195,11 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
                 .as_ref()
                 .copied()
                 .map(|len| Slice::Positive { offset: 0, len }),
-            cast_columns_policy: cast_policy.as_ref().copied().unwrap_or_default().to_cast_columns_policy(),
+            cast_columns_policy: cast_policy
+                .as_ref()
+                .copied()
+                .unwrap_or_default()
+                .to_cast_columns_policy(),
             missing_columns_policy: if allow_missing_columns {
                 MissingColumnsPolicy::Insert
             } else {

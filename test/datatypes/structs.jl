@@ -65,6 +65,12 @@ end
     @test Set(propertynames(prefixed_curried[:x][1])) == Set([:p_a, :p_b])
     suffixed_curried = select(df, col("x") |> suffix_fields("_f"))
     @test Set(propertynames(suffixed_curried[:x][1])) == Set([:a_f, :b_f])
+
+    # non-Struct dtype raises cleanly rather than crashing (no upstream equivalent test; added
+    # since a wrong-dtype path here is a process-abort risk, not just input validation)
+    df_int = DataFrame((; y = Int32[1, 2, 3]))
+    @test_throws PolarsError collect(select(df_int, prefix_fields(col("y"), "p_")))
+    @test_throws PolarsError collect(select(df_int, suffix_fields(col("y"), "_f")))
 end
 
 @testset "Structs.field_by_index: negative index and out-of-range (py-polars test_field_by_index_18732)" begin
