@@ -112,7 +112,11 @@ path is safe — exercise every option combination live.**
   empty function (`function _resolve_tz_aware_datetime_type end`) the extension supplies the first
   method for. Everything not needing the optional type ships unconditionally.
 - **No `hive_partitioning` for CSV scans** — upstream `LazyCsvReader` hardcodes it disabled.
-- **`allow_missing_columns` covers missing columns only, not extra ones** (that's a separate
-  `ExtraColumnsPolicy` we don't expose). The reference schema is whichever file is scanned first.
+- **`allow_missing_columns` covers missing columns only, not extra ones** — `scan_parquet` also
+  takes `allow_extra_columns` for the converse (`ExtraColumnsPolicy`) now. `scan_csv` has no
+  equivalent (same `LazyCsvReader` hardcoding as `hive_partitioning` above); `scan_ipc` threads the
+  same FFI parameter but always passes `false` — verified live that polars' IPC multi-scan source
+  ignores `ExtraColumnsPolicy::Ignore` in this polars version, unlike parquet's identical plumbing.
+  The reference schema (for either policy) is whichever file is scanned first.
 - **No handle is thread-safe** — they're unsynchronized pointer wrappers; the `LIVE_*_LOCK`s only
   guard Arrow release-callback bookkeeping. See "Concurrency" in `docs/src/limitations.md`.

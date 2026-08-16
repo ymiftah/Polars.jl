@@ -49,6 +49,26 @@ end
     @test collect(r_direct3[:t]) == collect(r_curried3[:t])
 end
 
+@testset "Dt.base_utc_offset / Dt.dst_offset (py-polars test_base_utc_offset / test_dst_offset)" begin
+    # Pacific/Apia famously skipped a calendar day (Dec 30 2011) when Samoa switched sides of the
+    # International Date Line, flipping its base offset from UTC-11 to UTC+13 -- a sharper fixture
+    # than an ordinary DST transition, and upstream's own choice for this test.
+    df = DataFrame((; d = [DateTime(2011, 12, 29), DateTime(2012, 1, 1)]))
+    tz_col = Dt.replace_time_zone(col("d"), "Pacific/Apia")
+    r = select(df, alias(Dt.base_utc_offset(tz_col), "off"))
+    @test collect(r[:off]) == [Dates.Millisecond(-11 * 3600 * 1000), Dates.Millisecond(13 * 3600 * 1000)]
+
+    # Europe/London: Oct 25 2020 (pre-transition, BST/+1h DST) vs Oct 26 2020 (post, GMT/no DST)
+    df2 = DataFrame((; d = [DateTime(2020, 10, 25), DateTime(2020, 10, 26)]))
+    tz_col2 = Dt.replace_time_zone(col("d"), "Europe/London")
+    r2 = select(df2, alias(Dt.dst_offset(tz_col2), "off"))
+    @test collect(r2[:off]) == [Dates.Millisecond(3600 * 1000), Dates.Millisecond(0)]
+
+    # both require a time-zone-aware Datetime -- a naive column raises cleanly
+    @test_throws PolarsError collect(select(df, alias(Dt.base_utc_offset(col("d")), "x")))
+    @test_throws PolarsError collect(select(df, alias(Dt.dst_offset(col("d")), "x")))
+end
+
 @testset "null in a timezone-aware struct field (PolarsTimeZonesExt.load_value)" begin
     # Same shape as the P0.9 guard covered in test/datatypes/structs.jl, for the `ZonedDateTime`
     # loader the TimeZones extension supplies. A null *column* element never reaches `load_value`

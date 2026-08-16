@@ -769,6 +769,26 @@ const struct polars_error_t *polars_expr_suffix(const struct polars_expr_t *expr
                                                 uintptr_t len,
                                                 const struct polars_expr_t **out);
 
+/**
+ * Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+ * contrast [`polars_expr_prefix`], which does that). Gated `#[cfg(feature = "dtype-struct")]` in
+ * polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
+ */
+const struct polars_error_t *polars_expr_prefix_fields(const struct polars_expr_t *expr,
+                                                       const uint8_t *name,
+                                                       uintptr_t len,
+                                                       const struct polars_expr_t **out);
+
+/**
+ * Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+ * contrast [`polars_expr_suffix`], which does that). Same feature gate as
+ * [`polars_expr_prefix_fields`] above.
+ */
+const struct polars_error_t *polars_expr_suffix_fields(const struct polars_expr_t *expr,
+                                                       const uint8_t *name,
+                                                       uintptr_t len,
+                                                       const struct polars_expr_t **out);
+
 const struct polars_expr_t *polars_expr_keep_name(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_to_lowercase(const struct polars_expr_t *expr);
@@ -1669,6 +1689,20 @@ const struct polars_expr_t *polars_expr_dt_date(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_dt_time(const struct polars_expr_t *a);
 
+const struct polars_expr_t *polars_expr_dt_datetime(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_iso_year(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_is_leap_year(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_century(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_millennium(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_base_utc_offset(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_dt_dst_offset(const struct polars_expr_t *a);
+
 const struct polars_expr_t *polars_expr_dt_truncate(const struct polars_expr_t *a,
                                                     const struct polars_expr_t *b);
 
@@ -1707,6 +1741,51 @@ const struct polars_error_t *polars_expr_dt_replace_time_zone(
 const struct polars_error_t *polars_expr_dt_timestamp(const struct polars_expr_t *expr,
                                                       enum polars_time_unit_t unit,
                                                       const struct polars_expr_t **out);
+
+/**
+ * Changes the underlying `TimeUnit` and rescales the data accordingly (e.g. `:ms` -> `:ns`
+ * multiplies by 1e6). Compare [`polars_expr_dt_with_time_unit`], which relabels without rescaling.
+ * Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
+ */
+const struct polars_error_t *polars_expr_dt_cast_time_unit(const struct polars_expr_t *expr,
+                                                           enum polars_time_unit_t unit,
+                                                           const struct polars_expr_t **out);
+
+/**
+ * Relabels the underlying `TimeUnit` without touching the data (e.g. reinterpreting `:ms` values
+ * as `:ns` without rescaling). Compare [`polars_expr_dt_cast_time_unit`], which rescales.
+ * Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
+ */
+const struct polars_error_t *polars_expr_dt_with_time_unit(const struct polars_expr_t *expr,
+                                                           enum polars_time_unit_t unit,
+                                                           const struct polars_expr_t **out);
+
+/**
+ * Combines a Date/Datetime `expr` with a Time `time`, producing a new Datetime at the given
+ * `TimeUnit`. Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
+ */
+const struct polars_error_t *polars_expr_dt_combine(const struct polars_expr_t *expr,
+                                                    const struct polars_expr_t *time,
+                                                    enum polars_time_unit_t unit,
+                                                    const struct polars_expr_t **out);
+
+/**
+ * Replaces the named date/time components of a Date/Datetime `expr` with the values from the
+ * given expressions (each may be a full column expression, not just a scalar). `ambiguous`
+ * controls how a resulting local time that occurs twice (e.g. a DST fall-back) is resolved --
+ * same string values as `polars_expr_dt_replace_time_zone`'s `ambiguous` parameter. Infallible:
+ * unlike `combine`/`cast_time_unit`/`with_time_unit` above, every argument here is already an
+ * `Expr`, with no C-enum conversion that could reject an out-of-range value.
+ */
+const struct polars_expr_t *polars_expr_dt_replace(const struct polars_expr_t *expr,
+                                                   const struct polars_expr_t *year,
+                                                   const struct polars_expr_t *month,
+                                                   const struct polars_expr_t *day,
+                                                   const struct polars_expr_t *hour,
+                                                   const struct polars_expr_t *minute,
+                                                   const struct polars_expr_t *second,
+                                                   const struct polars_expr_t *microsecond,
+                                                   const struct polars_expr_t *ambiguous);
 
 const struct polars_error_t *polars_expr_dt_strftime(const struct polars_expr_t *expr,
                                                      const uint8_t *format,
@@ -1867,10 +1946,11 @@ const struct polars_error_t *polars_lazy_frame_scan_parquet(
     bool glob,
     bool use_statistics,
     bool allow_missing_columns,
+    bool allow_extra_columns,
     const uint8_t *include_file_paths,
     uintptr_t include_file_paths_len,
     const bool *hive_partitioning,
-    struct polars_cast_columns_policy_t cast_policy,
+    const struct polars_cast_columns_policy_t *cast_policy,
     const struct polars_cloud_options_t *cloud_options,
     struct polars_lazy_frame_t **out);
 
@@ -1919,6 +1999,7 @@ const struct polars_error_t *polars_lazy_frame_scan_ipc(
     uintptr_t include_file_paths_len,
     const bool *hive_partitioning,
     bool allow_missing_columns,
+    bool allow_extra_columns,
     const struct polars_cloud_options_t *cloud_options,
     struct polars_lazy_frame_t **out);
 

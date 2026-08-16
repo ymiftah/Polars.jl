@@ -708,6 +708,24 @@ function polars_expr_suffix(expr, name, len, out)
     return @ccall libpolars.polars_expr_suffix(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_prefix_fields(expr, name, len, out)
+
+Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name -- contrast [[`polars_expr_prefix`](@ref)], which does that). Gated `#[cfg(feature = "dtype-struct")]` in polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
+"""
+function polars_expr_prefix_fields(expr, name, len, out)
+    return @ccall libpolars.polars_expr_prefix_fields(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_suffix_fields(expr, name, len, out)
+
+Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name -- contrast [[`polars_expr_suffix`](@ref)], which does that). Same feature gate as [[`polars_expr_prefix_fields`](@ref)] above.
+"""
+function polars_expr_suffix_fields(expr, name, len, out)
+    return @ccall libpolars.polars_expr_suffix_fields(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
 function polars_expr_keep_name(expr)
     return @ccall libpolars.polars_expr_keep_name(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1802,6 +1820,34 @@ function polars_expr_dt_time(a)
     return @ccall libpolars.polars_expr_dt_time(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_dt_datetime(a)
+    return @ccall libpolars.polars_expr_dt_datetime(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_iso_year(a)
+    return @ccall libpolars.polars_expr_dt_iso_year(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_is_leap_year(a)
+    return @ccall libpolars.polars_expr_dt_is_leap_year(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_century(a)
+    return @ccall libpolars.polars_expr_dt_century(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_millennium(a)
+    return @ccall libpolars.polars_expr_dt_millennium(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_base_utc_offset(a)
+    return @ccall libpolars.polars_expr_dt_base_utc_offset(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dt_dst_offset(a)
+    return @ccall libpolars.polars_expr_dt_dst_offset(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_dt_truncate(a, b)
     return @ccall libpolars.polars_expr_dt_truncate(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1843,6 +1889,42 @@ out-of-range value rather than let `to_time_unit` panic across the FFI boundary.
 """
 function polars_expr_dt_timestamp(expr, unit, out)
     return @ccall libpolars.polars_expr_dt_timestamp(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_cast_time_unit(expr, unit, out)
+
+Changes the underlying `TimeUnit` and rescales the data accordingly (e.g. `:ms` -> `:ns` multiplies by 1e6). Compare [[`polars_expr_dt_with_time_unit`](@ref)], which relabels without rescaling. Fallible for the same reason as [[`polars_expr_dt_timestamp`](@ref)] above.
+"""
+function polars_expr_dt_cast_time_unit(expr, unit, out)
+    return @ccall libpolars.polars_expr_dt_cast_time_unit(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_with_time_unit(expr, unit, out)
+
+Relabels the underlying `TimeUnit` without touching the data (e.g. reinterpreting `:ms` values as `:ns` without rescaling). Compare [[`polars_expr_dt_cast_time_unit`](@ref)], which rescales. Fallible for the same reason as [[`polars_expr_dt_timestamp`](@ref)] above.
+"""
+function polars_expr_dt_with_time_unit(expr, unit, out)
+    return @ccall libpolars.polars_expr_dt_with_time_unit(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_combine(expr, time, unit, out)
+
+Combines a Date/Datetime `expr` with a Time `time`, producing a new Datetime at the given `TimeUnit`. Fallible for the same reason as [[`polars_expr_dt_timestamp`](@ref)] above.
+"""
+function polars_expr_dt_combine(expr, time, unit, out)
+    return @ccall libpolars.polars_expr_dt_combine(expr::Ptr{polars_expr_t}, time::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_dt_replace(expr, year, month, day, hour, minute, second, microsecond, ambiguous)
+
+Replaces the named date/time components of a Date/Datetime `expr` with the values from the given expressions (each may be a full column expression, not just a scalar). `ambiguous` controls how a resulting local time that occurs twice (e.g. a DST fall-back) is resolved -- same string values as [`polars_expr_dt_replace_time_zone`](@ref)'s `ambiguous` parameter. Infallible: unlike `combine`/`cast_time_unit`/`with_time_unit` above, every argument here is already an `Expr`, with no C-enum conversion that could reject an out-of-range value.
+"""
+function polars_expr_dt_replace(expr, year, month, day, hour, minute, second, microsecond, ambiguous)
+    return @ccall libpolars.polars_expr_dt_replace(expr::Ptr{polars_expr_t}, year::Ptr{polars_expr_t}, month::Ptr{polars_expr_t}, day::Ptr{polars_expr_t}, hour::Ptr{polars_expr_t}, minute::Ptr{polars_expr_t}, second::Ptr{polars_expr_t}, microsecond::Ptr{polars_expr_t}, ambiguous::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_dt_strftime(expr, format, len, out)
@@ -2008,16 +2090,16 @@ function polars_expr_selector_intersect(a, b, out)
     return @ccall libpolars.polars_expr_selector_intersect(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t}, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_scan_parquet(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, parallel, low_memory, rechunk, cache, glob, use_statistics, allow_missing_columns, include_file_paths, include_file_paths_len, hive_partitioning, cast_policy, cloud_options, out)
-    return @ccall libpolars.polars_lazy_frame_scan_parquet(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, parallel::polars_parquet_parallel_strategy_t, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool, use_statistics::Bool, allow_missing_columns::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, cast_policy::polars_cast_columns_policy_t, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_scan_parquet(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, parallel, low_memory, rechunk, cache, glob, use_statistics, allow_missing_columns, allow_extra_columns, include_file_paths, include_file_paths_len, hive_partitioning, cast_policy, cloud_options, out)
+    return @ccall libpolars.polars_lazy_frame_scan_parquet(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, parallel::polars_parquet_parallel_strategy_t, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool, use_statistics::Bool, allow_missing_columns::Bool, allow_extra_columns::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, cast_policy::Ptr{polars_cast_columns_policy_t}, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_scan_csv(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, has_header, separator, quote_char, comment_prefix, comment_prefix_len, skip_rows, skip_rows_after_header, null_value, null_value_len, missing_is_null, truncate_ragged_lines, try_parse_dates, infer_schema_length, ignore_errors, low_memory, rechunk, cache, glob, include_file_paths, include_file_paths_len, allow_missing_columns, cloud_options, out)
     return @ccall libpolars.polars_lazy_frame_scan_csv(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, has_header::Bool, separator::UInt8, quote_char::Ptr{UInt8}, comment_prefix::Ptr{UInt8}, comment_prefix_len::Csize_t, skip_rows::Csize_t, skip_rows_after_header::Csize_t, null_value::Ptr{UInt8}, null_value_len::Csize_t, missing_is_null::Bool, truncate_ragged_lines::Bool, try_parse_dates::Bool, infer_schema_length::Ptr{Csize_t}, ignore_errors::Bool, low_memory::Bool, rechunk::Bool, cache::Bool, glob::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, allow_missing_columns::Bool, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_scan_ipc(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, rechunk, cache, glob, include_file_paths, include_file_paths_len, hive_partitioning, allow_missing_columns, cloud_options, out)
-    return @ccall libpolars.polars_lazy_frame_scan_ipc(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, rechunk::Bool, cache::Bool, glob::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, allow_missing_columns::Bool, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_scan_ipc(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, rechunk, cache, glob, include_file_paths, include_file_paths_len, hive_partitioning, allow_missing_columns, allow_extra_columns, cloud_options, out)
+    return @ccall libpolars.polars_lazy_frame_scan_ipc(path::Ptr{UInt8}, pathlen::Csize_t, n_rows::Ptr{Csize_t}, row_index_name::Ptr{UInt8}, row_index_name_len::Csize_t, row_index_offset::UInt32, rechunk::Bool, cache::Bool, glob::Bool, include_file_paths::Ptr{UInt8}, include_file_paths_len::Csize_t, hive_partitioning::Ptr{Bool}, allow_missing_columns::Bool, allow_extra_columns::Bool, cloud_options::Ptr{polars_cloud_options_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_scan_ndjson(path, pathlen, n_rows, row_index_name, row_index_name_len, row_index_offset, infer_schema_length, ignore_errors, low_memory, rechunk, include_file_paths, include_file_paths_len, cloud_options, out)

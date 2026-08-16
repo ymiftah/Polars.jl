@@ -106,9 +106,21 @@ upstream gap: the builder `scan_csv` uses (`polars_lazy::frame::LazyCsvReader`) 
 hive-partitioning off internally with no way to override it.
 
 `allow_missing_columns` (parquet/CSV/IPC scan options) only covers files *missing* a column present
-in the reference schema, not files with an *extra* column beyond it — that's a separate
-`ExtraColumnsPolicy` this wrapper doesn't expose. The reference schema is whichever file/fragment
-gets scanned first, so ordering matters when relying on this option.
+in the reference schema, not files with an *extra* column beyond it — the converse is a separate
+`ExtraColumnsPolicy`. The reference schema is whichever file/fragment gets scanned first, so
+ordering matters when relying on either option.
+
+`scan_parquet` exposes the converse as `allow_extra_columns`, threading `ExtraColumnsPolicy`
+through `UnifiedScanArgs` exactly like the existing `MissingColumnsPolicy` support. `scan_csv` has
+no equivalent for the same structural reason as its missing `hive_partitioning`: `LazyCsvReader::
+finish()` hardcodes `ExtraColumnsPolicy::Raise` internally with no builder method to override it.
+`scan_ipc` *does* thread the identical FFI parameter through `UnifiedScanArgs` — but verified live
+that polars' IPC multi-scan source (`polars-stream`'s `ForbidExtraColumns`) still raises even with
+`ExtraColumnsPolicy::Ignore` set, unlike parquet's identical plumbing, which works correctly. This
+looks like an upstream inconsistency between formats in polars 0.54.4, not something fixable from
+`c-polars` without patching vendored polars (which `CLAUDE.md` rules out) — the FFI parameter stays
+wired but is always passed `false` from `src/io/ipc.jl`, the same treatment `join`'s `slice` option
+gets in `src/join.jl`, so a future polars upgrade that fixes this needs only a Julia-side change.
 
 ## API design rationale
 

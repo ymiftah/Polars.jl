@@ -277,6 +277,42 @@ pub unsafe extern "C" fn polars_expr_suffix(
     })
 }
 
+/// Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+/// contrast [`polars_expr_prefix`], which does that). Gated `#[cfg(feature = "dtype-struct")]` in
+/// polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_prefix_fields(
+    expr: *const polars_expr_t,
+    name: *const u8,
+    len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let name = tri!(read_str(name, len));
+        let aliased = (*expr).inner.clone().name().prefix_fields(name);
+        *out = make_expr(aliased);
+        std::ptr::null()
+    })
+}
+
+/// Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+/// contrast [`polars_expr_suffix`], which does that). Same feature gate as
+/// [`polars_expr_prefix_fields`] above.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_suffix_fields(
+    expr: *const polars_expr_t,
+    name: *const u8,
+    len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let name = tri!(read_str(name, len));
+        let aliased = (*expr).inner.clone().name().suffix_fields(name);
+        *out = make_expr(aliased);
+        std::ptr::null()
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_keep_name(expr: *const polars_expr_t) -> *const polars_expr_t {
     let aliased = (*expr).inner.clone().name().keep();
@@ -2127,6 +2163,18 @@ gen_impl_expr_dt!(polars_expr_dt_nanosecond, DateLikeNameSpace::nanosecond);
 // `dtype-duration` feature is needed for these two.
 gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date);
 gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time);
+gen_impl_expr_dt!(polars_expr_dt_datetime, DateLikeNameSpace::datetime);
+gen_impl_expr_dt!(polars_expr_dt_iso_year, DateLikeNameSpace::iso_year);
+gen_impl_expr_dt!(polars_expr_dt_is_leap_year, DateLikeNameSpace::is_leap_year);
+gen_impl_expr_dt!(polars_expr_dt_century, DateLikeNameSpace::century);
+gen_impl_expr_dt!(polars_expr_dt_millennium, DateLikeNameSpace::millennium);
+// Gated `#[cfg(feature = "timezones")]` in polars-plan, not by anything of ours -- `timezones` is
+// already active (`c-polars/Cargo.toml`), same as `convert_time_zone`/`replace_time_zone` below.
+gen_impl_expr_dt!(
+    polars_expr_dt_base_utc_offset,
+    DateLikeNameSpace::base_utc_offset
+);
+gen_impl_expr_dt!(polars_expr_dt_dst_offset, DateLikeNameSpace::dst_offset);
 
 macro_rules! gen_impl_expr_binary_dt {
     ($n: ident, $t: expr) => {
@@ -2224,6 +2272,92 @@ pub unsafe extern "C" fn polars_expr_dt_timestamp(
         *out = make_expr(result);
         std::ptr::null()
     })
+}
+
+/// Changes the underlying `TimeUnit` and rescales the data accordingly (e.g. `:ms` -> `:ns`
+/// multiplies by 1e6). Compare [`polars_expr_dt_with_time_unit`], which relabels without rescaling.
+/// Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_dt_cast_time_unit(
+    expr: *const polars_expr_t,
+    unit: polars_time_unit_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let unit = tri!(unit.to_time_unit());
+        let result = (*expr).inner.clone().dt().cast_time_unit(unit);
+        *out = make_expr(result);
+        std::ptr::null()
+    })
+}
+
+/// Relabels the underlying `TimeUnit` without touching the data (e.g. reinterpreting `:ms` values
+/// as `:ns` without rescaling). Compare [`polars_expr_dt_cast_time_unit`], which rescales.
+/// Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_dt_with_time_unit(
+    expr: *const polars_expr_t,
+    unit: polars_time_unit_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let unit = tri!(unit.to_time_unit());
+        let result = (*expr).inner.clone().dt().with_time_unit(unit);
+        *out = make_expr(result);
+        std::ptr::null()
+    })
+}
+
+/// Combines a Date/Datetime `expr` with a Time `time`, producing a new Datetime at the given
+/// `TimeUnit`. Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_dt_combine(
+    expr: *const polars_expr_t,
+    time: *const polars_expr_t,
+    unit: polars_time_unit_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let unit = tri!(unit.to_time_unit());
+        let result = (*expr)
+            .inner
+            .clone()
+            .dt()
+            .combine((*time).inner.clone(), unit);
+        *out = make_expr(result);
+        std::ptr::null()
+    })
+}
+
+/// Replaces the named date/time components of a Date/Datetime `expr` with the values from the
+/// given expressions (each may be a full column expression, not just a scalar). `ambiguous`
+/// controls how a resulting local time that occurs twice (e.g. a DST fall-back) is resolved --
+/// same string values as `polars_expr_dt_replace_time_zone`'s `ambiguous` parameter. Infallible:
+/// unlike `combine`/`cast_time_unit`/`with_time_unit` above, every argument here is already an
+/// `Expr`, with no C-enum conversion that could reject an out-of-range value.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_dt_replace(
+    expr: *const polars_expr_t,
+    year: *const polars_expr_t,
+    month: *const polars_expr_t,
+    day: *const polars_expr_t,
+    hour: *const polars_expr_t,
+    minute: *const polars_expr_t,
+    second: *const polars_expr_t,
+    microsecond: *const polars_expr_t,
+    ambiguous: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let result = (*expr).inner.clone().dt().replace(
+        (*year).inner.clone(),
+        (*month).inner.clone(),
+        (*day).inner.clone(),
+        (*hour).inner.clone(),
+        (*minute).inner.clone(),
+        (*second).inner.clone(),
+        (*microsecond).inner.clone(),
+        (*ambiguous).inner.clone(),
+    );
+    make_expr(result)
 }
 
 #[no_mangle]

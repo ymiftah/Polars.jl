@@ -41,6 +41,8 @@ Notes:
 
 - Struct extraction returns a `Series` of the field type.
 - `Structs.rename_fields` reorders fields in the new order given.
+- `prefix_fields`/`suffix_fields` (renaming every field with a common prefix/suffix rather than
+  giving each an explicit new name) live under [Name](@ref) alongside `prefix`/`suffix`, not here.
 
 ## Unpacking a whole Struct column
 

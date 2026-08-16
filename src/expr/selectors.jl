@@ -461,4 +461,4 @@ identity for this family.
 exclude(names::AbstractString...) = Selectors.all() - Selectors.by_name(names...; strict = false)
 exclude(dtypes::Type...) = Selectors.all() - Selectors.by_dtype(dtypes...)
 exclude() = Selectors.all()
-export exclude
+export exclude, Selectors

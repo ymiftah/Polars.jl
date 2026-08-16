@@ -10,7 +10,9 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
 - **`allow_missing_columns` (parquet/CSV/IPC scan options) only covers files *missing* a column
   present in the reference schema, not files with an *extra* column beyond it.** The reference
   schema is whichever file/fragment gets scanned first, so ordering matters when relying on this
-  option.
+  option. `scan_parquet` additionally takes `allow_extra_columns` for the converse case (an extra
+  column is silently dropped rather than raising) — **`scan_csv`/`scan_ipc` have no equivalent.**
+  See [Developer](@ref) for why.
 
 - **A `Decimal`-typed column can be queried/cast (`cast_decimal`, `Selectors.decimal()`) but not
   materialized back into Julia.** Reading its values (`df[:col]`) raises an error — there's no

@@ -45,6 +45,34 @@ end
     @test_throws PolarsError select(r, Structs.rename_fields(col("s"), ["same", "same", "c"]))
 end
 
+@testset "prefix_fields / suffix_fields (py-polars test_prefix_suffix_fields, Group 4 gap closure)" begin
+    # `.name.prefix_fields`/`.name.suffix_fields` upstream -- top-level here (not under `Structs`),
+    # mirroring how `prefix`/`suffix` (the non-Struct, whole-expression renamers) already are.
+    df = DataFrame((; x = [(a = 1, b = 2)]))
+
+    prefixed = select(df, prefix_fields(col("x"), "p_"))
+    @test Set(propertynames(prefixed[:x][1])) == Set([:p_a, :p_b])
+    @test prefixed[:x][1].p_a == 1
+    @test prefixed[:x][1].p_b == 2
+
+    suffixed = select(df, suffix_fields(col("x"), "_f"))
+    @test Set(propertynames(suffixed[:x][1])) == Set([:a_f, :b_f])
+    @test suffixed[:x][1].a_f == 1
+    @test suffixed[:x][1].b_f == 2
+
+    # curried forms
+    prefixed_curried = select(df, col("x") |> prefix_fields("p_"))
+    @test Set(propertynames(prefixed_curried[:x][1])) == Set([:p_a, :p_b])
+    suffixed_curried = select(df, col("x") |> suffix_fields("_f"))
+    @test Set(propertynames(suffixed_curried[:x][1])) == Set([:a_f, :b_f])
+
+    # non-Struct dtype raises cleanly rather than crashing (no upstream equivalent test; added
+    # since a wrong-dtype path here is a process-abort risk, not just input validation)
+    df_int = DataFrame((; y = Int32[1, 2, 3]))
+    @test_throws PolarsError collect(select(df_int, prefix_fields(col("y"), "p_")))
+    @test_throws PolarsError collect(select(df_int, suffix_fields(col("y"), "_f")))
+end
+
 @testset "Structs.field_by_index: negative index and out-of-range (py-polars test_field_by_index_18732)" begin
     df = DataFrame((; s = [(a = 1, b = 2), (a = 2, b = 1)]))
     r = read_parquet(write_temp_parquet(df))

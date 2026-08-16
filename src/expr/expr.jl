@@ -231,6 +231,8 @@ end
 @wrap_rename_method alias polars_expr_alias "Renames the result of this expression to a new name."
 @wrap_rename_method prefix polars_expr_prefix "Adds a prefix to the name of the resulting expression."
 @wrap_rename_method suffix polars_expr_suffix "Adds a suffix to the name of the resulting expression."
+@wrap_rename_method prefix_fields polars_expr_prefix_fields "Adds a prefix to every *field name* of a Struct-typed expression (contrast [`prefix`](@ref), which renames the expression's own output name, not its fields)."
+@wrap_rename_method suffix_fields polars_expr_suffix_fields "Adds a suffix to every *field name* of a Struct-typed expression (contrast [`suffix`](@ref), which renames the expression's own output name, not its fields)."
 
 """
     lit(x)::Polars.Expr
@@ -1176,3 +1178,8 @@ function Base.diff(expr::Expr, n = 1; null_behavior::Symbol = :ignore)
     out = API.polars_expr_diff(expr, n, behavior)
     return Expr(out)
 end
+
+# `to_lowercase`/`to_uppercase` are exported by `@wrap_simple_ops` itself (they're generated in
+# this file's block alongside `keep_name`), so they are deliberately absent here.
+export col, alias, prefix, suffix, prefix_fields, suffix_fields, lit, cast, when, element,
+    cast_datetime, cast_duration, cast_decimal, cast_categorical

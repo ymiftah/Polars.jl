@@ -225,3 +225,231 @@ end
         @test r[:formatted][1] == expected
     end
 end
+
+@testset "Dt.iso_year / is_leap_year / century / millennium (py-polars test_dt_extract_datetime_component / test_iso_year / test_is_leap_year)" begin
+    # upstream's `series_of_int_dates` fixture (day-since-epoch [8401, 10000, 20000, 30000]),
+    # given here as the equivalent literal dates -- 1993-01-01 lands in ISO year **1992** (Jan 1
+    # 1993 was a Friday, so it belongs to the last ISO week of the prior year), the one genuinely
+    # tricky value in this fixture.
+    dates = [Date(1993, 1, 1), Date(1997, 5, 19), Date(2024, 10, 4), Date(2052, 2, 20)]
+    df = DataFrame((; d = dates))
+    r = select(
+        df, alias(Dt.millennium(col("d")), "mil"), alias(Dt.century(col("d")), "cen"),
+        alias(Dt.iso_year(col("d")), "isoy")
+    )
+    @test collect(r[:mil]) == [2, 2, 3, 3]
+    @test collect(r[:cen]) == [20, 20, 21, 21]
+    @test collect(r[:isoy]) == [1992, 1997, 2024, 2052]
+
+    # upstream additionally parametrizes this over a time zone (`Asia/Kathmandu`), checking these
+    # local-component accessors are tz-invariant
+    tz_col = Dt.replace_time_zone(cast_datetime(col("d")), "Asia/Kathmandu")
+    r_tz = select(
+        df, alias(Dt.millennium(tz_col), "mil"), alias(Dt.century(tz_col), "cen"),
+        alias(Dt.iso_year(tz_col), "isoy")
+    )
+    @test collect(r_tz[:mil]) == collect(r[:mil])
+    @test collect(r_tz[:cen]) == collect(r[:cen])
+    @test collect(r_tz[:isoy]) == collect(r[:isoy])
+
+    # upstream's `test_is_leap_year` ranges Jan-1 1990..2004 by 1y; ported as the equivalent
+    # literal year list rather than via a (currently unwrapped) date range.
+    leap_years_df = DataFrame((; d = [Date(y, 1, 1) for y in 1990:2004]))
+    r_leap = select(leap_years_df, alias(Dt.is_leap_year(col("d")), "leap"))
+    @test collect(r_leap[:leap]) ==
+        [false, false, true, false, false, false, true, false, false, false, true, false, false, false, true]
+
+    # null propagation
+    ks = kitchen_sink_df()
+    r_null = select(
+        ks, alias(Dt.iso_year(col("datetime")), "isoy"), alias(Dt.is_leap_year(col("datetime")), "leap"),
+        alias(Dt.century(col("datetime")), "cen"), alias(Dt.millennium(col("datetime")), "mil")
+    )
+    @test ismissing(collect(r_null[:isoy])[3])
+    @test ismissing(collect(r_null[:leap])[3])
+    @test ismissing(collect(r_null[:cen])[3])
+    @test ismissing(collect(r_null[:mil])[3])
+end
+
+@testset "Dt.datetime (py-polars test_dt_datetime_deprecated)" begin
+    # Deprecated upstream in favor of `replace_time_zone(expr, nothing)`, which it is exactly
+    # equivalent to: strips a time-zone label back to naive, keeping the *wall-clock* value.
+    df = DataFrame((; d = [DateTime(2022, 1, 1, 23)]))
+    tz_col = Dt.replace_time_zone(col("d"), "Asia/Kathmandu")
+    r = select(df, alias(Dt.datetime(tz_col), "stripped"))
+    @test collect(r[:stripped]) == [DateTime(2022, 1, 1, 23)]
+    @test eltype(collect(r[:stripped])) == DateTime # naive again, not a ZonedDateTime
+
+    # on an already-naive column it's an identity op
+    r_naive = select(df, alias(Dt.datetime(col("d")), "same"))
+    @test collect(r_naive[:same]) == df[:d]
+end
+
+@testset "Dt.cast_time_unit / Dt.with_time_unit (Group 4 gap closure)" begin
+    # `cast_time_unit` rescales the underlying integer; `with_time_unit` only relabels it. A
+    # `Vector{DateTime}`-built column is natively `:ns` (see CLAUDE.md's literal-construction
+    # note), so relabeling as `:ms` without rescaling reads the raw nanosecond count back out as
+    # if it were already a millisecond count -- 1000x too large.
+    df = DataFrame((; d = [DateTime(2024, 1, 15, 10, 0, 0, 123)]))
+
+    r_ts_ms = select(df, alias(Dt.timestamp(col("d"); time_unit = :ms), "ts"))
+    r_cast = select(
+        df, alias(Dt.timestamp(Dt.cast_time_unit(col("d"); time_unit = :ms); time_unit = :ms), "ts")
+    )
+    @test collect(r_cast[:ts]) == collect(r_ts_ms[:ts])
+
+    r_with = select(
+        df, alias(Dt.timestamp(Dt.with_time_unit(col("d"); time_unit = :ms); time_unit = :ms), "ts")
+    )
+    r_ts_ns = select(df, alias(Dt.timestamp(col("d"); time_unit = :ns), "ts"))
+    @test collect(r_with[:ts]) == collect(r_ts_ns[:ts]) # relabeled raw ns count read back as if ms
+
+    @test_throws ErrorException Dt.cast_time_unit(col("d"); time_unit = :bogus)
+    @test_throws ErrorException Dt.with_time_unit(col("d"); time_unit = :bogus)
+
+    # curried forms
+    r_cast_curried = select(df, alias(col("d") |> Dt.cast_time_unit(time_unit = :ms), "d"))
+    r_cast_direct = select(df, alias(Dt.cast_time_unit(col("d"); time_unit = :ms), "d"))
+    @test collect(r_cast_curried[:d]) == collect(r_cast_direct[:d])
+end
+
+@testset "Dt.combine (py-polars test_date_time_combine)" begin
+    df = DataFrame(
+        (;
+            dtm = [DateTime(2022, 12, 31, 10, 30, 45), DateTime(2023, 7, 5, 23, 59, 59)],
+            dt = [Date(2022, 10, 10), Date(2022, 7, 5)],
+            tm = [Time(1, 2, 3, 456), Time(7, 8, 9, 101)],
+        )
+    )
+    r = select(
+        df, alias(Dt.combine(col("dtm"), col("tm")), "d1"), # time component overwritten by tm
+        alias(Dt.combine(col("dt"), col("tm")), "d2"), # date + time combined as-is
+        alias(Dt.combine(col("dt"), lit(Time(4, 5, 6))), "d3") # date + a literal time
+    )
+    @test collect(r[:d1]) == [DateTime(2022, 12, 31, 1, 2, 3, 456), DateTime(2023, 7, 5, 7, 8, 9, 101)]
+    @test collect(r[:d2]) == [DateTime(2022, 10, 10, 1, 2, 3, 456), DateTime(2022, 7, 5, 7, 8, 9, 101)]
+    @test collect(r[:d3]) == [DateTime(2022, 10, 10, 4, 5, 6), DateTime(2022, 7, 5, 4, 5, 6)]
+
+    # curried form + explicit time_unit
+    r_curried = select(df, alias(col("dtm") |> Dt.combine(col("tm")), "d1"))
+    @test collect(r_curried[:d1]) == collect(r[:d1])
+    r_ns = select(df, alias(Dt.combine(col("dtm"), col("tm"); time_unit = :ns), "d1"))
+    @test collect(r_ns[:d1]) == collect(r[:d1])
+end
+
+@testset "Dt.combine on a Time-typed column raises cleanly (py-polars test_combine_unsupported_types)" begin
+    df = DataFrame((; t = [Time(1, 2)]))
+    @test_throws PolarsError collect(select(df, alias(Dt.combine(col("t"), lit(Time(3, 4))), "x")))
+end
+
+@testset "Dt.replace (py-polars test_replace_expr_datetime / test_replace_expr_date / test_replace_int_datetime)" begin
+    # upstream's own fixture uses replacement years/base years as low as 1-9 AD, which our
+    # `:ns`-only DateTime column construction can't represent (~1678-2262 range, see
+    # docs/src/limitations.md) -- adapted to in-range years while keeping the exact same shape:
+    # each of the 7 component columns has exactly one `missing` at a different row, proving a
+    # `missing` in *that row's* component falls back to the *original* value for that field only
+    # (not the whole row), while every other field in that row is still replaced.
+    df = DataFrame(
+        (;
+            dates = Union{Missing, DateTime}[fill(DateTime(2088, 8, 8, 8, 8, 8, 8), 7); missing],
+            year = Union{Missing, Int}[missing, 2001, 2002, 2003, 2004, 2005, 2006, 2007],
+            month = Union{Missing, Int}[1, missing, 3, 4, 5, 6, 7, 8],
+            day = Union{Missing, Int}[1, 2, missing, 4, 5, 6, 7, 8],
+            hour = Union{Missing, Int}[1, 2, 3, missing, 5, 6, 7, 8],
+            minute = Union{Missing, Int}[1, 2, 3, 4, missing, 6, 7, 8],
+            second = Union{Missing, Int}[1, 2, 3, 4, 5, missing, 7, 8],
+            microsecond = Union{Missing, Int}[1000, 2000, 3000, 4000, 5000, 6000, missing, 8000],
+        )
+    )
+    r = select(
+        df, alias(
+            Dt.replace(
+                col("dates"); year = col("year"), month = col("month"), day = col("day"),
+                hour = col("hour"), minute = col("minute"), second = col("second"),
+                microsecond = col("microsecond")
+            ), "r"
+        )
+    )
+    @test isequal(
+        collect(r[:r]), [
+            DateTime(2088, 1, 1, 1, 1, 1, 1), DateTime(2001, 8, 2, 2, 2, 2, 2),
+            DateTime(2002, 3, 8, 3, 3, 3, 3), DateTime(2003, 4, 4, 8, 4, 4, 4),
+            DateTime(2004, 5, 5, 5, 8, 5, 5), DateTime(2005, 6, 6, 6, 6, 8, 6),
+            DateTime(2006, 7, 7, 7, 7, 7, 8), missing,
+        ]
+    )
+
+    # the `Date`-typed sibling (test_replace_expr_date), same per-row-null-per-field shape
+    df_date = DataFrame(
+        (;
+            dates = Union{Missing, Date}[Date(2088, 8, 8), Date(2088, 8, 8), Date(2088, 8, 8), missing],
+            year = Union{Missing, Int}[missing, 2002, 2003, 4],
+            month = Union{Missing, Int}[1, missing, 3, 4],
+            day = Union{Missing, Int}[1, 2, missing, 4],
+        )
+    )
+    r_date = select(
+        df_date, alias(
+            Dt.replace(col("dates"); year = col("year"), month = col("month"), day = col("day")), "r"
+        )
+    )
+    @test isequal(collect(r_date[:r]), [Date(2088, 1, 1), Date(2002, 8, 2), Date(2003, 3, 8), missing])
+
+    # test_replace_int_datetime's shape: `dt.replace()` with no args is the identity, and each
+    # single-field replacement leaves every other field untouched -- adapted to in-range base
+    # years (upstream literally uses years 1/2/3, which our `:ns`-only columns can't represent).
+    df2 = DataFrame(
+        (;
+            a = Union{Missing, DateTime}[
+                DateTime(2001, 2, 2, 2, 2, 2, 2), DateTime(2002, 3, 3, 3, 3, 3, 3),
+                DateTime(2003, 4, 4, 4, 4, 4, 4), missing,
+            ],
+        )
+    )
+    r_none = select(df2, alias(Dt.replace(col("a")), "x"))
+    @test isequal(collect(r_none[:x]), df2[:a])
+
+    r_year = select(df2, alias(Dt.replace(col("a"); year = 2090), "x"))
+    @test isequal(
+        collect(r_year[:x]),
+        [DateTime(2090, 2, 2, 2, 2, 2, 2), DateTime(2090, 3, 3, 3, 3, 3, 3), DateTime(2090, 4, 4, 4, 4, 4, 4), missing]
+    )
+    r_month = select(df2, alias(Dt.replace(col("a"); month = 9), "x"))
+    @test isequal(
+        collect(r_month[:x]),
+        [DateTime(2001, 9, 2, 2, 2, 2, 2), DateTime(2002, 9, 3, 3, 3, 3, 3), DateTime(2003, 9, 4, 4, 4, 4, 4), missing]
+    )
+    r_ms = select(df2, alias(Dt.replace(col("a"); microsecond = 9000), "x"))
+    @test isequal(
+        collect(r_ms[:x]),
+        [DateTime(2001, 2, 2, 2, 2, 2, 9), DateTime(2002, 3, 3, 3, 3, 3, 9), DateTime(2003, 4, 4, 4, 4, 4, 9), missing]
+    )
+end
+
+@testset "Dt.replace invalid components raise cleanly (py-polars test_replace_date_invalid_components / test_replace_datetime_invalid_date_components / test_replace_datetime_invalid_time_components)" begin
+    # a load-bearing check per CLAUDE.md/pypolars-test-parity: these are process-abort hazards,
+    # not routine input validation, until proven otherwise -- each must raise `PolarsError`
+    # cleanly rather than crash the process.
+    df_date = DataFrame((; a = [Date(2025, 1, 1)]))
+    @test_throws PolarsError collect(select(df_date, alias(Dt.replace(col("a"); month = 13), "x")))
+    @test_throws PolarsError collect(select(df_date, alias(Dt.replace(col("a"); day = 32), "x")))
+
+    df_dt = DataFrame((; a = [DateTime(2025, 1, 1)]))
+    @test_throws PolarsError collect(select(df_dt, alias(Dt.replace(col("a"); month = 13), "x")))
+    @test_throws PolarsError collect(select(df_dt, alias(Dt.replace(col("a"); day = 32), "x")))
+    @test_throws PolarsError collect(select(df_dt, alias(Dt.replace(col("a"); hour = 25), "x")))
+    @test_throws PolarsError collect(select(df_dt, alias(Dt.replace(col("a"); minute = 61), "x")))
+    @test_throws PolarsError collect(select(df_dt, alias(Dt.replace(col("a"); second = 61), "x")))
+    @test_throws PolarsError collect(select(df_dt, alias(Dt.replace(col("a"); microsecond = 2_000_000), "x")))
+end
+
+@testset "Dt.replace: a replaced year outside the :ns range raises rather than crashing" begin
+    # Not in upstream (whose own equivalent fixture runs at `:us` resolution, well inside range):
+    # this package's `Vector{DateTime}`-built columns are always `:ns` (documented limitation, see
+    # Group 1 of plans/parity/group1_group4_closure.md). Replacing to a year far outside
+    # `:ns`'s ~1678-2262 window hits an internal `unwrap()` panic in polars-time's own `replace`
+    # kernel -- caught by `guard_error`'s `catch_unwind` as a clean `PolarsError`, not a process
+    # abort, which is the FFI panic-safety contract this test exists to pin down.
+    df = DataFrame((; a = [DateTime(2001, 2, 2)]))
+    @test_throws PolarsError collect(select(df, alias(Dt.replace(col("a"); year = 9), "x")))
+end

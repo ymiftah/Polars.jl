@@ -95,15 +95,22 @@ end
         @test isequal(sort(df, col("x"))[:y], [3, 4, missing, missing])
     end
 
-    @testset "allow_missing_columns asymmetry: extra columns still fail (documented in CLAUDE.md)" begin
+    @testset "allow_missing_columns doesn't also cover extra columns; allow_extra_columns does (Group 1 gap closure)" begin
         # allow_missing_columns only covers files *missing* a column present in the reference
         # schema (whichever file is scanned first) -- it does not cover files with an *extra*
-        # column beyond the reference schema, which is a separate policy this wrapper doesn't
-        # expose. Regression guard for that documented asymmetry.
+        # column beyond the reference schema, which is the separate `allow_extra_columns` policy
+        # tested below.
         multi = mkpath(joinpath(mktempdir(), "extra"))
         write_parquet(joinpath(multi, "f1.parquet"), DataFrame((; x = [1, 2])))  # reference: 1 col
         write_parquet(joinpath(multi, "f2.parquet"), DataFrame((; x = [3, 4], y = [5, 6])))  # extra col
-        @test_throws Exception collect(scan_parquet(joinpath(multi, "*.parquet"); allow_missing_columns = true))
+        glob = joinpath(multi, "*.parquet")
+        @test_throws Exception collect(scan_parquet(glob; allow_missing_columns = true))
+        @test_throws Exception collect(scan_parquet(glob)) # default: neither policy relaxed
+
+        df = read_parquet(glob; allow_extra_columns = true)
+        @test size(df) == (4, 1)
+        @test Polars.names(df) == ["x"]
+        @test sort(collect(df[:x])) == [1, 2, 3, 4] # f2's extra `y` column silently dropped
     end
 end
 
