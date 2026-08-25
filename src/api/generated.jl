@@ -514,6 +514,36 @@ function polars_lazy_frame_filter(df, expr)
     return @ccall libpolars.polars_lazy_frame_filter(df::Ptr{polars_lazy_frame_t}, expr::Ptr{polars_expr_t})::Cvoid
 end
 
+"""
+    polars_lazy_frame_fill_null(df, fill_value)
+
+Fills every `null` value across all columns of `df` with `fill_value` (an expression, typically a `lit`). Distinct from [`polars_expr_fill_null`](@ref) (per-expression, inside `select`/`with_columns`).
+"""
+function polars_lazy_frame_fill_null(df, fill_value)
+    return @ccall libpolars.polars_lazy_frame_fill_null(df::Ptr{polars_lazy_frame_t}, fill_value::Ptr{polars_expr_t})::Cvoid
+end
+
+"""
+    polars_lazy_frame_cast_all(lf, dtype, strict, out)
+
+Casts every column of `df` to `dtype`. Only plain (parameter-free) dtypes are reachable here -- same restriction as [`polars_expr_cast`](@ref) -- since [`polars_value_type_t`](@ref) cannot carry a Datetime's time unit/zone; cast individual columns via `Polars.cast` for that. For casting a *subset* of columns (upstream's dict form of `DataFrame.cast`), the Julia side composes this from `with_columns` + the existing per-`Expr` `cast` instead of a dedicated FFI function.
+"""
+function polars_lazy_frame_cast_all(lf, dtype, strict, out)
+    return @ccall libpolars.polars_lazy_frame_cast_all(lf::Ptr{polars_lazy_frame_t}, dtype::polars_value_type_t, strict::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+end
+
+function polars_lazy_frame_slice(df, offset, len)
+    return @ccall libpolars.polars_lazy_frame_slice(df::Ptr{polars_lazy_frame_t}, offset::Int64, len::Csize_t)::Cvoid
+end
+
+function polars_lazy_frame_top_k(df, k, exprs, nexprs, descending, maintain_order)
+    return @ccall libpolars.polars_lazy_frame_top_k(df::Ptr{polars_lazy_frame_t}, k::Csize_t, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t, descending::Ptr{Bool}, maintain_order::Bool)::Cvoid
+end
+
+function polars_lazy_frame_bottom_k(df, k, exprs, nexprs, descending, maintain_order)
+    return @ccall libpolars.polars_lazy_frame_bottom_k(df::Ptr{polars_lazy_frame_t}, k::Csize_t, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t, descending::Ptr{Bool}, maintain_order::Bool)::Cvoid
+end
+
 function polars_lazy_frame_collect(df, engine, out)
     return @ccall libpolars.polars_lazy_frame_collect(df::Ptr{polars_lazy_frame_t}, engine::polars_engine_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
@@ -690,6 +720,19 @@ end
 
 function polars_expr_mean_horizontal(exprs, n, ignore_nulls, out)
     return @ccall libpolars.polars_expr_mean_horizontal(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, ignore_nulls::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+function polars_expr_concat_list(exprs, n, out)
+    return @ccall libpolars.polars_expr_concat_list(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_concat_str(exprs, n, separator, separator_len, ignore_nulls, out)
+
+`pl.concat\\_str`: row-wise (horizontal) string concatenation across `exprs`, joined by `separator`. Unlike the `_horizontal` reductions above, upstream's `concat_str` is infallible (it just builds a `Function` plan node -- see `polars-plan-0.54.4/src/dsl/functions/concat.rs`, no `polars\\_ensure!` anywhere in it), but we keep the same fallible ABI shape as its siblings for uniformity rather than special-casing the one exception.
+"""
+function polars_expr_concat_str(exprs, n, separator, separator_len, ignore_nulls, out)
+    return @ccall libpolars.polars_expr_concat_str(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, separator::Ptr{UInt8}, separator_len::Csize_t, ignore_nulls::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_interpolate(expr, method)

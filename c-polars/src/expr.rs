@@ -10,8 +10,9 @@ use polars_ops::series::round::RoundMode;
 use polars_ops::series::InterpolationMethod;
 use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_plan::dsl::functions::{
-    all_horizontal, any_horizontal, as_struct, coalesce, cov, max_horizontal, mean_horizontal,
-    min_horizontal, pearson_corr, spearman_rank_corr, sum_horizontal,
+    all_horizontal, any_horizontal, as_struct, coalesce, concat_list, concat_str, cov,
+    max_horizontal, mean_horizontal, min_horizontal, pearson_corr, spearman_rank_corr,
+    sum_horizontal,
 };
 use polars_plan::dsl::DataTypeExpr;
 use polars_plan::prelude::Literal;
@@ -202,6 +203,29 @@ gen_horizontal!(polars_expr_min_horizontal, min_horizontal);
 gen_horizontal!(polars_expr_max_horizontal, max_horizontal);
 gen_horizontal_ignore_nulls!(polars_expr_sum_horizontal, sum_horizontal);
 gen_horizontal_ignore_nulls!(polars_expr_mean_horizontal, mean_horizontal);
+gen_horizontal!(polars_expr_concat_list, concat_list);
+
+/// `pl.concat_str`: row-wise (horizontal) string concatenation across `exprs`, joined by
+/// `separator`. Unlike the `_horizontal` reductions above, upstream's `concat_str` is infallible
+/// (it just builds a `Function` plan node -- see `polars-plan-0.54.4/src/dsl/functions/concat.rs`,
+/// no `polars_ensure!` anywhere in it), but we keep the same fallible ABI shape as its siblings
+/// for uniformity rather than special-casing the one exception.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_concat_str(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    separator: *const u8,
+    separator_len: usize,
+    ignore_nulls: bool,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let exprs = read_exprs(exprs, n);
+        let separator = tri!(read_str(separator, separator_len));
+        *out = make_expr(concat_str(&exprs, separator, ignore_nulls));
+        std::ptr::null()
+    })
+}
 
 #[repr(C)]
 #[allow(dead_code)]

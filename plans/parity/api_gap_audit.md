@@ -77,6 +77,43 @@ in the ways that skill predicts, and one real API-surface gap:
 
 Everything else in this file was re-checked against `main` after the merge and remains accurate.
 
+**2026-08-25 update.** Re-verified this whole file live against current `main` (past PR #45,
+`v0.5.1+jl`) rather than trusting the text above, since it predates that merge. Two further
+closures had landed independently of this effort, both now stale where mentioned below:
+
+- **The `parity-group1-group4` merge (PR #45)** closed almost all of [Group 4](#group-4--gaps-inside-existing-namespaces)'s
+  `Dt` list — `iso_year`, `is_leap_year`, `century`, `millennium`, `combine`, `datetime`,
+  `cast_time_unit`, `with_time_unit`, `base_utc_offset`, `dst_offset`, and `dt.replace` (component
+  replacement, distinct from [`replace_time_zone`](@ref)) are all live now, each backed by its own
+  `polars_expr_dt_*` symbol. Only `add_business_days` (genuinely gated behind the `business`
+  feature, see [Group 10](#group-10)) and `to_string` remain missing. The same merge closed the
+  `.name` namespace's `prefix_fields`/`suffix_fields`.
+- **`scan_parquet`'s `allow_extra_columns`** (mentioned only via `docs/src/limitations.md` cross-ref
+  elsewhere) also landed in that merge, independent of this file's own Group 6/7 findings.
+
+This session additionally closed a batch of low-hanging, zero-Cargo-change items found by
+re-deriving [Group 10](#group-10)'s "already-enabled feature" claim from scratch (it turned out
+still accurate — `concat_str`'s Cargo feature really is on, just the *top-level* `pl.concat_str`/
+`pl.concat_list` functions themselves, as opposed to `Strings.join`, had never been wrapped):
+
+- **Top-level `concat_str`/`concat_list`** ([Group 2](#group-2--missing-top-level-functions-pl))
+  — new `polars_expr_concat_str`/`polars_expr_concat_list` FFI symbols, no Cargo change (`concat_str`
+  was already enabled; `concat_list` is ungated). Distinct from `Strings.join`/`Lists.join`
+  (aggregations), which already existed.
+- **Frame-level `fill_null`, `cast` (both the per-column `AbstractDict` form and the whole-frame
+  single-`Type` form), `slice`, `top_k`, `bottom_k`** ([Group 6](#group-6--missing-frame-level-dataframelazyframe-methods))
+  — five new `polars_lazy_frame_*` FFI symbols (`cast`'s `AbstractDict` form needed none — it
+  composes `with_columns` + the pre-existing per-`Expr` `cast`). `top_k`/`bottom_k` turned out to
+  need one design correction versus the naive port: upstream's own `LazyFrame::top_k`/`bottom_k`
+  unconditionally force `nulls_last: true` internally regardless of what's passed in the sort
+  options, so there is deliberately no `nulls_last` parameter on the Julia side (matching upstream's
+  own public API, which doesn't expose one there either) — see the docstring on `top_k` in `sort.jl`.
+
+Also corrects a claim in [`gap_closure_scope.md`](gap_closure_scope.md)'s Group B3 (now itself
+annotated): `strict_cast` was never actually a gap by the time that file's "expose as `cast(expr,
+T; strict=false)`" suggestion was written up here — `cast(expr, dtype; strict=true)` already
+dispatches to `polars_expr_strict_cast` (`src/expr/expr.jl`, `_plain_value_type_code`'s call site).
+
 Read alongside its two siblings, which cover different slices of the same problem:
 
 - [`LEDGER.md`](LEDGER.md) — the py-polars *test*-parity sweep (batches 0-9 done, 10-14 unswept).
@@ -151,8 +188,9 @@ Confirmed absent from both the definition set and the FFI symbol table.
 **Temporal constructors** — `date()`, `datetime()`, `time()`, `duration()`, `from_epoch`. Note
 `cast_datetime`/`cast_duration` exist but are *casts*, not constructors from component expressions.
 
-**String and list combination** — `concat_str`, `concat_list`, `concat_arr`, `format`.
-`Strings.join` exists as the *aggregating* (vertical) join; the row-wise horizontal concat does not.
+**String and list combination** — ~~`concat_str`, `concat_list`~~ **Closed** (see [Status](#status)).
+`concat_arr`, `format` remain missing. `Strings.join`/`Lists.join` are the *aggregating* joins,
+distinct from the row-wise horizontal `concat_str`/`concat_list`.
 (`format` is defined in `src/arrow/array.jl:90`, but that is the internal Julia-type-to-Arrow-format
 mapping — unrelated to `pl.format`, and a name collision to watch when adding the real one.)
 
@@ -222,9 +260,11 @@ that unit's own resolution (not a decomposed digit group), mirroring the `total_
 scaling convention; only works on `Datetime`/`Time`, not a plain `Date`
 (`` `nanosecond` operation not supported for dtype `date` ``, verified live).
 
-Also: `iso_year`, `is_leap_year`, `century`, `millennium`, `combine`, `datetime`, `cast_time_unit`,
-`with_time_unit`, `base_utc_offset`, `dst_offset`, `dt.replace` (replacing date components),
-`add_business_days`, `to_string`. Plus `month_start`/`month_end` from Group 0.
+~~Also: `iso_year`, `is_leap_year`, `century`, `millennium`, `combine`, `datetime`, `cast_time_unit`,
+`with_time_unit`, `base_utc_offset`, `dst_offset`, `dt.replace` (replacing date components)~~ **All
+closed** (PR #45, see [Status](#status)). Still missing: `add_business_days` (genuinely
+Cargo-gated, see [Group 10](#group-10)) and `to_string`. Plus `month_start`/`month_end` from
+Group 0.
 
 ### `Lists` (upstream `.list`)
 
@@ -240,8 +280,9 @@ Expression-level `unnest` (the frame-level verb exists), and field/schema intros
 
 ### Name namespace (upstream `.name`)
 
-`name.map` (needs a callback — Group 9), `prefix_fields`, `suffix_fields`. Present: `keep_name`,
-`prefix`, `suffix`, `to_lowercase`, `to_uppercase`.
+`name.map` (needs a callback — Group 9). ~~`prefix_fields`, `suffix_fields`~~ **Closed** (PR #45,
+see [Status](#status)). Present: `keep_name`, `prefix`, `suffix`, `prefix_fields`, `suffix_fields`,
+`to_lowercase`, `to_uppercase`.
 
 ## Group 5 — Entirely missing namespaces (3)
 
@@ -258,14 +299,19 @@ Confirmed by symbol search: **zero** `polars_expr_bin_*`, `polars_expr_cat_*`, o
 
 The complete frame FFI surface is 33 `polars_lazy_frame_*` + 16 `polars_dataframe_*` symbols.
 
-**Row/column selection**: `slice`, `limit`, `reverse`, `sample`, frame-level `top_k`/`bottom_k`
-(the `Expr` forms exist), `partition_by` (distinct from the sink-side `PartitionByKey`),
-`insert_column`, `replace_column`, `drop_in_place`, `extend`, `clear`.
+**Row/column selection**: ~~`slice`~~, `limit`, `reverse`, `sample`, ~~frame-level `top_k`/`bottom_k`
+(the `Expr` forms exist)~~, `partition_by` (distinct from the sink-side `PartitionByKey`),
+`insert_column`, `replace_column`, `drop_in_place`, `extend`, `clear`. `slice`/`top_k`/`bottom_k`
+are **closed** (see [Status](#status)); `limit` is a plain alias for `head` upstream and is still
+missing here as its own frame-level name (the `Expr`-level `limit` already exists, see Group 3).
 
-**Whole-frame computation**: frame-level `fill_null`, `fill_nan`, `interpolate`, `cast` (dtype
-mapping), `null_count`, `count`, `approx_n_unique`, `to_dummies`, `corr`, and the frame-level
+**Whole-frame computation**: ~~frame-level `fill_null`~~, `fill_nan`, `interpolate`, ~~`cast` (dtype
+mapping)~~, `null_count`, `count`, `approx_n_unique`, `to_dummies`, `corr`, and the frame-level
 aggregations `sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`product`/`quantile` — all reachable today
-only by rewriting as `select(df, mean(col("*")))`.
+only by rewriting as `select(df, mean(col("*")))`. `fill_null`/`cast` are **closed** (see
+[Status](#status)) — `cast` covers both upstream's per-column `AbstractDict` form and its
+single-`Type` whole-frame form (only plain, parameter-free dtypes reach the latter, same
+restriction as the single-`Expr` `cast`).
 
 **Joins**: `join_where` (inequality/IE join), `merge_sorted`, `update`. **Reshaping**: `unstack`.
 

@@ -275,6 +275,66 @@ end
     @test_throws PolarsError hstack(truly_empty, [Series("z", [1, 2, 3])])
 end
 
+@testset "fill_null (frame-level)" begin
+    df = DataFrame((; a = [1, missing, 3], b = [missing, "y", "z"]))
+
+    # `fill_value` is cast to each column's own dtype rather than requiring an exact match --
+    # the Int literal `0` becomes the string `"0"` in `b` (verified live), same as upstream.
+    r = fill_null(df, lit(0))
+    @test collect(r[:a]) == [1, 0, 3]
+    @test collect(r[:b]) == ["0", "y", "z"]
+
+    # LazyFrame form agrees
+    r_lazy = fill_null(lazy(df), lit(0)) |> collect
+    @test isequal(collect(r_lazy[:a]), collect(r[:a]))
+    @test isequal(collect(r_lazy[:b]), collect(r[:b]))
+
+    # distinct from the `Expr`-level `fill_null`, which only touches the column it's called on
+    r_expr = select(df, alias(fill_null(col("a"), lit(0)), "a"))
+    @test collect(r_expr[:a]) == [1, 0, 3]
+end
+
+@testset "cast (frame-level)" begin
+    df = DataFrame((; a = [1, 2, missing], b = ["x", "y", "z"]))
+
+    # AbstractDict form: only the named column(s) change, everything else is untouched
+    r = cast(df, Dict("a" => Float64))
+    @test eltype(collect(r[:a])) == Union{Missing, Float64}
+    @test isequal(collect(r[:a]), [1.0, 2.0, missing])
+    @test collect(r[:b]) == ["x", "y", "z"]
+
+    # strict=false (default): overflow becomes `missing` rather than raising
+    df_overflow = DataFrame((; a = [300]))
+    r_nonstrict = cast(df_overflow, Dict("a" => UInt8))
+    @test ismissing(r_nonstrict[:a][1])
+    # strict=true raises instead
+    @test_throws PolarsError cast(df_overflow, Dict("a" => UInt8); strict = true)
+
+    # single-`Type` form: every column is cast, including numeric ones together
+    df_num = DataFrame((; a = [1, 2, 3], b = [4.0, 5.0, 6.0]))
+    r_all = cast(df_num, Float32)
+    @test eltype(collect(r_all[:a])) == Float32
+    @test eltype(collect(r_all[:b])) == Float32
+
+    # non-strict (default): a non-numeric String column casts to `missing` per row rather than
+    # raising -- matches the single-`Expr` `cast`'s own non-strict convention
+    r_str = cast(df, Float64)
+    @test isequal(collect(r_str[:a]), [1.0, 2.0, missing])
+    @test all(ismissing, collect(r_str[:b]))
+    # strict=true does raise on that same non-numeric column
+    @test_throws PolarsError cast(df, Float64; strict = true)
+
+    # LazyFrame form agrees, for both call shapes
+    r_lazy_dict = cast(lazy(df), Dict("a" => Float64)) |> collect
+    @test isequal(collect(r_lazy_dict[:a]), collect(r[:a]))
+    r_lazy_all = cast(lazy(df_num), Float32) |> collect
+    @test eltype(collect(r_lazy_all[:a])) == Float32
+
+    # a dtype the plain FFI type code can't carry (needs a time unit/zone) is a clean Julia-side
+    # error, not a silent misconversion -- the scope cut documented on `Polars.cast`(df, dtype)
+    @test_throws ErrorException cast(df_num, DateTime)
+end
+
 @testset "vstack" begin
     df1 = DataFrame((; a = [1, 2], b = [10, 20]))
     df2 = DataFrame((; a = [3, 4], b = [30, 40]))

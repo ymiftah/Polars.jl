@@ -205,3 +205,56 @@ function vstack(df::DataFrame, other::DataFrame)
     polars_error(err)
     return DataFrame(out[])
 end
+
+"""
+    fill_null(df::LazyFrame, value)::LazyFrame
+    fill_null(df::DataFrame, value)::DataFrame
+
+Replaces every `null` value across all columns of `df` with `value` (an `Expr`, or a literal
+promoted via [`lit`](@ref)). Distinct from the `Expr`-level [`fill_null`](@ref) (fills nulls within
+one expression, for use inside [`select`](@ref)/[`with_columns`](@ref)) and from
+[`forward_fill`](@ref)/[`backward_fill`](@ref) (strategy-based, not a fixed replacement value).
+"""
+fill_null(df::DataFrame, value) = fill_null(lazy(df), value) |> collect
+function fill_null(df::LazyFrame, value)
+    value = _as_expr(value)
+    API.polars_lazy_frame_fill_null(df, value)
+    return df
+end
+
+"""
+    cast(df::LazyFrame, dtypes::AbstractDict; strict::Bool=false)::LazyFrame
+    cast(df::DataFrame, dtypes::AbstractDict; strict::Bool=false)::DataFrame
+
+Casts the columns named in `dtypes` (a mapping of column name to Julia type, same spellings
+[`Polars.cast`](@ref) accepts on a single `Expr`) to their new dtype, leaving every other column
+unchanged. Composed from [`with_columns`](@ref) and the per-`Expr` [`Polars.cast`](@ref), so it
+supports the same dtypes that one does (including `DateTime`/duration `Period` subtypes via their
+`time_unit`/`time_zone` special-casing there) -- there is no dedicated FFI function for this form.
+"""
+function cast(df::LazyFrame, dtypes::AbstractDict; strict::Bool = false)
+    exprs = Expr[cast(col(String(name)), dtype; strict) for (name, dtype) in dtypes]
+    return with_columns(df, exprs...)
+end
+cast(df::DataFrame, dtypes::AbstractDict; strict::Bool = false) = cast(lazy(df), dtypes; strict) |> collect
+
+"""
+    cast(df::LazyFrame, dtype::Type; strict::Bool=false)::LazyFrame
+    cast(df::DataFrame, dtype::Type; strict::Bool=false)::DataFrame
+
+Casts *every* column of `df` to `dtype`. Only plain (parameter-free) dtypes are reachable here --
+same restriction as the single-`Expr` [`Polars.cast`](@ref) -- since the underlying FFI type code
+can't carry a `DateTime`'s time unit/zone; use the `AbstractDict` form (per-column, going through
+`Polars.cast` itself) for that.
+"""
+function cast(df::LazyFrame, dtype::Type; strict::Bool = false)
+    value_type = _plain_value_type_code(dtype)
+    value_type === nothing && error("could not cast to type $dtype")
+    out = Ref{Ptr{polars_lazy_frame_t}}()
+    err = polars_lazy_frame_cast_all(df, value_type, strict, out)
+    polars_error(err)
+    return LazyFrame(out[])
+end
+cast(df::DataFrame, dtype::Type; strict::Bool = false) = cast(lazy(df), dtype; strict) |> collect
+
+export fill_null, cast

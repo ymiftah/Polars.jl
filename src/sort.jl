@@ -81,3 +81,74 @@ function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
 
     return df
 end
+
+"""
+    top_k(df::LazyFrame, k::Integer, exprs...; rev=false, stable=true)::LazyFrame
+    top_k(df::DataFrame, k::Integer, exprs...; rev=false, stable=true)::DataFrame
+
+Returns the `k` rows of `df` with the largest values of `exprs` (not necessarily sorted within
+those `k` -- combine with [`Base.sort`](@ref) if order matters). The frame-level counterpart to the
+`Expr`-level [`top_k`](@ref) (which returns the top `k` *values* of a single column, not whole
+rows). `rev`/`stable` mean the same as in [`Base.sort`](@ref); unlike `sort`, there is no
+`nulls_last` here -- upstream's own `top_k`/`bottom_k` always treat nulls as sorting last,
+regardless of what's requested, so this package doesn't expose a parameter that upstream itself
+ignores.
+"""
+top_k(df::LazyFrame, k::Integer, exprs...; rev = false, stable = true) =
+    _top_or_bottom_k!(clone(df), k, collect(exprs)::Vector, rev, stable, false)
+top_k(df::DataFrame, k::Integer, exprs...; rev = false, stable = true) =
+    _top_or_bottom_k!(lazy(df), k, collect(exprs)::Vector, rev, stable, false) |> collect
+
+"""
+    bottom_k(df::LazyFrame, k::Integer, exprs...; rev=false, stable=true)::LazyFrame
+    bottom_k(df::DataFrame, k::Integer, exprs...; rev=false, stable=true)::DataFrame
+
+The complement of [`top_k`](@ref): returns the `k` rows of `df` with the smallest values of
+`exprs`. See [`top_k`](@ref) for the parameters.
+"""
+bottom_k(df::LazyFrame, k::Integer, exprs...; rev = false, stable = true) =
+    _top_or_bottom_k!(clone(df), k, collect(exprs)::Vector, rev, stable, true)
+bottom_k(df::DataFrame, k::Integer, exprs...; rev = false, stable = true) =
+    _top_or_bottom_k!(lazy(df), k, collect(exprs)::Vector, rev, stable, true) |> collect
+
+function _top_or_bottom_k!(df::LazyFrame, k::Integer, exprs::Vector, rev, stable, bottom::Bool)
+    nexprs = length(exprs)
+    descending = rev isa Bool ? fill(rev, nexprs) : rev
+    length(descending) == nexprs || throw(
+        ArgumentError(
+            "rev must have one entry per key expression (got $nexprs expressions and " *
+                "$(length(descending)) rev)"
+        )
+    )
+
+    maintain_order = stable
+
+    exprs = Expr[_as_expr(e) for e in exprs]
+    GC.@preserve exprs begin
+        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
+        f = bottom ? API.polars_lazy_frame_bottom_k : API.polars_lazy_frame_top_k
+        f(df, k, exprs_ptrs, nexprs, descending, maintain_order)
+    end
+
+    return df
+end
+
+export top_k, bottom_k
+
+"""
+    slice(df::LazyFrame, offset::Integer, length::Integer)::LazyFrame
+    slice(df::DataFrame, offset::Integer, length::Integer)::DataFrame
+
+Returns `length` rows of `df` starting at `offset` (0-based; a negative `offset` counts from the
+end). Distinct from the `Expr`-level [`slice`](@ref) (slices one expression's own result, not the
+whole frame's rows).
+"""
+slice(df::LazyFrame, offset::Integer, length::Integer) = _slice!(clone(df), offset, length)
+slice(df::DataFrame, offset::Integer, length::Integer) = _slice!(lazy(df), offset, length) |> collect
+
+function _slice!(df::LazyFrame, offset::Integer, length::Integer)
+    API.polars_lazy_frame_slice(df, Int64(offset), length)
+    return df
+end
+
+export slice

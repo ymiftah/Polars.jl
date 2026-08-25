@@ -1135,6 +1135,36 @@ end
 
 export as_struct
 
+@wrap_multi_expr_function concat_list polars_expr_concat_list false "Horizontally concatenates the `List`-typed `exprs` into a single `List` per row (row `i`'s output is every input's row-`i` list, in order, flattened one level). Distinct from [`Lists.join`](@ref) (string-joins one row's own list into a scalar) and [`concat`](@ref Base.concat) (stacks whole frames, not per-row lists). Errors if `exprs` is empty."
+
+export concat_list
+
+"""
+    concat_str(exprs...; separator::AbstractString="", ignore_nulls::Bool=false)::Polars.Expr
+
+Row-wise (horizontal) string concatenation across `exprs` (columns or expressions -- non-string
+dtypes are cast to string first), joined by `separator`. If `ignore_nulls` is `false` (default),
+any `null` in a row makes that row's whole result `null`; if `true`, `null`s are skipped (treated
+as empty) instead. Distinct from [`Strings.join`](@ref) (an aggregation across *all* rows into one
+value) and [`Lists.join`](@ref) (joins each row's own list independently) -- this concatenates
+sibling columns within each row.
+"""
+function concat_str(exprs...; separator::AbstractString = "", ignore_nulls::Bool = false)
+    exprs = _expr_vector(exprs)
+    separator = String(separator)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_concat_str(
+            ptrs, length(ptrs), separator, ncodeunits(separator), ignore_nulls, out
+        )
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+export concat_str
+
 @wrap_multi_expr_function all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
 @wrap_multi_expr_function any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."
 @wrap_multi_expr_function min_horizontal polars_expr_min_horizontal false "Row-wise (horizontal) minimum across `exprs`. The output column is named `\"min\"` unless [`alias`](@ref)ed."
