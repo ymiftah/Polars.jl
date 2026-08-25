@@ -34,6 +34,33 @@
     @test sort(collect(select(df_dup, Polars.unique(col("x")))[:x])) == [1, 2, 3]
 end
 
+@testset "len (pl.len(): row count, distinct from count/n_unique)" begin
+    # zero-arg top-level constructor: the number of rows in the current context, output column
+    # named "len" (matching upstream's own naming)
+    df = DataFrame((; a = [1, missing, 3, missing], g = ["x", "x", "y", "y"]))
+    r = select(df, len())
+    @test names(r) == ["len"]
+    @test only(collect(r[:len])) == 4
+
+    # unlike `count`, `len` includes nulls: a column with 2 non-null values out of 4 rows still
+    # reports 4 via `len()`, but 2 via `count(col("a"))`
+    r2 = select(df, alias(len(), "n"), alias(Polars.count(col("a")), "c"))
+    @test only(collect(r2[:n])) == 4
+    @test only(collect(r2[:c])) == 2
+
+    # inside `agg`, counts per group (the common `group_by(...).agg(len())` idiom)
+    r3 = agg(group_by(lazy(df), col("g")), alias(len(), "n")) |> collect
+    d = Dict(zip(collect(r3[:g]), collect(r3[:n])))
+    @test d == Dict("x" => 2, "y" => 2)
+
+    # an empty frame has zero rows, not an error
+    empty_df = Polars.filter(df, col("a") .> 999)
+    @test only(collect(select(empty_df, len())[:len])) == 0
+
+    # LazyFrame form agrees
+    @test only(collect(select(lazy(df), len()) |> collect |> x -> x[:len])) == 4
+end
+
 @testset "Polars.item: aggregation form, raises unless exactly one value (see plans/parity/gap_closure_scope.md)" begin
     # not exported -- collides with the (1,1)-shape DataFrame/Series accessor of the same name
     df = DataFrame((; a = [42]))

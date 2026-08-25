@@ -544,6 +544,43 @@ function polars_lazy_frame_bottom_k(df, k, exprs, nexprs, descending, maintain_o
     return @ccall libpolars.polars_lazy_frame_bottom_k(df::Ptr{polars_lazy_frame_t}, k::Csize_t, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t, descending::Ptr{Bool}, maintain_order::Bool)::Cvoid
 end
 
+"""
+    polars_lazy_frame_sum(df)
+
+Whole-frame reductions -- `LazyFrame::sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile` (`polars-lazy-0.54.4/src/frame/mod.rs`) are genuine methods on the Rust `LazyFrame` itself, not something this crate composes from `with_columns` + a wildcard selector: unlike the naive `select(lf, wildcard.sum())` composition, they are null-tolerant per column rather than erroring the whole frame on the first unsupported dtype (e.g. a `String` column sums to `None`, per each method's own doc comment) -- verified live before choosing this shape over the wildcard one. Aggregated columns keep their original names. All eight are infallible plan-build operations (validated at `collect`, not here), so -- like [`polars_lazy_frame_sort`](@ref)/`slice` above -- they mutate through `mem::take` and return void rather than threading an error out.
+"""
+function polars_lazy_frame_sum(df)
+    return @ccall libpolars.polars_lazy_frame_sum(df::Ptr{polars_lazy_frame_t})::Cvoid
+end
+
+function polars_lazy_frame_mean(df)
+    return @ccall libpolars.polars_lazy_frame_mean(df::Ptr{polars_lazy_frame_t})::Cvoid
+end
+
+function polars_lazy_frame_min(df)
+    return @ccall libpolars.polars_lazy_frame_min(df::Ptr{polars_lazy_frame_t})::Cvoid
+end
+
+function polars_lazy_frame_max(df)
+    return @ccall libpolars.polars_lazy_frame_max(df::Ptr{polars_lazy_frame_t})::Cvoid
+end
+
+function polars_lazy_frame_median(df)
+    return @ccall libpolars.polars_lazy_frame_median(df::Ptr{polars_lazy_frame_t})::Cvoid
+end
+
+function polars_lazy_frame_std(df, ddof)
+    return @ccall libpolars.polars_lazy_frame_std(df::Ptr{polars_lazy_frame_t}, ddof::UInt8)::Cvoid
+end
+
+function polars_lazy_frame_var(df, ddof)
+    return @ccall libpolars.polars_lazy_frame_var(df::Ptr{polars_lazy_frame_t}, ddof::UInt8)::Cvoid
+end
+
+function polars_lazy_frame_quantile(df, quantile, method)
+    return @ccall libpolars.polars_lazy_frame_quantile(df::Ptr{polars_lazy_frame_t}, quantile::Ptr{polars_expr_t}, method::polars_quantile_method_t)::Cvoid
+end
+
 function polars_lazy_frame_collect(df, engine, out)
     return @ccall libpolars.polars_lazy_frame_collect(df::Ptr{polars_lazy_frame_t}, engine::polars_engine_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
@@ -688,6 +725,15 @@ A placeholder for "the values in this group", used to build the `agg` expression
 """
 function polars_expr_element()
     return @ccall libpolars.polars_expr_element()::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_len()
+
+`pl.len()`: the number of rows in the current context (a whole frame, or the current group inside `agg`) -- infallible, just `Expr::Len` (`polars-plan-0.54.4/src/dsl/functions/mod.rs`), ungated by any Cargo feature.
+"""
+function polars_expr_len()
+    return @ccall libpolars.polars_expr_len()::Ptr{polars_expr_t}
 end
 
 function polars_expr_coalesce(exprs, n, out)

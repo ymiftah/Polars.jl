@@ -109,6 +109,27 @@ still accurate — `concat_str`'s Cargo feature really is on, just the *top-leve
   options, so there is deliberately no `nulls_last` parameter on the Julia side (matching upstream's
   own public API, which doesn't expose one there either) — see the docstring on `top_k` in `sort.jl`.
 
+A further pass closed the frame-level reductions and the top-level row-count constructor:
+
+- **Top-level `len()`** ([Group 2](#group-2--missing-top-level-functions-pl) and
+  [Group 3](#group-3--missing-expr-methods)) — one new zero-arg `polars_expr_len` FFI symbol
+  wrapping `polars_plan::dsl::functions::len()`, ungated. Output column named `"len"`, matching
+  upstream; includes `null`s, distinct from [`Polars.count`](@ref).
+- **Frame-level `sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile`**
+  ([Group 6](#group-6--missing-frame-level-dataframelazyframe-methods)) — eight new
+  `polars_lazy_frame_*` FFI symbols wrapping the genuine `LazyFrame::sum`/etc methods
+  (`polars-lazy-0.54.4/src/frame/mod.rs`), ungated. **Deliberately not** composed from
+  `select(df, wildcard.sum())` the way `fill_null`/`cast` above were — verified live that the two
+  shapes disagree: upstream's own methods are null-tolerant per column (e.g. a `String` column
+  sums to `null`), matching py-polars' `DataFrame.sum()` etc (which delegate to
+  `self.lazy().sum()`), whereas the wildcard-`select` composition raises `PolarsError` on the first
+  unsupported dtype instead.
+- **Frame-level `prod`** (same Group 6 entry) — has no Rust-side `LazyFrame::product` to wrap at
+  all (verified absent from that same file); py-polars' own `DataFrame.product()` is pure-Python,
+  branching per column dtype (`numeric` or `Bool` → product, else → `null`) — that's what this
+  composes instead, via `with_columns` + the pre-existing per-`Expr` `Base.prod`, no new FFI
+  symbol.
+
 Also corrects a claim in [`gap_closure_scope.md`](gap_closure_scope.md)'s Group B3 (now itself
 annotated): `strict_cast` was never actually a gap by the time that file's "expose as `cast(expr,
 T; strict=false)`" suggestion was written up here — `cast(expr, dtype; strict=true)` already
@@ -195,7 +216,7 @@ distinct from the row-wise horizontal `concat_str`/`concat_list`.
 mapping — unrelated to `pl.format`, and a name collision to watch when adding the real one.)
 
 **Reductions and folds** — `fold`, `reduce`, `cum_fold`, `cum_reduce`, `cum_sum_horizontal`,
-`approx_n_unique`, `len`.
+`approx_n_unique`. ~~`len`~~ **Closed** (see [Status](#status)).
 
 **Selection and ordering** — ~~`exclude`~~ **Closed** (see [Status](#status)); `arg_where`,
 `arg_sort_by`. **`arg_where` is gated behind Cargo's `arg_where` feature** — absent from
@@ -214,8 +235,13 @@ was therefore itself incomplete; do not add it without batching the Cargo change
 ## Group 3 — Missing `Expr` methods
 
 **Aggregations and reductions**: `mode`, `entropy`, `unique_counts`, `approx_n_unique`, `arg_true`,
-`arg_unique`, `dot`, `len` (distinct from `count`, which exists and skips nulls), and the bitwise
-reductions (`bitwise_and`, `bitwise_or`, `bitwise_xor`, `bitwise_count_ones`,
+`arg_unique`, `dot`, and the per-`Expr` aggregation form of `len` (`expr.len()`, distinct from
+`count`, which exists and skips nulls -- also distinct from the now-closed top-level `pl.len()`,
+see [Status](#status), which this Group 3 row does not cover: `expr.len()` would need its own
+`gen_impl_expr!(polars_expr_len_agg, Expr::len)` under a name that doesn't collide with the
+top-level constructor's own `polars_expr_len` symbol; not attempted here since the top-level form
+covers the overwhelmingly more common `group_by(...).agg(len())`/`select(len())` idiom), and the
+bitwise reductions (`bitwise_and`, `bitwise_or`, `bitwise_xor`, `bitwise_count_ones`,
 `bitwise_leading_zeros`).
 
 **Selection within an expression** — the most-felt group, since these are the standard idioms
@@ -306,12 +332,17 @@ are **closed** (see [Status](#status)); `limit` is a plain alias for `head` upst
 missing here as its own frame-level name (the `Expr`-level `limit` already exists, see Group 3).
 
 **Whole-frame computation**: ~~frame-level `fill_null`~~, `fill_nan`, `interpolate`, ~~`cast` (dtype
-mapping)~~, `null_count`, `count`, `approx_n_unique`, `to_dummies`, `corr`, and the frame-level
-aggregations `sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`product`/`quantile` — all reachable today
-only by rewriting as `select(df, mean(col("*")))`. `fill_null`/`cast` are **closed** (see
-[Status](#status)) — `cast` covers both upstream's per-column `AbstractDict` form and its
-single-`Type` whole-frame form (only plain, parameter-free dtypes reach the latter, same
-restriction as the single-`Expr` `cast`).
+mapping)~~, `null_count`, `count`, `approx_n_unique`, `to_dummies`, `corr`, and ~~the frame-level
+aggregations `sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`product`/`quantile`~~. `fill_null`/`cast`
+are **closed** (see [Status](#status)) — `cast` covers both upstream's per-column `AbstractDict`
+form and its single-`Type` whole-frame form (only plain, parameter-free dtypes reach the latter,
+same restriction as the single-`Expr` `cast`). The frame-level aggregations are **closed** too (see
+[Status](#status)): `sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile` wrap genuine
+`LazyFrame` methods (null-tolerant per column, not the naive `select(df, wildcard.sum())` that
+raises instead); `product` has no such upstream Rust method and is composed per-column like
+py-polars' own pure-Python `DataFrame.product()`. `null_count`/`count`/`approx_n_unique`/
+`to_dummies`/`corr` remain open — still only reachable via `select(df, ...(col("*")))` (`corr`
+additionally needs two named columns, not a single wildcard).
 
 **Joins**: `join_where` (inequality/IE join), `merge_sorted`, `update`. **Reshaping**: `unstack`.
 

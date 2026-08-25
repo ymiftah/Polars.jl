@@ -228,6 +228,19 @@ function element()
     return Expr(API.polars_expr_element())
 end
 
+"""
+    len()::Polars.Expr
+
+The number of rows in the current context: a whole frame in [`select`](@ref)/[`with_columns`](@ref),
+or the current group inside [`agg`](@ref) (e.g. `agg(df, group, alias(len(), "n"))` for a group-size
+count). Includes `null`s, unlike [`Polars.count`](@ref) (which only counts non-null values of a
+specific expression) -- `len()` doesn't take an expression argument at all, since it counts rows
+rather than values.
+"""
+function len()
+    return Expr(API.polars_expr_len())
+end
+
 @wrap_rename_method alias polars_expr_alias "Renames the result of this expression to a new name."
 @wrap_rename_method prefix polars_expr_prefix "Adds a prefix to the name of the resulting expression."
 @wrap_rename_method suffix polars_expr_suffix "Adds a suffix to the name of the resulting expression."
@@ -1211,5 +1224,5 @@ end
 
 # `to_lowercase`/`to_uppercase` are exported by `@wrap_simple_ops` itself (they're generated in
 # this file's block alongside `keep_name`), so they are deliberately absent here.
-export col, alias, prefix, suffix, prefix_fields, suffix_fields, lit, cast, when, element,
+export col, alias, prefix, suffix, prefix_fields, suffix_fields, lit, cast, when, element, len,
     cast_datetime, cast_duration, cast_decimal, cast_categorical

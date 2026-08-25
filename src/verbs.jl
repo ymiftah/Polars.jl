@@ -258,3 +258,158 @@ end
 cast(df::DataFrame, dtype::Type; strict::Bool = false) = cast(lazy(df), dtype; strict) |> collect
 
 export fill_null, cast
+
+# Frame-level aggregations: each is a thin wrapper around a genuine `LazyFrame::sum`/`mean`/etc
+# method on the Rust side (`polars-lazy-0.54.4/src/frame/mod.rs`), *not* composed here from
+# `select` + a wildcard selector -- verified live that the two shapes disagree: upstream's own
+# methods are null-tolerant per column (a `String` column sums to `null` rather than raising, per
+# each Rust method's own doc comment), matching `DataFrame.sum()` etc in py-polars (which delegate
+# to `self.lazy().sum()`, `py-polars/src/polars/lazyframe/frame.py`), whereas
+# `select(df, sum(col("*")))` raises `PolarsError` on the first unsupported dtype instead. Each
+# returns a single-row frame with the original column names. `prod`/`product` has no Rust-side
+# `LazyFrame` counterpart at all (verified: absent from that same file) -- py-polars' own
+# `DataFrame.product()` is pure-Python, branching per column dtype itself
+# (`py-polars/src/polars/dataframe/frame.py`); see its own definition below for the Julia mirror of
+# that branching, composed from `with_columns` instead.
+
+"""
+    Base.sum(df::LazyFrame)::LazyFrame
+    Base.sum(df::DataFrame)::DataFrame
+
+Sums the non-null values of every column of `df`, returning a single-row frame with the same
+column names. A column whose dtype doesn't support summing (e.g. `String`) sums to `missing`
+rather than raising -- distinct from the per-`Expr` [`Base.sum`](@ref), which does raise on such a
+column (there's no whole-frame fallback to skip past).
+"""
+Base.sum(df::LazyFrame) = _frame_sum!(clone(df))
+Base.sum(df::DataFrame) = _frame_sum!(lazy(df)) |> collect
+function _frame_sum!(df::LazyFrame)
+    API.polars_lazy_frame_sum(df)
+    return df
+end
+
+"""
+    Base.min(df::LazyFrame)::LazyFrame
+    Base.min(df::DataFrame)::DataFrame
+
+The minimum non-null value of every column of `df`, returning a single-row frame with the same
+column names.
+"""
+Base.min(df::LazyFrame) = _frame_min!(clone(df))
+Base.min(df::DataFrame) = _frame_min!(lazy(df)) |> collect
+function _frame_min!(df::LazyFrame)
+    API.polars_lazy_frame_min(df)
+    return df
+end
+
+"""
+    Base.max(df::LazyFrame)::LazyFrame
+    Base.max(df::DataFrame)::DataFrame
+
+The maximum non-null value of every column of `df`, returning a single-row frame with the same
+column names.
+"""
+Base.max(df::LazyFrame) = _frame_max!(clone(df))
+Base.max(df::DataFrame) = _frame_max!(lazy(df)) |> collect
+function _frame_max!(df::LazyFrame)
+    API.polars_lazy_frame_max(df)
+    return df
+end
+
+"""
+    Statistics.mean(df::LazyFrame)::LazyFrame
+    Statistics.mean(df::DataFrame)::DataFrame
+
+Arithmetic mean of every column of `df`, returning a single-row frame with the same column names.
+A column whose dtype doesn't support a mean (e.g. `String`) means to `missing` rather than raising.
+"""
+Statistics.mean(df::LazyFrame) = _frame_mean!(clone(df))
+Statistics.mean(df::DataFrame) = _frame_mean!(lazy(df)) |> collect
+function _frame_mean!(df::LazyFrame)
+    API.polars_lazy_frame_mean(df)
+    return df
+end
+
+"""
+    Statistics.median(df::LazyFrame)::LazyFrame
+    Statistics.median(df::DataFrame)::DataFrame
+
+Median of every column of `df`, returning a single-row frame with the same column names. A column
+whose dtype doesn't support a median (e.g. `String`) medians to `missing` rather than raising.
+"""
+Statistics.median(df::LazyFrame) = _frame_median!(clone(df))
+Statistics.median(df::DataFrame) = _frame_median!(lazy(df)) |> collect
+function _frame_median!(df::LazyFrame)
+    API.polars_lazy_frame_median(df)
+    return df
+end
+
+"""
+    Statistics.std(df::LazyFrame; ddof::Integer=1)::LazyFrame
+    Statistics.std(df::DataFrame; ddof::Integer=1)::DataFrame
+
+Standard deviation of every column of `df`, with `ddof` degrees of freedom subtracted (defaults to
+`ddof=1`), returning a single-row frame with the same column names.
+"""
+Statistics.std(df::LazyFrame; ddof::Integer = 1) = _frame_std!(clone(df), ddof)
+Statistics.std(df::DataFrame; ddof::Integer = 1) = _frame_std!(lazy(df), ddof) |> collect
+function _frame_std!(df::LazyFrame, ddof::Integer)
+    API.polars_lazy_frame_std(df, UInt8(ddof))
+    return df
+end
+
+"""
+    Statistics.var(df::LazyFrame; ddof::Integer=1)::LazyFrame
+    Statistics.var(df::DataFrame; ddof::Integer=1)::DataFrame
+
+Variance of every column of `df`, with `ddof` degrees of freedom subtracted (defaults to
+`ddof=1`), returning a single-row frame with the same column names.
+"""
+Statistics.var(df::LazyFrame; ddof::Integer = 1) = _frame_var!(clone(df), ddof)
+Statistics.var(df::DataFrame; ddof::Integer = 1) = _frame_var!(lazy(df), ddof) |> collect
+function _frame_var!(df::LazyFrame, ddof::Integer)
+    API.polars_lazy_frame_var(df, UInt8(ddof))
+    return df
+end
+
+"""
+    Statistics.quantile(df::LazyFrame, q; method::Symbol=:nearest)::LazyFrame
+    Statistics.quantile(df::DataFrame, q; method::Symbol=:nearest)::DataFrame
+
+The `q`-th quantile (`q` an `Expr` or a numeric literal in `[0, 1]`) of every column of `df`, using
+the given interpolation `method` (see the per-`Expr` [`Statistics.quantile`](@ref) for the
+choices), returning a single-row frame with the same column names.
+"""
+Statistics.quantile(df::LazyFrame, q; method::Symbol = :nearest) = _frame_quantile!(clone(df), q, method)
+Statistics.quantile(df::DataFrame, q; method::Symbol = :nearest) = _frame_quantile!(lazy(df), q, method) |> collect
+function _frame_quantile!(df::LazyFrame, q, method::Symbol)
+    q = convert(Expr, q)
+    method_enum = _quantile_method_enum(method)
+    API.polars_lazy_frame_quantile(df, q, method_enum)
+    return df
+end
+
+# `product`/`prod` has no Rust-side `LazyFrame` method to wrap (see the block comment above), so
+# this composes `with_columns` + the per-`Expr` `Base.prod` per column, matching py-polars'
+# `DataFrame.product()` (`py-polars/src/polars/dataframe/frame.py`): numeric and `Bool` columns are
+# aggregated, everything else becomes `missing` rather than raising -- `T <: Real` alone covers
+# both cases here since `Bool <: Integer <: Real` already in Julia's own type hierarchy.
+"""
+    Base.prod(df::LazyFrame)::LazyFrame
+    Base.prod(df::DataFrame)::DataFrame
+
+The product of the non-null values of every column of `df`, returning a single-row frame with the
+same column names. A column whose dtype doesn't support a product (i.e. not numeric or `Bool`)
+becomes `missing` rather than raising, matching upstream's `DataFrame.product()`.
+"""
+function Base.prod(df::LazyFrame)
+    sch = collect_schema(df)
+    exprs = Expr[
+        alias(
+            nomissing(T) <: Real ? Base.prod(col(String(name))) : lit(missing), String(name)
+        )
+        for (name, T) in zip(sch.names, sch.types)
+    ]
+    return select(df, exprs...)
+end
+Base.prod(df::DataFrame) = Base.prod(lazy(df)) |> collect

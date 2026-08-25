@@ -17,6 +17,7 @@ use crate::ffi_util::*;
 use crate::io::{build_ipc_writer_options, build_parquet_write_options};
 use crate::series;
 use crate::types::*;
+use crate::expr::polars_quantile_method_t;
 use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t, polars_value_type_t};
 use crate::{guard_error, make_error, polars_error_t};
 
@@ -735,6 +736,68 @@ pub unsafe extern "C" fn polars_lazy_frame_bottom_k(
     maintain_order: bool,
 ) {
     top_or_bottom_k(df, k, exprs, nexprs, descending, maintain_order, true);
+}
+
+/// Whole-frame reductions -- `LazyFrame::sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile`
+/// (`polars-lazy-0.54.4/src/frame/mod.rs`) are genuine methods on the Rust `LazyFrame` itself, not
+/// something this crate composes from `with_columns` + a wildcard selector: unlike the naive
+/// `select(lf, wildcard.sum())` composition, they are null-tolerant per column rather than
+/// erroring the whole frame on the first unsupported dtype (e.g. a `String` column sums to `None`,
+/// per each method's own doc comment) -- verified live before choosing this shape over the
+/// wildcard one. Aggregated columns keep their original names. All eight are infallible plan-build
+/// operations (validated at `collect`, not here), so -- like `polars_lazy_frame_sort`/`slice`
+/// above -- they mutate through `mem::take` and return void rather than threading an error out.
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_sum(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).sum();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_mean(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).mean();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_min(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).min();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_max(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).max();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_median(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).median();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_std(df: *mut polars_lazy_frame_t, ddof: u8) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).std(ddof);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_var(df: *mut polars_lazy_frame_t, ddof: u8) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).var(ddof);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_quantile(
+    df: *mut polars_lazy_frame_t,
+    quantile: *const polars_expr_t,
+    method: polars_quantile_method_t,
+) {
+    let quantile = (*quantile).inner.clone();
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).quantile(quantile, method.to_quantile_method());
 }
 
 #[no_mangle]

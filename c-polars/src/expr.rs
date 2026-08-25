@@ -118,6 +118,14 @@ pub unsafe extern "C" fn polars_expr_element() -> *const polars_expr_t {
     make_expr(element())
 }
 
+/// `pl.len()`: the number of rows in the current context (a whole frame, or the current group
+/// inside `agg`) -- infallible, just `Expr::Len` (`polars-plan-0.54.4/src/dsl/functions/mod.rs`),
+/// ungated by any Cargo feature.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_len() -> *const polars_expr_t {
+    make_expr(polars_plan::dsl::functions::len())
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_coalesce(
     exprs: *const *const polars_expr_t,
@@ -798,7 +806,7 @@ pub enum polars_quantile_method_t {
 }
 
 impl polars_quantile_method_t {
-    fn to_quantile_method(&self) -> polars_compute::rolling::QuantileMethod {
+    pub(crate) fn to_quantile_method(&self) -> polars_compute::rolling::QuantileMethod {
         use polars_compute::rolling::QuantileMethod::*;
         match self {
             polars_quantile_method_t::PolarsQuantileMethodNearest => Nearest,
