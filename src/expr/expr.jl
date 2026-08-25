@@ -234,8 +234,7 @@ end
 The number of rows in the current context: a whole frame in [`select`](@ref)/[`with_columns`](@ref),
 or the current group inside [`agg`](@ref) (e.g. `agg(df, group, alias(len(), "n"))` for a group-size
 count). Includes `null`s, unlike [`Polars.count`](@ref) (which only counts non-null values of a
-specific expression) -- `len()` doesn't take an expression argument at all, since it counts rows
-rather than values.
+specific expression).
 """
 function len()
     return Expr(API.polars_expr_len())

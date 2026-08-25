@@ -259,27 +259,12 @@ cast(df::DataFrame, dtype::Type; strict::Bool = false) = cast(lazy(df), dtype; s
 
 export fill_null, cast
 
-# Frame-level aggregations: each is a thin wrapper around a genuine `LazyFrame::sum`/`mean`/etc
-# method on the Rust side (`polars-lazy-0.54.4/src/frame/mod.rs`), *not* composed here from
-# `select` + a wildcard selector -- verified live that the two shapes disagree: upstream's own
-# methods are null-tolerant per column (a `String` column sums to `null` rather than raising, per
-# each Rust method's own doc comment), matching `DataFrame.sum()` etc in py-polars (which delegate
-# to `self.lazy().sum()`, `py-polars/src/polars/lazyframe/frame.py`), whereas
-# `select(df, sum(col("*")))` raises `PolarsError` on the first unsupported dtype instead. Each
-# returns a single-row frame with the original column names. `prod`/`product` has no Rust-side
-# `LazyFrame` counterpart at all (verified: absent from that same file) -- py-polars' own
-# `DataFrame.product()` is pure-Python, branching per column dtype itself
-# (`py-polars/src/polars/dataframe/frame.py`); see its own definition below for the Julia mirror of
-# that branching, composed from `with_columns` instead.
-
 """
     Base.sum(df::LazyFrame)::LazyFrame
     Base.sum(df::DataFrame)::DataFrame
 
 Sums the non-null values of every column of `df`, returning a single-row frame with the same
-column names. A column whose dtype doesn't support summing (e.g. `String`) sums to `missing`
-rather than raising -- distinct from the per-`Expr` [`Base.sum`](@ref), which does raise on such a
-column (there's no whole-frame fallback to skip past).
+column names.
 """
 Base.sum(df::LazyFrame) = _frame_sum!(clone(df))
 Base.sum(df::DataFrame) = _frame_sum!(lazy(df)) |> collect
@@ -321,7 +306,6 @@ end
     Statistics.mean(df::DataFrame)::DataFrame
 
 Arithmetic mean of every column of `df`, returning a single-row frame with the same column names.
-A column whose dtype doesn't support a mean (e.g. `String`) means to `missing` rather than raising.
 """
 Statistics.mean(df::LazyFrame) = _frame_mean!(clone(df))
 Statistics.mean(df::DataFrame) = _frame_mean!(lazy(df)) |> collect
@@ -334,8 +318,7 @@ end
     Statistics.median(df::LazyFrame)::LazyFrame
     Statistics.median(df::DataFrame)::DataFrame
 
-Median of every column of `df`, returning a single-row frame with the same column names. A column
-whose dtype doesn't support a median (e.g. `String`) medians to `missing` rather than raising.
+Median of every column of `df`, returning a single-row frame with the same column names.
 """
 Statistics.median(df::LazyFrame) = _frame_median!(clone(df))
 Statistics.median(df::DataFrame) = _frame_median!(lazy(df)) |> collect
@@ -389,18 +372,12 @@ function _frame_quantile!(df::LazyFrame, q, method::Symbol)
     return df
 end
 
-# `product`/`prod` has no Rust-side `LazyFrame` method to wrap (see the block comment above), so
-# this composes `with_columns` + the per-`Expr` `Base.prod` per column, matching py-polars'
-# `DataFrame.product()` (`py-polars/src/polars/dataframe/frame.py`): numeric and `Bool` columns are
-# aggregated, everything else becomes `missing` rather than raising -- `T <: Real` alone covers
-# both cases here since `Bool <: Integer <: Real` already in Julia's own type hierarchy.
 """
     Base.prod(df::LazyFrame)::LazyFrame
     Base.prod(df::DataFrame)::DataFrame
 
 The product of the non-null values of every column of `df`, returning a single-row frame with the
-same column names. A column whose dtype doesn't support a product (i.e. not numeric or `Bool`)
-becomes `missing` rather than raising, matching upstream's `DataFrame.product()`.
+same column names.
 """
 function Base.prod(df::LazyFrame)
     sch = collect_schema(df)
