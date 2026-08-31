@@ -13,12 +13,14 @@ use polars_core::utils::arrow::{
 use polars_plan::utils::expr_output_name;
 use polars_utils::either::Either;
 
+use crate::expr::polars_quantile_method_t;
 use crate::ffi_util::*;
 use crate::io::{build_ipc_writer_options, build_parquet_write_options};
 use crate::series;
 use crate::types::*;
-use crate::expr::polars_quantile_method_t;
-use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t, polars_value_type_t};
+use crate::value::{
+    polars_closed_window_t, polars_label_t, polars_start_by_t, polars_value_type_t,
+};
 use crate::{guard_error, make_error, polars_error_t};
 
 #[no_mangle]
@@ -672,7 +674,11 @@ pub unsafe extern "C" fn polars_lazy_frame_cast_all(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_lazy_frame_slice(df: *mut polars_lazy_frame_t, offset: i64, len: usize) {
+pub unsafe extern "C" fn polars_lazy_frame_slice(
+    df: *mut polars_lazy_frame_t,
+    offset: i64,
+    len: usize,
+) {
     let df = &mut (*df).inner;
     // See the `mem::take` comment on `polars_lazy_frame_sort` above.
     *df = std::mem::take(df).slice(offset, len.min(IdxSize::MAX as usize) as IdxSize);

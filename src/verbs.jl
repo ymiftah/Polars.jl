@@ -381,12 +381,11 @@ same column names.
 """
 function Base.prod(df::LazyFrame)
     sch = collect_schema(df)
-    exprs = Expr[
-        alias(
-            nomissing(T) <: Real ? Base.prod(col(String(name))) : lit(missing), String(name)
-        )
-        for (name, T) in zip(sch.names, sch.types)
-    ]
+    exprs = Expr[]
+    for (name, T) in zip(sch.names, sch.types)
+        e = nomissing(T) <: Real ? Base.prod(col(String(name))) : lit(missing)
+        push!(exprs, alias(e, String(name)))
+    end
     return select(df, exprs...)
 end
 Base.prod(df::DataFrame) = Base.prod(lazy(df)) |> collect

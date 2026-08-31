@@ -234,6 +234,8 @@ drop_nans
 Base.replace
 replace_strict
 fill_null
+forward_fill
+backward_fill
 fill_nan
 Base.coalesce
 ```
@@ -342,6 +344,9 @@ upstream polars semantics).
 dffs = DataFrame((; x = [1, missing, missing, 4]))
 select(dffs, fill_null(col("x"); strategy = :forward) |> alias("ffill"))
 ```
+
+[`forward_fill`](@ref)/[`backward_fill`](@ref) are shorthands for the `:forward`/`:backward`
+strategies.
 
 `rolling_mean`/`rolling_sum`/`rolling_min`/`rolling_max`/`rolling_std`/`rolling_var` compute a
 moving-window statistic: the window at a given row covers that row and the `window_size - 1` rows
