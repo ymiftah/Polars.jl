@@ -805,6 +805,24 @@ function polars_expr_concat_str(exprs, n, separator, separator_len, ignore_nulls
     return @ccall libpolars.polars_expr_concat_str(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, separator::Ptr{UInt8}, separator_len::Csize_t, ignore_nulls::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_format(fmt, fmt_len, exprs, n, out)
+
+`pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order. Fallible: a mismatched placeholder/argument count raises rather than panicking (see `polars-plan-0.54.4/src/dsl/functions/concat.rs::format\\_str`).
+"""
+function polars_expr_format(fmt, fmt_len, exprs, n, out)
+    return @ccall libpolars.polars_expr_format(fmt::Ptr{UInt8}, fmt_len::Csize_t, exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_concat_arr(exprs, n, out)
+
+`pl.concat\\_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column. Gated on `dtype-array` inside `concat_arr` itself (`feature\\_gated!`), already enabled for `Expr::reshape` (Task 2 of this same plan).
+"""
+function polars_expr_concat_arr(exprs, n, out)
+    return @ccall libpolars.polars_expr_concat_arr(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
 function polars_expr_interpolate(expr, method)
     return @ccall libpolars.polars_expr_interpolate(expr::Ptr{polars_expr_t}, method::polars_interpolation_method_t)::Ptr{polars_expr_t}
 end

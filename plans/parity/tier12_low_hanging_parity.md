@@ -670,7 +670,7 @@ the last non-Cargo-gated Group 4 `Dt` item. `format_str` and `concat_arr` are un
 - Produces: `format(fmt::AbstractString, args...)::Expr`, `concat_arr(exprs...)::Expr`,
   `Dt.to_string(expr, format)::Expr`.
 
-- [ ] **Step 1: Add the two free-function shims to `c-polars/src/expr.rs`**
+- [x] **Step 1: Add the two free-function shims to `c-polars/src/expr.rs`**
 
 Both `format_str` and `concat_arr` return `PolarsResult<Expr>`, so both need the fallible shape.
 Add `format_str` and `concat_arr` to the `polars_plan::dsl` import that already brings in
@@ -717,7 +717,7 @@ pub unsafe extern "C" fn polars_expr_concat_arr(
 }
 ```
 
-- [ ] **Step 2: Add `Dt.to_string` to `c-polars/src/expr.rs`**
+- [x] **Step 2: Add `Dt.to_string` to `c-polars/src/expr.rs`**
 
 It takes a `&str`, so it is not a `gen_impl_expr_dt!` one-liner. Put it next to the other
 hand-written `polars_expr_dt_*` functions.
@@ -738,9 +738,20 @@ pub unsafe extern "C" fn polars_expr_dt_to_string(
 }
 ```
 
-- [ ] **Step 3: Regenerate and build** (same four commands as Task 1 Step 3)
+**Correction — this Rust shim was never added.** `polars-plan-0.54.4/src/dsl/dt.rs:37`'s
+`DateLikeNameSpace::strftime` is defined as `self.to_string(format)` -- they are the *same*
+upstream method, not two capabilities. `c-polars/src/expr.rs` already had
+`polars_expr_dt_strftime` wrapping exactly this call (added before this plan existed). Adding a
+second, byte-identical shim would violate `CLAUDE.md`'s "one new symbol per capability" guiding
+principle for no benefit, so `Dt.to_string` is instead a plain Julia-level alias of `Dt.strftime`
+in `src/expr/datetime.jl`, reusing the existing `polars_expr_dt_strftime` binding (including its
+curried `Base.Fix2` form). No Rust or generated-bindings change was needed for this half of the
+task.
 
-- [ ] **Step 4: Add the Julia entry points**
+- [x] **Step 3: Regenerate and build** (same four commands as Task 1 Step 3; only needed for
+  `format`/`concat_arr` from Step 1 -- see the Step 2 correction above)
+
+- [x] **Step 4: Add the Julia entry points**
 
 In `src/expr/expr.jl`, next to `concat_str` (~line 1155). **`format` collides with the internal
 `format(T)` in `src/arrow/array.jl:90`**, which maps a Julia type to an Arrow format string. They
@@ -750,6 +761,15 @@ with a `String` first argument, so dispatch is unambiguous — but **run `test/a
 tests specifically** to confirm no new ambiguity, and if Aqua flags one, rename the internal
 function to `_arrow_format` (it is unexported; `grep -rn "format(" src/arrow/ src/dataframe.jl` for
 its call sites) rather than compromising the public name.
+
+**Confirmed live: no new ambiguity.** `Aqua.detect_ambiguities(Polars; recursive=true)` reports
+**46** ambiguities on `HEAD` (before this task's changes) and **46** with `format(fmt::AbstractString,
+args...)` added -- an exact match, checked by stashing the working tree and re-running the same
+detector both ways in the same session. `methods(Polars.format)` shows both methods coexisting
+with no `MethodError`/ambiguity warning; `format(fmt::AbstractString, args...)` and
+`format(::Type{...})` never overlap in practice (a `DataType` value is never an `AbstractString`),
+and calling `write_parquet`/`scan_parquet` (which exercise `arrow/array.jl`'s `format(T)`
+internally) still round-trips correctly. The public `format` name needed no rename.
 
 Both bodies are `concat_str`'s marshalling (`src/expr/expr.jl:1164-1176`) with the separator
 arguments removed — `_expr_vector`, then `GC.@preserve` around the pointer vector, then
@@ -805,7 +825,7 @@ In `src/expr/datetime.jl`, inside the `Dt` submodule, use `@wrap_expr_method`:
 @wrap_expr_method to_string(expr::Expr, format::AbstractString) polars_expr_dt_to_string "Formats each `Date`/`Datetime`/`Time` value as a string using the chrono `format` string (e.g. `\"%Y-%m-%d\"`)."
 ```
 
-- [ ] **Step 5: Exercise live**
+- [x] **Step 5: Exercise live**
 
 ```bash
 julia --project=. -e '
@@ -831,7 +851,34 @@ a usable fallback assertion here — use `explain` to prove the plan node was bu
 Also verify the error path: `format("{}", ...)` with a mismatched placeholder count must raise
 `PolarsError`, not abort the process.
 
-- [ ] **Step 6: Write tests**
+**Actual (live-verified) output, and one correction to this plan's expectation:**
+`format("{} is {}", col("name"), col("age"))` gives `["a is 1", "b is 2"]` exactly as predicted.
+`Dt.to_string(col("d"), "%Y/%m/%d")` gives `["2024/01/15", "2024/06/30"]`, also as predicted, and
+agrees with `Dt.strftime` called with the same format string (confirming the Step 2 correction
+above -- they really are the same operation). `Dt.to_string` was additionally exercised on a
+`Time` (`"10:30:15"`) and a `DateTime` (`"2024-01-15 10:30:00"`) column, not only `Date`. A
+non-ASCII `fmt`/`format` string on both functions round-trips correctly (`format("héllo {}",
+col("age"))` → `["héllo 1", "héllo 2"]`; `Dt.to_string(col("d"), "jour: %d héllo")` →
+`["jour: 15 héllo", "jour: 30 héllo"]`) -- no `incomplete utf-8 byte sequence`. The mismatched
+placeholder count (`format("{} {}", col("age"))`) raises `PolarsError: lengths don't match: too
+few arguments given for format string`, as expected.
+
+**Correction — `missing` propagation is not the literal string `"null"`.** The plan's Step 6
+prose guessed "upstream propagates it into the formatted string as the literal `null`"; live
+behavior is the opposite: `format("{}-{}", col("a"), col("b"))` on `a = [1, missing]` gives
+`["1-x", missing]` -- a `missing` argument poisons the *entire* output for that row (becomes
+`missing`, not a string containing the word `null`), the same "any null poisons the row" rule
+`concat_str` already follows. The docstring and tests were written against this corrected
+behavior.
+
+`concat_arr(col("age"), col("age"))` builds cleanly and `explain` shows
+`col("age").arr.concat([col("age")]).alias("arr")` in the plan; `collect` on it also succeeds.
+`collect_schema` on the same `LazyFrame`, and indexing the collected `DataFrame`'s `Array` column,
+both raise a plain `ErrorException` ("Array dtype (fixed-size list, arrow format \"+w:2\") is not
+supported") from `src/arrow/schema.jl` -- exactly Task 2's corrected account, now confirmed for
+`concat_arr` specifically as well as `reshape`.
+
+- [x] **Step 6: Write tests**
 
 `format` and `concat_arr` → `test/expr/horizontal.jl` (where `concat_str`/`concat_list` are
 already tested; mirror those testsets). `Dt.to_string` → `test/datatypes/datetimes.jl`.
@@ -843,7 +890,7 @@ CLAUDE.md flags — `format("héllo {}", col("age"))` must not produce
 `incomplete utf-8 byte sequence`); and for `Dt.to_string`, a non-ASCII format string for the same
 reason plus a `Time` and a `Datetime` input, not only `Date`.
 
-- [ ] **Step 7: Add docs entries and commit**
+- [x] **Step 7: Add docs entries and commit**
 
 Add `format`/`concat_arr` to `docs/src/reference/functions.md` and `Dt.to_string` to
 `docs/src/reference/expr-datetime.md`.

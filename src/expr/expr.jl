@@ -1245,6 +1245,32 @@ end
 
 export concat_str
 
+"""
+    format(fmt::AbstractString, args...)::Polars.Expr
+
+Formats `args` into `fmt`, where each `{}` placeholder consumes one argument in order (expressions
+or plain scalars). The number of `{}` placeholders must equal the number of `args`, or a
+`PolarsError` is raised. The row-wise counterpart of `Base.string` over several columns; see also
+`concat_str`, which joins with a fixed separator instead of a template.
+"""
+function format(fmt::AbstractString, args...)
+    exprs = _expr_vector(args)
+    fmt = String(fmt)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_format(fmt, ncodeunits(fmt), ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+export format
+
+@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenates `exprs` into a single fixed-size `Array` column, one element per input expression -- the `Array`-dtype counterpart of `concat_list`. All inputs must share a dtype. **Building the plan and `collect`ing it both succeed, but nothing that needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser, which does not yet recognize the fixed-size-list format -- this is a package limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the result away from `Array` before inspecting it."
+
+export concat_arr
+
 @wrap_multi_expr_function all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
 @wrap_multi_expr_function any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."
 @wrap_multi_expr_function min_horizontal polars_expr_min_horizontal false "Row-wise (horizontal) minimum across `exprs`. The output column is named `\"min\"` unless [`alias`](@ref)ed."

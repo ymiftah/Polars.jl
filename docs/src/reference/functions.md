@@ -82,3 +82,20 @@ select(
     sum_horizontal(col("a"), col("b"), col("c")) |> alias("row_sum"),
 )
 ```
+
+## String & array combination
+
+```@docs
+format
+concat_arr
+```
+
+`format(fmt, args...)` fills a `{}`-templated string with `args`, one per placeholder, row-wise —
+the row-wise counterpart of `Base.string` over several columns. `concat_arr(exprs...)` combines
+`exprs` row-wise into a fixed-size `Array` column; see its docstring for the current limitation on
+materializing/introspecting an `Array`-dtype result.
+
+```@example functions
+df11 = DataFrame((; name = ["a", "b"], age = [1, 2]))
+select(df11, format("{} is {}", col("name"), col("age")) |> alias("greeting"))
+```

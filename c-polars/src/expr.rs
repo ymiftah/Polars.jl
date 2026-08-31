@@ -10,8 +10,8 @@ use polars_ops::series::round::RoundMode;
 use polars_ops::series::InterpolationMethod;
 use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_plan::dsl::functions::{
-    all_horizontal, any_horizontal, as_struct, coalesce, concat_list, concat_str, cov,
-    max_horizontal, mean_horizontal, min_horizontal, pearson_corr, spearman_rank_corr,
+    all_horizontal, any_horizontal, as_struct, coalesce, concat_arr, concat_list, concat_str, cov,
+    format_str, max_horizontal, mean_horizontal, min_horizontal, pearson_corr, spearman_rank_corr,
     sum_horizontal,
 };
 use polars_plan::dsl::DataTypeExpr;
@@ -232,6 +232,51 @@ pub unsafe extern "C" fn polars_expr_concat_str(
         let separator = tri!(read_str(separator, separator_len));
         *out = make_expr(concat_str(&exprs, separator, ignore_nulls));
         std::ptr::null()
+    })
+}
+
+/// `pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order.
+/// Fallible: a mismatched placeholder/argument count raises rather than panicking (see
+/// `polars-plan-0.54.4/src/dsl/functions/concat.rs::format_str`).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_format(
+    fmt: *const u8,
+    fmt_len: usize,
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let fmt = tri!(read_str(fmt, fmt_len));
+        let exprs = read_exprs(exprs, n);
+        match format_str(fmt, &exprs) {
+            Ok(expr) => {
+                *out = make_expr(expr);
+                std::ptr::null()
+            }
+            Err(err) => make_error(err),
+        }
+    })
+}
+
+/// `pl.concat_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column.
+/// Gated on `dtype-array` inside `concat_arr` itself (`feature_gated!`), already enabled for
+/// `Expr::reshape` (Task 2 of this same plan).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_concat_arr(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let exprs = read_exprs(exprs, n);
+        match concat_arr(exprs) {
+            Ok(expr) => {
+                *out = make_expr(expr);
+                std::ptr::null()
+            }
+            Err(err) => make_error(err),
+        }
     })
 }
 

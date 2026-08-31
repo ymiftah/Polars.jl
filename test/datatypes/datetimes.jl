@@ -226,6 +226,43 @@ end
     end
 end
 
+@testset "Dt.to_string: upstream's current name for Dt.strftime, same underlying binding" begin
+    dt_df = DataFrame((; dt = [DateTime(2024, 1, 15, 9, 30, 45)]))
+    d_df = DataFrame((; d = [Date(2024, 1, 15), Date(2024, 6, 30)]))
+    t_df = DataFrame((; t = [Time(10, 30, 15)]))
+
+    # Datetime
+    r_dt = select(dt_df, alias(Dt.to_string(col("dt"), "%Y-%m-%d %H:%M:%S"), "s"))
+    @test r_dt[:s][1] == "2024-01-15 09:30:45"
+
+    # Date
+    r_d = select(d_df, alias(Dt.to_string(col("d"), "%Y/%m/%d"), "s"))
+    @test r_d[:s] == ["2024/01/15", "2024/06/30"]
+
+    # Time
+    r_t = select(t_df, alias(Dt.to_string(col("t"), "%H:%M:%S"), "s"))
+    @test r_t[:s][1] == "10:30:15"
+
+    # a non-ASCII format string exercises the `ncodeunits`-not-`length` string-marshalling
+    # convention: the literal characters in the format string pass through untouched, on both
+    # sides of a chrono specifier
+    r_unicode = select(d_df, alias(Dt.to_string(col("d"), "jour: %d héllo"), "s"))
+    @test r_unicode[:s] == ["jour: 15 héllo", "jour: 30 héllo"]
+
+    # agrees with Dt.strftime, since upstream defines strftime in terms of to_string
+    r_strftime = select(dt_df, alias(Dt.strftime(col("dt"), "%Y-%m-%d %H:%M:%S"), "s"))
+    @test r_dt[:s] == r_strftime[:s]
+
+    # curried pipe form
+    r_curry = select(d_df, alias(col("d") |> Dt.to_string("%Y/%m/%d"), "s"))
+    @test r_curry[:s] == r_d[:s]
+
+    # nulls propagate
+    ks = kitchen_sink_df()
+    r_null = select(ks, alias(Dt.to_string(col("date"), "%Y-%m-%d"), "s"))
+    @test isequal(r_null[:s], ["2024-01-01", "2024-01-02", "2024-01-03", missing])
+end
+
 @testset "Dt.iso_year / is_leap_year / century / millennium (py-polars test_dt_extract_datetime_component / test_iso_year / test_is_leap_year)" begin
     # upstream's `series_of_int_dates` fixture (day-since-epoch [8401, 10000, 20000, 30000]),
     # given here as the equivalent literal dates -- 1993-01-01 lands in ISO year **1992** (Jan 1

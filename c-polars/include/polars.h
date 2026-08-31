@@ -855,6 +855,26 @@ const struct polars_error_t *polars_expr_concat_str(const struct polars_expr_t *
                                                     bool ignore_nulls,
                                                     const struct polars_expr_t **out);
 
+/**
+ * `pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order.
+ * Fallible: a mismatched placeholder/argument count raises rather than panicking (see
+ * `polars-plan-0.54.4/src/dsl/functions/concat.rs::format_str`).
+ */
+const struct polars_error_t *polars_expr_format(const uint8_t *fmt,
+                                                uintptr_t fmt_len,
+                                                const struct polars_expr_t *const *exprs,
+                                                uintptr_t n,
+                                                const struct polars_expr_t **out);
+
+/**
+ * `pl.concat_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column.
+ * Gated on `dtype-array` inside `concat_arr` itself (`feature_gated!`), already enabled for
+ * `Expr::reshape` (Task 2 of this same plan).
+ */
+const struct polars_error_t *polars_expr_concat_arr(const struct polars_expr_t *const *exprs,
+                                                    uintptr_t n,
+                                                    const struct polars_expr_t **out);
+
 const struct polars_expr_t *polars_expr_interpolate(const struct polars_expr_t *expr,
                                                     enum polars_interpolation_method_t method);
 

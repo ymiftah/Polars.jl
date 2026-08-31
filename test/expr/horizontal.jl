@@ -89,3 +89,44 @@ end
 
     @test_throws PolarsError as_struct()
 end
+
+@testset "format" begin
+    df = DataFrame((; name = ["a", "b"], age = [1, 2]))
+
+    r = select(df, alias(format("{} is {}", col("name"), col("age")), "f"))
+    @test r[:f] == ["a is 1", "b is 2"]
+
+    # a non-ASCII template exercises the `ncodeunits`-not-`length` string-marshalling convention
+    r_unicode = select(df, alias(format("héllo {}", col("age")), "f"))
+    @test r_unicode[:f] == ["héllo 1", "héllo 2"]
+
+    # a missing argument poisons the whole formatted row (verified live), rather than the
+    # literal string "null"
+    df2 = DataFrame((; a = [1, missing], b = ["x", "y"]))
+    r_missing = select(df2, alias(format("{}-{}", col("a"), col("b")), "m"))
+    @test isequal(collect(r_missing[:m]), ["1-x", missing])
+
+    # a mismatched placeholder/argument count raises a PolarsError rather than aborting
+    @test_throws PolarsError select(df, format("{} {}", col("age")))
+
+    # LazyFrame form agrees
+    r_lazy = collect(select(lazy(df), alias(format("{} is {}", col("name"), col("age")), "f")))
+    @test collect(r_lazy[:f]) == r[:f]
+end
+
+@testset "concat_arr: builds an Array-dtype plan; materializing/introspecting it is not yet supported" begin
+    df = DataFrame((; age = [1, 2]))
+    lf = select(lazy(df), alias(concat_arr(col("age"), col("age")), "arr"))
+
+    # building the plan and running `explain` on it both succeed
+    @test occursin("arr.concat", explain(lf))
+
+    # collect() itself succeeds -- the failure is in resolving the Array dtype afterward
+    d = collect(lf)
+
+    # neither collect_schema nor indexing into the Array column can materialize/introspect it yet
+    @test_throws ErrorException collect_schema(lf)
+    @test_throws ErrorException d[:arr]
+
+    @test_throws PolarsError concat_arr()
+end
