@@ -1291,6 +1291,14 @@ const struct polars_expr_t *polars_expr_flatten(const struct polars_expr_t *expr
 
 const struct polars_expr_t *polars_expr_reverse(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_arg_unique(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_to_physical(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_lower_bound(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_upper_bound(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_eq(const struct polars_expr_t *a,
                                            const struct polars_expr_t *b);
 
@@ -1376,6 +1384,39 @@ const struct polars_expr_t *polars_expr_rem(const struct polars_expr_t *a,
 
 const struct polars_expr_t *polars_expr_top_k(const struct polars_expr_t *a,
                                               const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_arctan2(const struct polars_expr_t *a,
+                                                const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_dot(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+/**
+ * Infallible -- `Expr::entropy` only builds a plan node.
+ */
+const struct polars_expr_t *polars_expr_entropy(const struct polars_expr_t *expr,
+                                                double base,
+                                                bool normalize);
+
+/**
+ * Infallible -- `Expr::extend_constant` only builds a plan node.
+ */
+const struct polars_expr_t *polars_expr_extend_constant(const struct polars_expr_t *expr,
+                                                        const struct polars_expr_t *value,
+                                                        const struct polars_expr_t *n);
+
+/**
+ * Infallible -- `Expr::shuffle` only builds a plan node. `seed` null means "draw one from the OS".
+ */
+const struct polars_expr_t *polars_expr_shuffle(const struct polars_expr_t *expr,
+                                                const uint64_t *seed);
+
+/**
+ * Infallible -- `Expr::reshape` only builds a plan node.
+ */
+const struct polars_expr_t *polars_expr_reshape(const struct polars_expr_t *expr,
+                                                const int64_t *dims,
+                                                uintptr_t n_dims);
 
 const struct polars_expr_t *polars_expr_cum_sum(const struct polars_expr_t *expr, bool reverse);
 
@@ -1621,6 +1662,8 @@ const struct polars_expr_t *polars_expr_str_to_lowercase(const struct polars_exp
 const struct polars_expr_t *polars_expr_str_len_bytes(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_str_len_chars(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_str_escape_regex(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_str_starts_with(const struct polars_expr_t *a,
                                                         const struct polars_expr_t *b);

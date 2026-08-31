@@ -1157,6 +1157,11 @@ pub unsafe extern "C" fn polars_expr_flatten(
 
 gen_impl_expr!(polars_expr_reverse, Expr::reverse);
 
+gen_impl_expr!(polars_expr_arg_unique, Expr::arg_unique);
+gen_impl_expr!(polars_expr_to_physical, Expr::to_physical);
+gen_impl_expr!(polars_expr_lower_bound, Expr::lower_bound);
+gen_impl_expr!(polars_expr_upper_bound, Expr::upper_bound);
+
 macro_rules! gen_impl_expr_binary {
     ($n: ident, $t: expr) => {
         #[no_mangle]
@@ -1234,6 +1239,56 @@ gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change);
 gen_impl_expr_binary!(polars_expr_log, Expr::log);
 gen_impl_expr_binary!(polars_expr_rem, core::ops::Rem::rem);
 gen_impl_expr_binary!(polars_expr_top_k, Expr::top_k);
+
+gen_impl_expr_binary!(polars_expr_arctan2, Expr::arctan2);
+gen_impl_expr_binary!(polars_expr_dot, Expr::dot);
+
+/// Infallible -- `Expr::entropy` only builds a plan node.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_entropy(
+    expr: *const polars_expr_t,
+    base: f64,
+    normalize: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.entropy(base, normalize))
+}
+
+/// Infallible -- `Expr::extend_constant` only builds a plan node.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_extend_constant(
+    expr: *const polars_expr_t,
+    value: *const polars_expr_t,
+    n: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let value = (*value).inner.clone();
+    let n = (*n).inner.clone();
+    make_expr(expr.extend_constant(value, n))
+}
+
+/// Infallible -- `Expr::shuffle` only builds a plan node. `seed` null means "draw one from the OS".
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_shuffle(
+    expr: *const polars_expr_t,
+    seed: *const u64,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let seed = if seed.is_null() { None } else { Some(*seed) };
+    make_expr(expr.shuffle(seed))
+}
+
+/// Infallible -- `Expr::reshape` only builds a plan node.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_reshape(
+    expr: *const polars_expr_t,
+    dims: *const i64,
+    n_dims: usize,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let dims = std::slice::from_raw_parts(dims, n_dims);
+    make_expr(expr.reshape(dims))
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_cum_sum(
@@ -1850,6 +1905,7 @@ gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::to_lowercase);
 gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::to_titlecase);
 gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes);
 gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars);
+gen_impl_expr_str!(polars_expr_str_escape_regex, StringNameSpace::escape_regex);
 
 macro_rules! gen_impl_expr_binary_str {
     ($n: ident, $t: expr) => {

@@ -78,3 +78,57 @@ end
     r3 = Base.sort(r3, col("g"))
     @test collect(r3[:picked]) == [20, 30]
 end
+
+@testset "arg_unique: row indices of first occurrence, in order" begin
+    df = DataFrame((; y = [1, 1, 2, 2]))
+    r = select(df, alias(arg_unique(col("y")), "au"))
+    @test r[:au] == UInt32[0, 2]
+
+    dfm = DataFrame((; y = Union{Int, Missing}[1, missing, 1]))
+    r_missing = select(dfm, alias(arg_unique(col("y")), "au"))
+    @test r_missing[:au] == UInt32[0, 1] # `missing` counts as its own distinct value
+end
+
+@testset "extend_constant: appends n copies of value" begin
+    df = DataFrame((; y = [1, 1, 2, 2]))
+    r = select(df, alias(extend_constant(col("y"), 0, 2), "e"))
+    @test r[:e] == [1, 1, 2, 2, 0, 0]
+
+    # value may be `missing`, appending nulls
+    r_null = select(df, alias(extend_constant(col("y"), missing, 1), "e"))
+    @test isequal(collect(r_null[:e]), [1, 1, 2, 2, missing])
+end
+
+@testset "shuffle: random permutation, reproducible with a seed" begin
+    df = DataFrame((; x = [1.0, 2.0, 3.0, 4.0]))
+
+    r1 = select(df, alias(shuffle(col("x"); seed = 42), "s"))
+    r2 = select(df, alias(shuffle(col("x"); seed = 42), "s"))
+    @test r1[:s] == r2[:s] # same seed -> same permutation
+
+    @test sort(r1[:s]) == sort(df[:x]) # multiset of values is preserved
+
+    # nothing (default): draws a fresh seed each call, still preserves the multiset
+    r3 = select(df, alias(shuffle(col("x")), "s"))
+    @test sort(r3[:s]) == sort(df[:x])
+end
+
+@testset "Base.reshape: builds an Array-dtype plan; materializing/introspecting it is not yet supported" begin
+    df = DataFrame((; x = [1.0, 2.0, 3.0, 4.0]))
+    lf = select(lazy(df), alias(Base.reshape(col("x"), 2, 2), "r"))
+
+    # building the plan and running `explain` on it both succeed
+    @test occursin("reshape()", explain(lf))
+
+    # collect() itself succeeds -- the failure is in resolving the Array dtype afterward
+    d = collect(lf)
+
+    # neither collect_schema nor indexing into the Array column can materialize/introspect it yet
+    @test_throws ErrorException collect_schema(lf)
+    @test_throws ErrorException d[:r]
+
+    # a single -1 as the *first* dimension is inferred from the length; upstream only supports
+    # inferring the first dimension, not any other position (verified live)
+    lf2 = select(lazy(df), alias(Base.reshape(col("x"), -1, 2), "r"))
+    @test occursin("reshape()", explain(lf2))
+end

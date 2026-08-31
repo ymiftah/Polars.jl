@@ -400,7 +400,7 @@ Closes most of [`api_gap_audit.md`](api_gap_audit.md) Group 3. Gates verified in
   `extend_constant(expr, value, n)`, `shuffle(expr; seed=nothing)`, `Base.reshape(expr, dims...)`,
   `Strings.escape_regex(expr)`.
 
-- [ ] **Step 1: Add the macro-driven shims to `c-polars/src/expr.rs`**
+- [x] **Step 1: Add the macro-driven shims to `c-polars/src/expr.rs`**
 
 Append the no-argument ones next to the existing `gen_impl_expr!` block (~line 962), the binary ones
 next to the `gen_impl_expr_binary!` block (~line 1175), and the string one next to the
@@ -422,7 +422,7 @@ gen_impl_expr_str!(polars_expr_str_escape_regex, StringNameSpace::escape_regex);
 `pl.arctan2(y, x)` has the same order, so the generated `arctan2(a, b)` means `arctan2(y, x)`. Say
 so in the docstring.
 
-- [ ] **Step 2: Add the four hand-written shims to `c-polars/src/expr.rs`**
+- [x] **Step 2: Add the four hand-written shims to `c-polars/src/expr.rs`**
 
 ```rust
 #[no_mangle]
@@ -474,7 +474,7 @@ error channel — matching every other `polars_expr_*` builder in this file. If 
 any of them returns a `PolarsResult`, switch that one to the `out`-param + `guard_error` shape used
 by `polars_expr_concat_str` (`c-polars/src/expr.rs:222`) instead.
 
-- [ ] **Step 3: Regenerate and build**
+- [x] **Step 3: Regenerate and build**
 
 ```bash
 c-polars/regen_header.sh
@@ -484,7 +484,7 @@ python3 c-polars/check_header_drift.py
 cd c-polars && cargo build -j 4 && cd ..
 ```
 
-- [ ] **Step 4: Add the block-DSL entries to `src/expr/expr.jl`**
+- [x] **Step 4: Add the block-DSL entries to `src/expr/expr.jl`**
 
 Inside the existing `@wrap_simple_ops begin ... end` block (the one containing
 `gen_impl_expr!(polars_expr_arctan, ...)` around line 497):
@@ -504,7 +504,7 @@ And in `src/expr/string.jl`'s `@wrap_simple_ops` block inside the `Strings` subm
     gen_impl_expr_str!(polars_expr_str_escape_regex, StringNameSpace::escape_regex, "Escapes every regex metacharacter in each string, so the result matches itself literally when used as a pattern.")
 ```
 
-- [ ] **Step 5: Hand-write the four remaining Julia entry points in `src/expr/expr.jl`**
+- [x] **Step 5: Hand-write the four remaining Julia entry points in `src/expr/expr.jl`**
 
 ```julia
 """
@@ -567,7 +567,7 @@ Copy the `seed_ref` shape from `sample_n` in this same file — the `Ref` **must
 `GC.@preserve` across the ccall. Check whether `@wrap_simple_ops` already exports the names it
 generates before adding them to that `export` line; if it does, drop the duplicates.
 
-- [ ] **Step 6: Exercise all eleven live**
+- [x] **Step 6: Exercise all eleven live**
 
 ```bash
 julia --project=. -e '
@@ -592,7 +592,35 @@ materialize into Julia** — Group 5 of the audit records that Array columns can
 operated on. If `collect` on the reshaped frame errors, that is expected: assert on
 `collect_schema` instead and note the limitation in the docstring. Record actual outputs.
 
-- [ ] **Step 7: Write tests**
+**Actual (live-verified) output, and two corrections to this plan's expectation:**
+`arctan2`/`dot`/`entropy`/`arg_unique`/`to_physical`/`lower_bound`/`upper_bound`/`extend_constant`/
+`shuffle`/`escape_regex` all matched the plan's shape (values recorded in `test/expr/math.jl`,
+`test/expr/selection.jl`, `test/datatypes/strings.jl`): `dot(x, x)` on `[1,2,3,4]` is `30.0`;
+`entropy([1,1,2,2])` is `1.3296613488547582` (natural log, normalized); `arg_unique([1,1,2,2])` is
+`UInt32[0, 2]`; `to_physical` on a `Date` column gives days-since-epoch as `Int32`;
+`lower_bound`/`upper_bound` on an `Int64` column give `typemin`/`typemax(Int64)`; `escape_regex`
+gives `["a\\.b", "c\\*d"]` and round-trips through `Strings.contains`; `shuffle(; seed=42)` is
+stable across two calls and preserves the input multiset (never asserted on a specific
+permutation, per instructions). `arctan2(lit(1.0), lit(-1.0))` is `3π/4 ≈ 2.356194490192345`,
+confirming the quadrant behavior the plan called out (`atan(1.0/-1.0)` is the wrong `-π/4`).
+
+**Correction 1 — the plan's premise about `-1` inference was incomplete.** `Expr::reshape`'s `-1`
+placeholder is inferred **only when it is the first dimension** — `reshape(col("x"), -1, 2)` works,
+but `reshape(col("x"), 2, -1)` raises `PolarsError("can only infer the first dimension")`. Verified
+live; not previously documented anywhere in this repo.
+
+**Correction 2 — the Array-dtype limitation is deeper than "collect may error, fall back to
+`collect_schema`".** Live-verified: `select(lazy(df), reshape(...))` (building the plan) succeeds,
+and `collect(lf)` on it **also succeeds** (returns a `DataFrame` handle). The failure is not in
+`collect` at all — it's in anything that resolves the Arrow schema of an `Array`-dtype column
+afterward: `collect_schema(lf)`, `Polars.schema(df)`, and indexing a collected `DataFrame` with an
+`Array` column (`df[:col]`) all raise a plain Julia `ErrorException` (not `PolarsError`) from
+`src/arrow/schema.jl:136`'s `parse_format`, which doesn't recognize the fixed-size-list Arrow
+format (`"+w:N"`). The docstring and tests were written against this corrected understanding
+rather than the plan's original "assert on `collect_schema` instead" suggestion, since
+`collect_schema` turned out not to be the working fallback either — `explain` is.
+
+- [x] **Step 7: Write tests**
 
 `arctan2`, `dot`, `entropy`, `lower_bound`, `upper_bound`, `to_physical` → `test/expr/math.jl`.
 `arg_unique`, `extend_constant`, `shuffle`, `reshape` → `test/expr/selection.jl`.
@@ -606,13 +634,13 @@ values is preserved — never assert a specific permutation without having run i
 `escape_regex`, assert the escaped output actually matches literally via
 `Strings.contains(col("s"), Strings.escape_regex(col("s")))`.
 
-- [ ] **Step 8: Add docs entries**
+- [x] **Step 8: Add docs entries**
 
 Add all eleven to the `@docs` blocks: the ten `Expr` ones to `docs/src/reference/expressions.md`
 (`Base.reshape` in qualified form), `escape_regex` to `docs/src/reference/expr-string.md`. Every
 `@ref` used in a new docstring must resolve.
 
-- [ ] **Step 9: Verify and commit**
+- [x] **Step 9: Verify and commit**
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.test()'

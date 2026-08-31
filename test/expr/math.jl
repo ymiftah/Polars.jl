@@ -135,3 +135,61 @@ end
     r_dt = select(df_types, alias(is_between(col("dt"), Date(2020, 1, 15), Date(2020, 3, 1)), "b"))
     @test r_dt[:b] == [false, true, false]
 end
+
+@testset "arctan2/dot" begin
+    df = DataFrame((; x = [1.0, 2.0, 3.0, 4.0]))
+
+    # arctan2(y, x) -- note the y-then-x argument order (matches upstream and C's atan2)
+    r = select(df, alias(arctan2(col("x"), lit(1.0)), "a"))
+    @test r[:a] ≈ atan.(df[:x], 1.0)
+
+    # quadrant behavior distinguishes arctan2 from plain arctan
+    q = select(DataFrame((;)), alias(arctan2(lit(1.0), lit(-1.0)), "q"))
+    @test only(q[:q]) ≈ 3π / 4
+    @test only(q[:q]) ≉ atan(1.0 / -1.0) # plain arctan gives -π/4, the wrong quadrant
+
+    # dot product: sum of elementwise product
+    r_dot = select(df, alias(dot(col("x"), col("x")), "d"))
+    @test only(r_dot[:d]) == 30.0
+
+    # null propagation: dot's sum ignores the null pairwise product, matching Expr::sum
+    dfm = DataFrame((; x = Union{Float64, Missing}[1.0, missing]))
+    r_dot_null = select(dfm, alias(dot(col("x"), col("x")), "d"))
+    @test only(r_dot_null[:d]) == 1.0
+
+    # arctan2 null propagation
+    dfm2 = DataFrame((; x = Union{Float64, Missing}[1.0, missing]))
+    r_null = select(dfm2, alias(arctan2(col("x"), lit(1.0)), "a"))
+    @test isequal(collect(r_null[:a]), [atan(1.0, 1.0), missing])
+end
+
+@testset "entropy" begin
+    df = DataFrame((; y = [1, 1, 2, 2]))
+    r = select(df, alias(entropy(col("y")), "e"))
+    @test only(r[:e]) ≈ 1.3296613488547582
+
+    # curried form (keyword-only, for |> pipelines)
+    r2 = select(df, alias(col("y") |> entropy(), "e"))
+    @test only(r2[:e]) ≈ 1.3296613488547582
+
+    # base=2 gives a different value than the natural-log default
+    r_base2 = select(df, alias(entropy(col("y"); base = 2), "e"))
+    @test only(r_base2[:e]) != only(r[:e])
+end
+
+@testset "lower_bound/upper_bound" begin
+    df = DataFrame((; y = [1, 1, 2, 2]))
+    r = select(df, alias(lower_bound(col("y")), "lb"), alias(upper_bound(col("y")), "ub"))
+    @test only(r[:lb]) == typemin(Int64)
+    @test only(r[:ub]) == typemax(Int64)
+end
+
+@testset "to_physical" begin
+    df = DataFrame((; y = [1, 1, 2, 2]))
+    r = select(df, alias(to_physical(col("y")), "p"))
+    @test r[:p] == [1, 1, 2, 2] # already-physical dtype: unchanged
+
+    df_date = DataFrame((; d = [Date(1970, 1, 2), Date(1970, 1, 1)]))
+    r_date = select(df_date, alias(to_physical(col("d")), "p"))
+    @test r_date[:p] == Int32[1, 0] # days since epoch
+end

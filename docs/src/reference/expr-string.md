@@ -50,6 +50,7 @@ Polars.Strings.ends_with
 Polars.Strings.extract
 Polars.Strings.extract_all
 Polars.Strings.count_matches
+Polars.Strings.escape_regex
 ```
 
 ```@example strings

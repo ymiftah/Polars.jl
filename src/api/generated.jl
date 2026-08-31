@@ -1321,6 +1321,22 @@ function polars_expr_reverse(expr)
     return @ccall libpolars.polars_expr_reverse(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_arg_unique(expr)
+    return @ccall libpolars.polars_expr_arg_unique(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_to_physical(expr)
+    return @ccall libpolars.polars_expr_to_physical(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_lower_bound(expr)
+    return @ccall libpolars.polars_expr_lower_bound(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_upper_bound(expr)
+    return @ccall libpolars.polars_expr_upper_bound(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_eq(a, b)
     return @ccall libpolars.polars_expr_eq(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1429,6 +1445,50 @@ end
 
 function polars_expr_top_k(a, b)
     return @ccall libpolars.polars_expr_top_k(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_arctan2(a, b)
+    return @ccall libpolars.polars_expr_arctan2(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dot(a, b)
+    return @ccall libpolars.polars_expr_dot(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_entropy(expr, base, normalize)
+
+Infallible -- `Expr::entropy` only builds a plan node.
+"""
+function polars_expr_entropy(expr, base, normalize)
+    return @ccall libpolars.polars_expr_entropy(expr::Ptr{polars_expr_t}, base::Cdouble, normalize::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_extend_constant(expr, value, n)
+
+Infallible -- `Expr::extend\\_constant` only builds a plan node.
+"""
+function polars_expr_extend_constant(expr, value, n)
+    return @ccall libpolars.polars_expr_extend_constant(expr::Ptr{polars_expr_t}, value::Ptr{polars_expr_t}, n::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_shuffle(expr, seed)
+
+Infallible -- `Expr::shuffle` only builds a plan node. `seed` null means "draw one from the OS".
+"""
+function polars_expr_shuffle(expr, seed)
+    return @ccall libpolars.polars_expr_shuffle(expr::Ptr{polars_expr_t}, seed::Ptr{UInt64})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_reshape(expr, dims, n_dims)
+
+Infallible -- `Expr::reshape` only builds a plan node.
+"""
+function polars_expr_reshape(expr, dims, n_dims)
+    return @ccall libpolars.polars_expr_reshape(expr::Ptr{polars_expr_t}, dims::Ptr{Int64}, n_dims::Csize_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_cum_sum(expr, reverse)
@@ -1730,6 +1790,10 @@ end
 
 function polars_expr_str_len_chars(a)
     return @ccall libpolars.polars_expr_str_len_chars(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_escape_regex(a)
+    return @ccall libpolars.polars_expr_str_escape_regex(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_str_starts_with(a, b)

@@ -263,3 +263,23 @@ end
     r_nomatch = select(df_nomatch, alias(Strings.extract_groups(col("s"), raw"(?<year>\d{4})"), "g"))
     @test ismissing(only(r_nomatch[:g]).year)
 end
+
+@testset "Strings.escape_regex: escapes regex metacharacters so the result matches itself literally" begin
+    df = DataFrame((; s = ["a.b", "c*d"]))
+    r = select(df, alias(Strings.escape_regex(col("s")), "esc"))
+    @test r[:esc] == ["a\\.b", "c\\*d"]
+
+    # the escaped pattern matches its own source string literally
+    r_contains = select(df, alias(Strings.contains(col("s"), Strings.escape_regex(col("s"))), "c"))
+    @test r_contains[:c] == [true, true]
+
+    # a string with no metacharacters is left unchanged
+    df_plain = DataFrame((; s = ["hello"]))
+    r_plain = select(df_plain, alias(Strings.escape_regex(col("s")), "esc"))
+    @test only(r_plain[:esc]) == "hello"
+
+    # null propagation
+    dfm = DataFrame((; s = Union{String, Missing}["a.b", missing]))
+    r_null = select(dfm, alias(Strings.escape_regex(col("s")), "esc"))
+    @test isequal(collect(r_null[:esc]), ["a\\.b", missing])
+end
