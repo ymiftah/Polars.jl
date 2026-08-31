@@ -818,9 +818,18 @@ println(collect_schema(select(lazy(df), concat_arr(col("age"), col("age")) |> al
 ```
 
 Expected: `format` gives `["a is 1", "b is 2"]`; `to_string` gives `["2024/01/15", "2024/06/30"]`.
-As in Task 2, `concat_arr` produces an `Array` column that may not materialize — if `collect`
-errors, assert on `collect_schema` and document it. Also verify the error path: `format("{}", ...)`
-with a mismatched placeholder count must raise `PolarsError`, not abort the process.
+`concat_arr` produces an `Array`-dtype column. **Task 2 live-verified what that actually means, and
+it is the opposite of what this plan originally guessed** — building the plan *and* `collect`ing it
+both succeed; what fails is anything that resolves the column's Arrow schema afterwards
+(`collect_schema`, `Polars.schema`, and indexing an `Array` column of a collected `DataFrame`), each
+raising a plain `ErrorException` (not `PolarsError`) from `src/arrow/schema.jl:136`:
+`Array dtype (fixed-size list, arrow format "+w:2") is not supported`. So `collect_schema` is **not**
+a usable fallback assertion here — use `explain` to prove the plan node was built, and assert the
+`ErrorException` on the schema path as the documented current limitation. Mirror whatever
+`test/expr/selection.jl`'s new `reshape` testset does, which faced exactly this.
+
+Also verify the error path: `format("{}", ...)` with a mismatched placeholder count must raise
+`PolarsError`, not abort the process.
 
 - [ ] **Step 6: Write tests**
 
