@@ -956,6 +956,16 @@ what it cost, what was learned), and strike through each closed item at its own 
 `~~...~~ **Closed**` plus a `(see [Status](#status))` cross-reference — matching exactly how the
 previous closures are recorded there. Do not delete the original text.
 
+- [ ] **Step 1b: Close the `concat_str`/`concat_list` docs gap inherited from PR #46**
+
+Task 3 found that `concat_str` and `concat_list` — added by PR #46, the branch this one is stacked
+on — have **no `@docs` entry anywhere in the manual**, so any docstring linking them with `@ref`
+fails the docs build. Task 3 worked around it by downgrading two refs to plain backticks; undo that
+properly here: add `concat_str` and `concat_list` to the same `@docs` block in
+`docs/src/reference/functions.md` that now lists `format` and `concat_arr` (they are the same family
+of row-wise horizontal combinators), then restore the two `@ref` links Task 3 downgraded in
+`src/expr/expr.jl`'s `format`/`concat_arr` docstrings. Re-run the docs build to confirm.
+
 - [ ] **Step 2: Set this plan's `## Status` to `Done`**
 
 - [ ] **Step 3: Full verification**
