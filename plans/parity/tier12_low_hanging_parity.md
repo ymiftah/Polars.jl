@@ -9,7 +9,8 @@
 
 ## Status
 
-**Not started.** Branch `parity-low-hanging-tier12`, stacked on
+**Task 1 done** (frame-level `limit`/`Base.reverse`/`null_count`/`Base.count`/`fill_nan`/`explain`/
+`cache`); Tasks 2-5 not started. Branch `parity-low-hanging-tier12`, stacked on
 `parity-frame-verbs-horizontal-concat` (PR #46).
 
 Derived from a fresh triage of every file in `plans/parity/`, with each candidate's `#[cfg(feature
@@ -119,7 +120,7 @@ Closes most of [`api_gap_audit.md`](api_gap_audit.md) Group 6's "Row/column sele
   `Base.count(df)`, `explain(df; optimized=true)::String`, `cache(df)` — each with a `LazyFrame`
   and a `DataFrame` method except `explain`, which is `LazyFrame`-only (matching upstream).
 
-- [ ] **Step 1: Add the five void-mutator shims to `c-polars/src/dataframe.rs`**
+- [x] **Step 1: Add the five void-mutator shims to `c-polars/src/dataframe.rs`**
 
 ```rust
 #[no_mangle]
@@ -158,7 +159,7 @@ pub unsafe extern "C" fn polars_lazy_frame_fill_nan(
 }
 ```
 
-- [ ] **Step 2: Add `polars_lazy_frame_explain`**
+- [x] **Step 2: Add `polars_lazy_frame_explain`**
 
 `explain` returns a `String`, so it uses the `IOCallback` shape that `polars_dataframe_show`
 (`c-polars/src/dataframe.rs:331`) already uses — copy that function's structure exactly, including
@@ -187,7 +188,7 @@ pub unsafe extern "C" fn polars_lazy_frame_explain(
 }
 ```
 
-- [ ] **Step 3: Regenerate and build**
+- [x] **Step 3: Regenerate and build**
 
 ```bash
 c-polars/regen_header.sh
@@ -199,7 +200,7 @@ cd c-polars && cargo build -j 4 && cd ..
 
 Expected: `check_header_drift.py` clean; build finishes without a dependency rebuild.
 
-- [ ] **Step 4: Add the Julia entry points to `src/verbs.jl`**
+- [x] **Step 4: Add the Julia entry points to `src/verbs.jl`**
 
 Follow the `_frame_sum!` shape at `src/verbs.jl:269-273` exactly (clone for the `LazyFrame` method,
 `lazy(df)` + `collect` for the `DataFrame` one).
@@ -280,7 +281,7 @@ generic functions, so **do not** re-`export` a name that `src/expr/` already exp
 `grep -rn "export.*null_count\|export.*fill_nan" src/` first and drop it from the `export` line
 above if it is already there.
 
-- [ ] **Step 5: Add `explain`/`cache` to `src/lazyframe.jl`**
+- [x] **Step 5: Add `explain`/`cache` to `src/lazyframe.jl`**
 
 ```julia
 """
@@ -313,7 +314,7 @@ end
 export explain, cache
 ```
 
-- [ ] **Step 6: Exercise all seven live**
+- [x] **Step 6: Exercise all seven live**
 
 ```bash
 julia --project=. -e '
@@ -333,7 +334,20 @@ Expected: `null_count` gives `a=1, b=0`; `count` gives `a=4, b=4`; `fill_nan` re
 `NaN`, leaving the `missing` alone; `explain` prints a plan containing `DF ["a", "b"]`.
 **Record the actual output** — the tests assert on it.
 
-- [ ] **Step 7: Write tests in `test/operations/frame_verbs.jl`**
+**Actual (live-verified) output, and one correction to this plan's expectation:**
+`null_count` gives `a=1, b=0` as expected. **`count` gives `a=3, b=4`, not `a=4, b=4`** — upstream
+`LazyFrame::count()` counts *non-null* values per column (same semantics as the per-`Expr`
+`count`), not the row count including nulls; confirmed with a fully-`missing` 3-row column, which
+reports `count == 0`. The plan's expected value here was wrong; the shipped docstring documents the
+actual behavior instead. `fill_nan(df, 0.0)` gives `[1.0, 0.0, 3.0, missing]` for `a` (the `NaN`
+became `0.0`, the `missing` stayed `missing`) and leaves `b` untouched. `explain(lazy(df))` on this
+trivial single-scan plan prints `DF ["a", "b"]; PROJECT */2 COLUMNS` for both `optimized=true` and
+`optimized=false` (no difference on a plan with nothing to push down); a filtered-then-selected
+plan does differ (`FILTER`+projection-trimmed `DF [...]; PROJECT["a"] 1/3 COLUMNS` when optimized,
+vs. a `SELECT` wrapper preserving `PROJECT */3 COLUMNS` when not) -- see the test for the exact
+strings. `reverse(reverse(df)) == df` holds. `cache(lazy(df)) |> collect` reproduces `df` exactly.
+
+- [x] **Step 7: Write tests in `test/operations/frame_verbs.jl`**
 
 Follow the file's existing `@testset` style. Cover, per function: the happy path; that
 `null_count`/`count` disagree on a column containing `missing` (that is the whole point of having
@@ -343,7 +357,7 @@ here and upstream); that `limit(df, n)` with `n` greater than the row count retu
 differs from the optimized plan for a filtered frame (proof the flag is threaded, not ignored); and
 that `cache` is result-preserving. Assert on the values recorded in Step 6, not on guesses.
 
-- [ ] **Step 8: Add docs entries**
+- [x] **Step 8: Add docs entries**
 
 Add `limit`, `null_count`, `fill_nan`, `explain`, `cache` to the `@docs` block in
 `docs/src/reference/dataframe.md` that already lists the frame verbs. `Base.reverse` and
@@ -352,7 +366,7 @@ Add `limit`, `null_count`, `fill_nan`, `explain`, `cache` to the `@docs` block i
 **Any `[`x`](@ref)` you write in a docstring must have its binding in some `@docs` block** or the
 docs CI job fails with `Cannot resolve @ref` — that exact failure just cost a CI round on PR #46.
 
-- [ ] **Step 9: Verify and commit**
+- [x] **Step 9: Verify and commit**
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.test()'

@@ -566,6 +566,21 @@ void polars_lazy_frame_quantile(struct polars_lazy_frame_t *df,
                                 const struct polars_expr_t *quantile,
                                 enum polars_quantile_method_t method);
 
+void polars_lazy_frame_reverse(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_null_count(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_count(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_cache(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_fill_nan(struct polars_lazy_frame_t *df, const struct polars_expr_t *value);
+
+const struct polars_error_t *polars_lazy_frame_explain(struct polars_lazy_frame_t *df,
+                                                       bool optimized,
+                                                       const void *user,
+                                                       IOCallback callback);
+
 const struct polars_error_t *polars_lazy_frame_collect(struct polars_lazy_frame_t *df,
                                                        enum polars_engine_t engine,
                                                        struct polars_dataframe_t **out);

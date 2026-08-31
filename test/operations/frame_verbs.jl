@@ -434,3 +434,82 @@ end
     df_wrong_dtype = DataFrame((; a = ["x", "y"], b = [10, 20]))
     @test_throws PolarsError vstack(df1, df_wrong_dtype)
 end
+
+@testset "limit/reverse/null_count/count/fill_nan/explain/cache (frame-level)" begin
+    df = DataFrame((; a = [1.0, NaN, 3.0, missing], b = [10, 20, 30, 40]))
+
+    # limit is a plain alias for head
+    r_limit = limit(df, 2)
+    @test size(r_limit) == (2, 2)
+    @test collect(r_limit[:b]) == [10, 20]
+    @test isequal(collect(limit(df, 2)[:a]), collect(head(df, 2)[:a]))
+
+    # limit(df, n) with n > row count returns everything, same as head
+    r_limit_over = limit(df, 100)
+    @test size(r_limit_over) == (4, 2)
+
+    # LazyFrame form agrees
+    r_limit_lazy = limit(lazy(df), 2) |> collect
+    @test size(r_limit_lazy) == (2, 2)
+
+    # reverse: row order flips; round-trips back to the original
+    r_rev = Base.reverse(df)
+    @test collect(r_rev[:b]) == [40, 30, 20, 10]
+    @test isequal(Base.reverse(Base.reverse(df)), df)
+
+    r_rev_lazy = Base.reverse(lazy(df)) |> collect
+    @test collect(r_rev_lazy[:b]) == [40, 30, 20, 10]
+
+    # null_count and count disagree on a column with a `missing`: null_count counts nulls,
+    # count counts non-nulls -- the whole point of having both. Live-verified: `a` has one
+    # `missing` (NaN is not null), `b` has none.
+    r_nc = null_count(df)
+    @test collect(r_nc[:a]) == [1]
+    @test collect(r_nc[:b]) == [0]
+
+    r_cnt = count(df)
+    @test collect(r_cnt[:a]) == [3]
+    @test collect(r_cnt[:b]) == [4]
+
+    # LazyFrame forms agree
+    r_nc_lazy = null_count(lazy(df)) |> collect
+    @test collect(r_nc_lazy[:a]) == [1]
+    r_cnt_lazy = count(lazy(df)) |> collect
+    @test collect(r_cnt_lazy[:a]) == [3]
+
+    # a fully-null column counts to 0 (not the row count), confirming `count` really is
+    # non-null-count, not row-count
+    df_allnull = DataFrame((; a = [missing, missing, missing], b = [1, 2, 3]))
+    @test collect(count(df_allnull)[:a]) == [0]
+    @test collect(count(df_allnull)[:b]) == [3]
+    @test collect(null_count(df_allnull)[:a]) == [3]
+
+    # fill_nan replaces only NaN, leaves `missing` untouched -- distinct concepts
+    r_fn = fill_nan(df, 0.0)
+    @test isequal(collect(r_fn[:a]), [1.0, 0.0, 3.0, missing])
+    @test collect(r_fn[:b]) == [10, 20, 30, 40] # untouched, no NaN/missing here
+
+    r_fn_lazy = fill_nan(lazy(df), 0.0) |> collect
+    @test isequal(collect(r_fn_lazy[:a]), [1.0, 0.0, 3.0, missing])
+
+    # fill_nan accepts an Expr, not just a plain scalar
+    r_fn_expr = fill_nan(df, lit(-1.0))
+    @test isequal(collect(r_fn_expr[:a]), [1.0, -1.0, 3.0, missing])
+
+    # explain: optimized plan contains the DF scan node
+    plan = explain(lazy(df))
+    @test occursin("DF [\"a\", \"b\"]", plan)
+
+    # explain(optimized=false) differs from the optimized plan once there's something for the
+    # optimizer to do (projection pushdown trims the unused column here)
+    df3 = DataFrame((; a = [1, 2, 3, 4], b = [10, 20, 30, 40], c = [100, 200, 300, 400]))
+    lf3 = select(filter(lazy(df3), col("a") > 1), col("a"))
+    @test explain(lf3; optimized = true) != explain(lf3; optimized = false)
+    @test occursin("PROJECT[\"a\"]", explain(lf3; optimized = true))
+    @test occursin("SELECT", explain(lf3; optimized = false))
+
+    # cache is result-preserving: collecting a cached plan agrees with collecting the plain one
+    r_cache = collect(cache(lazy(df)))
+    @test isequal(collect(r_cache[:a]), collect(df[:a]))
+    @test collect(r_cache[:b]) == collect(df[:b])
+end
