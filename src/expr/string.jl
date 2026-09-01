@@ -229,7 +229,7 @@ module Strings
     """
     split_exact(by, n::Integer) = expr -> split_exact(expr, convert(Expr, by), n)
 
-    @wrap_expr_method join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true) polars_expr_str_join "Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from [`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows)."
+    @wrap_expr_method join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true) polars_expr_str_join "Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from [`Lists.join`](@ref Polars.Lists.join) (joins each row's own list independently, not an aggregation across rows)."
 
     """
         to_integer(expr::Polars.Expr; base::Integer=10, strict::Bool=true)::Polars.Expr

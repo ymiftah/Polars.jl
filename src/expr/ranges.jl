@@ -80,6 +80,8 @@ date(year, month, day) = Dt.date(datetime(year, month, day))
 
 export date
 
+const _TimeComponent = Union{Expr, Real}
+
 """
     Base.time(hour, minute=0, second=0, microsecond=0)::Polars.Expr
 
@@ -93,7 +95,6 @@ function and exported from here, so an `Any`-typed extension would capture *ever
 argument `time(...)` call in any downstream session, turning what should be a `MethodError` into a
 confusing failure inside expression construction.
 """
-const _TimeComponent = Union{Expr, Real}
 Base.time(
     hour::_TimeComponent, minute::_TimeComponent = 0,
     second::_TimeComponent = 0, microsecond::_TimeComponent = 0,

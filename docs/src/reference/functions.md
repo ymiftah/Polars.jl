@@ -88,12 +88,16 @@ select(
 ```@docs
 format
 concat_arr
+concat_str
+concat_list
 ```
 
 `format(fmt, args...)` fills a `{}`-templated string with `args`, one per placeholder, row-wise —
 the row-wise counterpart of `Base.string` over several columns. `concat_arr(exprs...)` combines
 `exprs` row-wise into a fixed-size `Array` column; see its docstring for the current limitation on
-materializing/introspecting an `Array`-dtype result.
+materializing/introspecting an `Array`-dtype result. `concat_str`/`concat_list` are the same family
+of row-wise horizontal combinators, joining into a `String`/`List` respectively instead of a
+fixed-size `Array`.
 
 ```@example functions
 df11 = DataFrame((; name = ["a", "b"], age = [1, 2]))
@@ -106,7 +110,7 @@ select(df11, format("{} is {}", col("name"), col("age")) |> alias("greeting"))
 datetime
 duration
 date
-Base.time(::Any, ::Any, ::Any, ::Any)
+Base.time(::Union{Real, Polars.Expr}, ::Union{Real, Polars.Expr}, ::Union{Real, Polars.Expr}, ::Union{Real, Polars.Expr})
 from_epoch
 ```
 

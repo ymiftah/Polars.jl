@@ -1215,7 +1215,7 @@ end
 
 export as_struct
 
-@wrap_multi_expr_function concat_list polars_expr_concat_list false "Horizontally concatenates the `List`-typed `exprs` into a single `List` per row (row `i`'s output is every input's row-`i` list, in order, flattened one level). Distinct from [`Lists.join`](@ref) (string-joins one row's own list into a scalar) and [`concat`](@ref Base.concat) (stacks whole frames, not per-row lists). Errors if `exprs` is empty."
+@wrap_multi_expr_function concat_list polars_expr_concat_list false "Horizontally concatenates the `List`-typed `exprs` into a single `List` per row (row `i`'s output is every input's row-`i` list, in order, flattened one level). Distinct from [`Lists.join`](@ref Polars.Lists.join) (string-joins one row's own list into a scalar) and [`concat`](@ref) (stacks whole frames, not per-row lists). Errors if `exprs` is empty."
 
 export concat_list
 
@@ -1225,8 +1225,8 @@ export concat_list
 Row-wise (horizontal) string concatenation across `exprs` (columns or expressions -- non-string
 dtypes are cast to string first), joined by `separator`. If `ignore_nulls` is `false` (default),
 any `null` in a row makes that row's whole result `null`; if `true`, `null`s are skipped (treated
-as empty) instead. Distinct from [`Strings.join`](@ref) (an aggregation across *all* rows into one
-value) and [`Lists.join`](@ref) (joins each row's own list independently) -- this concatenates
+as empty) instead. Distinct from [`Strings.join`](@ref Polars.Strings.join) (an aggregation across *all* rows into one
+value) and [`Lists.join`](@ref Polars.Lists.join) (joins each row's own list independently) -- this concatenates
 sibling columns within each row.
 """
 function concat_str(exprs...; separator::AbstractString = "", ignore_nulls::Bool = false)
@@ -1251,7 +1251,7 @@ export concat_str
 Formats `args` into `fmt`, where each `{}` placeholder consumes one argument in order (expressions
 or plain scalars). The number of `{}` placeholders must equal the number of `args`, or a
 `PolarsError` is raised. The row-wise counterpart of `Base.string` over several columns; see also
-`concat_str`, which joins with a fixed separator instead of a template.
+[`concat_str`](@ref), which joins with a fixed separator instead of a template.
 """
 function format(fmt::AbstractString, args...)
     exprs = _expr_vector(args)
@@ -1267,7 +1267,7 @@ end
 
 export format
 
-@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenates `exprs` into a single fixed-size `Array` column, one element per input expression -- the `Array`-dtype counterpart of `concat_list`. All inputs must share a dtype. **Building the plan and `collect`ing it both succeed, but nothing that needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser, which does not yet recognize the fixed-size-list format -- this is a package limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the result away from `Array` before inspecting it."
+@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenates `exprs` into a single fixed-size `Array` column, one element per input expression -- the `Array`-dtype counterpart of [`concat_list`](@ref). All inputs must share a dtype. **Building the plan and `collect`ing it both succeed, but nothing that needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser, which does not yet recognize the fixed-size-list format -- this is a package limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the result away from `Array` before inspecting it."
 
 export concat_arr
 

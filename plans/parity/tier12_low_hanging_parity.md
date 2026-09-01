@@ -9,12 +9,14 @@
 
 ## Status
 
-**Tasks 1-4 done.** Task 1 (frame-level `limit`/`Base.reverse`/`null_count`/`Base.count`/
+**Done.** Task 1 (frame-level `limit`/`Base.reverse`/`null_count`/`Base.count`/
 `fill_nan`/`explain`/`cache`, `2d02cbe`), Task 2 (the eleven `Expr` methods, `a999dbc`), Task 3
 (top-level `format`/`concat_arr` and `Dt.to_string`, `ce9548e`), Task 4 (temporal constructors
 `datetime`/`duration`/`date`/`Base.time`/`from_epoch` -- see that task's own live-verified
-correction on the `Base.time` Aqua-piracy fix). Task 5 (audit closure and PR) not started. Branch
-`parity-low-hanging-tier12`, stacked on `parity-frame-verbs-horizontal-concat` (PR #46).
+correction on the `Base.time` Aqua-piracy fix, `f128f6e` plus follow-up `ce433d7`). Task 5 (audit
+closure and PR) landed the `api_gap_audit.md` closure entry, the `concat_str`/`concat_list` docs
+fix, and the PR itself. Branch `parity-low-hanging-tier12`, stacked on
+`parity-frame-verbs-horizontal-concat` (PR #46).
 
 Derived from a fresh triage of every file in `plans/parity/`, with each candidate's `#[cfg(feature
 = ...)]` gate re-verified against the vendored `polars-*-0.54.4` source and `c-polars/Cargo.toml`'s
