@@ -951,6 +951,39 @@ const struct polars_error_t *polars_expr_cast_duration(const struct polars_expr_
                                                        const struct polars_expr_t **out);
 
 /**
+ * Component-wise `Datetime` constructor (`pl.datetime`). `ambiguous` controls how a DST
+ * fall-back local time resolves; passed through as a string-literal expression, matching
+ * upstream's own `DatetimeArgs::ambiguous: Expr` field.
+ */
+const struct polars_error_t *polars_expr_datetime(const struct polars_expr_t *year,
+                                                  const struct polars_expr_t *month,
+                                                  const struct polars_expr_t *day,
+                                                  const struct polars_expr_t *hour,
+                                                  const struct polars_expr_t *minute,
+                                                  const struct polars_expr_t *second,
+                                                  const struct polars_expr_t *microsecond,
+                                                  enum polars_time_unit_t time_unit,
+                                                  const uint8_t *tz,
+                                                  uintptr_t tz_len,
+                                                  const uint8_t *ambiguous,
+                                                  uintptr_t ambiguous_len,
+                                                  const struct polars_expr_t **out);
+
+/**
+ * Component-wise `Duration` constructor (`pl.duration`).
+ */
+const struct polars_error_t *polars_expr_duration(const struct polars_expr_t *weeks,
+                                                  const struct polars_expr_t *days,
+                                                  const struct polars_expr_t *hours,
+                                                  const struct polars_expr_t *minutes,
+                                                  const struct polars_expr_t *seconds,
+                                                  const struct polars_expr_t *milliseconds,
+                                                  const struct polars_expr_t *microseconds,
+                                                  const struct polars_expr_t *nanoseconds,
+                                                  enum polars_time_unit_t time_unit,
+                                                  const struct polars_expr_t **out);
+
+/**
  * Targeted cast to `Decimal(precision, scale)` (`dtype-decimal` is already enabled). polars'
  * own invariant is `1 <= precision <= 38`; violating it surfaces as a normal cast error rather
  * than a panic (`DataType::Decimal` itself does not validate -- `cast` does, at execution time).

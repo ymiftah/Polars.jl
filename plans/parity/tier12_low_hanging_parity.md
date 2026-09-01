@@ -9,9 +9,12 @@
 
 ## Status
 
-**Task 1 done** (frame-level `limit`/`Base.reverse`/`null_count`/`Base.count`/`fill_nan`/`explain`/
-`cache`); Tasks 2-5 not started. Branch `parity-low-hanging-tier12`, stacked on
-`parity-frame-verbs-horizontal-concat` (PR #46).
+**Tasks 1-4 done.** Task 1 (frame-level `limit`/`Base.reverse`/`null_count`/`Base.count`/
+`fill_nan`/`explain`/`cache`, `2d02cbe`), Task 2 (the eleven `Expr` methods, `a999dbc`), Task 3
+(top-level `format`/`concat_arr` and `Dt.to_string`, `ce9548e`), Task 4 (temporal constructors
+`datetime`/`duration`/`date`/`Base.time`/`from_epoch` -- see that task's own live-verified
+correction on the `Base.time` Aqua-piracy fix). Task 5 (audit closure and PR) not started. Branch
+`parity-low-hanging-tier12`, stacked on `parity-frame-verbs-horizontal-concat` (PR #46).
 
 Derived from a fresh triage of every file in `plans/parity/`, with each candidate's `#[cfg(feature
 = ...)]` gate re-verified against the vendored `polars-*-0.54.4` source and `c-polars/Cargo.toml`'s
@@ -925,16 +928,29 @@ sequence:
    `Base.time(hour, minute, second, microsecond)` form is correct as written — do not change it to a
    bare `time`.
 
+**Correction found live, not anticipated by either plan:** `Base.time(hour, minute=0, second=0,
+microsecond=0)` as specified fails Aqua's piracy check. Every other `Base.*` extension in this
+package (`reverse`/`count`/`reshape`/`sort`/`tail`/`get`) types its first argument as this
+package's own `Expr`/`LazyFrame`/`DataFrame`, which is what makes extending someone else's function
+not-piracy; `Base.time`'s whole point here is accepting bare scalars (`time(9, 30)`), so none of
+its four generated methods (one per default-arg arity) has an owned-type argument at all, and Aqua
+flags all four. Fixed by whitelisting `Base.time` via `Aqua.test_all`'s `piracies =
+(treat_as_own = [Base.time],)` in `test/aqua.jl` — Aqua's own docs name this exact shape ("packages
+adding higher-level functionality to a lightweight C-wrapper") as the intended use of
+`treat_as_own`, rather than changing the function signature (which would break bare-scalar calls,
+the reason to extend `Base.time` instead of defining an unexported same-named function in the first
+place).
+
 After finishing, update
 [`range_temporal_constructors.md`](range_temporal_constructors.md)'s `## Status` to record that its
 Tasks 6 and 7 landed here, so the follow-up `range` PR starts from Task 1 and skips them.
 
-- [ ] **Step 1: Create `src/expr/ranges.jl` and wire it into `src/Polars.jl` and `test/runtests.jl`**
-- [ ] **Step 2: Execute `range_temporal_constructors.md` Task 6, all steps** (`datetime`, `duration`)
-- [ ] **Step 3: Execute `range_temporal_constructors.md` Task 7, all steps** (`date`, `Base.time`, `from_epoch`)
-- [ ] **Step 4: Add all five to `docs/src/reference/functions.md`'s `@docs` block**
-- [ ] **Step 5: Update `range_temporal_constructors.md`'s `## Status`**
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 1: Create `src/expr/ranges.jl` and wire it into `src/Polars.jl` and `test/runtests.jl`**
+- [x] **Step 2: Execute `range_temporal_constructors.md` Task 6, all steps** (`datetime`, `duration`)
+- [x] **Step 3: Execute `range_temporal_constructors.md` Task 7, all steps** (`date`, `Base.time`, `from_epoch`)
+- [x] **Step 4: Add all five to `docs/src/reference/functions.md`'s `@docs` block**
+- [x] **Step 5: Update `range_temporal_constructors.md`'s `## Status`**
+- [x] **Step 6: Verify and commit**
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.test()'

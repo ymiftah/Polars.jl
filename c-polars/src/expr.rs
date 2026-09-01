@@ -11,8 +11,8 @@ use polars_ops::series::InterpolationMethod;
 use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_plan::dsl::functions::{
     all_horizontal, any_horizontal, as_struct, coalesce, concat_arr, concat_list, concat_str, cov,
-    format_str, max_horizontal, mean_horizontal, min_horizontal, pearson_corr, spearman_rank_corr,
-    sum_horizontal,
+    datetime, duration, format_str, max_horizontal, mean_horizontal, min_horizontal, pearson_corr,
+    spearman_rank_corr, sum_horizontal, DatetimeArgs, DurationArgs,
 };
 use polars_plan::dsl::DataTypeExpr;
 use polars_plan::prelude::Literal;
@@ -475,6 +475,79 @@ pub unsafe extern "C" fn polars_expr_cast_duration(
         let unit = tri!(unit.to_time_unit());
         let dtype = DataType::Duration(unit);
         *out = make_expr(cast((*expr).inner.clone(), dtype));
+        std::ptr::null()
+    })
+}
+
+/// Component-wise `Datetime` constructor (`pl.datetime`). `ambiguous` controls how a DST
+/// fall-back local time resolves; passed through as a string-literal expression, matching
+/// upstream's own `DatetimeArgs::ambiguous: Expr` field.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_datetime(
+    year: *const polars_expr_t,
+    month: *const polars_expr_t,
+    day: *const polars_expr_t,
+    hour: *const polars_expr_t,
+    minute: *const polars_expr_t,
+    second: *const polars_expr_t,
+    microsecond: *const polars_expr_t,
+    time_unit: polars_time_unit_t,
+    tz: *const u8,
+    tz_len: usize,
+    ambiguous: *const u8,
+    ambiguous_len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let time_unit = tri!(time_unit.to_time_unit());
+        let tz = tri!(read_opt_str(tz, tz_len));
+        let time_zone = tri!(TimeZone::opt_try_new(tz));
+        let ambiguous = tri!(read_str(ambiguous, ambiguous_len));
+        let args = DatetimeArgs {
+            year: (*year).inner.clone(),
+            month: (*month).inner.clone(),
+            day: (*day).inner.clone(),
+            hour: (*hour).inner.clone(),
+            minute: (*minute).inner.clone(),
+            second: (*second).inner.clone(),
+            microsecond: (*microsecond).inner.clone(),
+            time_unit,
+            time_zone,
+            ambiguous: ambiguous.to_string().lit(),
+        };
+        *out = make_expr(datetime(args));
+        std::ptr::null()
+    })
+}
+
+/// Component-wise `Duration` constructor (`pl.duration`).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_duration(
+    weeks: *const polars_expr_t,
+    days: *const polars_expr_t,
+    hours: *const polars_expr_t,
+    minutes: *const polars_expr_t,
+    seconds: *const polars_expr_t,
+    milliseconds: *const polars_expr_t,
+    microseconds: *const polars_expr_t,
+    nanoseconds: *const polars_expr_t,
+    time_unit: polars_time_unit_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let time_unit = tri!(time_unit.to_time_unit());
+        let args = DurationArgs {
+            weeks: (*weeks).inner.clone(),
+            days: (*days).inner.clone(),
+            hours: (*hours).inner.clone(),
+            minutes: (*minutes).inner.clone(),
+            seconds: (*seconds).inner.clone(),
+            milliseconds: (*milliseconds).inner.clone(),
+            microseconds: (*microseconds).inner.clone(),
+            nanoseconds: (*nanoseconds).inner.clone(),
+            time_unit,
+        };
+        *out = make_expr(duration(args));
         std::ptr::null()
     })
 }

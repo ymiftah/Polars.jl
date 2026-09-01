@@ -99,3 +99,23 @@ materializing/introspecting an `Array`-dtype result.
 df11 = DataFrame((; name = ["a", "b"], age = [1, 2]))
 select(df11, format("{} is {}", col("name"), col("age")) |> alias("greeting"))
 ```
+
+## Temporal constructors
+
+```@docs
+datetime
+duration
+date
+Base.time(::Any, ::Any, ::Any, ::Any)
+from_epoch
+```
+
+`datetime`/`date`/`Base.time` build a `Datetime`/`Date`/`Dates.Time` column from component
+expressions (year/month/day, hour/minute/second/microsecond); `duration` builds a `Duration`
+column from a set of unit-named components. `from_epoch` is the inverse of `Dt.epoch`: it
+interprets an integer column as a count of `time_unit`s since the Unix epoch.
+
+```@example functions
+dft = DataFrame((; y = [2024, 2025], m = [1, 6], d = [15, 30]))
+select(dft, datetime(col("y"), col("m"), col("d"); hour = 12) |> alias("dt"))
+```

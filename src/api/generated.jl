@@ -901,6 +901,24 @@ function polars_expr_cast_duration(expr, unit, out)
 end
 
 """
+    polars_expr_datetime(year, month, day, hour, minute, second, microsecond, time_unit, tz, tz_len, ambiguous, ambiguous_len, out)
+
+Component-wise `Datetime` constructor (`pl.datetime`). `ambiguous` controls how a DST fall-back local time resolves; passed through as a string-literal expression, matching upstream's own `DatetimeArgs::ambiguous: Expr` field.
+"""
+function polars_expr_datetime(year, month, day, hour, minute, second, microsecond, time_unit, tz, tz_len, ambiguous, ambiguous_len, out)
+    return @ccall libpolars.polars_expr_datetime(year::Ptr{polars_expr_t}, month::Ptr{polars_expr_t}, day::Ptr{polars_expr_t}, hour::Ptr{polars_expr_t}, minute::Ptr{polars_expr_t}, second::Ptr{polars_expr_t}, microsecond::Ptr{polars_expr_t}, time_unit::polars_time_unit_t, tz::Ptr{UInt8}, tz_len::Csize_t, ambiguous::Ptr{UInt8}, ambiguous_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_duration(weeks, days, hours, minutes, seconds, milliseconds, microseconds, nanoseconds, time_unit, out)
+
+Component-wise `Duration` constructor (`pl.duration`).
+"""
+function polars_expr_duration(weeks, days, hours, minutes, seconds, milliseconds, microseconds, nanoseconds, time_unit, out)
+    return @ccall libpolars.polars_expr_duration(weeks::Ptr{polars_expr_t}, days::Ptr{polars_expr_t}, hours::Ptr{polars_expr_t}, minutes::Ptr{polars_expr_t}, seconds::Ptr{polars_expr_t}, milliseconds::Ptr{polars_expr_t}, microseconds::Ptr{polars_expr_t}, nanoseconds::Ptr{polars_expr_t}, time_unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
     polars_expr_cast_decimal(expr, precision, scale)
 
 Targeted cast to `Decimal(precision, scale)` (`dtype-decimal` is already enabled). polars' own invariant is `1 <= precision <= 38`; violating it surfaces as a normal cast error rather than a panic (`DataType::Decimal` itself does not validate -- `cast` does, at execution time).

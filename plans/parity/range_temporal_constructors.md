@@ -8,7 +8,30 @@
 
 ## Status
 
-**Not started.** Scoped and live-verified against `polars-plan-0.54.4`/`polars-time-0.54.4`'s
+**Tasks 6 and 7 done**, landed via `plans/parity/tier12_low_hanging_parity.md`'s Task 4 rather than
+in this plan's own sequence -- they never needed the `range` Cargo feature (Task 1) and were lifted
+out verbatim. `datetime`, `duration`, `date`, `Base.time`, `from_epoch` are shipped in
+`src/expr/ranges.jl` (created for this, per that plan's Task 4 delta 1), with `DatetimeArgs`/
+`DurationArgs`/`datetime`/`duration` added to `c-polars/src/expr.rs`'s existing `polars_plan::dsl`
+import (delta 2 -- Task 2's `polars_closed_window_t` enum already existed independently in
+`c-polars/src/value.rs`, unrelated to this work). Live-verified: a real IANA time zone
+(`"Europe/Paris"`) round-trips through the ABI with no `incomplete utf-8 byte sequence`, including
+on an *invalid* non-ASCII zone name (`"héllo/Zone"`), which raises a clean `PolarsError` instead.
+The DST fall-back `ambiguous="raise"` path was exercised against the actual 2024-10-27 Paris
+transition and raises `PolarsError`; `"earliest"`/`"latest"` resolve to different UTC offsets
+(confirmed with `TimeZones.jl` loaded). **Two corrections to this plan's own text, found live:**
+Task 6 Step 5's fully-literal `datetime(...)` call does **not** broadcast to the target frame's row
+count in `select` -- no literal expression does in this package (`select(df, alias(lit(5), "r"))`
+on a 3-row frame gives `[5]`, not `[5,5,5]`); this is baseline `select` behavior, not specific to
+`datetime`. And Task 7's own test snippet for `from_epoch(...; time_unit=:d)` reused the `:s`
+fixture (`e=[0, 86400, 172800]`, i.e. epoch-seconds) against the `:d` (day-count) branch, which
+casts the raw integer directly as a day count -- feeding it seconds-shaped numbers produces dates
+in the 2200s, not `Date(1970,1,1)`/`Date(1970,1,3)`/`Date(1970,1,5)`; the shipped test in
+`test/expr/ranges.jl` uses a separate `e=[0,2,4]` fixture for that branch instead. Remaining Tasks
+(1-5, 8) are unstarted and stay scoped as originally written, gated on the `range` Cargo feature
+flip.
+
+**Not started** (Tasks 1-5, 8). Scoped and live-verified against `polars-plan-0.54.4`/`polars-time-0.54.4`'s
 vendored source and the active feature closure (`cargo tree -e features -i polars-plan`), per
 `CLAUDE.md`'s method — not against `Cargo.toml`'s comments. Continues on the current branch
 (`parity-frame-verbs-horizontal-concat`), in the same vein as its recent commits (frame verbs,
@@ -647,7 +670,7 @@ rather than force it through that macro.
   `duration(; weeks=0, days=0, hours=0, minutes=0, seconds=0, milliseconds=0, microseconds=0,
   nanoseconds=0, time_unit::Symbol=:us)::Expr`.
 
-- [ ] **Step 1: Add `polars_expr_datetime`**
+- [x] **Step 1: Add `polars_expr_datetime`**
 
 ```rust
 #[no_mangle]
@@ -693,7 +716,7 @@ pub unsafe extern "C" fn polars_expr_datetime(
 Literal;`). If `.lit()` doesn't resolve for `String` directly, check that trait's actual impl
 target in `polars_plan::dsl` and adjust (this is a normal compile-fix, not a design question).
 
-- [ ] **Step 2: Add `polars_expr_duration`**
+- [x] **Step 2: Add `polars_expr_duration`**
 
 ```rust
 #[no_mangle]
@@ -728,9 +751,9 @@ pub unsafe extern "C" fn polars_expr_duration(
 }
 ```
 
-- [ ] **Step 3: Regenerate + rebuild + restart REPL.**
+- [x] **Step 3: Regenerate + rebuild + restart REPL.**
 
-- [ ] **Step 4: Julia wrappers** — append to `src/expr/ranges.jl`:
+- [x] **Step 4: Julia wrappers** — append to `src/expr/ranges.jl`:
 
 ```julia
 """
@@ -800,7 +823,7 @@ end
 export duration
 ```
 
-- [ ] **Step 5: Exercise live**
+- [x] **Step 5: Exercise live**
 
 ```julia
 using Polars, Dates
@@ -813,7 +836,7 @@ doesn't do anything surprising when every arg is a plain scalar vs. when one is 
 expression (both should produce correct, differently-shaped results — one broadcasts a scalar
 literal, the other varies per row).
 
-- [ ] **Step 6: Write the failing tests, then make them pass**:
+- [x] **Step 6: Write the failing tests, then make them pass**:
 
 ```julia
 @testset "datetime constructor" begin
@@ -836,7 +859,7 @@ Check `test/datatypes/durations.jl` for how this suite already asserts `Duration
 values (likely a `Dates.Period` comparison, not a raw integer) and match that idiom instead of
 guessing.
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ---
 
@@ -852,7 +875,7 @@ guessing.
   microsecond=0)::Expr` (extends `Base.time`, exported), `from_epoch(expr::Expr,
   time_unit::Symbol=:s)::Expr`.
 
-- [ ] **Step 1: Implement, appending to `src/expr/ranges.jl`**
+- [x] **Step 1: Implement, appending to `src/expr/ranges.jl`**
 
 ```julia
 """
@@ -903,7 +926,7 @@ end
 export from_epoch
 ```
 
-- [ ] **Step 2: Exercise live**
+- [x] **Step 2: Exercise live**
 
 ```julia
 using Polars, Dates
@@ -916,7 +939,7 @@ Watch specifically for the `Base.time(hour, ...)` method actually being reachabl
 30)` after `using Polars` in a fresh session (not just inside this module) -- this is the exact
 failure mode the collision note above warns about.
 
-- [ ] **Step 3: Write the failing tests, then make them pass**:
+- [x] **Step 3: Write the failing tests, then make them pass**:
 
 ```julia
 @testset "date constructor" begin
@@ -942,7 +965,7 @@ end
 end
 ```
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ---
 
