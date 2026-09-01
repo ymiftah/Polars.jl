@@ -1248,10 +1248,15 @@ export concat_str
 """
     format(fmt::AbstractString, args...)::Polars.Expr
 
-Formats `args` into `fmt`, where each `{}` placeholder consumes one argument in order (expressions
-or plain scalars). The number of `{}` placeholders must equal the number of `args`, or a
-`PolarsError` is raised. The row-wise counterpart of `Base.string` over several columns; see also
-[`concat_str`](@ref), which joins with a fixed separator instead of a template.
+Formats `args` into `fmt`, where each `{}` placeholder consumes one argument in order. Each
+argument is an `Expr`, or a `String`/`Symbol` naming a column (as in [`col`](@ref)) -- a bare
+numeric literal is **not** accepted here, unlike some other functions in this package; wrap it in
+[`lit`](@ref) first. The number of `{}` placeholders must equal the number of `args`, or a
+`PolarsError` is raised. `fmt` also accepts upstream's `{0}`/`{name}` forms (positional/named
+placeholders, matching `args` by index or resolving `name` directly as a column reference) --
+but not mixed with bare `{}` in the same call. The row-wise counterpart of `Base.string` over
+several columns; see also [`concat_str`](@ref), which joins with a fixed separator instead of a
+template.
 """
 function format(fmt::AbstractString, args...)
     exprs = _expr_vector(args)

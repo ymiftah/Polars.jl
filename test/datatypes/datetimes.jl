@@ -226,7 +226,7 @@ end
     end
 end
 
-@testset "Dt.to_string: upstream's current name for Dt.strftime, same underlying binding" begin
+@testset "Dt.to_string: upstream's current name for Dt.strftime, same underlying binding (py-polars datatypes/test_temporal.py::test_temporal_to_string_iso_default, test_temporal_to_string_error, test_to_string_invalid_format, test_tz_aware_to_string)" begin
     dt_df = DataFrame((; dt = [DateTime(2024, 1, 15, 9, 30, 45)]))
     d_df = DataFrame((; d = [Date(2024, 1, 15), Date(2024, 6, 30)]))
     t_df = DataFrame((; t = [Time(10, 30, 15)]))
@@ -249,7 +249,11 @@ end
     r_unicode = select(d_df, alias(Dt.to_string(col("d"), "jour: %d héllo"), "s"))
     @test r_unicode[:s] == ["jour: 15 héllo", "jour: 30 héllo"]
 
-    # agrees with Dt.strftime, since upstream defines strftime in terms of to_string
+    # agrees with Dt.strftime, since upstream defines strftime in terms of to_string -- confirmed
+    # live against upstream's own Python source (`py-polars/src/polars/expr/datetime.py`):
+    # `strftime` literally calls `self._pyexpr.dt_to_string(format)`, the same binding `to_string`
+    # calls, so this package's shared `polars_expr_dt_strftime` binding for both is not a
+    # simplification, it is exactly upstream's own architecture.
     r_strftime = select(dt_df, alias(Dt.strftime(col("dt"), "%Y-%m-%d %H:%M:%S"), "s"))
     @test r_dt[:s] == r_strftime[:s]
 
@@ -261,6 +265,50 @@ end
     ks = kitchen_sink_df()
     r_null = select(ks, alias(Dt.to_string(col("date"), "%Y-%m-%d"), "s"))
     @test isequal(r_null[:s], ["2024-01-01", "2024-01-02", "2024-01-03", missing])
+
+    # test_temporal_to_string_iso_default: the special sentinel format strings "iso"/"iso:strict"
+    # are not chrono format strings -- they're recognized by name inside the same Rust dispatch and
+    # pass straight through this package's binding unmodified
+    dfdtm = DataFrame((; dtm = [DateTime(1980, 8, 10, 0, 10, 20), DateTime(2010, 10, 20, 8, 25, 35)]))
+    r_iso = select(dfdtm, alias(Dt.to_string(col("dtm"), "iso"), "s"))
+    r_iso_strict = select(dfdtm, alias(Dt.to_string(col("dtm"), "iso:strict"), "s"))
+    @test r_iso[:s][1] == "1980-08-10 00:10:20.000000000" # this package's DateTime columns default to :ns precision
+    @test r_iso_strict[:s][1] == "1980-08-10T00:10:20.000000000" # only the date/time separator differs
+    @test occursin(" ", r_iso[:s][1]) && !occursin("T", r_iso[:s][1])
+    @test occursin("T", r_iso_strict[:s][1])
+
+    r_diso = select(d_df, alias(Dt.to_string(col("d"), "iso"), "s"))
+    @test r_diso[:s] == ["2024-01-15", "2024-06-30"]
+
+    # test_temporal_to_string_iso_default's "polars" format string (`td.dt.to_string("polars")`),
+    # for a component-built Duration column (this package has no literal `timedelta` constructor,
+    # so built via `duration`, this batch's other function under test)
+    lfd = select(
+        lazy(DataFrame((; x = [1]))),
+        alias(
+            duration(;
+                days = [-1, 13, 0], seconds = [-42, 0, 0], hours = [0, 14, 0], microseconds = [0, 1001, 0],
+            ), "td",
+        ),
+    )
+    dfdur = collect(lfd)
+    r_pl = select(dfdur, alias(Dt.to_string(col("td"), "polars"), "s"))
+    @test r_pl[:s] == ["-1d -42s", "13d 14h 1001µs", "0µs"]
+    r_iso_td = select(dfdur, alias(Dt.to_string(col("td"), "iso"), "s"))
+    @test r_iso_td[:s] == ["-P1DT42S", "P13DT14H0.001001S", "PT0S"]
+
+    # test_temporal_to_string_error: "polars" is not a valid to_string format for a non-Duration
+    # dtype
+    @test_throws PolarsError select(d_df, alias(Dt.to_string(col("d"), "polars"), "s"))
+
+    # test_to_string_invalid_format: formatting a timezone-naive Datetime with a tz-dependent
+    # chrono specifier (`%z`) raises cleanly
+    @test_throws PolarsError select(dt_df, alias(Dt.to_string(col("dt"), "%z"), "s"))
+
+    # this package's `to_string`/`strftime` require an explicit format argument -- there is no
+    # zero-argument overload defaulting to `"iso"` the way upstream's `format: str | None = None`
+    # does (Step 8 API divergence: not fixed here, a small independent addition)
+    @test_throws MethodError Dt.to_string(col("d"))
 end
 
 @testset "Dt.iso_year / is_leap_year / century / millennium (py-polars test_dt_extract_datetime_component / test_iso_year / test_is_leap_year)" begin
