@@ -136,21 +136,37 @@ end
     @test r_dt[:b] == [false, true, false]
 end
 
-@testset "arctan2/dot" begin
+@testset "arctan2/dot (py-polars sql/test_trigonometric.py::test_arctan2, expr/test_exprs.py::test_dot_in_group_by, series/test_series.py::test_dot)" begin
+    # quadrant fixture straight from upstream's own arctan2 test (sql/test_trigonometric.py):
+    # y/x = ±√2/2 in every sign combination, covering all four quadrants -- expected values are
+    # the SQL test's ATAN2D degrees fixture converted to radians ([45,-45,135,-135]°)
+    sq = sqrt(2) / 2
+    df_quad = DataFrame((; y = [sq, -sq, sq, -sq], x = [sq, sq, -sq, -sq]))
+    r_quad = select(df_quad, alias(arctan2(col("y"), col("x")), "a"))
+    @test r_quad[:a] ≈ [π / 4, -π / 4, 3π / 4, -3π / 4]
+
     df = DataFrame((; x = [1.0, 2.0, 3.0, 4.0]))
 
     # arctan2(y, x) -- note the y-then-x argument order (matches upstream and C's atan2)
     r = select(df, alias(arctan2(col("x"), lit(1.0)), "a"))
     @test r[:a] ≈ atan.(df[:x], 1.0)
 
-    # quadrant behavior distinguishes arctan2 from plain arctan
-    q = select(DataFrame((;)), alias(arctan2(lit(1.0), lit(-1.0)), "q"))
-    @test only(q[:q]) ≈ 3π / 4
-    @test only(q[:q]) ≉ atan(1.0 / -1.0) # plain arctan gives -π/4, the wrong quadrant
-
     # dot product: sum of elementwise product
     r_dot = select(df, alias(dot(col("x"), col("x")), "d"))
     @test only(r_dot[:d]) == 30.0
+
+    # grouped dot, upstream's exact fixture (expr/test_exprs.py::test_dot_in_group_by): group "a"
+    # is rows 1:3 of x=[1,1,1,1,1,1] against y=[1,2,3,4,5,6] -> 1+2+3=6; group "b" -> 4+5+6=15
+    df_grp = DataFrame(
+        (;
+            group = ["a", "a", "a", "b", "b", "b"],
+            gx = [1, 1, 1, 1, 1, 1],
+            gy = [1, 2, 3, 4, 5, 6],
+        )
+    )
+    r_grp = collect(agg(group_by(lazy(df_grp), "group"; maintain_order = true), alias(dot(col("gx"), col("gy")), "dot")))
+    @test collect(r_grp[:group]) == ["a", "b"]
+    @test collect(r_grp[:dot]) == [6, 15]
 
     # null propagation: dot's sum ignores the null pairwise product, matching Expr::sum
     dfm = DataFrame((; x = Union{Float64, Missing}[1.0, missing]))
@@ -161,9 +177,23 @@ end
     dfm2 = DataFrame((; x = Union{Float64, Missing}[1.0, missing]))
     r_null = select(dfm2, alias(arctan2(col("x"), lit(1.0)), "a"))
     @test isequal(collect(r_null[:a]), [atan(1.0, 1.0), missing])
+
+    # dtype coercion, not a raise: arctan2 non-strictly casts a non-float operand to Float64 --
+    # confirmed against upstream Rust (`crates/polars-expr/src/dispatch/trigonometry.rs`:
+    # `arctan2_on_columns` falls through to `y.cast(&DataType::Float64)?` for any non-float
+    # dtype). A parseable numeric string coerces; an unparseable one becomes `missing`, it does
+    # NOT raise -- unlike the unary trig functions (`sin`, `cosh`, ...), which upstream's own
+    # test_trigonometric_invalid_input asserts DO raise on a String column.
+    df_str = DataFrame((; a = ["1.0", "2.0", "abc"]))
+    r_str = select(df_str, alias(arctan2(col("a"), col("a")), "a"))
+    @test isequal(collect(r_str[:a]), [atan(1.0, 1.0), atan(2.0, 2.0), missing])
+
+    # wrong-dtype raises cleanly for dot (Step 5 -- process-abort check)
+    df_dot_str = DataFrame((; a = ["p", "q", "r"]))
+    @test_throws PolarsError select(df_dot_str, alias(dot(col("a"), col("a")), "d"))
 end
 
-@testset "entropy" begin
+@testset "entropy (py-polars series.py docstring, expr/test_exprs.py::test_entropy)" begin
     df = DataFrame((; y = [1, 1, 2, 2]))
     r = select(df, alias(entropy(col("y")), "e"))
     @test only(r[:e]) ≈ 1.3296613488547582
@@ -175,13 +205,64 @@ end
     # base=2 gives a different value than the natural-log default
     r_base2 = select(df, alias(entropy(col("y"); base = 2), "e"))
     @test only(r_base2[:e]) != only(r[:e])
+
+    # grouped entropy, upstream's exact fixture (expr/test_exprs.py::test_entropy),
+    # normalize=True (our default): three groups over id=[1,2,1,4,5,4,6,7]
+    df_grp = DataFrame(
+        (;
+            group = ["A", "A", "A", "B", "B", "B", "B", "C"],
+            id = [1, 2, 1, 4, 5, 4, 6, 7],
+        )
+    )
+    r_grp = collect(agg(group_by(lazy(df_grp), "group"; maintain_order = true), alias(entropy(col("id"); normalize = true), "id")))
+    @test collect(r_grp[:group]) == ["A", "B", "C"]
+    @test collect(r_grp[:id]) ≈ [1.0397207708399179, 1.371381017771811, 0.0]
+
+    # base/normalize default check (py-polars series.py: `def entropy(self, base=math.e, *,
+    # normalize=True)`) -- Series.entropy() docstring's own example fixture
+    df_doc = DataFrame((; a = [0.99, 0.005, 0.005]))
+    r_doc = select(df_doc, alias(entropy(col("a"); normalize = true), "e"))
+    @test only(r_doc[:e]) ≈ 0.06293300616044681
+
+    # wrong-dtype raises cleanly rather than aborting (Step 5)
+    df_str = DataFrame((; a = ["p", "q", "r"]))
+    @test_throws PolarsError select(df_str, alias(entropy(col("a")), "e"))
 end
 
-@testset "lower_bound/upper_bound" begin
+@testset "lower_bound/upper_bound (py-polars series/test_series.py::test_upper_lower_bounds)" begin
+    # upstream's exact dtype table -- every fixed-width integer type plus the two floats, whose
+    # bounds are ±Inf rather than a finite Float32/Float64 max (a natural mismatch to check: the
+    # generic `typemin`/`typemax` intuition from the integer cases does NOT extend to floats)
+    for (T, lo, hi) in (
+            (Int8, -128, 127), (UInt8, 0, 255),
+            (Int16, -32768, 32767), (UInt16, 0, 65535),
+            (Int32, -2147483648, 2147483647), (UInt32, 0, 4294967295),
+            (Int64, -9223372036854775808, 9223372036854775807), (UInt64, 0, 18446744073709551615),
+        )
+        # upstream's fixture is an EMPTY series (`pl.Series("s", dtype=dtype)`) -- lower_bound/
+        # upper_bound are dtype-derived, not data-derived, so this doubles as the empty-input case
+        df = DataFrame((; x = T[]))
+        r = select(df, alias(lower_bound(col("x")), "lb"), alias(upper_bound(col("x")), "ub"))
+        @test only(r[:lb]) == lo
+        @test only(r[:ub]) == hi
+    end
+
+    for T in (Float32, Float64)
+        df = DataFrame((; x = T[]))
+        r = select(df, alias(lower_bound(col("x")), "lb"), alias(upper_bound(col("x")), "ub"))
+        @test isinf(only(r[:lb])) && only(r[:lb]) < 0
+        @test isinf(only(r[:ub])) && only(r[:ub]) > 0
+    end
+
+    # non-empty Int64 sanity check (matches the previously live-verified fact for this batch)
     df = DataFrame((; y = [1, 1, 2, 2]))
     r = select(df, alias(lower_bound(col("y")), "lb"), alias(upper_bound(col("y")), "ub"))
     @test only(r[:lb]) == typemin(Int64)
     @test only(r[:ub]) == typemax(Int64)
+
+    # wrong-dtype raises cleanly rather than aborting (Step 5)
+    df_str = DataFrame((; a = ["p", "q", "r"]))
+    @test_throws PolarsError select(df_str, alias(lower_bound(col("a")), "lb"))
 end
 
 @testset "to_physical" begin
@@ -192,4 +273,13 @@ end
     df_date = DataFrame((; d = [Date(1970, 1, 2), Date(1970, 1, 1)]))
     r_date = select(df_date, alias(to_physical(col("d")), "p"))
     @test r_date[:p] == Int32[1, 0] # days since epoch
+
+    # casting a categorical results in a UInt32 physical repr (upstream's exact assertion,
+    # `s.to_physical().dtype == pl.UInt32`, series/test_series.py::test_to_physical); this
+    # package has no `Enum` dtype (upstream's other to_physical case, Enum -> UInt8), so that half
+    # of the upstream test doesn't port -- see the parity note's Step 8 divergence entry
+    df_cat = DataFrame((; c = ["cat1"]))
+    r_cat = select(df_cat, alias(cast_categorical(col("c")) |> to_physical, "p"))
+    @test collect(r_cat[:p]) isa AbstractVector{UInt32}
+    @test only(collect(r_cat[:p])) == 0x00000000
 end
