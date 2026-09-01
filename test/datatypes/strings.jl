@@ -265,12 +265,16 @@ end
 end
 
 @testset "Strings.escape_regex: escapes regex metacharacters so the result matches itself literally" begin
-    df = DataFrame((; s = ["a.b", "c*d"]))
-    r = select(df, alias(Strings.escape_regex(col("s")), "esc"))
-    @test r[:esc] == ["a\\.b", "c\\*d"]
+    # operations/namespaces/string/test_string.py::test_escape_regex -- the exact upstream fixture:
+    # a null alongside a string that mixes several metacharacters, including a literal backslash
+    # (`abc(\w+)` -> `abc\(\\w\+\)`, escaping the backslash itself as well as the parens and `+`)
+    df = DataFrame((; text = Union{String, Missing}["abc", "def", missing, "abc(\\w+)"]))
+    r = select(df, alias(Strings.escape_regex(col("text")), "escaped"))
+    @test isequal(collect(r[:escaped]), ["abc", "def", missing, "abc\\(\\\\w\\+\\)"])
 
     # the escaped pattern matches its own source string literally
-    r_contains = select(df, alias(Strings.contains(col("s"), Strings.escape_regex(col("s"))), "c"))
+    df2 = DataFrame((; s = ["a.b", "c*d"]))
+    r_contains = select(df2, alias(Strings.contains(col("s"), Strings.escape_regex(col("s"))), "c"))
     @test r_contains[:c] == [true, true]
 
     # a string with no metacharacters is left unchanged
@@ -278,8 +282,7 @@ end
     r_plain = select(df_plain, alias(Strings.escape_regex(col("s")), "esc"))
     @test only(r_plain[:esc]) == "hello"
 
-    # null propagation
-    dfm = DataFrame((; s = Union{String, Missing}["a.b", missing]))
-    r_null = select(dfm, alias(Strings.escape_regex(col("s")), "esc"))
-    @test isequal(collect(r_null[:esc]), ["a\\.b", missing])
+    # wrong-dtype raises cleanly rather than aborting the process (Step 5)
+    df_int = DataFrame((; a = [1, 2, 3]))
+    @test_throws PolarsError collect(select(lazy(df_int), alias(Strings.escape_regex(col("a")), "e")))
 end
