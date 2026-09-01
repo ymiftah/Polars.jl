@@ -275,6 +275,135 @@ end
     @test_throws PolarsError hstack(truly_empty, [Series("z", [1, 2, 3])])
 end
 
+@testset "fill_null (frame-level)" begin
+    df = DataFrame((; a = [1, missing, 3], b = [missing, "y", "z"]))
+
+    # `fill_value` is cast to each column's own dtype rather than requiring an exact match --
+    # the Int literal `0` becomes the string `"0"` in `b` (verified live), same as upstream.
+    r = fill_null(df, lit(0))
+    @test collect(r[:a]) == [1, 0, 3]
+    @test collect(r[:b]) == ["0", "y", "z"]
+
+    # LazyFrame form agrees
+    r_lazy = fill_null(lazy(df), lit(0)) |> collect
+    @test isequal(collect(r_lazy[:a]), collect(r[:a]))
+    @test isequal(collect(r_lazy[:b]), collect(r[:b]))
+
+    # distinct from the `Expr`-level `fill_null`, which only touches the column it's called on
+    r_expr = select(df, alias(fill_null(col("a"), lit(0)), "a"))
+    @test collect(r_expr[:a]) == [1, 0, 3]
+end
+
+@testset "cast (frame-level)" begin
+    df = DataFrame((; a = [1, 2, missing], b = ["x", "y", "z"]))
+
+    # AbstractDict form: only the named column(s) change, everything else is untouched
+    r = cast(df, Dict("a" => Float64))
+    @test eltype(collect(r[:a])) == Union{Missing, Float64}
+    @test isequal(collect(r[:a]), [1.0, 2.0, missing])
+    @test collect(r[:b]) == ["x", "y", "z"]
+
+    # strict=false (default): overflow becomes `missing` rather than raising
+    df_overflow = DataFrame((; a = [300]))
+    r_nonstrict = cast(df_overflow, Dict("a" => UInt8))
+    @test ismissing(r_nonstrict[:a][1])
+    # strict=true raises instead
+    @test_throws PolarsError cast(df_overflow, Dict("a" => UInt8); strict = true)
+
+    # single-`Type` form: every column is cast, including numeric ones together
+    df_num = DataFrame((; a = [1, 2, 3], b = [4.0, 5.0, 6.0]))
+    r_all = cast(df_num, Float32)
+    @test eltype(collect(r_all[:a])) == Float32
+    @test eltype(collect(r_all[:b])) == Float32
+
+    # non-strict (default): a non-numeric String column casts to `missing` per row rather than
+    # raising -- matches the single-`Expr` `cast`'s own non-strict convention
+    r_str = cast(df, Float64)
+    @test isequal(collect(r_str[:a]), [1.0, 2.0, missing])
+    @test all(ismissing, collect(r_str[:b]))
+    # strict=true does raise on that same non-numeric column
+    @test_throws PolarsError cast(df, Float64; strict = true)
+
+    # LazyFrame form agrees, for both call shapes
+    r_lazy_dict = cast(lazy(df), Dict("a" => Float64)) |> collect
+    @test isequal(collect(r_lazy_dict[:a]), collect(r[:a]))
+    r_lazy_all = cast(lazy(df_num), Float32) |> collect
+    @test eltype(collect(r_lazy_all[:a])) == Float32
+
+    # a dtype the plain FFI type code can't carry (needs a time unit/zone) is a clean Julia-side
+    # error, not a silent misconversion -- the scope cut documented on `Polars.cast`(df, dtype)
+    @test_throws ErrorException cast(df_num, DateTime)
+end
+
+@testset "frame-level aggregations (sum/mean/min/max/median/std/var/quantile/prod)" begin
+    df = DataFrame((; a = [1, 2, 3, 4], b = [4.0, 5.0, 6.0, 7.0]))
+
+    r_sum = Base.sum(df)
+    @test names(r_sum) == ["a", "b"]
+    @test size(r_sum) == (1, 2)
+    @test collect(r_sum[:a]) == [10]
+    @test collect(r_sum[:b]) == [22.0]
+
+    @test collect(mean(df)[:a]) == [2.5]
+    @test collect(Base.min(df)[:a]) == [1]
+    @test collect(Base.max(df)[:a]) == [4]
+    @test collect(median(df)[:a]) == [2.5]
+    @test collect(std(df)[:a]) ≈ [1.2909944487358056]
+    @test collect(var(df)[:a]) ≈ [1.6666666666666667]
+    @test collect(std(df; ddof = 0)[:a]) ≈ [std(collect(df[:a]); corrected = false)]
+    @test collect(quantile(df, 0.5)[:a]) == [3.0]
+
+    # LazyFrame form agrees, for every one of the above
+    @test isequal(collect((Base.sum(lazy(df)) |> collect)[:a]), collect(r_sum[:a]))
+    @test isequal(collect((mean(lazy(df)) |> collect)[:a]), collect(mean(df)[:a]))
+    @test isequal(collect((quantile(lazy(df), 0.5) |> collect)[:a]), collect(quantile(df, 0.5)[:a]))
+
+    # non-numeric (String) column: `missing` in the result rather than a whole-frame `PolarsError`
+    # -- these delegate to upstream's own null-tolerant `LazyFrame::sum`/etc, not a naive
+    # `select(df, sum(col("*")))` composition (verified live: the latter does raise)
+    df_str = DataFrame((; a = [1, 2, 3], s = ["x", "y", "z"]))
+    @test isequal(collect(Base.sum(df_str)[:s]), [missing])
+    @test isequal(collect(mean(df_str)[:s]), [missing])
+    @test isequal(collect(median(df_str)[:s]), [missing])
+
+    # a `Bool` column sums to a `UInt32` count of `true`s, matching upstream (including on an
+    # empty column, per py-polars' own `test_sum_empty_column_names`)
+    df_bool_empty = DataFrame((; x = Bool[], y = Bool[]))
+    r_bool = Base.sum(df_bool_empty)
+    @test collect(r_bool[:x]) == [0]
+    @test collect(r_bool[:y]) == [0]
+    @test eltype(collect(r_bool[:x])) == UInt32
+
+    # nulls are skipped within a column (matching the per-`Expr` aggregation), but an all-null
+    # column has nothing to aggregate and stays `missing`
+    df_null = DataFrame((; a = [1, missing, 3], allnull = [missing, missing, missing]))
+    @test collect(Base.sum(df_null)[:a]) == [4]
+    @test isequal(collect(Base.sum(df_null)[:allnull]), [missing])
+
+    # `prod`: unlike the others, upstream has no `LazyFrame::product` at all -- py-polars'
+    # `DataFrame.product()` is pure-Python, branching per column dtype (numeric or `Bool` computes
+    # a product, anything else becomes `null`), which is what this composes instead. Matches
+    # py-polars' own `test_product` fixture exactly (int/float/two bool columns, one string).
+    df_prod = DataFrame(
+        (;
+            int = [1, 2, 3], flt = [-1.0, 12.0, 9.0],
+            bool_0 = [true, false, true], bool_1 = [true, true, true], str = ["a", "b", "c"],
+        )
+    )
+    r_prod = Base.prod(df_prod)
+    @test names(r_prod) == ["int", "flt", "bool_0", "bool_1", "str"]
+    @test collect(r_prod[:int]) == [6]
+    @test collect(r_prod[:flt]) == [-108.0]
+    @test collect(r_prod[:bool_0]) == [0]
+    @test collect(r_prod[:bool_1]) == [1]
+    @test isequal(collect(r_prod[:str]), [missing])
+
+    # LazyFrame form agrees
+    r_prod_lazy = Base.prod(lazy(df_prod)) |> collect
+    @test collect(r_prod_lazy[:int]) == [6]
+    @test isequal(collect(r_prod_lazy[:str]), [missing])
+end
+
 @testset "vstack" begin
     df1 = DataFrame((; a = [1, 2], b = [10, 20]))
     df2 = DataFrame((; a = [3, 4], b = [30, 40]))

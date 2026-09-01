@@ -502,6 +502,70 @@ void polars_lazy_frame_select(struct polars_lazy_frame_t *df,
 
 void polars_lazy_frame_filter(struct polars_lazy_frame_t *df, const struct polars_expr_t *expr);
 
+/**
+ * Fills every `null` value across all columns of `df` with `fill_value` (an expression, typically
+ * a `lit`). Distinct from `polars_expr_fill_null` (per-expression, inside `select`/`with_columns`).
+ */
+void polars_lazy_frame_fill_null(struct polars_lazy_frame_t *df,
+                                 const struct polars_expr_t *fill_value);
+
+/**
+ * Casts every column of `df` to `dtype`. Only plain (parameter-free) dtypes are reachable here --
+ * same restriction as `polars_expr_cast` -- since `polars_value_type_t` cannot carry a Datetime's
+ * time unit/zone; cast individual columns via `Polars.cast` for that. For casting a *subset* of
+ * columns (upstream's dict form of `DataFrame.cast`), the Julia side composes this from
+ * `with_columns` + the existing per-`Expr` `cast` instead of a dedicated FFI function.
+ */
+const struct polars_error_t *polars_lazy_frame_cast_all(struct polars_lazy_frame_t *lf,
+                                                        enum polars_value_type_t dtype,
+                                                        bool strict,
+                                                        struct polars_lazy_frame_t **out);
+
+void polars_lazy_frame_slice(struct polars_lazy_frame_t *df, int64_t offset, uintptr_t len);
+
+void polars_lazy_frame_top_k(struct polars_lazy_frame_t *df,
+                             uintptr_t k,
+                             const struct polars_expr_t *const *exprs,
+                             uintptr_t nexprs,
+                             const bool *descending,
+                             bool maintain_order);
+
+void polars_lazy_frame_bottom_k(struct polars_lazy_frame_t *df,
+                                uintptr_t k,
+                                const struct polars_expr_t *const *exprs,
+                                uintptr_t nexprs,
+                                const bool *descending,
+                                bool maintain_order);
+
+/**
+ * Whole-frame reductions -- `LazyFrame::sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile`
+ * (`polars-lazy-0.54.4/src/frame/mod.rs`) are genuine methods on the Rust `LazyFrame` itself, not
+ * something this crate composes from `with_columns` + a wildcard selector: unlike the naive
+ * `select(lf, wildcard.sum())` composition, they are null-tolerant per column rather than
+ * erroring the whole frame on the first unsupported dtype (e.g. a `String` column sums to `None`,
+ * per each method's own doc comment) -- verified live before choosing this shape over the
+ * wildcard one. Aggregated columns keep their original names. All eight are infallible plan-build
+ * operations (validated at `collect`, not here), so -- like `polars_lazy_frame_sort`/`slice`
+ * above -- they mutate through `mem::take` and return void rather than threading an error out.
+ */
+void polars_lazy_frame_sum(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_mean(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_min(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_max(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_median(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_std(struct polars_lazy_frame_t *df, uint8_t ddof);
+
+void polars_lazy_frame_var(struct polars_lazy_frame_t *df, uint8_t ddof);
+
+void polars_lazy_frame_quantile(struct polars_lazy_frame_t *df,
+                                const struct polars_expr_t *quantile,
+                                enum polars_quantile_method_t method);
+
 const struct polars_error_t *polars_lazy_frame_collect(struct polars_lazy_frame_t *df,
                                                        enum polars_engine_t engine,
                                                        struct polars_dataframe_t **out);
@@ -717,6 +781,13 @@ const struct polars_error_t *polars_expr_nth(int64_t n, const struct polars_expr
  */
 const struct polars_expr_t *polars_expr_element(void);
 
+/**
+ * `pl.len()`: the number of rows in the current context (a whole frame, or the current group
+ * inside `agg`) -- infallible, just `Expr::Len` (`polars-plan-0.54.4/src/dsl/functions/mod.rs`),
+ * ungated by any Cargo feature.
+ */
+const struct polars_expr_t *polars_expr_len(void);
+
 const struct polars_error_t *polars_expr_coalesce(const struct polars_expr_t *const *exprs,
                                                   uintptr_t n,
                                                   const struct polars_expr_t **out);
@@ -750,6 +821,24 @@ const struct polars_error_t *polars_expr_mean_horizontal(const struct polars_exp
                                                          uintptr_t n,
                                                          bool ignore_nulls,
                                                          const struct polars_expr_t **out);
+
+const struct polars_error_t *polars_expr_concat_list(const struct polars_expr_t *const *exprs,
+                                                     uintptr_t n,
+                                                     const struct polars_expr_t **out);
+
+/**
+ * `pl.concat_str`: row-wise (horizontal) string concatenation across `exprs`, joined by
+ * `separator`. Unlike the `_horizontal` reductions above, upstream's `concat_str` is infallible
+ * (it just builds a `Function` plan node -- see `polars-plan-0.54.4/src/dsl/functions/concat.rs`,
+ * no `polars_ensure!` anywhere in it), but we keep the same fallible ABI shape as its siblings
+ * for uniformity rather than special-casing the one exception.
+ */
+const struct polars_error_t *polars_expr_concat_str(const struct polars_expr_t *const *exprs,
+                                                    uintptr_t n,
+                                                    const uint8_t *separator,
+                                                    uintptr_t separator_len,
+                                                    bool ignore_nulls,
+                                                    const struct polars_expr_t **out);
 
 const struct polars_expr_t *polars_expr_interpolate(const struct polars_expr_t *expr,
                                                     enum polars_interpolation_method_t method);

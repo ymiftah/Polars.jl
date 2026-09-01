@@ -103,3 +103,64 @@ end
     # a scalar `rev` is broadcast over every expression and stays valid
     @test names(sort(df, col("g"), col("v"); rev = true)) == ["g", "v"]
 end
+
+@testset "top_k / bottom_k (frame-level)" begin
+    df = DataFrame((; g = ["a", "b", "a", "b", "a"], v = [3, 1, 5, 2, 4]))
+
+    r_top = top_k(df, 3, col("v"))
+    @test size(r_top) == (3, 2)
+    @test collect(r_top[:v]) == [5, 4, 3]
+
+    r_bottom = bottom_k(df, 2, col("v"))
+    @test collect(r_bottom[:v]) == [1, 2]
+
+    # multi-key `by`, with a per-key `rev` (same convention as `Base.sort` -- see the module note
+    # on `top_k` for why `nulls_last` isn't a parameter here, unlike `sort`)
+    r_multi = top_k(df, 2, col("g"), col("v"); rev = [false, true])
+    @test collect(r_multi[:g]) == ["b", "b"]
+    @test collect(r_multi[:v]) == [1, 2]
+
+    # k larger than the row count returns every row rather than erroring
+    r_over = top_k(df, 100, col("v"))
+    @test size(r_over) == (5, 2)
+
+    # LazyFrame form agrees
+    r_lazy = top_k(lazy(df), 3, col("v")) |> collect
+    @test isequal(collect(r_lazy[:v]), collect(r_top[:v]))
+
+    # `rev` length is validated the same way `sort` validates it
+    @test_throws ArgumentError top_k(df, 2, col("g"), col("v"); rev = [true])
+
+    # distinct from the `Expr`-level `top_k`/`bottom_k` (top/bottom *values* of one column, not
+    # whole rows)
+    r_expr = select(df, alias(top_k(col("v"), lit(3)), "v"))
+    @test Set(collect(r_expr[:v])) == Set([5, 4, 3])
+end
+
+@testset "slice (frame-level)" begin
+    df = DataFrame((; x = collect(1:10)))
+
+    r = slice(df, 2, 3)
+    @test collect(r[:x]) == [3, 4, 5]
+
+    # negative offset counts from the end
+    r_neg = slice(df, -3, 2)
+    @test collect(r_neg[:x]) == [8, 9]
+
+    # a zero-length slice is a valid, empty result rather than an error
+    r_zero = slice(df, 0, 0)
+    @test size(r_zero) == (0, 1)
+
+    # a length longer than what's available is clamped, not an error
+    r_over = slice(df, 8, 100)
+    @test collect(r_over[:x]) == [9, 10]
+
+    # LazyFrame form agrees
+    r_lazy = slice(lazy(df), 2, 3) |> collect
+    @test isequal(collect(r_lazy[:x]), collect(r[:x]))
+
+    # distinct from the `Expr`-level `slice` (slices one expression's own result, not the frame's
+    # rows)
+    r_expr = select(df, alias(slice(col("x"), 2, 3), "x"))
+    @test collect(r_expr[:x]) == [3, 4, 5]
+end

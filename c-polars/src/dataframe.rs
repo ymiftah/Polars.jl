@@ -13,11 +13,14 @@ use polars_core::utils::arrow::{
 use polars_plan::utils::expr_output_name;
 use polars_utils::either::Either;
 
+use crate::expr::polars_quantile_method_t;
 use crate::ffi_util::*;
 use crate::io::{build_ipc_writer_options, build_parquet_write_options};
 use crate::series;
 use crate::types::*;
-use crate::value::{polars_closed_window_t, polars_label_t, polars_start_by_t};
+use crate::value::{
+    polars_closed_window_t, polars_label_t, polars_start_by_t, polars_value_type_t,
+};
 use crate::{guard_error, make_error, polars_error_t};
 
 #[no_mangle]
@@ -629,6 +632,178 @@ pub unsafe extern "C" fn polars_lazy_frame_filter(
     let df = &mut (*df).inner;
     // See the `mem::take` comment on `polars_lazy_frame_sort` above.
     *df = std::mem::take(df).filter(predicate);
+}
+
+/// Fills every `null` value across all columns of `df` with `fill_value` (an expression, typically
+/// a `lit`). Distinct from `polars_expr_fill_null` (per-expression, inside `select`/`with_columns`).
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_fill_null(
+    df: *mut polars_lazy_frame_t,
+    fill_value: *const polars_expr_t,
+) {
+    let fill_value = (*fill_value).inner.clone();
+    let df = &mut (*df).inner;
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).fill_null(fill_value);
+}
+
+/// Casts every column of `df` to `dtype`. Only plain (parameter-free) dtypes are reachable here --
+/// same restriction as `polars_expr_cast` -- since `polars_value_type_t` cannot carry a Datetime's
+/// time unit/zone; cast individual columns via `Polars.cast` for that. For casting a *subset* of
+/// columns (upstream's dict form of `DataFrame.cast`), the Julia side composes this from
+/// `with_columns` + the existing per-`Expr` `cast` instead of a dedicated FFI function.
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_cast_all(
+    lf: *mut polars_lazy_frame_t,
+    dtype: polars_value_type_t,
+    strict: bool,
+    out: *mut *mut polars_lazy_frame_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let dtype = tri!(dtype.to_dtype());
+        let wildcard = col(PlSmallStr::from_static("*"));
+        let cast_expr = if strict {
+            wildcard.strict_cast(dtype)
+        } else {
+            wildcard.cast(dtype)
+        };
+        let result = (*lf).inner.clone().with_columns(vec![cast_expr]);
+        *out = make_lazy_frame(result);
+        std::ptr::null()
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_slice(
+    df: *mut polars_lazy_frame_t,
+    offset: i64,
+    len: usize,
+) {
+    let df = &mut (*df).inner;
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).slice(offset, len.min(IdxSize::MAX as usize) as IdxSize);
+}
+
+/// `top_k`/`bottom_k` share this shape with `polars_lazy_frame_sort`, plus the row-count `k` --
+/// both are `sort_by_exprs` + `slice(0, k)` under the hood
+/// (`polars-lazy-0.54.4/src/frame/mod.rs`), so the sort options mean the same thing here as they
+/// do there, with one exception: upstream's own `top_k`/`bottom_k` unconditionally call
+/// `.with_nulls_last(true)` on the options we pass, overriding whatever `nulls_last` we'd thread
+/// through -- so there is no such parameter here (mirroring upstream's own public API, which
+/// doesn't expose one for `top_k`/`bottom_k` either); `maintain_order` is untouched by that override and
+/// is real.
+unsafe fn top_or_bottom_k(
+    df: *mut polars_lazy_frame_t,
+    k: usize,
+    exprs: *const *const polars_expr_t,
+    nexprs: usize,
+    descending: *const bool,
+    maintain_order: bool,
+    bottom: bool,
+) {
+    let exprs = read_exprs(exprs, nexprs);
+    let descending = read_bool_mask(descending, nexprs);
+    let k = k.min(IdxSize::MAX as usize) as IdxSize;
+    let options = SortMultipleOptions {
+        descending,
+        nulls_last: std::iter::repeat_n(false, nexprs).collect(),
+        maintain_order,
+        multithreaded: true,
+        limit: None,
+    };
+    let df = &mut (*df).inner;
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = if bottom {
+        std::mem::take(df).bottom_k(k, &exprs, options)
+    } else {
+        std::mem::take(df).top_k(k, &exprs, options)
+    };
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_top_k(
+    df: *mut polars_lazy_frame_t,
+    k: usize,
+    exprs: *const *const polars_expr_t,
+    nexprs: usize,
+    descending: *const bool,
+    maintain_order: bool,
+) {
+    top_or_bottom_k(df, k, exprs, nexprs, descending, maintain_order, false);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_bottom_k(
+    df: *mut polars_lazy_frame_t,
+    k: usize,
+    exprs: *const *const polars_expr_t,
+    nexprs: usize,
+    descending: *const bool,
+    maintain_order: bool,
+) {
+    top_or_bottom_k(df, k, exprs, nexprs, descending, maintain_order, true);
+}
+
+/// Whole-frame reductions -- `LazyFrame::sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile`
+/// (`polars-lazy-0.54.4/src/frame/mod.rs`) are genuine methods on the Rust `LazyFrame` itself, not
+/// something this crate composes from `with_columns` + a wildcard selector: unlike the naive
+/// `select(lf, wildcard.sum())` composition, they are null-tolerant per column rather than
+/// erroring the whole frame on the first unsupported dtype (e.g. a `String` column sums to `None`,
+/// per each method's own doc comment) -- verified live before choosing this shape over the
+/// wildcard one. Aggregated columns keep their original names. All eight are infallible plan-build
+/// operations (validated at `collect`, not here), so -- like `polars_lazy_frame_sort`/`slice`
+/// above -- they mutate through `mem::take` and return void rather than threading an error out.
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_sum(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).sum();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_mean(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).mean();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_min(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).min();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_max(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).max();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_median(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).median();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_std(df: *mut polars_lazy_frame_t, ddof: u8) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).std(ddof);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_var(df: *mut polars_lazy_frame_t, ddof: u8) {
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).var(ddof);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_quantile(
+    df: *mut polars_lazy_frame_t,
+    quantile: *const polars_expr_t,
+    method: polars_quantile_method_t,
+) {
+    let quantile = (*quantile).inner.clone();
+    let df = &mut (*df).inner;
+    *df = std::mem::take(df).quantile(quantile, method.to_quantile_method());
 }
 
 #[no_mangle]

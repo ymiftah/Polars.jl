@@ -120,7 +120,7 @@ caller's need.
 | `clip_min` / `clip_max` | `round_series` ✓ active | two-sided `clip` already wrapped; these are the single-sided forms |
 | `bottom_k` | `top_k` ✓ active | mirrors existing `polars_expr_top_k` almost exactly |
 | `shift_and_fill` | UNGATED | Batch 4's `shift(n, fill_value=)` gap |
-| `strict_cast` | UNGATED | Batch 6 + Batch 8 both hit this. Our `cast` is hardwired non-strict, so overflow → `missing` where upstream raises. Expose as `cast(expr, T; strict=false)`. |
+| `strict_cast` | UNGATED | **Closed** (verified live 2026-08-25, see `plans/parity/api_gap_audit.md`'s Status) — `cast(expr, T; strict=true)` already dispatches to `polars_expr_strict_cast`; this row's own suggested spelling (`strict=false`) was simply the wrong default to describe the *strict* branch. Batch 6 + Batch 8 both hit the original gap. |
 | `Expr.item()` | UNGATED (`item(allow_empty)`) | Batch 2's Step-9 finding — verified today that only `DataFrame`/`Series` `item` exist |
 | `explode` opts | UNGATED (`ExplodeOptions{empty_as_null, keep_nulls}`) | Batch 9. Both `LazyFrame::explode` and `Expr::explode` take it. Upstream now deprecation-warns on every call site that omits `empty_as_null`. |
 
@@ -151,7 +151,7 @@ worktree. So do not trickle these out one wave at a time; land them together.
 | `list_sample` | `Lists.sample_n`, `Lists.sample_fraction` |
 | `list_to_struct` | `Lists.to_struct` |
 | `dtype-array` | `Lists.to_array` (and Array dtype generally, which several excluded upstream tests need) |
-| `concat_str` | Batch 7's `Strings.join` (aggregating join-with-separator, incl. `ignore_nulls`) |
+| `concat_str` | Batch 7's `Strings.join` (aggregating join-with-separator, incl. `ignore_nulls`) — **closed**. The feature also gates the unrelated top-level `pl.concat_str`/`pl.concat_list` (row-wise horizontal concat), which this row didn't mention; those are **closed** too, as of 2026-08-25 — see `plans/parity/api_gap_audit.md`'s Status. |
 | `extract_groups` | Batch 7's named-capture-group extraction into a Struct column |
 | `json` | Batch 9's `Structs.json_encode` |
 
