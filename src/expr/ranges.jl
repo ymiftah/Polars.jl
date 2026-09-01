@@ -87,9 +87,17 @@ Constructs a `Dates.Time` column from component expressions (or plain scalars). 
 `Base.time` (which takes no arguments and returns wall-clock seconds) rather than shadowing it --
 same precedent as this package's `Base.get`/`Base.sort`/`Base.tail` extensions in
 `src/expr/expr.jl`.
+
+Arguments are constrained to `Expr`/`Real` rather than left untyped: `time` is both a `Base`
+function and exported from here, so an `Any`-typed extension would capture *every* two-to-four
+argument `time(...)` call in any downstream session, turning what should be a `MethodError` into a
+confusing failure inside expression construction.
 """
-Base.time(hour, minute = 0, second = 0, microsecond = 0) =
-    Dt.time(datetime(1970, 1, 1; hour, minute, second, microsecond))
+const _TimeComponent = Union{Expr, Real}
+Base.time(
+    hour::_TimeComponent, minute::_TimeComponent = 0,
+    second::_TimeComponent = 0, microsecond::_TimeComponent = 0,
+) = Dt.time(datetime(1970, 1, 1; hour, minute, second, microsecond))
 
 export time
 
