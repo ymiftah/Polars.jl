@@ -182,6 +182,50 @@ which had silently forced two `@ref` links in `format`'s and `concat_arr`'s own 
 plain backticks to avoid a docs-build failure. Both are now in the same `@docs` block as
 `format`/`concat_arr`, and the two downgraded links are restored to `@ref`.
 
+**2026-09-01, same day: `pypolars-test-parity` sweep of everything the above added.** The tests
+written alongside those 25 functions were derived from *live-observed behavior of this
+implementation* rather than from upstream fixtures -- the exact anti-pattern
+`.claude/skills/pypolars-test-parity/` exists to prevent, since such a test pins whatever we
+already do and can never detect that we diverge from polars. All 25 were re-swept against upstream's
+own fixtures in four batches, each with its own note:
+[frame verbs](tier12-sweep-frame-verbs.md), [Expr math](tier12-sweep-expr-math.md),
+[Expr manipulation](tier12-sweep-expr-manipulation.md), [temporal/top-level](tier12-sweep-temporal.md).
+Test count went 3116 -> 3304 (+188) with 4 -> 6 `@test_broken`.
+
+The sweep paid for itself: **three user-visible wrong answers and one shape divergence that the
+original tests all passed against.**
+
+- **`from_epoch` silently truncated sub-second precision** -- `:s`/`:ms` scaled to `Datetime(:ms)`
+  instead of upstream's x1,000,000/x1,000-then-`Datetime(:us)`, losing five digits on upstream's own
+  fractional-second fixture (`-609066.723456` gave `.277`, not `.276544`). Fixed in
+  `src/expr/ranges.jl`; a `String` input at `:s`/`:ms` now raises `PolarsError` rather than silently
+  becoming `missing`.
+- **`date`/`Base.time` never aliased their output column** -- both compose over `datetime`, whose
+  output is always named `"datetime"`; upstream's `pl.date`/`pl.time` rename to `"date"`/`"time"`.
+  Fixed.
+- **`null_count`/`count` on a 0-column frame** return shape `(0,0)` here vs upstream's `(1,0)`. Ours
+  are `collect .∘ verb .∘ lazy` and so hit `LazyFrame::null_count()`, while py-polars' eager
+  `DataFrame.null_count()` uses a different binding that special-cases zero columns. Rust-side, not
+  a marshalling bug -- 2 `@test_broken` in `test/operations/frame_verbs.jl`.
+- **`datetime`'s output column is always named `"datetime"`**, never the left-hand argument's name.
+  The vendored `polars-plan` 0.54.4 source carries a `// TODO: follow left-hand rule in Polars 2.0`
+  for exactly this -- upstream behavior, not ours; 2 `@test_broken`.
+
+Non-bugs worth recording, each verified against upstream source rather than assumed: `arctan2` on a
+String column non-strictly casts to `Float64` rather than raising (upstream's own
+`arctan2_on_columns` dispatch does this, same shape as `cbrt`'s already-recorded behavior);
+`reshape`'s `-1` is inferrable only in the first dimension **upstream too**; `shuffle` reproduces
+upstream's pinned permutation bit-for-bit at `seed=1`; `entropy`'s `base`/`normalize` defaults match
+upstream's documented value exactly. `reshape(expr)` with zero dimensions panics inside
+`polars-plan`'s schema resolution but is caught by `guard_error` and surfaces as a clean
+`PolarsError` -- the FFI panic-safety net working as designed, now pinned by a test.
+
+Two API divergences recorded rather than closed (Step 8): there is no top-level
+`escape_regex(::AbstractString)` (only the `Expr`-level `Strings.escape_regex`; upstream keeps
+`pl.escape_regex` and `Expr.str.escape_regex` separate), and `dot`/`arctan2` take a Julia `String`
+as a string *literal* rather than as `col(name)` -- pre-existing package-wide
+`gen_impl_expr_binary!` convention, not new.
+
 Read alongside its two siblings, which cover different slices of the same problem:
 
 - [`LEDGER.md`](LEDGER.md) — the py-polars *test*-parity sweep (batches 0-9 done, 10-14 unswept).
