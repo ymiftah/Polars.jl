@@ -180,3 +180,16 @@ end
     write_parquet(local_path, df)
     @test read_parquet(local_path)[:x] == df[:x]
 end
+
+@testset "large all-true Boolean column round-trips without panicking (py-polars test_sink_boolean_panic_25806)" begin
+    # upstream's regression is specifically about a boolean-encoding panic at a large
+    # (>morsel-size) row count in the streaming sink engine; this wrapper doesn't expose that
+    # engine's internals directly, so this is a black-box round-trip smoke test at a comparable
+    # scale rather than a reproduction of the exact original crash path.
+    df = DataFrame((; bool = fill(true, 300_000)))
+    path = mktempdir() * "/large_bool.parquet"
+    write_parquet(path, df)
+    r = read_parquet(path)
+    @test size(r) == size(df)
+    @test all(collect(r[:bool]))
+end

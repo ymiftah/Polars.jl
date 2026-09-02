@@ -143,6 +143,11 @@ end
 
     r_default = Base.tail(df)
     @test size(r_default) == (5, 1) # default n=5, matching head's default
+
+    # a negative n must raise a clear ArgumentError, not the bare `InexactError` that leaked
+    # through before this was fixed alongside test/lazyframe/head.jl's identical `head` case (the
+    # underlying FFI takes an unsigned `usize`, so there's no `height + n` convenience here)
+    @test_throws ArgumentError Base.tail(df, -2)
 end
 
 @testset "upsample" begin

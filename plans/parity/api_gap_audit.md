@@ -488,6 +488,22 @@ latter to add entries.
 for batches 1-7 (all merged), the 211-row per-function table is entirely stale, and its `## Status`
 preamble still describes a pre-sweep baseline.
 
+**Batch 13 findings** (`lazyframe/scan_*.jl`, `sink_*.jl`, `collect_schema.jl`, `head.jl` vs.
+`io/test_csv.py`, `test_ipc.py`, `test_lazy_csv.py`, `test_lazy_ipc.py`, `test_lazy_parquet.py`,
+`test_parquet.py`, `test_scan_options.py`, `test_sink.py`, `lazyframe/test_collect_schema.py` —
+combined ~13,700 lines, two files over 3000 lines each; triaged via `grep` for named-regression
+tests given the scale — see `plans/parity/batch-13-io-lazyframe.md`): **one real bug fixed**:
+
+- **`head(df, n)`/`tail(df, n)` crashed with a bare `InexactError` on a negative `n`**, instead of
+  either supporting it or rejecting it cleanly. The underlying `polars_lazy_frame_head`/`_tail` FFI
+  functions take an unsigned `usize`; upstream's own Python-level `.head(n=-2)` negative-index
+  convenience (`height + n`) is implemented in Python before ever reaching Rust, so it was never
+  ported here — but the missing case fell through to an unguarded `@ccall` type-coercion failure
+  rather than a clear rejection. Fixed with an explicit `n >= 0` check raising a descriptive
+  `ArgumentError` in both `head` and `tail` (`src/select.jl`); negative-`n` support itself remains
+  unimplemented (would need `DataFrame`'s known height, straightforward, vs. `LazyFrame`'s
+  unknown height without materializing, not straightforward) and is not attempted here.
+
 ## Caveats
 
 1. ~~The `Selectors.array()` staleness claim (Group 0).~~ **Resolved** — closed on `main`, see
