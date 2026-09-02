@@ -89,3 +89,11 @@ end
 
     @test_throws PolarsError as_struct()
 end
+
+@testset "horizontal reductions: mismatched-length inputs raise cleanly (py-polars test_shape_mismatch_19336)" begin
+    for f in (min_horizontal, max_horizontal, sum_horizontal, mean_horizontal)
+        @test_throws PolarsError select(
+            DataFrame(NamedTuple()), f(lit(Series(:_, [1, 2, 3])), lit(Series(:_, [1, 2])))
+        )
+    end
+end

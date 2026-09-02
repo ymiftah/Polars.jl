@@ -488,6 +488,29 @@ latter to add entries.
 for batches 1-7 (all merged), the 211-row per-function table is entirely stale, and its `## Status`
 preamble still describes a pre-sweep baseline.
 
+**Batch 14 findings** (`expr/selectors.jl`, `meta.jl`, `horizontal.jl`, `naming.jl`, `sample.jl`,
+`curried_forms.jl`, `misc.jl` vs. `operations/test_selectors.py`,
+`operations/namespaces/test_meta.py`, `expr/test_meta.py`, `operations/namespaces/test_name.py`,
+`functions/test_horizontal.py`, `operations/aggregation/test_horizontal.py`,
+`operations/test_random.py`, `functions/test_col.py`, `functions/test_nth.py` — see
+`plans/parity/batch-14-selectors-misc.md`): 3 fixtures ported, 3 gaps recorded:
+
+- **`Meta` is missing `is_scalar`, `is_known_length`, `is_row_separable`, `is_length_preserving`,
+  and `eq`** — confirmed absent via `grep` across `src/expr/meta.jl` while porting
+  `expr/test_meta.py`'s `test_meta_properties`/`test_meta_eq_tot_cmp_28469`. Every other `Meta`
+  introspection method this repo already has (`output_name`, `is_column`, `is_literal`,
+  `has_multiple_outputs`, `root_names`, `undo_aliases`, `tree_format`, `show_graph`) has a
+  corresponding upstream `expr.meta.*` counterpart; these five don't yet.
+- **`nth` has no multi-argument or vector form.** Upstream's `pl.nth(2, 1)` and `pl.nth([2, -2,
+  0])` both select several columns in one call; this wrapper's `nth(n)` takes exactly one integer
+  (`src/expr/expr.jl`). A minor but real surface gap — every other multi-column selector
+  (`by_name`, `by_index`) already accepts varargs.
+- **No `shuffle` option on `sample_n`/`sample_frac`.** Upstream's `df.sample(n=3, shuffle=False,
+  ...)` preserves the sampled rows' original relative order; confirmed absent via `grep` across
+  `src/expr/expr.jl`'s sampling functions. There is also no frame-level `sample` at all here
+  (`sample_n`/`sample_frac` are `Expr`-only), matching the existing pattern where several
+  DataFrame-level convenience methods (noted elsewhere in this audit) aren't ported.
+
 ## Caveats
 
 1. ~~The `Selectors.array()` staleness claim (Group 0).~~ **Resolved** — closed on `main`, see
