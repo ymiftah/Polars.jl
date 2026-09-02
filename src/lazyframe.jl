@@ -87,3 +87,32 @@ function collect_schema(df::LazyFrame)
     polars_error(err)
     return load_dataframe_schema(out[])
 end
+
+"""
+    explain(df::LazyFrame; optimized::Bool=true)::String
+
+Renders `df`'s query plan as text. With `optimized=true` (the default) this is the plan polars will
+actually execute, after predicate/projection pushdown and the other optimizer passes; with
+`optimized=false` it is the plan exactly as built.
+"""
+function explain(df::LazyFrame; optimized::Bool = true)
+    io = Ref(IOBuffer())
+    callback = _io_callback()
+    err = API.polars_lazy_frame_explain(df, optimized, io, callback)
+    polars_error(err)
+    return String(take!(io[]))
+end
+
+"""
+    cache(df::LazyFrame)::LazyFrame
+
+Marks `df`'s subtree for caching, so a plan that consumes it more than once evaluates it once.
+Advisory: it changes evaluation strategy, never results.
+"""
+function cache(df::LazyFrame)
+    out = clone(df)
+    API.polars_lazy_frame_cache(out)
+    return out
+end
+
+export explain, cache

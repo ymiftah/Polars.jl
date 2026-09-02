@@ -78,6 +78,22 @@ reported as nullable (`Union{T,Missing}`); compare with `Tables.schema` on an al
 collect_schema(lf)
 ```
 
+## Inspecting and controlling the plan
+
+```@docs
+explain
+cache
+```
+
+`explain` renders the query plan as text; with `optimized=true` (the default) it's the plan
+polars will actually execute, after predicate/projection pushdown and the other optimizer passes.
+`cache` marks a subtree for caching, so a plan that consumes it more than once evaluates it only
+once -- advisory, it never changes results.
+
+```@example lazyframe
+println(explain(lf))
+```
+
 ## GroupBy
 
 ```@docs
