@@ -135,13 +135,7 @@ py-polars), rather than this package's default `PrettyTables.jl`-based `Base.sho
 for comparing against upstream output or when you specifically want the canonical polars text
 form.
 """
-function native_repr(df::DataFrame)
-    io = Ref(IOBuffer())
-    callback = _io_callback()
-    err = API.polars_dataframe_show(df, io, callback)
-    polars_error(err)
-    return String(take!(io[]))
-end
+native_repr(df::DataFrame) = String(_io_read((io, cb) -> API.polars_dataframe_show(df, io, cb)))
 
 function _pretty_tables_highlighter_func(data, i::Integer, j::Integer)
     try

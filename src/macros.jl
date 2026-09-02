@@ -148,6 +148,24 @@ duration of the call -- no additional `GC.@preserve` is needed for the string ha
 """
 _nullable_str(s::Union{Nothing, AbstractString}) = s === nothing ? (Ptr{UInt8}(C_NULL), 0) : (s, ncodeunits(s))
 
+"""
+    _io_read(f) -> Vector{UInt8}
+
+Calls `f(io::Ref{IOBuffer}, callback)` -- expected to invoke one `API.polars_*` ccall taking `io`
+and `callback` as its trailing two arguments and returning a `*const polars_error_t`-shaped `err`
+-- checks that `err` via [`polars_error`](@ref), and returns the bytes `f` wrote into `io[]`.
+Shared by every FFI site that streams bytes back into a *fresh* Julia value (contrast
+`write_csv`/`write_parquet`, which stream into a caller-supplied `io`, and so build their own
+`_io_callback()`/`Ref(io)` pair directly rather than through this helper).
+"""
+function _io_read(f)
+    io = Ref(IOBuffer())
+    callback = _io_callback()
+    err = f(io, callback)
+    polars_error(err)
+    return take!(io[])
+end
+
 """Processes one argument node from a `@curry` target signature, returning
 `(decl_node, name, forward_expr)`:
 - `decl_node` is what goes in the *curry's own* signature (same node, except an `::Expr`

@@ -58,26 +58,12 @@ end
 
 function load_value(value::Value{String})
     polars_value_type(value) == PolarsValueTypeNull && return missing
-
-    io = Ref(IOBuffer())
-    callback = _io_callback()
-
-    err = polars_value_string_get(value, io, callback)
-    polars_error(err)
-
-    return String(take!(io[]))
+    return String(_io_read((io, cb) -> polars_value_string_get(value, io, cb)))
 end
 
 function load_value(value::Value{Vector{UInt8}})
     polars_value_type(value) == PolarsValueTypeNull && return missing
-
-    io = Ref(IOBuffer())
-    callback = _io_callback()
-
-    err = polars_value_binary_get(value, io, callback)
-    polars_error(err)
-
-    return take!(io[])
+    return _io_read((io, cb) -> polars_value_binary_get(value, io, cb))
 end
 
 """List elements materialize as a plain `Vector` (see `parse_format`'s `+l`/`+L` arm in
