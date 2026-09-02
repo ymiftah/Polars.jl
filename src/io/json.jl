@@ -99,10 +99,7 @@ function write_json(io::IO, df::DataFrame)
     polars_error(err)
     return nothing
 end
-function write_json(p::String, df::DataFrame)
-    occursin("://", p) && error("write_json writes local files only; there is no cloud sink for plain JSON")
-    return open(io -> write_json(io, df), p, "w")
-end
+@wrap_path_writer write_json "write_json writes local files only; there is no cloud sink for plain JSON"
 
 """
     write_ndjson(io::IO, df::DataFrame)
@@ -120,10 +117,7 @@ function write_ndjson(io::IO, df::DataFrame)
     polars_error(err)
     return nothing
 end
-function write_ndjson(p::String, df::DataFrame)
-    occursin("://", p) && error("write_ndjson writes local files; use sink_ndjson for cloud URIs")
-    return open(io -> write_ndjson(io, df), p, "w")
-end
+@wrap_path_writer write_ndjson "write_ndjson writes local files; use sink_ndjson for cloud URIs"
 
 """
     sink_ndjson(lf::LazyFrame, path::String; kwargs...)

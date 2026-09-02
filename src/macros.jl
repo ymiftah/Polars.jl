@@ -166,6 +166,31 @@ function _io_read(f)
     return take!(io[])
 end
 
+"""
+    @wrap_path_writer fname errmsg
+
+**Use this when** an `fname(io::IO, df::DataFrame; kwargs...)` primal already exists and a
+`path::String` local-file sibling is all that's missing. Generates:
+
+    fname(p::String, df::DataFrame; kwargs...) = begin
+        occursin("://", p) && error(errmsg)
+        open(io -> fname(io, df; kwargs...), p, "w")
+    end
+
+Not a fit for `write_parquet`, whose `path::String` sibling *routes* a `"://"` path to
+`sink_parquet` instead of erroring -- the one asymmetric case, which stays hand-written.
+"""
+macro wrap_path_writer(fname, errmsg)
+    return esc(
+        quote
+            function $fname(p::String, df::DataFrame; kwargs...)
+                occursin("://", p) && error($errmsg)
+                return open(io -> $fname(io, df; kwargs...), p, "w")
+            end
+        end
+    )
+end
+
 """Processes one argument node from a `@curry` target signature, returning
 `(decl_node, name, forward_expr)`:
 - `decl_node` is what goes in the *curry's own* signature (same node, except an `::Expr`

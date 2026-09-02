@@ -196,10 +196,7 @@ function write_csv(
     polars_error(err)
     return nothing
 end
-function write_csv(p::String, df::DataFrame; kwargs...)
-    occursin("://", p) && error("write_csv writes local files; use sink_csv for cloud URIs")
-    return open(io -> write_csv(io, df; kwargs...), p, "w")
-end
+@wrap_path_writer write_csv "write_csv writes local files; use sink_csv for cloud URIs"
 
 """
     sink_csv(lf::LazyFrame, path::String; kwargs..., compression::Symbol=:uncompressed,

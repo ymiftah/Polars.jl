@@ -118,10 +118,7 @@ function write_ipc(
     polars_error(err)
     return nothing
 end
-function write_ipc(p::String, df::DataFrame; kwargs...)
-    occursin("://", p) && error("write_ipc writes local files; use sink_ipc for cloud URIs")
-    return open(io -> write_ipc(io, df; kwargs...), p, "w")
-end
+@wrap_path_writer write_ipc "write_ipc writes local files; use sink_ipc for cloud URIs"
 
 """
     sink_ipc(lf::LazyFrame, path::String; kwargs...)
