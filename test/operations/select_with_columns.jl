@@ -50,6 +50,19 @@ end
     @test Tables.columnnames(wc_overwrite) == (:x, :y)
     @test wc_overwrite[:x] == [10, 20, 30]
     @test wc_overwrite[:y] == [10, 20, 30]
+
+    # zero expressions is a genuine no-op, not an error (py-polars test_with_columns_empty)
+    wc_empty = with_columns(df)
+    @test Tables.columnnames(wc_empty) == (:x, :y)
+    @test wc_empty[:x] == df[:x]
+end
+
+@testset "select duplicate output name (py-polars test_select_duplicate_name)" begin
+    # this is a Step-5-priority abort-safety check: two expressions producing the same output
+    # name must be a clean PolarsError, not a process abort -- it's caught by the query planner
+    # before any data is touched
+    df = DataFrame((; x = [1]))
+    @test_throws PolarsError select(df, col("x"), col("x"))
 end
 
 @testset "Symbol column references (Julia-side P2.4)" begin

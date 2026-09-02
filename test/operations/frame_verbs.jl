@@ -91,6 +91,27 @@ end
     # expressions, see test/operations/select_with_columns.jl)
     r_all = drop(df, ["a", "b", "c"])
     @test size(r_all) == (0, 0)
+
+    # py-polars test_drop: "*" wildcard-drops every column (shape (3, 0)). Confirmed divergence,
+    # live-verified: our `drop` calls the Rust `Selector::ByName` primitive directly with the
+    # literal string "*", which has no glob meaning there (unlike `col("*")`'s expression-level
+    # wildcard) -- it looks for an actual column named "*" and raises `ColumnNotFoundError`-
+    # equivalent instead. See plans/parity/api_gap_audit.md Group 1.
+    @test_broken size(drop(df, ["*"])) == (3, 0)
+end
+
+@testset "drop_nulls: empty explicit subset does NOT no-op here (py-polars test_drop_nulls_empty_subset diverges)" begin
+    # Upstream distinguishes subset=None (check all columns, the default) from subset=[]
+    # (explicitly check zero columns -> nothing can be null -> unchanged). Our FFI layer collapses
+    # both onto the same `None` (see `c-polars/src/ffi_util.rs::selector_by_name_opt`'s doc
+    # comment), so an explicitly-empty `String[]` here means "check all columns", the same as
+    # omitting the argument -- not upstream's no-op. Confirmed live: both give the same (smaller)
+    # result on a frame where every row has a null somewhere.
+    df = DataFrame((; a = [1, missing], b = [missing, 2]))
+    r_explicit_empty = drop_nulls(df, String[])
+    r_default = drop_nulls(df)
+    @test size(r_explicit_empty) == size(r_default) == (0, 2)
+    @test_broken size(drop_nulls(df, String[])) == (2, 2)  # upstream: explicit [] is a no-op
 end
 
 @testset "rename" begin
@@ -110,6 +131,24 @@ end
 
     # rename creating a name collision should error
     @test_throws PolarsError Base.rename(df, ["a", "b"], ["X", "X"])
+
+    # simultaneous swap (a<->b): both renames apply against the ORIGINAL names, not sequentially
+    # -- a naive sequential rename would either collide or silently lose a column
+    # (py-polars test_rename_swap)
+    df_swap = DataFrame((; a = [1, 2, 3, 4, 5], b = [5, 4, 3, 2, 1]))
+    r_swap = Base.rename(df_swap, ["a", "b"], ["b", "a"])
+    @test Tables.columnnames(r_swap) == (:b, :a)
+    @test r_swap[:a] == [5, 4, 3, 2, 1]
+    @test r_swap[:b] == [1, 2, 3, 4, 5]
+
+    # identity rename(s) -- renaming a column to its own current name is a no-op, not an error,
+    # including when every column is renamed to itself at once (py-polars test_rename_same_name)
+    df_id = DataFrame((; nrs = [1, 2, 3], groups = ["A", "B", "C"]))
+    r_id_one = Base.rename(df_id, ["groups"], ["groups"])
+    @test Tables.columnnames(r_id_one) == (:nrs, :groups)
+    r_id_all = Base.rename(df_id, ["nrs", "groups"], ["nrs", "groups"])
+    @test Tables.columnnames(r_id_all) == (:nrs, :groups)
+    @test r_id_all[:groups] == df_id[:groups]
 end
 
 @testset "drop_nulls (frame-level)" begin
@@ -178,6 +217,40 @@ end
     r_unstable = upsample(df, "time"; every = "1h", stable = false)
     @test size(r_unstable) == (4, 2)
     @test r_unstable[:time] |> collect |> sort == r[:time] |> collect |> sort
+
+    # `Date` (not just `DateTime`) works too (py-polars test_upsample_date)
+    df_date = DataFrame((; date = [Date(2025, 1, 1), Date(2026, 1, 1)]))
+    r_date = upsample(df_date, "date"; every = "3mo")
+    @test collect(r_date[:date]) ==
+        [Date(2025, 1, 1), Date(2025, 4, 1), Date(2025, 7, 1), Date(2025, 10, 1), Date(2026, 1, 1)]
+
+    # a calendar duration ("1h") against a plain integer time column is a Step-5 abort-safety
+    # check: upstream needs its own index-duration syntax ("2i") there, and raises cleanly rather
+    # than misinterpreting the unit (py-polars test_upsample_index_invalid)
+    df_int = DataFrame((; index = Int64[1, 2, 4, 5, 7]))
+    @test_throws PolarsError upsample(df_int, "index"; every = "1h")
+
+    # `by` naming the same column as `time_column` is a legal (if unusual) degenerate case: every
+    # group has exactly one row, so nothing is inserted (py-polars test_upsample_with_group_by_15530)
+    df_grp = DataFrame(
+        (;
+            time = [
+                DateTime(2025, 1, 1, 9, 0), DateTime(2025, 1, 1, 9, 0),
+                DateTime(2025, 1, 1, 9, 2), DateTime(2025, 1, 1, 9, 2),
+            ],
+            symbol = ["AAPL", "MSFT", "AAPL", "MSFT"],
+        )
+    )
+    r_self_group = upsample(df_grp, "time"; by = ["time"], every = "1d")
+    @test size(r_self_group) == size(df_grp)
+
+    # duplicate `by` names -- clean PolarsError (py-polars raises DuplicateError), not a crash
+    @test_throws PolarsError upsample(df_grp, "time"; by = ["time", "time"], every = "1d")
+
+    # an empty (0-row) frame has no time values to infer upsample boundaries from -- clean
+    # PolarsError, not a crash (py-polars test_upsample_empty_dataframe_with_group_by_26342)
+    df_empty = DataFrame((; time = DateTime[], my_group = Int32[]))
+    @test_throws PolarsError upsample(df_empty, "time"; by = ["my_group"], every = "15m")
 end
 
 @testset "with_row_index" begin
@@ -433,4 +506,14 @@ end
     # schema mismatch: same names, incompatible dtype
     df_wrong_dtype = DataFrame((; a = ["x", "y"], b = [10, 20]))
     @test_throws PolarsError vstack(df1, df_wrong_dtype)
+
+    # a `Null`-dtype column (an all-`missing` column built with no other type hint) is compatible
+    # with any concrete dtype in one direction only: it can be appended onto a typed column
+    # (upcasting), but a typed column cannot be appended onto a `Null` one -- asymmetric on
+    # purpose (py-polars test_vstack_with_null_column)
+    typed = DataFrame((; x = [3.5]))
+    null_col = DataFrame((; x = [missing]))
+    r_null = vstack(typed, null_col)
+    @test isequal(collect(r_null[:x]), [3.5, missing])
+    @test_throws PolarsError vstack(null_col, typed)
 end
