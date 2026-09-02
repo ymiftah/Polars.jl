@@ -378,6 +378,13 @@ Called out separately because each function looks complete from the outside.
 - `rolling_*` accept `window_size`/`min_samples`/`center` but have no `by`/`closed` temporal form.
 - `describe` is `DataFrame`-only (upstream also has it on `LazyFrame`). `pivot`, `transpose`,
   `hstack`, `vstack`, and `upsample` being `DataFrame`-only matches upstream.
+- **No join variant accepts `maintain_order`** (confirmed live, Batch 11 of the test-parity
+  sweep — `crossjoin(a, b; maintain_order=:left)` is a plain `MethodError`, and `maintain_order`
+  doesn't appear anywhere in `c-polars/src/*.rs`'s join-related code at all, unlike the
+  `group_by`/`unique`/sort family closed above). Upstream's `JoinArgs`/`.join(maintain_order=...)`
+  covers every join type, not just cross joins (`test_cross_join_maintain_order_24663`); a
+  Rust-side fix here would need the same "closed" treatment `group_by`/`unique` already got —
+  out of scope for a no-Cargo-change batch.
 
 ## Group 7 — Missing I/O
 
