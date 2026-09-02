@@ -2397,55 +2397,40 @@ pub unsafe extern "C" fn polars_expr_dt_replace_time_zone(
     })
 }
 
-/// Fallible since `polars_time_unit_t` mirrors a Julia-side `@cenum` and must reject an
-/// out-of-range value rather than let `to_time_unit` panic across the FFI boundary.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_dt_timestamp(
-    expr: *const polars_expr_t,
-    unit: polars_time_unit_t,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let unit = tri!(unit.to_time_unit());
-        let result = (*expr).inner.clone().dt().timestamp(unit);
-        *out = make_expr(result);
-        std::ptr::null()
-    })
+// Like `gen_impl_expr_dt!`, but for the sub-family that takes a `polars_time_unit_t` and must
+// convert it fallibly (`to_time_unit` rejects an out-of-range enum value rather than panicking
+// across the FFI boundary -- `polars_time_unit_t` mirrors a Julia-side `@cenum`).
+macro_rules! gen_impl_expr_dt_timeunit {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            expr: *const polars_expr_t,
+            unit: polars_time_unit_t,
+            out: *mut *const polars_expr_t,
+        ) -> *const polars_error_t {
+            guard_error(|| {
+                let unit = tri!(unit.to_time_unit());
+                let result = $t((*expr).inner.clone(), unit);
+                *out = make_expr(result);
+                std::ptr::null()
+            })
+        }
+    };
 }
 
-/// Changes the underlying `TimeUnit` and rescales the data accordingly (e.g. `:ms` -> `:ns`
-/// multiplies by 1e6). Compare [`polars_expr_dt_with_time_unit`], which relabels without rescaling.
-/// Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_dt_cast_time_unit(
-    expr: *const polars_expr_t,
-    unit: polars_time_unit_t,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let unit = tri!(unit.to_time_unit());
-        let result = (*expr).inner.clone().dt().cast_time_unit(unit);
-        *out = make_expr(result);
-        std::ptr::null()
-    })
-}
-
-/// Relabels the underlying `TimeUnit` without touching the data (e.g. reinterpreting `:ms` values
-/// as `:ns` without rescaling). Compare [`polars_expr_dt_cast_time_unit`], which rescales.
-/// Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_dt_with_time_unit(
-    expr: *const polars_expr_t,
-    unit: polars_time_unit_t,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let unit = tri!(unit.to_time_unit());
-        let result = (*expr).inner.clone().dt().with_time_unit(unit);
-        *out = make_expr(result);
-        std::ptr::null()
-    })
-}
+gen_impl_expr_dt_timeunit!(polars_expr_dt_timestamp, |e: Expr, unit| e
+    .dt()
+    .timestamp(unit));
+// Changes the underlying `TimeUnit` and rescales the data accordingly (e.g. `:ms` -> `:ns`
+// multiplies by 1e6). Compare `polars_expr_dt_with_time_unit`, which relabels without rescaling.
+gen_impl_expr_dt_timeunit!(polars_expr_dt_cast_time_unit, |e: Expr, unit| e
+    .dt()
+    .cast_time_unit(unit));
+// Relabels the underlying `TimeUnit` without touching the data (e.g. reinterpreting `:ms` values
+// as `:ns` without rescaling). Compare `polars_expr_dt_cast_time_unit`, which rescales.
+gen_impl_expr_dt_timeunit!(polars_expr_dt_with_time_unit, |e: Expr, unit| e
+    .dt()
+    .with_time_unit(unit));
 
 /// Combines a Date/Datetime `expr` with a Time `time`, producing a new Datetime at the given
 /// `TimeUnit`. Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
