@@ -382,6 +382,7 @@ function cast_datetime(
     polars_error(err)
     return Expr(out[])
 end
+@curry cast_datetime(; time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing)
 
 """
     cast_duration(expr::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr

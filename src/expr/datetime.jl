@@ -103,12 +103,7 @@ module Dt
         return Expr(out[])
     end
 
-    """
-        cast_time_unit(; time_unit::Symbol)::Base.Callable
-
-    Curried form of [`cast_time_unit`](@ref) for use with `|>`.
-    """
-    cast_time_unit(; time_unit::Symbol) = expr -> cast_time_unit(expr; time_unit)
+    @curry cast_time_unit(; time_unit::Symbol)
 
     export cast_time_unit
 
@@ -127,12 +122,7 @@ module Dt
         return Expr(out[])
     end
 
-    """
-        with_time_unit(; time_unit::Symbol)::Base.Callable
-
-    Curried form of [`with_time_unit`](@ref) for use with `|>`.
-    """
-    with_time_unit(; time_unit::Symbol) = expr -> with_time_unit(expr; time_unit)
+    @curry with_time_unit(; time_unit::Symbol)
 
     export with_time_unit
 
@@ -150,12 +140,7 @@ module Dt
         return Expr(out[])
     end
 
-    """
-        combine(time::Polars.Expr; time_unit::Symbol=:us)::Base.Callable
-
-    Curried form of [`combine`](@ref) for use with `|>`.
-    """
-    combine(time::Expr; time_unit::Symbol = :us) = expr -> combine(expr, time; time_unit)
+    @curry combine(time::Expr; time_unit::Symbol = :us)
 
     export combine
 
@@ -284,18 +269,7 @@ module Dt
         return Expr(out[])
     end
 
-    """
-        replace_time_zone(tz::Union{Nothing,String} = nothing; ambiguous::String = "raise",
-                           non_existent::Symbol = :raise)::Base.Callable
-
-    Curried form of [`replace_time_zone`](@ref) for use with `|>`.
-    """
-    function replace_time_zone(
-            tz::Union{Nothing, AbstractString} = nothing;
-            ambiguous::AbstractString = "raise", non_existent::Symbol = :raise
-        )
-        return expr -> replace_time_zone(expr, tz; ambiguous, non_existent)
-    end
+    @curry replace_time_zone(tz::Union{Nothing, AbstractString} = nothing; ambiguous::AbstractString = "raise", non_existent::Symbol = :raise)
 
     export replace_time_zone
 
