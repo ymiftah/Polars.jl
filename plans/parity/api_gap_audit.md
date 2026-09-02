@@ -488,6 +488,34 @@ latter to add entries.
 for batches 1-7 (all merged), the 211-row per-function table is entirely stale, and its `## Status`
 preamble still describes a pre-sweep baseline.
 
+**Batch 12 findings** (`datatypes/series.jl`, `binary.jl`, `dataframe/construction.jl`, `io.jl`,
+`describe.jl` vs. `series/test_series.py`, `test_getitem.py`, `test_to_list.py`,
+`dataframe/test_df.py`, `test_shape.py`, `test_describe.py`, `datatypes/test_binary.py`,
+`test_null.py`, `constructors/test_constructors.py` — see
+`plans/parity/batch-12-series-dataframe.md`): **one real bug fixed** and two divergences/gaps
+recorded:
+
+- **`describe`'s fractional-percentile labels were wrong, and are now fixed.** `percentiles=[0.99,
+  0.999, 0.9999]` previously labeled the last two rows both `"100%"` (`round(Int, q*100)` truncates
+  all fractional precision), silently colliding two distinct statistic rows under one ambiguous
+  label. Fixed in `src/describe.jl` to preserve fractional precision (`"99.9%"`, `"99.99%"`) only
+  when the percentage isn't a whole number, matching `test_df_describe_quantile_precision`'s
+  expected labels exactly. This is a Julia-side label-formatting bug, not an FFI gap — confirmed
+  fixed live and covered by a new test in `test/dataframe/describe.jl`.
+- **`describe` on a genuinely columnless (0-row, 0-column) frame doesn't raise here**, where
+  upstream raises `TypeError: cannot describe a DataFrame that has no columns`. This wrapper
+  instead returns a `(9, 1)` frame containing only the `statistic` column. `@test_broken` in
+  `test/dataframe/describe.jl`; not fixed here since it would need `describe` to validate
+  `size(df, 2) == 0` up front and raise something upstream-shaped, which is a small but real
+  behavior change to a widely-used function's error path, better done as its own reviewed change
+  than folded into a test-porting pass.
+- **No `eq_missing`/`ne_missing` `Expr` methods, and no `hash_rows`/`Series`/`Expr` `hash`** —
+  confirmed absent via `grep` (not just untested): upstream's null-aware equality variants
+  (`eq_missing`: `null == null` is `true`, unlike plain `==`'s null-propagating `missing`) and its
+  row/column hashing family have no binding at all here. Feature-gate status not yet checked
+  against the vendored `polars-plan`/`polars-ops` source; flagging for a future no-Cargo-change
+  batch to scope properly rather than guessing here.
+
 ## Caveats
 
 1. ~~The `Selectors.array()` staleness claim (Group 0).~~ **Resolved** — closed on `main`, see
