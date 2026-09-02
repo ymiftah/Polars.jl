@@ -595,6 +595,66 @@ latter to add entries.
 for batches 1-7 (all merged), the 211-row per-function table is entirely stale, and its `## Status`
 preamble still describes a pre-sweep baseline.
 
+**Batch 10 findings** (`operations/frame_verbs.jl`, `reshape.jl`, `concat.jl`,
+`select_with_columns.jl`, `filter.jl` vs. 11 upstream files — see
+`plans/parity/batch-10-frame-verbs.md`): four confirmed behavioural divergences, all `@test_broken`
+or documented in place rather than fixed, since none are reachable without a Rust/FFI change or are
+outside this batch's no-Cargo-change scope:
+
+- **`drop(df, ["*"])` doesn't wildcard-drop every column.** Upstream's `.drop("*")` drops all
+  columns (shape `(n, 0)`); this wrapper calls `Selector::ByName` with the literal string `"*"`,
+  which isn't a real column name, so it raises `ColumnNotFoundError`-equivalent instead. Fixing it
+  would mean special-casing `"*"` in `drop`'s Julia wrapper (resolving it to `names(df)` first) —
+  plausible as a follow-up, not attempted here to avoid scope creep into a "new capability" during
+  a test-porting pass.
+- **`drop_nulls(df, subset)`'s explicitly-empty `subset` is not a no-op**, unlike upstream's
+  `subset=[]`. Root cause: `c-polars/src/ffi_util.rs::selector_by_name_opt` collapses an empty name
+  list to `None` ("no subset specified" = check all columns) rather than `Some(vec![])` ("check
+  zero columns" = no-op) — the two are indistinguishable once both become an empty Julia `Vector`.
+  `drop_nulls`'s docstring now documents this; fixing it for real needs a Rust-side way to pass
+  "explicitly none" separately from "unspecified", which is a real signature change.
+- **`concat([schemaless_df, ...])` fails where upstream succeeds**, specifically for a genuinely
+  0-column frame (`DataFrame(NamedTuple())`) mixed with a real one — `pl.concat` treats a 0-column
+  input as vacuously compatible with any schema; this wrapper's `:vertical` passes every frame
+  straight to the Rust `concat`/`union` primitive, which enforces exact schema equality with no
+  such special case. A 0-row-but-typed frame (a real schema, just no rows) concats fine either
+  order — confirmed live, only the *columnless* case diverges. A Julia-side pre-filter (drop any
+  0-column frame from the list before the FFI call, for `:vertical`/`:vertical_relaxed`) would
+  likely fix this without touching Rust, but wasn't attempted here — same "don't add capability
+  mid-sweep" reasoning as `drop`'s wildcard above.
+- **`transpose` on any 0-row frame raises, where the current upstream *main* branch's test suite
+  expects it to succeed** (`pl.DataFrame(schema={"a": Int32, "b": Int32}).transpose().shape ==
+  (2, 0)`). Live-verified against this repo's vendored `polars-plan`/`polars-core` 0.54.4: `no
+  data: unable to transpose an empty DataFrame` is raised unconditionally, so this is a genuine
+  Rust-crate-version-pinned gap between 0.54.4 and whatever newer polars-rust version the current
+  py-polars main branch's tests are written against — not fixable without an artifact bump. The
+  existing test (`test/operations/reshape.jl`'s `"transpose"` testset) already asserted this
+  correctly; this sweep just confirmed it against the real upstream test name
+  (`test_transpose_empty`) instead of an untraced assumption.
+
+**Also found, not a parity gap**: `drop` has no `strict` keyword at all (upstream's
+`drop(..., strict=False)` silently ignores an unknown column name instead of raising) — the
+underlying `polars_lazy_frame_drop` FFI function hardcodes `Selector::ByName { strict: true, .. }`
+with no parameter to control it, unlike `rename`'s already-threaded `strict`. Needs a Rust
+signature change to add, out of scope here; add to a future no-Cargo-change batch alongside a
+frame-level `drop_nans` (`Expr`-level `drop_nans` exists in `src/expr/aggregation.jl`, but there is
+no `DataFrame`/`LazyFrame` form the way `drop_nulls` has both — confirmed via `MethodError` live).
+
+**Also found, unrelated to this batch's own changes**: a fresh `origin/main` checkout's full test
+suite currently errors on at least 8 pre-existing testsets (`fill_null`/`cast`/frame-level
+aggregations in `frame_verbs.jl`; `top_k`/`bottom_k`/`slice` in `sort.jl`; `len` in
+`expr/aggregation.jl`; `concat_str`/`concat_list` in `expr/horizontal.jl`) with `could not load
+symbol "polars_lazy_frame_..."` / `undefined symbol` from `libpolars.so`. This is the exact hazard
+`CLAUDE.md`'s generation-pipeline section describes: `src/api/generated.jl` on `main` already
+references FFI symbols (`polars_lazy_frame_fill_null`, `_cast_all`, `_sum`, and others) that
+aren't in the currently-published `Artifacts.toml`-pinned `libpolars.so` binary — some `c-polars`
+change landed without a corresponding new artifact release. Confirmed unrelated to this batch: none
+of these functions or their tests were touched here, and running just this batch's own new/changed
+testsets in isolation (bypassing the broken ones) shows 285 passed, 0 failed, 3 broken (exactly the
+three divergences above) — so this is a pre-existing, repo-wide infrastructure gap, not something
+introduced by this sweep. Worth a `c-polars/check_header_drift.py --lib PATH` run and a fresh
+artifact release; out of scope for this PR.
+
 ## Caveats
 
 1. ~~The `Selectors.array()` staleness claim (Group 0).~~ **Resolved** — closed on `main`, see

@@ -113,6 +113,10 @@ end
     drop_nulls(df::DataFrame, subset::Vector{String}=String[])::DataFrame
 
 Removes rows containing a `null` in any of the `subset` columns (all columns if not provided).
+
+An explicitly-empty `subset` behaves the same as omitting it (checks *all* columns) rather than
+py-polars' `subset=[]`, which checks zero columns and is therefore a no-op -- this wrapper has no
+way to distinguish "not provided" from "provided empty" once both collapse to an empty `Vector`.
 """
 drop_nulls(df::DataFrame, subset::Vector{<:ColId} = String[]) = drop_nulls(lazy(df), subset) |> collect
 function drop_nulls(lf::LazyFrame, subset::Vector{<:ColId} = String[])
