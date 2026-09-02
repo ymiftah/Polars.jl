@@ -310,87 +310,6 @@ pub unsafe extern "C" fn polars_expr_interpolate(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_expr_alias(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().alias(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_prefix(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().name().prefix(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_suffix(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().name().suffix(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-/// Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
-/// contrast [`polars_expr_prefix`], which does that). Gated `#[cfg(feature = "dtype-struct")]` in
-/// polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_prefix_fields(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().name().prefix_fields(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-/// Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
-/// contrast [`polars_expr_suffix`], which does that). Same feature gate as
-/// [`polars_expr_prefix_fields`] above.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_suffix_fields(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().name().suffix_fields(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn polars_expr_cast(
     expr: *const polars_expr_t,
     dtype: polars_value_type_t,
@@ -563,6 +482,47 @@ macro_rules! gen_impl_expr {
         }
     };
 }
+
+/// Like `gen_impl_expr!`, but for a fallible method taking one further `(ptr, len)` string
+/// argument -- the shape `alias`/`prefix`/`suffix`/`dt.strftime`/etc. share.
+macro_rules! gen_impl_expr_named {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            expr: *const polars_expr_t,
+            name: *const u8,
+            len: usize,
+            out: *mut *const polars_expr_t,
+        ) -> *const polars_error_t {
+            guard_error(|| {
+                let name = tri!(read_str(name, len));
+                let result = $t((*expr).inner.clone(), name);
+                *out = make_expr(result);
+                std::ptr::null()
+            })
+        }
+    };
+}
+
+gen_impl_expr_named!(polars_expr_alias, |e: Expr, name: &str| e.alias(name));
+gen_impl_expr_named!(polars_expr_prefix, |e: Expr, name: &str| e
+    .name()
+    .prefix(name));
+gen_impl_expr_named!(polars_expr_suffix, |e: Expr, name: &str| e
+    .name()
+    .suffix(name));
+// Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+// contrast `polars_expr_prefix`, which does that). Gated `#[cfg(feature = "dtype-struct")]` in
+// polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
+gen_impl_expr_named!(polars_expr_prefix_fields, |e: Expr, name: &str| e
+    .name()
+    .prefix_fields(name));
+// Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+// contrast `polars_expr_suffix`, which does that). Same feature gate as `polars_expr_prefix_fields`
+// above.
+gen_impl_expr_named!(polars_expr_suffix_fields, |e: Expr, name: &str| e
+    .name()
+    .suffix_fields(name));
 
 gen_impl_expr!(polars_expr_keep_name, |e: Expr| e.name().keep());
 gen_impl_expr!(polars_expr_to_lowercase, |e: Expr| e.name().to_lowercase());
@@ -2539,20 +2499,9 @@ pub unsafe extern "C" fn polars_expr_dt_replace(
     make_expr(result)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_dt_strftime(
-    expr: *const polars_expr_t,
-    format: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let format = tri!(read_str(format, len));
-        let result = (*expr).inner.clone().dt().strftime(format);
-        *out = make_expr(result);
-        std::ptr::null()
-    })
-}
+gen_impl_expr_named!(polars_expr_dt_strftime, |e: Expr, format: &str| e
+    .dt()
+    .strftime(format));
 
 /// `total_*` Duration-decomposition family (`total_days`/`total_hours`/`total_minutes`/
 /// `total_seconds`/`total_milliseconds`/`total_microseconds`/`total_nanoseconds`) -- each takes
@@ -2599,19 +2548,9 @@ gen_impl_expr_dt_fractional!(
     DateLikeNameSpace::total_nanoseconds
 );
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_struct_field_by_name(
-    a: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        *out = make_expr((*a).inner.clone().struct_().field_by_name(name));
-        std::ptr::null()
-    })
-}
+gen_impl_expr_named!(polars_expr_struct_field_by_name, |e: Expr, name: &str| e
+    .struct_()
+    .field_by_name(name));
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_struct_field_by_index(
