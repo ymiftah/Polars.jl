@@ -141,25 +141,9 @@ export top_k
 export bottom_k
 
 
-"""
-    value_counts(expr::Polars.Expr; sort::Bool=false, parallel::Bool=false, name::String="count",
-                 normalize::Bool=false)::Polars.Expr
+@wrap_expr_method value_counts(expr::Expr; sort::Bool = false, parallel::Bool = false, name::AbstractString = "count", normalize::Bool = false) polars_expr_value_counts "Counts the occurrences of each unique value in `expr`, returning a `Struct` column mapping value to count (field `name`, default `\"count\"`). If `sort` is `true`, results are sorted by count descending. If `normalize` is `true`, counts become fractions of the total instead."
 
-Counts the occurrences of each unique value in `expr`, returning a `Struct` column mapping value
-to count (field `name`, default `"count"`). If `sort` is `true`, results are sorted by count
-descending. If `normalize` is `true`, counts become fractions of the total instead.
-"""
-function value_counts(
-        expr::Expr; sort::Bool = false, parallel::Bool = false, name::String = "count",
-        normalize::Bool = false
-    )
-    out = Ref{Ptr{polars_expr_t}}()
-    err = API.polars_expr_value_counts(expr, sort, parallel, name, ncodeunits(name), normalize, out)
-    polars_error(err)
-    return Expr(out[])
-end
-
-@curry value_counts(; sort::Bool = false, parallel::Bool = false, name::String = "count", normalize::Bool = false)
+@curry value_counts(; sort::Bool = false, parallel::Bool = false, name::AbstractString = "count", normalize::Bool = false)
 
 export value_counts
 
