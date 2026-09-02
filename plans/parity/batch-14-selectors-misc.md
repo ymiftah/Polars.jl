@@ -21,6 +21,7 @@ already 342/338 lines respectively — unusually deep going into this batch.
 | `nth` | `functions/test_nth.py` (`test_nth`, `test_nth_duplicate`) | single-index access, adjusted for this wrapper's 1-based indexing (`nth(1)` = upstream's `pl.nth(0)`, negative indices unchanged); duplicate resolution across two `nth` calls | non-default parameter, Step-5 abort-safety | matches (index semantics) and raises cleanly (duplicate); added |
 | `min_horizontal`/`max_horizontal`/`sum_horizontal`/`mean_horizontal` | `test_shape_mismatch_19336` | mismatched-length literal `Series` inputs | Step-5 abort-safety | raises cleanly for all four; added |
 | `Selectors.by_name` | `test_by_name_order_19384` | multiple names preserve the ORDER given, not the frame's own column order | non-obvious/previously-untested behavior | matches — and the *existing* test for `by_name` `sort()`-normalized its comparison, silently masking this; added an order-sensitive assertion alongside it |
+| `sample_n` | `test_sample_no_shuffle_preserves_order_23557` | `shuffle=false` (no `with_replacement`) preserves the sampled rows' original relative order, across ten seeds | non-default parameter | matches; added (see correction below — this was almost missed entirely, and its `with_replacement` sibling test turned out NOT to port cleanly, see the second correction) |
 
 ## Genuine gaps found (flagged, not fixed)
 
@@ -32,9 +33,29 @@ already 342/338 lines respectively — unusually deep going into this batch.
 2. **`nth` has no multi-argument or vector form** (`pl.nth(2, 1)`, `pl.nth([2, -2, 0])`) — this
    wrapper's `nth(n)` takes exactly one integer. Every other multi-column selector (`by_name`,
    `by_index`) already accepts varargs, so this is a real inconsistency, not by design.
-3. **No `shuffle` kwarg on `sample_n`/`sample_frac`** (upstream's `shuffle=False` preserves the
-   sampled rows' relative order) — confirmed absent via `grep`. There is also no frame-level
-   `sample` at all (only the `Expr`-level `sample_n`/`sample_frac`).
+
+**Correction — a third claimed gap was a false negative from grepping the wrong file.** This note
+originally also claimed "No `shuffle` kwarg on `sample_n`/`sample_frac`", based on `grep`-ing only
+`src/expr/expr.jl`. `sample_n`/`sample_frac` actually live in `src/expr/statistics.jl` (a separate
+file, not checked at the time), which already threads `shuffle::Bool=false` all the way through to
+`polars_expr_sample_n`/`_sample_frac` — both of which already take a `shuffle: bool` FFI parameter.
+Live-verified working exactly like upstream (without `with_replacement`) before recording this
+correction. This is now the fixture ported in the table above instead of a gap;
+`api_gap_audit.md`'s Group 11 entry is corrected to match. Lesson: a `grep` across one
+plausible-looking file is not the same as confirming absence across `src/` — the skill's Step 8
+("record API divergences", implicitly: verify them) applies to gap claims themselves, not just
+fixture behavior.
+
+**Second correction, found while porting the fixture above: its `with_replacement` sibling test
+doesn't actually port onto `Expr.sample_n`.** Upstream's
+`test_sample_no_shuffle_with_replacement_preserves_order_23557` exercises `DataFrame.sample()`
+(which this wrapper doesn't have — a separate, already-recorded gap, see Not Ported below), not
+`Expr.sample_n`. Live-verified `Expr.sample_n(...; shuffle=false, with_replacement=true)` does
+**not** preserve order here (draws come back arbitrary, e.g. `[2, 2, 2]`, `[4, 3, 1]` across ten
+seeds) — a real behavioral difference from the DataFrame-level function upstream actually tests,
+not a bug in this wrapper's `Expr.sample_n` (Step 9: don't conflate two different functions just
+because they're closely related). Recorded as a narrow, documented finding in
+`test/expr/sample.jl` rather than asserted as either a pass or a `@test_broken`.
 
 ## Not ported (Step 4 exclusions)
 

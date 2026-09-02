@@ -493,7 +493,8 @@ preamble still describes a pre-sweep baseline.
 `operations/namespaces/test_meta.py`, `expr/test_meta.py`, `operations/namespaces/test_name.py`,
 `functions/test_horizontal.py`, `operations/aggregation/test_horizontal.py`,
 `operations/test_random.py`, `functions/test_col.py`, `functions/test_nth.py` — see
-`plans/parity/batch-14-selectors-misc.md`): 3 fixtures ported, 3 gaps recorded:
+`plans/parity/batch-14-selectors-misc.md`): 2 fixtures ported (a third, initially misdiagnosed as a
+gap, turned out to already work — see the correction below), 2 gaps recorded:
 
 - **`Meta` is missing `is_scalar`, `is_known_length`, `is_row_separable`, `is_length_preserving`,
   and `eq`** — confirmed absent via `grep` across `src/expr/meta.jl` while porting
@@ -505,11 +506,26 @@ preamble still describes a pre-sweep baseline.
   0])` both select several columns in one call; this wrapper's `nth(n)` takes exactly one integer
   (`src/expr/expr.jl`). A minor but real surface gap — every other multi-column selector
   (`by_name`, `by_index`) already accepts varargs.
-- **No `shuffle` option on `sample_n`/`sample_frac`.** Upstream's `df.sample(n=3, shuffle=False,
-  ...)` preserves the sampled rows' original relative order; confirmed absent via `grep` across
-  `src/expr/expr.jl`'s sampling functions. There is also no frame-level `sample` at all here
-  (`sample_n`/`sample_frac` are `Expr`-only), matching the existing pattern where several
-  DataFrame-level convenience methods (noted elsewhere in this audit) aren't ported.
+- **No frame-level `sample`** — only the `Expr`-level `sample_n`/`sample_frac` exist; upstream's
+  `DataFrame.sample()`/`LazyFrame`-adjacent convenience has no counterpart here.
+
+**Correction (found while scoping a follow-up kwarg-gap PR): the "no `shuffle` on `sample_n`/
+`sample_frac`" claim above was wrong.** It was based on `grep`-ing only `src/expr/expr.jl`; the
+functions actually live in `src/expr/statistics.jl`, which already has `shuffle::Bool=false`
+threaded all the way through to `polars_expr_sample_n`/`_sample_frac` (both already take a
+`shuffle: bool` FFI parameter). Live-verified: `sample_n(col("a"), 3; shuffle=false, seed=...)`
+(no `with_replacement`) already preserves row order exactly like upstream, across ten seeds.
+Fixed by porting the actual upstream fixture (`test_sample_no_shuffle_preserves_order_23557`) into
+`test/expr/sample.jl` instead of leaving the false gap claim standing.
+
+That upstream test has a `with_replacement=True` sibling
+(`test_sample_no_shuffle_with_replacement_preserves_order_23557`) which does **not** port cleanly:
+it exercises `DataFrame.sample()` (the gap just added above), not `Expr.sample_n`, and
+live-verified `Expr.sample_n(...; shuffle=false, with_replacement=true)` does not preserve order
+here (arbitrary draw order across ten seeds) — a real behavioral difference between the two
+functions, not a bug in `Expr.sample_n` itself. Documented as a narrow finding in
+`test/expr/sample.jl` rather than conflated with either the fixture above or the missing-`sample`
+gap.
 
 ## Caveats
 
