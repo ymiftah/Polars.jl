@@ -20,7 +20,7 @@ use polars_plan::prelude::Literal;
 use crate::{
     ffi_util::{
         read_bool_mask, read_exprs, read_f64_array, read_i64_array, read_names, read_opt_str,
-        read_str, selector_by_name, IOCallback, UserIOCallback,
+        read_opt_u64, read_str, selector_by_name, IOCallback, UserIOCallback,
     },
     guard_error, make_error, polars_error_t,
     types::*,
@@ -1352,7 +1352,7 @@ pub unsafe extern "C" fn polars_expr_shuffle(
     seed: *const u64,
 ) -> *const polars_expr_t {
     let expr = (*expr).inner.clone();
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     make_expr(expr.shuffle(seed))
 }
 
@@ -1479,7 +1479,7 @@ pub unsafe extern "C" fn polars_expr_sample_n(
     shuffle: bool,
     seed: *const u64,
 ) -> *const polars_expr_t {
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     let expr = (*expr).inner.clone();
     let n = (*n).inner.clone();
     make_expr(expr.sample_n(n, with_replacement, shuffle, seed))
@@ -1493,7 +1493,7 @@ pub unsafe extern "C" fn polars_expr_sample_frac(
     shuffle: bool,
     seed: *const u64,
 ) -> *const polars_expr_t {
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     let expr = (*expr).inner.clone();
     let frac = (*frac).inner.clone();
     make_expr(expr.sample_frac(frac, with_replacement, shuffle, seed))
@@ -1882,7 +1882,7 @@ pub unsafe extern "C" fn polars_expr_list_sample_n(
     shuffle: bool,
     seed: *const u64,
 ) -> *const polars_expr_t {
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     let expr =
         (*a).inner
             .clone()
@@ -1899,7 +1899,7 @@ pub unsafe extern "C" fn polars_expr_list_sample_fraction(
     shuffle: bool,
     seed: *const u64,
 ) -> *const polars_expr_t {
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     let expr = (*a).inner.clone().list().sample_fraction(
         (*fraction).inner.clone(),
         with_replacement,

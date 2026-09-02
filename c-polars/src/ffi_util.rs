@@ -95,6 +95,17 @@ pub(crate) unsafe fn read_f64_array(ptr: *const f64, n: usize) -> Vec<f64> {
     std::slice::from_raw_parts(ptr, n).to_vec()
 }
 
+/// Reads an optional scalar behind a nullable pointer: `ptr.is_null()` means `None`, otherwise
+/// `Some(*ptr)` -- the shared convention for an optional scalar argument (as opposed to an
+/// optional string, see `read_opt_str` above), e.g. `Expr::shuffle`'s `seed`.
+pub(crate) unsafe fn read_opt_u64(ptr: *const u64) -> Option<u64> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(*ptr)
+    }
+}
+
 /// Reads a required `(ptr, len)` UTF-8 string. `len == 0` yields `""` without dereferencing `ptr`
 /// (see `read_names` for why). Unlike `unwrap_or_default()`, invalid UTF-8 surfaces as an error
 /// rather than being silently coerced to `""`.
