@@ -81,9 +81,9 @@
 #
 # Still hand-written -- the natural places to extend next, in rough order of how often they recur:
 #
-#   - the nullable-scalar shape, `x === nothing ? Ptr{T}(C_NULL) : Ref(T(x))` handed to the ccall
-#     under `GC.@preserve` (`sample_n`, `sample_frac`, `Lists.sample_n`, `Lists.sample_fraction`,
-#     `fill_null`). Worth doing carefully: the `Ref` *must* stay preserved across the call.
+#   - the nullable-scalar/nullable-string shapes are now covered by `_nullable_ref`/`_nullable_str`
+#     -- reach for those directly rather than restating the `x === nothing ? Ptr{T}(C_NULL) : ...`
+#     ternary by hand.
 #   - the `Vector{String}` shape via `_name_ptrs` (`cut`/`qcut`/`qcut_uniform`,
 #     `Lists.to_struct`, `Structs.rename_fields`).
 #   - per-argument casts (`UInt8(ddof)`, `Csize_t(n)`) and `Symbol`-to-enum keywords, which would
@@ -124,6 +124,29 @@ dispatching on `eltype(xs)`: this file loads before `Expr`/`Series`/`LazyFrame` 
 defined here -- this generic, duck-typed-on-`.ptr` form has no such dependency.
 """
 _handle_ptrs(xs::AbstractVector, ::Type{P}) where {P} = (xs, P[x.ptr for x in xs])
+
+"""
+    _nullable_ref(x, ::Type{T}) where T -> Union{Ptr{T}, Ref{T}}
+
+`x === nothing` yields the null pointer `Ptr{T}(C_NULL)`; otherwise `Ref(T(x))`. The `Ref` this
+returns is a fresh local allocation and must be kept alive across the ccall that consumes it via
+`GC.@preserve` *at the call site* -- exactly as if you had written the ternary by hand -- since a
+`Ref` allocated before a ccall and only reachable through the ccall's own converted argument is a
+live GC safepoint (see CLAUDE.md's marshalling section).
+"""
+_nullable_ref(x, ::Type{T}) where {T} = x === nothing ? Ptr{T}(C_NULL) : Ref(T(x))
+
+"""
+    _nullable_str(s::Union{Nothing,AbstractString}) -> (ptr, len::Int)
+
+`s === nothing` yields `(Ptr{UInt8}(C_NULL), 0)`; otherwise `(s, ncodeunits(s))` -- the `(ptr, len)`
+pair the C ABI expects for an optional string. Returns the string `s` itself (not a materialized
+pointer) as the first element, exactly as every existing hand-written call site already did, so it
+continues to rely on `ccall`'s own automatic rooting of a directly-passed `String` argument for the
+duration of the call -- no additional `GC.@preserve` is needed for the string half specifically
+(only for any *other* `Ref`s built alongside it, per [`_nullable_ref`](@ref) above).
+"""
+_nullable_str(s::Union{Nothing, AbstractString}) = s === nothing ? (Ptr{UInt8}(C_NULL), 0) : (s, ncodeunits(s))
 
 """Processes one argument node from a `@curry` target signature, returning
 `(decl_node, name, forward_expr)`:

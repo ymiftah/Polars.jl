@@ -158,7 +158,7 @@ function sample_n(
         seed::Union{Nothing, Integer} = nothing
     )
     n = convert(Expr, n)
-    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    seed_ref = _nullable_ref(seed, UInt64)
     out = GC.@preserve seed_ref API.polars_expr_sample_n(expr, n, with_replacement, shuffle, seed_ref)
     return Expr(out)
 end
@@ -179,7 +179,7 @@ function sample_frac(
         seed::Union{Nothing, Integer} = nothing
     )
     frac = convert(Expr, frac)
-    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    seed_ref = _nullable_ref(seed, UInt64)
     out = GC.@preserve seed_ref API.polars_expr_sample_frac(expr, frac, with_replacement, shuffle, seed_ref)
     return Expr(out)
 end

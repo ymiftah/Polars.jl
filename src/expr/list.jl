@@ -1,6 +1,6 @@
 module Lists
     using ..Polars: @wrap_simple_ops, @wrap_expr_method, @curry,
-        API, polars_expr_t, Expr, polars_error, _null_behavior_enum
+        API, polars_expr_t, Expr, polars_error, _null_behavior_enum, _nullable_ref
 
     @wrap_simple_ops begin
         gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths, "Length of each list in `expr` (`null` list entries count, and a `null` list itself gives a `null` length -- an empty list gives `0`).")
@@ -77,7 +77,7 @@ module Lists
             seed::Union{Nothing, Integer} = nothing
         )
         n = convert(Expr, n)
-        seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+        seed_ref = _nullable_ref(seed, UInt64)
         out = GC.@preserve seed_ref API.polars_expr_list_sample_n(expr, n, with_replacement, shuffle, seed_ref)
         return Expr(out)
     end
@@ -93,7 +93,7 @@ module Lists
             seed::Union{Nothing, Integer} = nothing
         )
         fraction = convert(Expr, fraction)
-        seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+        seed_ref = _nullable_ref(seed, UInt64)
         out = GC.@preserve seed_ref API.polars_expr_list_sample_fraction(
             expr, fraction, with_replacement, shuffle, seed_ref
         )

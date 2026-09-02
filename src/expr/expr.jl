@@ -602,7 +602,7 @@ Randomly permutes `expr`'s values. `seed` makes the permutation reproducible; `n
 default) draws a fresh seed from the OS each call.
 """
 function shuffle(expr::Expr; seed::Union{Nothing, Integer} = nothing)
-    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    seed_ref = _nullable_ref(seed, UInt64)
     out = GC.@preserve seed_ref API.polars_expr_shuffle(expr, seed_ref)
     return Expr(out)
 end
@@ -755,7 +755,7 @@ function fill_null(expr::Expr; strategy::Symbol, limit::Union{Nothing, Integer} 
         :zero => API.PolarsFillNullStrategyZero,
         :one => API.PolarsFillNullStrategyOne,
     )
-    limit_ref = limit === nothing ? Ptr{UInt32}(C_NULL) : Ref(UInt32(limit))
+    limit_ref = _nullable_ref(limit, UInt32)
     out = GC.@preserve limit_ref API.polars_expr_fill_null_with_strategy(expr, strategy_enum, limit_ref)
     return Expr(out)
 end
@@ -1062,7 +1062,7 @@ Returns the first `n` values of `expr`'s result (default: polars' own default of
 from `head` on a `LazyFrame`/`DataFrame`, which takes the first `n` whole rows.
 """
 function head(expr::Expr, n::Union{Nothing, Integer} = nothing)
-    n_ref = n === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n))
+    n_ref = _nullable_ref(n, Csize_t)
     out = GC.@preserve n_ref API.polars_expr_head(expr, n_ref)
     return Expr(out)
 end
@@ -1080,7 +1080,7 @@ Returns the last `n` values of `expr`'s result (default: polars' own default of 
     `Base.tail` for the rest of the module, breaking `import Base: tail` wherever it runs next.
 """
 function Base.tail(expr::Expr, n::Union{Nothing, Integer} = nothing)
-    n_ref = n === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n))
+    n_ref = _nullable_ref(n, Csize_t)
     out = GC.@preserve n_ref API.polars_expr_tail(expr, n_ref)
     return Expr(out)
 end

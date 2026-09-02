@@ -1451,7 +1451,17 @@ total, matching the running baseline exactly.
 
 ---
 
-## Task 15: Add `_nullable_ref`/`_nullable_str`; migrate the nullable-scalar/string dances
+## Task 15: Add `_nullable_ref`/`_nullable_str`; migrate the nullable-scalar/string dances — **Done**
+
+Executed via two small scripted regex passes (not manual per-site edits) since the ~35 nullable-ref
+and 25 nullable-str sites below all shared one exact textual shape each — verified afterward by
+diff review and the full Julia suite, not by trusting the script blindly. Two adjustments beyond
+the plan text below: (1) `expr/list.jl`'s `Lists` submodule needed `_nullable_ref` added to its
+`using ..Polars: ...` clause (submodules don't see top-level helpers automatically); (2) actual
+site count was 35 nullable-ref / 25 nullable-str, slightly above the plan's original ~19/~25
+estimate (the nullable-ref estimate underused several `io/parquet.jl` multi-line
+`? Ptr{T}(C_NULL) :\n    Ref(...)` sites). Verified: `Pkg.test()` — 3305/6/0/3311, matching
+baseline.
 
 **Files:**
 - Modify: `src/macros.jl` (add both helpers; update the "Not yet covered" header comment),

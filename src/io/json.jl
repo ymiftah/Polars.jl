@@ -55,13 +55,10 @@ function scan_ndjson(
         include_file_paths::Union{Nothing, AbstractString} = nothing,
         storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
-    n_rows_ref = n_rows === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n_rows))
-    row_index_name_arg = row_index_name === nothing ? Ptr{UInt8}(C_NULL) : row_index_name
-    row_index_name_len = row_index_name === nothing ? 0 : ncodeunits(row_index_name)
-    infer_schema_length_ref =
-        infer_schema_length === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(infer_schema_length))
-    include_file_paths_arg = include_file_paths === nothing ? Ptr{UInt8}(C_NULL) : include_file_paths
-    include_file_paths_len = include_file_paths === nothing ? 0 : ncodeunits(include_file_paths)
+    n_rows_ref = _nullable_ref(n_rows, Csize_t)
+    row_index_name_arg, row_index_name_len = _nullable_str(row_index_name)
+    infer_schema_length_ref = _nullable_ref(infer_schema_length, Csize_t)
+    include_file_paths_arg, include_file_paths_len = _nullable_str(include_file_paths)
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = _with_cloud_options(storage_options) do cloud_options
