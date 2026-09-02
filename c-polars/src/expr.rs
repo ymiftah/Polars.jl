@@ -1054,17 +1054,60 @@ pub unsafe extern "C" fn polars_expr_round(
     make_expr(expr.round(decimals, mode.to_round_mode()))
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_clip(
-    expr: *const polars_expr_t,
-    min: *const polars_expr_t,
-    max: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*expr).inner.clone();
-    let min = (*min).inner.clone();
-    let max = (*max).inner.clone();
-    make_expr(expr.clip(min, max))
+macro_rules! gen_impl_expr_ternary {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            b: *const polars_expr_t,
+            c: *const polars_expr_t,
+        ) -> *const polars_expr_t {
+            let a = &(*a).inner;
+            let b = &(*b).inner;
+            let c = &(*c).inner;
+            make_expr($t(a.clone(), b.clone(), c.clone()))
+        }
+    };
 }
+
+macro_rules! gen_impl_expr_ternary_list {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            b: *const polars_expr_t,
+            c: *const polars_expr_t,
+        ) -> *const polars_expr_t {
+            let expr = $t(
+                (*a).inner.clone().list(),
+                (*b).inner.clone(),
+                (*c).inner.clone(),
+            );
+            make_expr(expr)
+        }
+    };
+}
+
+macro_rules! gen_impl_expr_ternary_str {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            b: *const polars_expr_t,
+            c: *const polars_expr_t,
+        ) -> *const polars_expr_t {
+            let expr = $t(
+                (*a).inner.clone().str(),
+                (*b).inner.clone(),
+                (*c).inner.clone(),
+            );
+            make_expr(expr)
+        }
+    };
+}
+
+gen_impl_expr_ternary!(polars_expr_clip, |e: Expr, min: Expr, max: Expr| e
+    .clip(min, max));
 
 // Unary negation (`-expr`). Not reachable by composing `0 .- expr` from the existing binary
 // `sub` -- that silently wraps on an unsigned column (e.g. `UInt8` `0-1` -> `255`) where
@@ -1072,17 +1115,8 @@ pub unsafe extern "C" fn polars_expr_clip(
 // instead (upstream `test_neg_unsigned_int`, live-verified both directions before writing this).
 gen_impl_expr!(polars_expr_neg, Neg::neg);
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_replace(
-    expr: *const polars_expr_t,
-    old: *const polars_expr_t,
-    new: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*expr).inner.clone();
-    let old = (*old).inner.clone();
-    let new = (*new).inner.clone();
-    make_expr(expr.replace(old, new))
-}
+gen_impl_expr_ternary!(polars_expr_replace, |e: Expr, old: Expr, new: Expr| e
+    .replace(old, new));
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_replace_strict(
@@ -1305,18 +1339,11 @@ pub unsafe extern "C" fn polars_expr_entropy(
     make_expr(expr.entropy(base, normalize))
 }
 
-/// Infallible -- `Expr::extend_constant` only builds a plan node.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_extend_constant(
-    expr: *const polars_expr_t,
-    value: *const polars_expr_t,
-    n: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*expr).inner.clone();
-    let value = (*value).inner.clone();
-    let n = (*n).inner.clone();
-    make_expr(expr.extend_constant(value, n))
-}
+// Infallible -- `Expr::extend_constant` only builds a plan node.
+gen_impl_expr_ternary!(
+    polars_expr_extend_constant,
+    |e: Expr, value: Expr, n: Expr| e.extend_constant(value, n)
+);
 
 /// Infallible -- `Expr::shuffle` only builds a plan node. `seed` null means "draw one from the OS".
 #[no_mangle]
@@ -1809,19 +1836,10 @@ pub unsafe extern "C" fn polars_expr_list_join(
     make_expr(expr)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_list_slice(
-    a: *const polars_expr_t,
-    offset: *const polars_expr_t,
-    length: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*a)
-        .inner
-        .clone()
-        .list()
-        .slice((*offset).inner.clone(), (*length).inner.clone());
-    make_expr(expr)
-}
+gen_impl_expr_ternary_list!(
+    polars_expr_list_slice,
+    |l: ListNameSpace, offset: Expr, length: Expr| l.slice(offset, length)
+);
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_list_gather(
@@ -1837,19 +1855,10 @@ pub unsafe extern "C" fn polars_expr_list_gather(
     make_expr(expr)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_list_gather_every(
-    a: *const polars_expr_t,
-    n: *const polars_expr_t,
-    offset: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*a)
-        .inner
-        .clone()
-        .list()
-        .gather_every((*n).inner.clone(), (*offset).inner.clone());
-    make_expr(expr)
-}
+gen_impl_expr_ternary_list!(
+    polars_expr_list_gather_every,
+    |l: ListNameSpace, n: Expr, offset: Expr| l.gather_every(n, offset)
+);
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_list_diff(
@@ -2086,19 +2095,10 @@ pub unsafe extern "C" fn polars_expr_str_contains(
     make_expr(expr)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_str_slice(
-    a: *const polars_expr_t,
-    offset: *const polars_expr_t,
-    length: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*a)
-        .inner
-        .clone()
-        .str()
-        .slice((*offset).inner.clone(), (*length).inner.clone());
-    make_expr(expr)
-}
+gen_impl_expr_ternary_str!(
+    polars_expr_str_slice,
+    |s: StringNameSpace, offset: Expr, length: Expr| s.slice(offset, length)
+);
 
 /// Position (not just presence, unlike `contains`) of the first regex match.
 #[no_mangle]
