@@ -4,10 +4,33 @@
 
 ## Status
 
-**Not started.** Stacks on the current branch at execution time (`parity-low-hanging-tier12` @
-`1cded32` as of this plan's last update — branch names in this repo turn over quickly; always
-branch off whatever `HEAD` actually is when Task 0 runs, not a hardcoded name) as a new branch
-`macro-dedup-sweep`.
+**Done.** Branch `macro-dedup-sweep`, cut from `parity-low-hanging-tier12` @ `1cded32`. All 20
+tasks landed as 20 commits (`9c64ed2`..`fd57a8c`, plus this file's own status-update commits),
+executed inline in the same session that wrote this plan (no subagent dispatch). Final
+verification: `cd c-polars && cargo build -j 4 && cargo test && cargo clippy --all-targets -- -D
+warnings && cargo fmt --check && python3 check_header_drift.py` all clean (17/17 Rust tests, 455
+symbols matched, zero drift, zero clippy/fmt findings); `julia --project=. -e 'using Pkg;
+Pkg.test()'` — **3305 passed, 6 broken (pre-existing), 0 failed, 3311 total**, matching the
+Task-8 baseline exactly (the +1 over the original 3304-passed baseline is the one new
+`cast_datetime` curry test added in Task 12).
+
+Two corrections made mid-execution, both already folded into the relevant task sections below
+rather than left as errata: Task 14's `_expr_ptrs` design (originally per-type dispatch in
+`macros.jl`) had to become the generic, load-order-safe `_handle_ptrs(xs, ::Type{P})` instead,
+since `macros.jl` loads before `Expr`/`Series`/`LazyFrame` exist; Task 18 broke one test by
+normalizing an error message's wording, fixed in the same task. A handful of duplicate-pattern
+sites the original two-agent sweep missed (`verbs.jl`'s `concat` `how_enum`, `expr/expr.jl`'s
+`sort_by`) were found and fixed opportunistically while touching the same functions for other
+reasons, noted in Tasks 14/18 below.
+
+Kaimon (the live Julia REPL) was unavailable this session throughout, so the interactive
+adversarial spot-check called for in Task 8/Task 20 Step 2 was not performed — only the
+non-interactive `Pkg.test()` fallback. Whoever next has Kaimon available should do a brief live
+pass over a sample of touched paths before considering this fully closed out, per those steps'
+own fallback note.
+
+Not pushed and no PR opened — stopping here per this session's standing instruction to confirm
+before any action visible to others.
 
 **Goal:** Both the Rust (`c-polars/src/*.rs`) and Julia (`src/**/*.jl`) halves of this codebase have
 a documented macro layer specifically built to eliminate copy-paste across near-identical
@@ -112,14 +135,14 @@ Julia, touched in `src/`:
 
 **Files:** none (branch only).
 
-- [ ] **Step 1:** From a clean working tree on whatever branch is currently checked out, create and
+- [x] **Step 1:** From a clean working tree on whatever branch is currently checked out, create and
   switch to the new branch:
 
 ```bash
 git checkout -b macro-dedup-sweep
 ```
 
-- [ ] **Step 2:** Confirm `git status` is clean and `git log --oneline -1` shows the same commit as
+- [x] **Step 2:** Confirm `git status` is clean and `git log --oneline -1` shows the same commit as
   the branch this was cut from. No commit yet — this task only creates the branch.
 
 ---
@@ -137,7 +160,7 @@ git checkout -b macro-dedup-sweep
 only the body changes to a macro invocation. Nothing downstream (Julia call sites, the header)
 needs any change.
 
-- [ ] **Step 1:** In `c-polars/src/expr.rs`, replace the three hand-written functions at lines
+- [x] **Step 1:** In `c-polars/src/expr.rs`, replace the three hand-written functions at lines
   393-413:
 
 ```rust
@@ -180,7 +203,7 @@ gen_impl_expr!(polars_expr_to_uppercase, |e: Expr| e.name().to_uppercase());
 elsewhere in the file — confirm by grepping `gen_impl_expr!(polars_expr_struct_json_encode` before
 you start, to see the exact precedent.)
 
-- [ ] **Step 2:** Replace `polars_expr_pearson_corr` (`expr.rs:629-637`):
+- [x] **Step 2:** Replace `polars_expr_pearson_corr` (`expr.rs:629-637`):
 
 ```rust
 #[no_mangle]
@@ -206,7 +229,7 @@ pearson_corr, ...}`), so no import change is needed. Leave `polars_expr_cov` and
 `polars_expr_spearman_rank_corr` (its neighbors) untouched — both take a genuine extra scalar
 argument (`ddof`/`propagate_nans`) that `gen_impl_expr_binary!` cannot express.
 
-- [ ] **Step 3:** Replace `polars_expr_meta_undo_aliases` (`expr.rs:2711-2715`):
+- [x] **Step 3:** Replace `polars_expr_meta_undo_aliases` (`expr.rs:2711-2715`):
 
 ```rust
 #[no_mangle]
@@ -223,7 +246,7 @@ with, next to its neighbors in the `Meta` section of the file:
 gen_impl_expr!(polars_expr_meta_undo_aliases, |e: Expr| e.meta().undo_aliases());
 ```
 
-- [ ] **Step 4:** Build and verify:
+- [x] **Step 4:** Build and verify:
 
 ```bash
 cd c-polars && cargo build -j 4 && cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check
@@ -233,7 +256,7 @@ python3 check_header_drift.py
 Expect: clean build, all tests pass, clippy/fmt clean, **zero header drift** (these four functions'
 signatures are byte-for-byte unchanged).
 
-- [ ] **Step 5:** From the repo root, run the Julia suite against the freshly built `.so`:
+- [x] **Step 5:** From the repo root, run the Julia suite against the freshly built `.so`:
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.test()'
@@ -242,7 +265,7 @@ julia --project=. -e 'using Pkg; Pkg.test()'
 Expect: identical pass/fail/broken counts to `parity-kwarg-gaps`'s baseline (record that baseline
 now if you haven't already — this is the first Rust task).
 
-- [ ] **Step 6:** Commit:
+- [x] **Step 6:** Commit:
 
 ```bash
 git add c-polars/src/expr.rs
@@ -262,7 +285,7 @@ git commit -m "c-polars: reuse gen_impl_expr!/gen_impl_expr_binary! for keep_nam
 **Interfaces:** Produces macro `gen_impl_expr_named!` in `expr.rs`, callable by any future
 single-name-argument, fallible, `Expr`-returning wrapper.
 
-- [ ] **Step 1:** Add the new macro right after `gen_impl_expr!`'s definition (`expr.rs:578-587`):
+- [x] **Step 1:** Add the new macro right after `gen_impl_expr!`'s definition (`expr.rs:578-587`):
 
 ```rust
 macro_rules! gen_impl_expr_named {
@@ -285,7 +308,7 @@ macro_rules! gen_impl_expr_named {
 }
 ```
 
-- [ ] **Step 2:** Replace the five functions at `expr.rs:313-391`:
+- [x] **Step 2:** Replace the five functions at `expr.rs:313-391`:
 
 ```rust
 #[no_mangle]
@@ -324,7 +347,7 @@ Keep the two doc comments (`prefix_fields`/`suffix_fields`) attached to their ma
 — they carry real information (the feature gate, the "not the same as `prefix`" distinction) that
 must not be lost.
 
-- [ ] **Step 3:** Replace `polars_expr_struct_field_by_name` (`expr.rs:2630-2641`):
+- [x] **Step 3:** Replace `polars_expr_struct_field_by_name` (`expr.rs:2630-2641`):
 
 ```rust
 #[no_mangle]
@@ -348,7 +371,7 @@ with, at the same location:
 gen_impl_expr_named!(polars_expr_struct_field_by_name, |e: Expr, name: &str| e.struct_().field_by_name(name));
 ```
 
-- [ ] **Step 4:** Replace `polars_expr_dt_strftime` (`expr.rs:2570-2582`):
+- [x] **Step 4:** Replace `polars_expr_dt_strftime` (`expr.rs:2570-2582`):
 
 ```rust
 #[no_mangle]
@@ -373,10 +396,10 @@ with:
 gen_impl_expr_named!(polars_expr_dt_strftime, |e: Expr, format: &str| e.dt().strftime(format));
 ```
 
-- [ ] **Step 5:** Build, test, clippy, fmt, header-drift check (same commands as Task 1 Step 4),
+- [x] **Step 5:** Build, test, clippy, fmt, header-drift check (same commands as Task 1 Step 4),
   then run the Julia suite (Task 1 Step 5). Expect identical results.
 
-- [ ] **Step 6:** Commit:
+- [x] **Step 6:** Commit:
 
 ```bash
 git add c-polars/src/expr.rs
@@ -393,7 +416,7 @@ git commit -m "c-polars: add gen_impl_expr_named!, migrate alias/prefix/suffix/p
 
 **Interfaces:** Produces macro `gen_impl_expr_dt_timeunit!` in `expr.rs`.
 
-- [ ] **Step 1:** Add the macro near `gen_impl_expr_dt!`'s definition (`expr.rs:2345-2353`):
+- [x] **Step 1:** Add the macro near `gen_impl_expr_dt!`'s definition (`expr.rs:2345-2353`):
 
 ```rust
 /// Like `gen_impl_expr_dt!`, but for the sub-family that takes a `polars_time_unit_t` and must
@@ -419,7 +442,7 @@ macro_rules! gen_impl_expr_dt_timeunit {
 }
 ```
 
-- [ ] **Step 2:** Replace the three functions at `expr.rs:2469-2515`:
+- [x] **Step 2:** Replace the three functions at `expr.rs:2469-2515`:
 
 ```rust
 /// Fallible since `polars_time_unit_t` mirrors a Julia-side `@cenum` and must reject an
@@ -454,9 +477,9 @@ Leave `polars_expr_dt_combine` (`expr.rs:2519-2536`) untouched — it takes a se
 (`time`) in addition to the `TimeUnit`, a shape this macro doesn't cover and isn't worth
 generalizing for a single call site.
 
-- [ ] **Step 3:** Build/test/clippy/fmt/header-drift, then Julia suite (same as Task 1).
+- [x] **Step 3:** Build/test/clippy/fmt/header-drift, then Julia suite (same as Task 1).
 
-- [ ] **Step 4:** Commit:
+- [x] **Step 4:** Commit:
 
 ```bash
 git add c-polars/src/expr.rs
@@ -476,7 +499,7 @@ git commit -m "c-polars: add gen_impl_expr_dt_timeunit!, migrate dt_timestamp/dt
 **Interfaces:** Produces macros `gen_impl_expr_ternary!`, `gen_impl_expr_ternary_list!`,
 `gen_impl_expr_ternary_str!` in `expr.rs` — no ternary-arity macro existed before this task.
 
-- [ ] **Step 1:** Add the three macros next to `gen_impl_expr_binary!`'s definition
+- [x] **Step 1:** Add the three macros next to `gen_impl_expr_binary!`'s definition
   (`expr.rs:1283-1296`):
 
 ```rust
@@ -525,7 +548,7 @@ macro_rules! gen_impl_expr_ternary_str {
 }
 ```
 
-- [ ] **Step 2:** Replace `polars_expr_clip` (`expr.rs:1125-1135`):
+- [x] **Step 2:** Replace `polars_expr_clip` (`expr.rs:1125-1135`):
 
 ```rust
 #[no_mangle]
@@ -547,7 +570,7 @@ with:
 gen_impl_expr_ternary!(polars_expr_clip, |e: Expr, min: Expr, max: Expr| e.clip(min, max));
 ```
 
-- [ ] **Step 3:** Replace `polars_expr_replace` (`expr.rs:1143-1153`) with:
+- [x] **Step 3:** Replace `polars_expr_replace` (`expr.rs:1143-1153`) with:
 
 ```rust
 gen_impl_expr_ternary!(polars_expr_replace, |e: Expr, old: Expr, new: Expr| e.replace(old, new));
@@ -556,7 +579,7 @@ gen_impl_expr_ternary!(polars_expr_replace, |e: Expr, old: Expr, new: Expr| e.re
 (Leave `polars_expr_replace_strict`, its 4-argument neighbor, untouched — it takes a 4th `default`
 argument this ternary macro doesn't cover.)
 
-- [ ] **Step 4:** Replace `polars_expr_extend_constant` (`expr.rs:1377-1386`) with, keeping its
+- [x] **Step 4:** Replace `polars_expr_extend_constant` (`expr.rs:1377-1386`) with, keeping its
   existing doc comment:
 
 ```rust
@@ -564,27 +587,27 @@ argument this ternary macro doesn't cover.)
 gen_impl_expr_ternary!(polars_expr_extend_constant, |e: Expr, value: Expr, n: Expr| e.extend_constant(value, n));
 ```
 
-- [ ] **Step 5:** Replace `polars_expr_list_slice` (`expr.rs:1879-1891`) with:
+- [x] **Step 5:** Replace `polars_expr_list_slice` (`expr.rs:1879-1891`) with:
 
 ```rust
 gen_impl_expr_ternary_list!(polars_expr_list_slice, |l: ListNameSpace, offset: Expr, length: Expr| l.slice(offset, length));
 ```
 
-- [ ] **Step 6:** Replace `polars_expr_list_gather_every` (`expr.rs:1907-1919`) with:
+- [x] **Step 6:** Replace `polars_expr_list_gather_every` (`expr.rs:1907-1919`) with:
 
 ```rust
 gen_impl_expr_ternary_list!(polars_expr_list_gather_every, |l: ListNameSpace, n: Expr, offset: Expr| l.gather_every(n, offset));
 ```
 
-- [ ] **Step 7:** Replace `polars_expr_str_slice` (`expr.rs:2157-2168`) with:
+- [x] **Step 7:** Replace `polars_expr_str_slice` (`expr.rs:2157-2168`) with:
 
 ```rust
 gen_impl_expr_ternary_str!(polars_expr_str_slice, |s: StringNameSpace, offset: Expr, length: Expr| s.slice(offset, length));
 ```
 
-- [ ] **Step 8:** Build/test/clippy/fmt/header-drift, then Julia suite.
+- [x] **Step 8:** Build/test/clippy/fmt/header-drift, then Julia suite.
 
-- [ ] **Step 9:** Commit:
+- [x] **Step 9:** Commit:
 
 ```bash
 git add c-polars/src/expr.rs
@@ -605,7 +628,7 @@ git commit -m "c-polars: add ternary gen_impl_expr* macros, migrate clip/replace
 **Interfaces:** Produces `pub(crate) unsafe fn read_opt_u64(ptr: *const u64) -> Option<u64>` in
 `ffi_util.rs`, imported the same way `read_opt_str`/`read_str` already are at the top of `expr.rs`.
 
-- [ ] **Step 1:** Add to `ffi_util.rs`, right after `read_f64_array` (line 96):
+- [x] **Step 1:** Add to `ffi_util.rs`, right after `read_f64_array` (line 96):
 
 ```rust
 /// Reads an optional scalar behind a nullable pointer: `ptr.is_null()` means `None`, otherwise
@@ -616,10 +639,10 @@ pub(crate) unsafe fn read_opt_u64(ptr: *const u64) -> Option<u64> {
 }
 ```
 
-- [ ] **Step 2:** Add `read_opt_u64` to `expr.rs`'s `ffi_util::{...}` import list (currently at
+- [x] **Step 2:** Add `read_opt_u64` to `expr.rs`'s `ffi_util::{...}` import list (currently at
   `expr.rs:21-24`).
 
-- [ ] **Step 3:** In each of the 5 call sites, replace the inline
+- [x] **Step 3:** In each of the 5 call sites, replace the inline
   `let seed = if seed.is_null() { None } else { Some(*seed) };` line with
   `let seed = read_opt_u64(seed);` — e.g. `polars_expr_shuffle` (`expr.rs:1388-1397`) becomes:
 
@@ -641,9 +664,9 @@ Apply the identical one-line substitution at `polars_expr_sample_n` (`expr.rs:15
 `polars_expr_list_sample_fraction` (`expr.rs:1953-1968`). Nothing else in any of these 5 functions
 changes.
 
-- [ ] **Step 4:** Build/test/clippy/fmt/header-drift, then Julia suite.
+- [x] **Step 4:** Build/test/clippy/fmt/header-drift, then Julia suite.
 
-- [ ] **Step 5:** Commit:
+- [x] **Step 5:** Commit:
 
 ```bash
 git add c-polars/src/ffi_util.rs c-polars/src/expr.rs
@@ -661,7 +684,7 @@ git commit -m "c-polars: add read_opt_u64, dedup the nullable-seed pattern acros
 **Interfaces:** Produces macros `gen_lazy_frame_reduce!`, `gen_lazy_frame_unary_expr_mutator!` in
 `dataframe.rs`.
 
-- [ ] **Step 1:** Add both macros right before `polars_lazy_frame_with_columns`
+- [x] **Step 1:** Add both macros right before `polars_lazy_frame_with_columns`
   (`dataframe.rs:600`), preserving the existing `mem::take` rationale comment that currently sits
   above `polars_lazy_frame_sort` (do not delete that original comment — it's still the canonical
   explanation these macros' own doc comments should point back to):
@@ -696,7 +719,7 @@ macro_rules! gen_lazy_frame_reduce {
 }
 ```
 
-- [ ] **Step 2:** Replace `polars_lazy_frame_filter` (`dataframe.rs:624-635`) and
+- [x] **Step 2:** Replace `polars_lazy_frame_filter` (`dataframe.rs:624-635`) and
   `polars_lazy_frame_fill_null` (`dataframe.rs:637-648`):
 
 ```rust
@@ -721,7 +744,7 @@ gen_lazy_frame_unary_expr_mutator!(polars_lazy_frame_filter, filter, expr);
 gen_lazy_frame_unary_expr_mutator!(polars_lazy_frame_fill_null, fill_null, fill_value);
 ```
 
-- [ ] **Step 3:** Replace the 9 zero-arg reductions at `dataframe.rs:756-834`
+- [x] **Step 3:** Replace the 9 zero-arg reductions at `dataframe.rs:756-834`
   (`polars_lazy_frame_sum`, `_mean`, `_min`, `_max`, `_median`, `_reverse`, `_null_count`,
   `_count`, `_cache`) — e.g. `polars_lazy_frame_sum`:
 
@@ -764,19 +787,19 @@ the macro's `$($arg: $ty)*` repetition handles the extra `ddof: u8` uniformly. L
 `polars_lazy_frame_quantile`, `dataframe.rs:798-807`, untouched — it takes an `Expr` plus an enum,
 a shape neither macro covers and not worth generalizing for one call site.)
 
-- [ ] **Step 4:** Replace `polars_lazy_frame_fill_nan` (`dataframe.rs:837-846`) with:
+- [x] **Step 4:** Replace `polars_lazy_frame_fill_nan` (`dataframe.rs:837-846`) with:
 
 ```rust
 gen_lazy_frame_unary_expr_mutator!(polars_lazy_frame_fill_nan, fill_nan, value);
 ```
 
-- [ ] **Step 5:** Build/test/clippy/fmt/header-drift — **pay special attention here**: confirm
+- [x] **Step 5:** Build/test/clippy/fmt/header-drift — **pay special attention here**: confirm
   `check_header_drift.py` reports zero drift, since a mismatched `$arg` name between the macro
   invocation and the original hand-written parameter name would otherwise silently rename a
   parameter in the generated header (harmless functionally, since C ABI matching is positional, but
   worth catching). Then Julia suite.
 
-- [ ] **Step 6:** Commit:
+- [x] **Step 6:** Commit:
 
 ```bash
 git add c-polars/src/dataframe.rs
@@ -793,7 +816,7 @@ git commit -m "c-polars: add gen_lazy_frame_reduce!/gen_lazy_frame_unary_expr_mu
   `c-polars/src/io.rs:466-471,539-548,685-690,723-728,753-758` (`build_sink_args` call sites),
   `c-polars/src/ffi_util.rs:81-96` (`read_i64_array`/`read_f64_array`).
 
-- [ ] **Step 1:** In `dataframe.rs`, add near the top (module-level, after the `use` block):
+- [x] **Step 1:** In `dataframe.rs`, add near the top (module-level, after the `use` block):
 
 ```rust
 /// Clamps a `usize` row count into polars' `IdxSize` -- the shared "don't overflow IdxSize"
@@ -808,7 +831,7 @@ Replace each of the 4 occurrences of `n.min(IdxSize::MAX as usize) as IdxSize` (
 `to_idx_size(n)` (substituting the right local variable name for `n` at each site — `len` in
 `slice`, `k` in `top_or_bottom_k`, etc.).
 
-- [ ] **Step 2:** In `io.rs`, add near `build_csv_writer_options`/`build_ipc_writer_options`
+- [x] **Step 2:** In `io.rs`, add near `build_csv_writer_options`/`build_ipc_writer_options`
   (`io.rs:559,613`):
 
 ```rust
@@ -835,7 +858,7 @@ cloud_options.map(Arc::new), ..Default::default() }` literal (`sink_parquet`,
 specifically, that's `build_sink_args(false, maintain_order, cloud_options)`, preserving its
 existing comment explaining why `mkdir` is hardcoded `false` there.
 
-- [ ] **Step 3:** In `ffi_util.rs`, replace `read_i64_array` and `read_f64_array` (currently two
+- [x] **Step 3:** In `ffi_util.rs`, replace `read_i64_array` and `read_f64_array` (currently two
   byte-identical functions modulo element type, `ffi_util.rs:81-96`) with one generic function:
 
 ```rust
@@ -856,9 +879,9 @@ if the surrounding context lets type inference resolve `T`), and update the `ffi
 import lists at each call site's top-of-file `use` block to import `read_array` instead of the two
 old names.
 
-- [ ] **Step 4:** Build/test/clippy/fmt/header-drift, then Julia suite.
+- [x] **Step 4:** Build/test/clippy/fmt/header-drift, then Julia suite.
 
-- [ ] **Step 5:** Commit:
+- [x] **Step 5:** Commit:
 
 ```bash
 git add c-polars/src/dataframe.rs c-polars/src/io.rs c-polars/src/ffi_util.rs
@@ -871,7 +894,7 @@ git commit -m "c-polars: extract to_idx_size/build_sink_args helpers, unify read
 
 **Files:** none (verification only).
 
-- [ ] **Step 1:** From repo root:
+- [x] **Step 1:** From repo root:
 
 ```bash
 cd c-polars && cargo build -j 4 && cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check
@@ -882,7 +905,7 @@ cd .. && julia --project=. -e 'using Pkg; Pkg.test()'
 Record the exact pass/fail/broken counts from this run — this is the baseline every remaining task
 in this plan (all Julia-only) must match exactly.
 
-- [ ] **Step 2:** If Kaimon is available, restart the shared REPL now (`manage_repl` with
+- [x] **Step 2:** If Kaimon is available, restart the shared REPL now (`manage_repl` with
   `command="restart"`) so it picks up every Rust change from Tasks 1-7 in one go, and spot-check one
   touched path per task live (e.g. `col("x") |> Dt.strftime("%Y")`, `clip(col("x"), 0, 10)`,
   `col("x") |> Structs.field_by_name("f")`, `df |> Base.sort(...)` for the `mem::take` mutators).
@@ -905,7 +928,7 @@ No commit for this task (nothing changes).
 Base.Fix2(head, convert(Expr, n))` etc.) exactly as-is — only the *primal* function body/docstring
 generation changes from hand-written to macro-generated.
 
-- [ ] **Step 1:** In `src/expr/list.jl`, replace:
+- [x] **Step 1:** In `src/expr/list.jl`, replace:
 
 ```julia
 """
@@ -932,11 +955,11 @@ and `shift` (lines 62-71, `API.polars_expr_list_shift`), each keeping its own ex
 the `head`/`Polars.head` collision" comment above the block — it's still accurate (the fix here is
 switching *which* macro is used, not un-pulling these from the block).
 
-- [ ] **Step 2:** In `src/expr/string.jl`, apply the identical transformation to `head`
+- [x] **Step 2:** In `src/expr/string.jl`, apply the identical transformation to `head`
   (lines 32-41, `API.polars_expr_str_head`) and `tail` (lines 43-52, `API.polars_expr_str_tail`),
   keeping the shared `head(n) = Base.Fix2(...)`/`tail(n) = Base.Fix2(...)` lines at 72-73 unchanged.
 
-- [ ] **Step 3:** Verify:
+- [x] **Step 3:** Verify:
 
 ```bash
 julia --project=. -e 'using Pkg; Pkg.test()'
@@ -944,7 +967,7 @@ julia --project=. -e 'using Pkg; Pkg.test()'
 
 Expect: identical counts to the Task 8 baseline.
 
-- [ ] **Step 4:** Commit:
+- [x] **Step 4:** Commit:
 
 ```bash
 git add src/expr/list.jl src/expr/string.jl
@@ -959,7 +982,7 @@ git commit -m "Julia: reuse @wrap_expr_method for Lists/Strings head/tail/shift"
 - Modify: `src/expr/datetime.jl:37-56` (`strftime`), `src/expr/datetime.jl:254-280`
   (`convert_time_zone`), `src/expr/struct.jl:4-16` (`field_by_name`).
 
-- [ ] **Step 1:** In `src/expr/datetime.jl`, replace:
+- [x] **Step 1:** In `src/expr/datetime.jl`, replace:
 
 ```julia
 """
@@ -986,7 +1009,7 @@ Keep `strftime(format::AbstractString) = Base.Fix2(strftime, format)` and `expor
 immediately below, unchanged (`to_string`'s hand-written alias further down, which calls
 `strftime(expr, format)`, needs no change — it calls the public function, not the internal body).
 
-- [ ] **Step 2:** Apply the identical transformation to `convert_time_zone` (lines 266-271,
+- [x] **Step 2:** Apply the identical transformation to `convert_time_zone` (lines 266-271,
   `API.polars_expr_dt_convert_time_zone`):
 
 ```julia
@@ -996,7 +1019,7 @@ immediately below, unchanged (`to_string`'s hand-written alias further down, whi
 Keep `convert_time_zone(tz::AbstractString) = Base.Fix2(convert_time_zone, tz)` and
 `export convert_time_zone` unchanged.
 
-- [ ] **Step 3:** In `src/expr/struct.jl`, replace:
+- [x] **Step 3:** In `src/expr/struct.jl`, replace:
 
 ```julia
 """
@@ -1024,9 +1047,9 @@ per its own docstring):
 field_by_name(name) = Base.Fix2(field_by_name, name)
 ```
 
-- [ ] **Step 4:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline.
+- [x] **Step 4:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline.
 
-- [ ] **Step 5:** Commit:
+- [x] **Step 5:** Commit:
 
 ```bash
 git add src/expr/datetime.jl src/expr/struct.jl
@@ -1045,7 +1068,7 @@ argument's type annotation by the *exact* `Symbol` `:AbstractString` — a `name
 would silently skip the `(ptr, ncodeunits)` marshalling and produce a wrong-arity ccall. Fix the
 type annotation as part of this migration, not separately.
 
-- [ ] **Step 1:** Replace:
+- [x] **Step 1:** Replace:
 
 ```julia
 """
@@ -1084,11 +1107,11 @@ ncodeunits(name), normalize` order — double check this against `_gen_expr_part
 generated arity/order assertion in `_resolve_fallible` fails at `] test`/build time, it will name
 exactly what it expected, so a mismatch here is a loud compile-time error, not a silent bug.
 
-- [ ] **Step 2:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline.
+- [x] **Step 2:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline.
   Specifically re-run any `value_counts` test with a non-default `name` keyword to confirm the
   `AbstractString` marshalling path is actually exercised, not just the `"count"` default.
 
-- [ ] **Step 3:** Commit:
+- [x] **Step 3:** Commit:
 
 ```bash
 git add src/expr/statistics.jl
@@ -1104,7 +1127,7 @@ git commit -m "Julia: reuse @wrap_expr_method for value_counts, fix its String->
   (`with_time_unit`), `src/expr/datetime.jl:164-169` (`combine`), `src/expr/datetime.jl:315-326`
   (`replace_time_zone`), `src/expr/expr.jl:361-410ish` (`cast_datetime`, near `cast_duration`).
 
-- [ ] **Step 1:** In `src/expr/datetime.jl`, replace the hand-written curry:
+- [x] **Step 1:** In `src/expr/datetime.jl`, replace the hand-written curry:
 
 ```julia
 """
@@ -1130,7 +1153,7 @@ keep it as a suffix in a manual `Docs.@doc` call rather than silently dropping i
 before assuming they're boilerplate-only — `combine`'s currently is, per the file content already
 read for this plan).
 
-- [ ] **Step 2:** Replace `replace_time_zone`'s hand-written curry (`datetime.jl:315-326`):
+- [x] **Step 2:** Replace `replace_time_zone`'s hand-written curry (`datetime.jl:315-326`):
 
 ```julia
 """
@@ -1153,7 +1176,7 @@ with:
 @curry replace_time_zone(tz::Union{Nothing, AbstractString} = nothing; ambiguous::AbstractString = "raise", non_existent::Symbol = :raise)
 ```
 
-- [ ] **Step 3:** In `src/expr/expr.jl`, near `cast_duration`'s existing `@curry cast_duration(;
+- [x] **Step 3:** In `src/expr/expr.jl`, near `cast_duration`'s existing `@curry cast_duration(;
   time_unit::Symbol = :us)` line, add the currently-missing curry for `cast_datetime`:
 
 ```julia
@@ -1164,14 +1187,14 @@ placed immediately after `cast_datetime`'s own function definition (mirroring wh
 `cast_duration`'s curry sits relative to its primal — locate both by searching for `function
 cast_datetime` and `function cast_duration` in `src/expr/expr.jl`).
 
-- [ ] **Step 4:** `julia --project=. -e 'using Pkg; Pkg.test()'`. `cast_datetime`'s curry is new
+- [x] **Step 4:** `julia --project=. -e 'using Pkg; Pkg.test()'`. `cast_datetime`'s curry is new
   behavior surface (previously `cast_datetime(; time_unit, time_zone) |> ...` piping did not exist)
   — search `test/` for existing `cast_duration`-curry tests (e.g. `test/expr/` or wherever temporal
   constructors are tested) and add one analogous `cast_datetime` curry test if none exists, since
   this is the one part of this task that is not a pure refactor of already-tested behavior. Keep
   it minimal — one `col("x") |> cast_datetime(time_unit=:ms)`-shaped assertion is enough.
 
-- [ ] **Step 5:** Commit:
+- [x] **Step 5:** Commit:
 
 ```bash
 git add src/expr/datetime.jl src/expr/expr.jl test/
@@ -1196,7 +1219,7 @@ adoption in the files outside `src/expr/` that never picked it up, plus `group_b
 chains (found during this plan's own research, not the original two-agent sweep — same pattern,
 same fix).
 
-- [ ] **Step 1:** In `src/verbs.jl`, replace:
+- [x] **Step 1:** In `src/verbs.jl`, replace:
 
 ```julia
     keep_enum = if keep == :first
@@ -1222,7 +1245,7 @@ with:
     )
 ```
 
-- [ ] **Step 2:** In `src/reshape.jl`, replace `pivot`'s `naming_enum` chain (lines 121-127) with:
+- [x] **Step 2:** In `src/reshape.jl`, replace `pivot`'s `naming_enum` chain (lines 121-127) with:
 
 ```julia
     naming_enum = _enum_lookup(
@@ -1231,7 +1254,7 @@ with:
     )
 ```
 
-- [ ] **Step 3:** In `src/join.jl`, replace both standalone functions (lines 1-18):
+- [x] **Step 3:** In `src/join.jl`, replace both standalone functions (lines 1-18):
 
 ```julia
 function _join_coalesce_enum(coalesce::Symbol)
@@ -1276,7 +1299,7 @@ _join_validation_enum(validate::Symbol) = _enum_lookup(
 (Both functions' *names* and call sites stay identical — only their bodies collapse to one
 `_enum_lookup` call each.)
 
-- [ ] **Step 4:** In `src/io/csv.jl`, replace `_quote_style_enum`/`_csv_compression_enum`
+- [x] **Step 4:** In `src/io/csv.jl`, replace `_quote_style_enum`/`_csv_compression_enum`
   (lines 1-18) with the same one-line-body pattern:
 
 ```julia
@@ -1293,7 +1316,7 @@ _csv_compression_enum(compression::Symbol) = _enum_lookup(
 )
 ```
 
-- [ ] **Step 5:** In `src/io/parquet.jl`, replace `_parquet_compression_enum` (lines 155-165) with:
+- [x] **Step 5:** In `src/io/parquet.jl`, replace `_parquet_compression_enum` (lines 155-165) with:
 
 ```julia
 _parquet_compression_enum(compression::Symbol) = _enum_lookup(
@@ -1305,7 +1328,7 @@ _parquet_compression_enum(compression::Symbol) = _enum_lookup(
 )
 ```
 
-- [ ] **Step 6:** In `src/io/ipc.jl`, replace `_ipc_compression_enum` (near the top of the file)
+- [x] **Step 6:** In `src/io/ipc.jl`, replace `_ipc_compression_enum` (near the top of the file)
   with:
 
 ```julia
@@ -1316,7 +1339,7 @@ _ipc_compression_enum(compression::Symbol) = _enum_lookup(
 )
 ```
 
-- [ ] **Step 7:** In `src/group_by.jl`, replace `group_by_dynamic`'s three ternary chains
+- [x] **Step 7:** In `src/group_by.jl`, replace `group_by_dynamic`'s three ternary chains
   (lines 94-114):
 
 ```julia
@@ -1377,16 +1400,16 @@ minor wording normalization, not a bug; if any existing test asserts on the exac
 update that assertion to match `_enum_lookup`'s wording (search `test/` for `"invalid label"`,
 `"invalid closed"`, `"invalid start_by"`, `"unknown keep strategy"`, etc. before assuming none do).
 
-- [ ] **Step 8:** `_enum_lookup` is defined in `macros.jl`, which every one of these files already
+- [x] **Step 8:** `_enum_lookup` is defined in `macros.jl`, which every one of these files already
   has implicit access to (all `include`d directly into the top-level `Polars` module scope, per
   `macros.jl`'s own docstring already citing this fact) — no new `using`/import needed anywhere
   in this task. Confirm this holds by building; a missing binding would be a loud `UndefVarError`
   at load time, not a silent failure.
 
-- [ ] **Step 9:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline
+- [x] **Step 9:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline
   (modulo any error-message-wording test updates from Step 7).
 
-- [ ] **Step 10:** Commit:
+- [x] **Step 10:** Commit:
 
 ```bash
 git add src/verbs.jl src/reshape.jl src/join.jl src/io/csv.jl src/io/parquet.jl src/io/ipc.jl src/group_by.jl test/
@@ -1469,7 +1492,7 @@ baseline.
   1082`, `src/io/csv.jl:100-110,189-199,260-270`, `src/io/json.jl:58-63`, `src/io/parquet.jl:117-
   122,201-202,258-259,311-312`, `src/io/ipc.jl:60-65,113-114,158-159`.
 
-- [ ] **Step 1:** Add to `macros.jl`, right after `_handle_ptrs`:
+- [x] **Step 1:** Add to `macros.jl`, right after `_handle_ptrs`:
 
 ```julia
 """
@@ -1496,7 +1519,7 @@ duration of the call -- no additional `GC.@preserve` is needed for the string ha
 _nullable_str(s::Union{Nothing, AbstractString}) = s === nothing ? (Ptr{UInt8}(C_NULL), 0) : (s, ncodeunits(s))
 ```
 
-- [ ] **Step 2:** In `src/expr/statistics.jl` and `src/expr/list.jl`, replace each
+- [x] **Step 2:** In `src/expr/statistics.jl` and `src/expr/list.jl`, replace each
   `x === nothing ? Ptr{T}(C_NULL) : Ref(T(x))` occurrence (4 sites:
   `statistics.jl:177,198`, `list.jl:106,122` — all `seed`-shaped) with
   `_nullable_ref(x, T)`, e.g. `list.jl:106`:
@@ -1514,11 +1537,11 @@ becomes
 The surrounding `GC.@preserve seed_ref ... end` block is untouched — `seed_ref` still needs
 preserving, exactly as documented in `_nullable_ref`'s own docstring above.
 
-- [ ] **Step 3:** In `src/expr/expr.jl`, apply the identical substitution at the 4 remaining
+- [x] **Step 3:** In `src/expr/expr.jl`, apply the identical substitution at the 4 remaining
   `Ref(T(x))`-vs-`Ptr{T}(C_NULL)` sites (`expr.jl:604,757,1064,1082` — locate by grepping
   `=== nothing \? Ptr{` in that file, since exact surrounding variable names differ per site).
 
-- [ ] **Step 4:** In `src/io/csv.jl`, `src/io/json.jl`, `src/io/parquet.jl`, `src/io/ipc.jl`,
+- [x] **Step 4:** In `src/io/csv.jl`, `src/io/json.jl`, `src/io/parquet.jl`, `src/io/ipc.jl`,
   replace each paired
   `x_arg = x === nothing ? Ptr{UInt8}(C_NULL) : x; x_len = x === nothing ? 0 : ncodeunits(x)` with
   a single `_nullable_str` call, e.g. `io/csv.jl:189-190`:
@@ -1545,7 +1568,7 @@ Where `_nullable_ref` also applies in the same function (e.g. `compression_level
 `infer_schema_length_ref` — all the `Ptr{T}(C_NULL) : Ref(T(x))` shape), apply Step 1's
 `_nullable_ref` helper there too, in the same pass over each file.
 
-- [ ] **Step 5:** Update `macros.jl`'s "## Not yet covered" header comment (currently
+- [x] **Step 5:** Update `macros.jl`'s "## Not yet covered" header comment (currently
   `macros.jl:80-92`): remove the first bullet ("the nullable-scalar shape...") and the reference to
   `sample_n`/`sample_frac`/`fill_null` in it, since `_nullable_ref`/`_nullable_str` now cover it —
   replace that bullet with a short note pointing at the new helpers instead, e.g.:
@@ -1556,14 +1579,14 @@ Where `_nullable_ref` also applies in the same function (e.g. `compression_level
 #     ternary by hand.
 ```
 
-- [ ] **Step 6:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline. This
+- [x] **Step 6:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline. This
   touches every scan/write/sink entry point in `src/io/`, so run the io-specific test files
   individually first if the full suite is slow to iterate on (`test/dataframe/io.jl`,
   `test/lazyframe/scan_parquet.jl`, `test/lazyframe/sink_parquet.jl`, `test/lazyframe/sink_csv.jl`,
   `test/lazyframe/sink_ipc.jl`, and their siblings under `test/io/` if any — check
   `test/runtests.jl`'s `include(...)` list for the exact set).
 
-- [ ] **Step 7:** Commit:
+- [x] **Step 7:** Commit:
 
 ```bash
 git add src/macros.jl src/expr/statistics.jl src/expr/list.jl src/expr/expr.jl src/io/csv.jl src/io/json.jl src/io/parquet.jl src/io/ipc.jl
@@ -1572,7 +1595,11 @@ git commit -m "Julia: add _nullable_ref/_nullable_str, dedup the nullable-scalar
 
 ---
 
-## Task 16: Add `_io_read`; migrate the "materialize a Rust-written buffer" sites
+## Task 16: Add `_io_read`; migrate the "materialize a Rust-written buffer" sites — **Done**
+
+Executed as planned below, plus `expr/meta.jl`'s `Meta` submodule needed `_io_read` added to its
+`using ..Polars: ...` clause (and `_io_callback`/`polars_error` removed from it, now unused there).
+Verified: `Pkg.test()` — 3305/6/0/3311.
 
 **Files:**
 - Modify: `src/macros.jl` (add `_io_read`), `src/dataframe.jl:138-144` (`native_repr`),
@@ -1580,7 +1607,7 @@ git commit -m "Julia: add _nullable_ref/_nullable_str, dedup the nullable-scalar
   methods), `src/expr/meta.jl:21-28` (`output_name`), `src/expr/meta.jl` (`root_names`,
   `_tree_format`).
 
-- [ ] **Step 1:** Add to `macros.jl`, right after `_nullable_str`:
+- [x] **Step 1:** Add to `macros.jl`, right after `_nullable_str`:
 
 ```julia
 """
@@ -1602,7 +1629,7 @@ function _io_read(f)
 end
 ```
 
-- [ ] **Step 2:** In `src/dataframe.jl`, replace `native_repr` (lines 138-144):
+- [x] **Step 2:** In `src/dataframe.jl`, replace `native_repr` (lines 138-144):
 
 ```julia
 function native_repr(df::DataFrame)
@@ -1620,14 +1647,14 @@ with:
 native_repr(df::DataFrame) = String(_io_read((io, cb) -> API.polars_dataframe_show(df, io, cb)))
 ```
 
-- [ ] **Step 3:** In `src/lazyframe.jl`, replace `explain` (lines 98-104) with:
+- [x] **Step 3:** In `src/lazyframe.jl`, replace `explain` (lines 98-104) with:
 
 ```julia
 explain(df::LazyFrame; optimized::Bool = true) =
     String(_io_read((io, cb) -> API.polars_lazy_frame_explain(df, optimized, io, cb)))
 ```
 
-- [ ] **Step 4:** In `src/value.jl`, replace:
+- [x] **Step 4:** In `src/value.jl`, replace:
 
 ```julia
 function load_value(value::Value{String})
@@ -1669,7 +1696,7 @@ function load_value(value::Value{Vector{UInt8}})
 end
 ```
 
-- [ ] **Step 5:** In `src/expr/meta.jl`, replace `output_name` (lines 21-28):
+- [x] **Step 5:** In `src/expr/meta.jl`, replace `output_name` (lines 21-28):
 
 ```julia
 function output_name(expr)
@@ -1758,9 +1785,9 @@ rebuild, so this is a non-issue functionally, but note it as a minor efficiency 
 `root_names` is ever called on an expression with very many root columns; not worth a special case
 for this plan.)
 
-- [ ] **Step 6:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline.
+- [x] **Step 6:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline.
 
-- [ ] **Step 7:** Commit:
+- [x] **Step 7:** Commit:
 
 ```bash
 git add src/macros.jl src/dataframe.jl src/lazyframe.jl src/value.jl src/expr/meta.jl
@@ -1769,7 +1796,10 @@ git commit -m "Julia: add _io_read, dedup the IOBuffer-materialization pattern a
 
 ---
 
-## Task 17: Add `@wrap_path_writer`; migrate 4 of the 5 `path::String`-sibling writers
+## Task 17: Add `@wrap_path_writer`; migrate 4 of the 5 `path::String`-sibling writers — **Done**
+
+Executed exactly as planned below. Verified: `Pkg.test()` — 3305/6/0/3311, including the
+cloud-URI-rejects-with-the-right-message tests for all four writers.
 
 **Files:**
 - Modify: `src/macros.jl` (add `@wrap_path_writer`), `src/io/csv.jl:215-218` (`write_csv`),
@@ -1780,7 +1810,7 @@ git commit -m "Julia: add _io_read, dedup the IOBuffer-materialization pattern a
 cloud-URI path to `sink_parquet` instead of erroring, the one genuinely asymmetric case; do not
 touch it in this task.
 
-- [ ] **Step 1:** Add to `macros.jl`, right after `_io_read`:
+- [x] **Step 1:** Add to `macros.jl`, right after `_io_read`:
 
 ```julia
 """
@@ -1809,7 +1839,7 @@ macro wrap_path_writer(fname, errmsg)
 end
 ```
 
-- [ ] **Step 2:** In `src/io/csv.jl`, replace:
+- [x] **Step 2:** In `src/io/csv.jl`, replace:
 
 ```julia
 function write_csv(p::String, df::DataFrame; kwargs...)
@@ -1824,14 +1854,14 @@ with:
 @wrap_path_writer write_csv "write_csv writes local files; use sink_csv for cloud URIs"
 ```
 
-- [ ] **Step 3:** In `src/io/ipc.jl`, replace the analogous `write_ipc(p::String, ...)` (lines
+- [x] **Step 3:** In `src/io/ipc.jl`, replace the analogous `write_ipc(p::String, ...)` (lines
   126-129) with:
 
 ```julia
 @wrap_path_writer write_ipc "write_ipc writes local files; use sink_ipc for cloud URIs"
 ```
 
-- [ ] **Step 4:** In `src/io/json.jl`, replace `write_json(p::String, ...)` (lines 105-108) with:
+- [x] **Step 4:** In `src/io/json.jl`, replace `write_json(p::String, ...)` (lines 105-108) with:
 
 ```julia
 @wrap_path_writer write_json "write_json writes local files only; there is no cloud sink for plain JSON"
@@ -1843,11 +1873,11 @@ and `write_ndjson(p::String, ...)` (lines 126-129) with:
 @wrap_path_writer write_ndjson "write_ndjson writes local files; use sink_ndjson for cloud URIs"
 ```
 
-- [ ] **Step 5:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline;
+- [x] **Step 5:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline;
   specifically confirm the existing tests that assert on a cloud-URI path raising each of these
   four exact error messages still pass unchanged (the macro reproduces the messages verbatim).
 
-- [ ] **Step 6:** Commit:
+- [x] **Step 6:** Commit:
 
 ```bash
 git add src/macros.jl src/io/csv.jl src/io/ipc.jl src/io/json.jl
@@ -1856,14 +1886,22 @@ git commit -m "Julia: add @wrap_path_writer, dedup the path::String local-file-w
 
 ---
 
-## Task 18: Add `_resolve_descending`; migrate the `rev`-to-`descending`-vector sites
+## Task 18: Add `_resolve_descending`; migrate the `rev`-to-`descending`-vector sites — **Done**
+
+Beyond the 4 planned sites, `expr/expr.jl`'s `sort_by` turned out to have the identical
+`descending` broadcast+validate duplication (missed by the original sweep) plus its own
+`by_ptrs = Ptr{polars_expr_t}[...]` pattern (Task 14's territory) — both fixed in the same edit.
+The error-wording normalization broke one test (`test/operations/sort.jl:100`, which asserted the
+literal substring `"2 expressions"`, no longer present once the message reads `"2 sort
+expressions"`) — updated to assert `"2 sort expressions"` instead. Verified: `Pkg.test()` —
+3305/6/0/3311 after that fix (was 3304 passed / 1 failed before it).
 
 **Files:**
 - Modify: `src/macros.jl` (add `_resolve_descending`), `src/sort.jl:57-68` (`_sort!`),
   `src/sort.jl:114-122` (`_top_or_bottom_k!`), `src/expr/expr.jl:1141-1152` (`top_k_by`),
   `src/expr/expr.jl:1167-1177` (`bottom_k_by`).
 
-- [ ] **Step 1:** Add to `macros.jl`, right after `@wrap_path_writer`:
+- [x] **Step 1:** Add to `macros.jl`, right after `@wrap_path_writer`:
 
 ```julia
 """
@@ -1894,7 +1932,7 @@ minor wording normalization for consistency, not a behavior bug. If any test ass
 `_sort!`/`_top_or_bottom_k!` wording, update it in this task (search `test/` for `"one entry per
 sort expression"`/`"one entry per key expression"` before assuming none do).
 
-- [ ] **Step 2:** In `src/sort.jl`, replace `_sort!`'s validation block (lines 58-68):
+- [x] **Step 2:** In `src/sort.jl`, replace `_sort!`'s validation block (lines 58-68):
 
 ```julia
     nexprs = length(exprs)
@@ -1919,13 +1957,13 @@ with:
 
 Apply the identical substitution to `_top_or_bottom_k!` (lines 115-122, prefix `"key"`).
 
-- [ ] **Step 3:** In `src/expr/expr.jl`, apply the identical substitution to `top_k_by`
+- [x] **Step 3:** In `src/expr/expr.jl`, apply the identical substitution to `top_k_by`
   (lines 1146-1152, prefix `"by"`) and `bottom_k_by` (lines 1172-1177, prefix `"by"`).
 
-- [ ] **Step 4:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline
+- [x] **Step 4:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline
   (modulo any error-message-wording test updates from Step 1).
 
-- [ ] **Step 5:** Commit:
+- [x] **Step 5:** Commit:
 
 ```bash
 git add src/macros.jl src/sort.jl src/expr/expr.jl
@@ -1934,7 +1972,12 @@ git commit -m "Julia: add _resolve_descending, dedup the rev-to-descending-vecto
 
 ---
 
-## Task 19: Add `@curry`'s `fix2=true` option; migrate the 12 hand-written `Base.Fix2` curries
+## Task 19: Add `@curry`'s `fix2=true` option; migrate the 12 hand-written `Base.Fix2` curries — **Done**
+
+Executed exactly as planned below (`expr/struct.jl`'s `Structs` submodule needed `@curry` added to
+its `using` clause, not previously imported there). Verified: `Pkg.test()` — 3305/6/0/3311, with
+no regressions in any of the ~40 unrelated `@curry` call sites elsewhere in the codebase that this
+task's macro change could have affected.
 
 **Files:**
 - Modify: `src/macros.jl` (`@curry`'s definition, lines 165-206), `src/expr/list.jl:48,60,72,134`
@@ -1954,7 +1997,7 @@ cover yet.
 of `@curry f(x)`. Every existing `@curry f(...)` call site in the codebase (~40 of them) must keep
 working unchanged — `fix2` is opt-in, defaulting to `false` (today's closure behavior).
 
-- [ ] **Step 1:** In `src/macros.jl`, modify `@curry`'s signature and body (lines 165-206) to accept
+- [x] **Step 1:** In `src/macros.jl`, modify `@curry`'s signature and body (lines 165-206) to accept
   an optional `fix2 = true` trailing option and, when set, emit a `Base.Fix2` instead of a closure:
 
 ```julia
@@ -2018,7 +2061,7 @@ Update `@curry`'s own docstring (immediately above the macro, lines 137-164) to 
 `fix2=true` option in one added paragraph, mirroring how `@wrap_simple_ops`'s docstring documents
 its own `curried = true` option.
 
-- [ ] **Step 2:** In `src/expr/list.jl`, replace:
+- [x] **Step 2:** In `src/expr/list.jl`, replace:
 
 ```julia
 head(n) = Base.Fix2(head, convert(Expr, n))
@@ -2037,11 +2080,11 @@ moving on). Apply the identical transformation to `tail` (line 60), `shift` (lin
 `@curry shift(n::Expr) fix2 = true`), and `count_matches` (line 134,
 `@curry count_matches(element::Expr) fix2 = true`).
 
-- [ ] **Step 3:** In `src/expr/string.jl`, replace `head(n) = Base.Fix2(head, convert(Expr, n))`
+- [x] **Step 3:** In `src/expr/string.jl`, replace `head(n) = Base.Fix2(head, convert(Expr, n))`
   and `tail(n) = Base.Fix2(tail, convert(Expr, n))` (lines 72-73) with
   `@curry head(n::Expr) fix2 = true` / `@curry tail(n::Expr) fix2 = true`.
 
-- [ ] **Step 4:** In `src/expr/datetime.jl` (after Tasks 10/12's edits — locate by function name,
+- [x] **Step 4:** In `src/expr/datetime.jl` (after Tasks 10/12's edits — locate by function name,
   not the line numbers above), replace `strftime(format::AbstractString) = Base.Fix2(strftime,
   format)` with `@curry strftime(format::AbstractString) fix2 = true` (no `::Expr` involved here,
   so `_curry_arg`'s fallback rule forwards `format` unconverted, matching exactly); replace
@@ -2050,20 +2093,20 @@ moving on). Apply the identical transformation to `tail` (line 60), `shift` (lin
   `convert_time_zone(tz::AbstractString) = Base.Fix2(convert_time_zone, tz)` with
   `@curry convert_time_zone(tz::AbstractString) fix2 = true`.
 
-- [ ] **Step 5:** In `src/expr/struct.jl`, replace `field_by_name(name) = Base.Fix2(field_by_name,
+- [x] **Step 5:** In `src/expr/struct.jl`, replace `field_by_name(name) = Base.Fix2(field_by_name,
   name)` with `@curry field_by_name(name) fix2 = true`; `field_by_index(fieldidx) =
   Base.Fix2(field_by_index, fieldidx)` with `@curry field_by_index(fieldidx) fix2 = true`;
   `rename_fields(new_names) = Base.Fix2(rename_fields, new_names)` with
   `@curry rename_fields(new_names) fix2 = true`.
 
-- [ ] **Step 6:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline. This
+- [x] **Step 6:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline. This
   is the one task in this plan that modifies a macro used by ~40 *other* call sites elsewhere in
   the codebase (every plain `@curry f(...)` invocation, unrelated to this task's 12 targets) —
   those must all still expand identically, since `fix2` defaults to `false` and the non-`fix2`
   branch is untouched logic, just re-indented under the new `if`. If anything regresses outside the
   12 files this task touches, that is the first place to look.
 
-- [ ] **Step 7:** Commit:
+- [x] **Step 7:** Commit:
 
 ```bash
 git add src/macros.jl src/expr/list.jl src/expr/string.jl src/expr/datetime.jl src/expr/struct.jl
@@ -2076,7 +2119,7 @@ git commit -m "Julia: teach @curry a fix2=true option, migrate the 12 hand-writt
 
 **Files:** none (verification + this plan file's own `## Status` line).
 
-- [ ] **Step 1:** Full clean-room verification from the repo root:
+- [x] **Step 1:** Full clean-room verification from the repo root:
 
 ```bash
 cd c-polars && cargo build -j 4 && cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check
@@ -2088,14 +2131,14 @@ Confirm: zero header drift (every task in this plan kept every touched signature
 Julia test counts identical to the Task 8 baseline (plus the one new `cast_datetime` curry test
 added in Task 12, if that ran clean).
 
-- [ ] **Step 2:** If Kaimon is available, restart the shared REPL and spend a few minutes
+- [x] **Step 2:** If Kaimon is available, restart the shared REPL and spend a few minutes
   adversarially re-exercising a sample of touched paths end-to-end (not exhaustively — the test
   suite already covers correctness; this is a sanity pass for anything a unit test might not catch,
   e.g. printing a curried function at the REPL, chaining `|>` pipelines through the newly-macro'd
   `head`/`tail`/`strftime`/`value_counts`, writing then reading back a CSV/parquet/IPC file through
   the now-macro'd path-writer siblings).
 
-- [ ] **Step 3:** Update this plan's `## Status` line to **Done**, naming the final commit range and
+- [x] **Step 3:** Update this plan's `## Status` line to **Done**, naming the final commit range and
   test counts, mirroring the convention in `plans/c_polars_review_two.md`'s own `## Status` section
   (skim that file for the exact phrasing style before writing this one).
 
@@ -2104,7 +2147,7 @@ git add plans/macro_dedup_sweep.md
 git commit -m "plans: mark macro_dedup_sweep Done"
 ```
 
-- [ ] **Step 4:** Report back to the user: this branch (`macro-dedup-sweep`) is ready to open as a
+- [x] **Step 4:** Report back to the user: this branch (`macro-dedup-sweep`) is ready to open as a
   PR stacked on `parity-kwarg-gaps`, per the user's own instruction to "create another PR to stack,
   addressing all these" — do not push or open the PR without a separate explicit go-ahead, per this
   session's standing instruction to confirm before any action visible to others (a push, a PR).
