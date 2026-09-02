@@ -176,6 +176,14 @@ end
     PolarsLabelDataPoint = 2
 end
 
+@cenum polars_maintain_order_join_t::UInt32 begin
+    PolarsMaintainOrderJoinNone = 0
+    PolarsMaintainOrderJoinLeft = 1
+    PolarsMaintainOrderJoinRight = 2
+    PolarsMaintainOrderJoinLeftRight = 3
+    PolarsMaintainOrderJoinRightLeft = 4
+end
+
 @cenum polars_non_existent_t::UInt32 begin
     PolarsNonExistentRaise = 0
     PolarsNonExistentNull = 1
@@ -606,20 +614,20 @@ function polars_lazy_frame_rolling(df, index_expr, group_by_exprs, n_group_by, p
     return @ccall libpolars.polars_lazy_frame_rolling(df::Ptr{polars_lazy_frame_t}, index_expr::Ptr{polars_expr_t}, group_by_exprs::Ptr{Ptr{polars_expr_t}}, n_group_by::Csize_t, period::Ptr{UInt8}, period_len::Csize_t, offset::Ptr{UInt8}, offset_len::Csize_t, closed_window::polars_closed_window_t, out::Ptr{Ptr{polars_lazy_group_by_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_join(a, b, exprs_a, exprs_a_len, exprs_b, exprs_b_len, how, suffix, suffix_len, coalesce, validate, nulls_equal, slice_offset, slice_len, out)
-    return @ccall libpolars.polars_lazy_frame_join(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, exprs_a::Ptr{Ptr{polars_expr_t}}, exprs_a_len::Csize_t, exprs_b::Ptr{Ptr{polars_expr_t}}, exprs_b_len::Csize_t, how::polars_join_type_t, suffix::Ptr{UInt8}, suffix_len::Csize_t, coalesce::polars_join_coalesce_t, validate::polars_join_validation_t, nulls_equal::Bool, slice_offset::Ptr{Int64}, slice_len::Ptr{Csize_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_join(a, b, exprs_a, exprs_a_len, exprs_b, exprs_b_len, how, suffix, suffix_len, coalesce, validate, nulls_equal, maintain_order, slice_offset, slice_len, out)
+    return @ccall libpolars.polars_lazy_frame_join(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, exprs_a::Ptr{Ptr{polars_expr_t}}, exprs_a_len::Csize_t, exprs_b::Ptr{Ptr{polars_expr_t}}, exprs_b_len::Csize_t, how::polars_join_type_t, suffix::Ptr{UInt8}, suffix_len::Csize_t, coalesce::polars_join_coalesce_t, validate::polars_join_validation_t, nulls_equal::Bool, maintain_order::polars_maintain_order_join_t, slice_offset::Ptr{Int64}, slice_len::Ptr{Csize_t}, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_join_asof(a, b, on_a, on_b, by_a, by_a_lens, by_a_len, by_b, by_b_lens, by_b_len, strategy, tolerance, tolerance_len, allow_eq, check_sortedness, suffix, suffix_len, nulls_equal, out)
-    return @ccall libpolars.polars_lazy_frame_join_asof(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, on_a::Ptr{polars_expr_t}, on_b::Ptr{polars_expr_t}, by_a::Ptr{Ptr{UInt8}}, by_a_lens::Ptr{Csize_t}, by_a_len::Csize_t, by_b::Ptr{Ptr{UInt8}}, by_b_lens::Ptr{Csize_t}, by_b_len::Csize_t, strategy::polars_asof_strategy_t, tolerance::Ptr{UInt8}, tolerance_len::Csize_t, allow_eq::Bool, check_sortedness::Bool, suffix::Ptr{UInt8}, suffix_len::Csize_t, nulls_equal::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_join_asof(a, b, on_a, on_b, by_a, by_a_lens, by_a_len, by_b, by_b_lens, by_b_len, strategy, tolerance, tolerance_len, allow_eq, check_sortedness, suffix, suffix_len, nulls_equal, maintain_order, out)
+    return @ccall libpolars.polars_lazy_frame_join_asof(a::Ptr{polars_lazy_frame_t}, b::Ptr{polars_lazy_frame_t}, on_a::Ptr{polars_expr_t}, on_b::Ptr{polars_expr_t}, by_a::Ptr{Ptr{UInt8}}, by_a_lens::Ptr{Csize_t}, by_a_len::Csize_t, by_b::Ptr{Ptr{UInt8}}, by_b_lens::Ptr{Csize_t}, by_b_len::Csize_t, strategy::polars_asof_strategy_t, tolerance::Ptr{UInt8}, tolerance_len::Csize_t, allow_eq::Bool, check_sortedness::Bool, suffix::Ptr{UInt8}, suffix_len::Csize_t, nulls_equal::Bool, maintain_order::polars_maintain_order_join_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_unique(lf, names, lens, n, keep, maintain_order, out)
     return @ccall libpolars.polars_lazy_frame_unique(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, keep::polars_unique_keep_t, maintain_order::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
-function polars_lazy_frame_drop(lf, names, lens, n, out)
-    return @ccall libpolars.polars_lazy_frame_drop(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
+function polars_lazy_frame_drop(lf, names, lens, n, strict, out)
+    return @ccall libpolars.polars_lazy_frame_drop(lf::Ptr{polars_lazy_frame_t}, names::Ptr{Ptr{UInt8}}, lens::Ptr{Csize_t}, n::Csize_t, strict::Bool, out::Ptr{Ptr{polars_lazy_frame_t}})::Ptr{polars_error_t}
 end
 
 function polars_lazy_frame_rename(lf, existing, existing_lens, new_, new_lens, n, strict, out)

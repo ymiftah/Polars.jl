@@ -120,6 +120,14 @@ typedef enum polars_label_t {
   PolarsLabelDataPoint,
 } polars_label_t;
 
+typedef enum polars_maintain_order_join_t {
+  PolarsMaintainOrderJoinNone,
+  PolarsMaintainOrderJoinLeft,
+  PolarsMaintainOrderJoinRight,
+  PolarsMaintainOrderJoinLeftRight,
+  PolarsMaintainOrderJoinRightLeft,
+} polars_maintain_order_join_t;
+
 typedef enum polars_non_existent_t {
   PolarsNonExistentRaise,
   PolarsNonExistentNull,
@@ -614,41 +622,45 @@ const struct polars_error_t *polars_lazy_frame_rolling(
     enum polars_closed_window_t closed_window,
     struct polars_lazy_group_by_t **out);
 
-const struct polars_error_t *polars_lazy_frame_join(struct polars_lazy_frame_t *a,
-                                                    struct polars_lazy_frame_t *b,
-                                                    const struct polars_expr_t *const *exprs_a,
-                                                    uintptr_t exprs_a_len,
-                                                    const struct polars_expr_t *const *exprs_b,
-                                                    uintptr_t exprs_b_len,
-                                                    enum polars_join_type_t how,
-                                                    const uint8_t *suffix,
-                                                    uintptr_t suffix_len,
-                                                    enum polars_join_coalesce_t coalesce,
-                                                    enum polars_join_validation_t validate,
-                                                    bool nulls_equal,
-                                                    const int64_t *slice_offset,
-                                                    const uintptr_t *slice_len,
-                                                    struct polars_lazy_frame_t **out);
+const struct polars_error_t *polars_lazy_frame_join(
+    struct polars_lazy_frame_t *a,
+    struct polars_lazy_frame_t *b,
+    const struct polars_expr_t *const *exprs_a,
+    uintptr_t exprs_a_len,
+    const struct polars_expr_t *const *exprs_b,
+    uintptr_t exprs_b_len,
+    enum polars_join_type_t how,
+    const uint8_t *suffix,
+    uintptr_t suffix_len,
+    enum polars_join_coalesce_t coalesce,
+    enum polars_join_validation_t validate,
+    bool nulls_equal,
+    enum polars_maintain_order_join_t maintain_order,
+    const int64_t *slice_offset,
+    const uintptr_t *slice_len,
+    struct polars_lazy_frame_t **out);
 
-const struct polars_error_t *polars_lazy_frame_join_asof(struct polars_lazy_frame_t *a,
-                                                         struct polars_lazy_frame_t *b,
-                                                         const struct polars_expr_t *on_a,
-                                                         const struct polars_expr_t *on_b,
-                                                         const uint8_t *const *by_a,
-                                                         const uintptr_t *by_a_lens,
-                                                         uintptr_t by_a_len,
-                                                         const uint8_t *const *by_b,
-                                                         const uintptr_t *by_b_lens,
-                                                         uintptr_t by_b_len,
-                                                         enum polars_asof_strategy_t strategy,
-                                                         const uint8_t *tolerance,
-                                                         uintptr_t tolerance_len,
-                                                         bool allow_eq,
-                                                         bool check_sortedness,
-                                                         const uint8_t *suffix,
-                                                         uintptr_t suffix_len,
-                                                         bool nulls_equal,
-                                                         struct polars_lazy_frame_t **out);
+const struct polars_error_t *polars_lazy_frame_join_asof(
+    struct polars_lazy_frame_t *a,
+    struct polars_lazy_frame_t *b,
+    const struct polars_expr_t *on_a,
+    const struct polars_expr_t *on_b,
+    const uint8_t *const *by_a,
+    const uintptr_t *by_a_lens,
+    uintptr_t by_a_len,
+    const uint8_t *const *by_b,
+    const uintptr_t *by_b_lens,
+    uintptr_t by_b_len,
+    enum polars_asof_strategy_t strategy,
+    const uint8_t *tolerance,
+    uintptr_t tolerance_len,
+    bool allow_eq,
+    bool check_sortedness,
+    const uint8_t *suffix,
+    uintptr_t suffix_len,
+    bool nulls_equal,
+    enum polars_maintain_order_join_t maintain_order,
+    struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_unique(struct polars_lazy_frame_t *lf,
                                                       const uint8_t *const *names,
@@ -662,6 +674,7 @@ const struct polars_error_t *polars_lazy_frame_drop(struct polars_lazy_frame_t *
                                                     const uint8_t *const *names,
                                                     const uintptr_t *lens,
                                                     uintptr_t n,
+                                                    bool strict,
                                                     struct polars_lazy_frame_t **out);
 
 const struct polars_error_t *polars_lazy_frame_rename(struct polars_lazy_frame_t *lf,
