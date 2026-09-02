@@ -92,15 +92,15 @@ Julia, touched in `src/`:
 - `expr/struct.jl` — `field_by_name` onto `@wrap_expr_method`.
 - `expr/statistics.jl` — `value_counts` onto `@wrap_expr_method` (plus the `String`→`AbstractString`
   footgun fix that unblocks it).
-- `expr/expr.jl` — `cast_datetime`'s missing curry; `_expr_ptrs`/`_nullable_ref`/
+- `expr/expr.jl` — `cast_datetime`'s missing curry; `_handle_ptrs`/`_nullable_ref`/
   `_resolve_descending` adoption.
 - `verbs.jl`, `reshape.jl`, `join.jl`, `io/csv.jl`, `io/parquet.jl`, `io/ipc.jl`, `group_by.jl` —
   `_enum_lookup` adoption.
-- `select.jl`, `sort.jl`, `dataframe.jl` — `_expr_ptrs`/`_resolve_descending`/`_io_read` adoption.
+- `select.jl`, `sort.jl`, `dataframe.jl` — `_handle_ptrs`/`_resolve_descending`/`_io_read` adoption.
 - `io/csv.jl`, `io/json.jl`, `io/ipc.jl`, `io/parquet.jl` — `_nullable_ref`/`_nullable_str`/
   `@wrap_path_writer` adoption.
 - `lazyframe.jl`, `expr/meta.jl` — `_io_read` adoption.
-- `macros.jl` — adds `_expr_ptrs`, `_nullable_ref`, `_nullable_str`, `_io_read`,
+- `macros.jl` — adds `_handle_ptrs`, `_nullable_ref`, `_nullable_str`, `_io_read`,
   `@wrap_path_writer`, `_resolve_descending`, and a `fix2=true` option on `@curry`; updates the
   "Not yet covered" header comment to drop the items this plan closes.
 - `expr/list.jl`, `expr/string.jl`, `expr/datetime.jl`, `expr/struct.jl` — a second pass (Task 19)
@@ -1395,147 +1395,59 @@ git commit -m "Julia: adopt _enum_lookup in verbs/reshape/join/csv/parquet/ipc/g
 
 ---
 
-## Task 14: Add `_expr_ptrs`; migrate the `Vector{Expr}`-to-`GC.@preserve`d-`Ptr`-array sites
+## Task 14: Add `_handle_ptrs`; migrate the `Vector{Expr}`-to-`GC.@preserve`d-`Ptr`-array sites — **Done** (commit `f92fb82`)
 
-**Files:**
-- Modify: `src/macros.jl` (add `_expr_ptrs`), `src/select.jl:1-9,50-57`, `src/group_by.jl:35-42,
-  50-57`, `src/sort.jl:57-83,114-134`, `src/join.jl:38-51`, `src/expr/struct.jl:56-63`,
-  `src/expr/expr.jl:1142-1158,1168-1184,1204-1212,1235-1244,1264-1271`, `src/dataframe.jl` (Series
-  ptrs site), `src/verbs.jl:173-179,187-195`.
+**Files actually touched:** `src/macros.jl`, `src/select.jl`, `src/group_by.jl`, `src/sort.jl`,
+`src/join.jl`, `src/expr/struct.jl`, `src/expr/expr.jl`, `src/dataframe.jl`, `src/verbs.jl`.
 
-**Interfaces:** Produces `_expr_ptrs(exprs::Vector{Expr}) -> (owned::Vector{Expr},
-ptrs::Vector{Ptr{polars_expr_t}})` in `macros.jl`, next to `_name_ptrs` (whose docstring it mirrors
-in spirit — same "the returned owner, not your argument, is what you preserve" contract).
-
-- [ ] **Step 1:** Add to `macros.jl`, immediately after `_enum_lookup`'s definition:
+**Design correction made during execution:** the plan as originally drafted called for
+`_handle_ptrs`/`_expr_ptrs` to live in `macros.jl` with one method per wrapper type
+(`Vector{Expr}`, `Vector{Series}`, `Vector{LazyFrame}`) — but `macros.jl` is `include`d at
+`Polars.jl:48`, **before** `Expr` (`expr/expr.jl:102`), `Series` (`series.jl:55`), or `LazyFrame`
+(`lazyframe.jl:98`) exist. A method specialized on any of those concrete types cannot be defined
+that early — Julia evaluates a method signature eagerly at definition time, unlike a macro body.
+The actual implementation instead takes the pointer type as an explicit argument and dispatches
+generically via `.ptr` duck-typing, which has no such dependency (the opaque `polars_*_t` types it
+does need, e.g. `polars_expr_t`, come from `src/api/generated.jl`, `include`d at line 35, well
+before `macros.jl`):
 
 ```julia
 """
-    _expr_ptrs(exprs::Vector{Expr}) -> (owned::Vector{Expr}, ptrs::Vector{Ptr{polars_expr_t}})
+    _handle_ptrs(xs::AbstractVector, ::Type{P}) -> (owned::AbstractVector, ptrs::Vector{P})
 
-Builds the `(owned, ptrs)` pair for passing a `Vector{Expr}` across the C ABI -- mirrors
-[`_name_ptrs`](@ref) for `Vector{String}`. `owned === exprs` always (an `Expr` already owns a
-handle rather than needing conversion, unlike `_name_ptrs`'s `Vector{Symbol}` case), kept as a
-separate return purely so both helpers share the same `owned, ptrs = _thing_ptrs(...)` calling
-convention and the same "preserve `owned`, not your original argument" discipline. `ptrs` is what
-goes into the ccall alongside `length(ptrs)`.
+Builds the `(owned, ptrs)` pair for passing a vector of opaque-handle-wrapping values (`Expr`,
+`Series`, `LazyFrame`, ...) across the C ABI -- mirrors [`_name_ptrs`](@ref) for `Vector{String}`.
+`owned === xs` always (each element already owns a handle rather than needing conversion, unlike
+`_name_ptrs`'s `Vector{Symbol}` case), kept as a separate return purely so both helpers share the
+same `owned, ptrs = _thing_ptrs(...)` calling convention and the same "preserve `owned`, not your
+original argument" discipline. `ptrs` is what goes into the ccall alongside `length(ptrs)`.
+
+Takes the pointer type `P` (e.g. `Ptr{polars_expr_t}`) as an explicit argument rather than
+dispatching on `eltype(xs)`: this file loads before `Expr`/`Series`/`LazyFrame` exist (see
+`Polars.jl`'s `include` order), so a method specialized on any of those concrete types could not be
+defined here -- this generic, duck-typed-on-`.ptr` form has no such dependency.
 """
-_expr_ptrs(exprs::Vector{Expr}) = (exprs, Ptr{polars_expr_t}[e.ptr for e in exprs])
+_handle_ptrs(xs::AbstractVector, ::Type{P}) where {P} = (xs, P[x.ptr for x in xs])
 ```
 
-- [ ] **Step 2:** In `src/select.jl`, replace `_select!` (lines 2-9):
+Every call site follows the shape `owned, ptrs = _handle_ptrs(xs, Ptr{polars_..._t}); GC.@preserve
+owned begin ... end` (not the originally-planned `owned, ptrs = _handle_ptrs(xs)`). Migrated: 4
+`Vector{Expr}` sites in `select.jl` (`_select!`, `_with_columns!`) and `group_by.jl` (`groupby`,
+`agg`); 2 in `sort.jl` (`_sort!`, `_top_or_bottom_k!`, ptrs-only — the `descending` validation
+duplication stays for Task 18); 2 in `join.jl`'s `_join` (`exprs_a`/`exprs_b`); 1 in
+`expr/struct.jl`'s `with_fields`; 4 in `expr/expr.jl` (`top_k_by`, `bottom_k_by`, `Base.coalesce`,
+`concat_str`, `format` — 5, not 4); 1 `Vector{<:Series}` site in `dataframe.jl`'s
+`DataFrame(series::AbstractVector{<:Series})` constructor (note: `AbstractVector`, not `Vector` —
+`_handle_ptrs`'s first parameter is `xs::AbstractVector` for exactly this reason, broader than the
+plan's original `Vector`-only signature); and 2 in `verbs.jl` (`concat`'s `Vector{LazyFrame}`,
+`hstack`'s `Vector{<:Series}`).
 
-```julia
-function _select!(df::LazyFrame, exprs::Vector)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
-        polars_lazy_frame_select(df, exprs_ptrs, length(exprs_ptrs))
-    end
-    return df
-end
-```
+**Bonus fix folded in:** while touching `verbs.jl`'s `concat` for its ptrs migration, its
+`how_enum` ternary-chain (missed by Task 13's sweep, which only covered `verbs.jl`'s `unique`) was
+also converted onto `_enum_lookup` in the same edit, for consistency.
 
-with:
-
-```julia
-function _select!(df::LazyFrame, exprs::Vector)
-    owned, ptrs = _expr_ptrs(_expr_vector(exprs))
-    GC.@preserve owned begin
-        polars_lazy_frame_select(df, ptrs, length(ptrs))
-    end
-    return df
-end
-```
-
-Apply the identical transformation to `_with_columns!` (lines 51-57, calling
-`polars_lazy_frame_with_columns`).
-
-- [ ] **Step 3:** In `src/group_by.jl`, apply the identical transformation to `groupby`
-  (lines 35-42, calling `polars_lazy_frame_group_by(df, exprs_ptrs, length(exprs_ptrs),
-  maintain_order)` — note the extra `maintain_order` trailing arg carries through unchanged) and
-  `agg` (lines 50-57, calling `polars_lazy_group_by_agg`).
-
-- [ ] **Step 4:** In `src/sort.jl`, apply it to `_sort!` (lines 72-80,
-  `API.polars_lazy_frame_sort(df, exprs_ptrs, nexprs, descending, nulls_last, maintain_order)`) and
-  `_top_or_bottom_k!` (lines 126-131, the `f(df, k, exprs_ptrs, nexprs, descending,
-  maintain_order)` call where `f` is `API.polars_lazy_frame_bottom_k`/`_top_k`) — in both cases only
-  the `GC.@preserve exprs begin ... exprs_ptrs = Ptr{polars_expr_t}[...] ... end` shape changes to
-  `owned, exprs_ptrs = _expr_ptrs(exprs); GC.@preserve owned begin ... end`; the surrounding
-  `descending`/`nulls_last`/`maintain_order` logic (which Task 17 also touches) is untouched by
-  this task.
-
-- [ ] **Step 5:** In `src/join.jl`'s `_join` (lines 38-45), apply it to *both* `exprs_a_ptr` and
-  `exprs_b_ptr`:
-
-```julia
-    owned_a, exprs_a_ptr = _expr_ptrs(exprs_a)
-    owned_b, exprs_b_ptr = _expr_ptrs(exprs_b)
-    GC.@preserve owned_a owned_b begin
-        out = Ref{Ptr{polars_lazy_frame_t}}()
-        err = polars_lazy_frame_join(
-            a, b,
-            exprs_a_ptr, length(exprs_a_ptr),
-            exprs_b_ptr, length(exprs_b_ptr),
-            how, suffix_arg, suffix_len, coalesce_enum, validate_enum, nulls_equal,
-            Ptr{Int64}(C_NULL), Ptr{Csize_t}(C_NULL), out,
-        )
-        polars_error(err)
-    end
-```
-
-- [ ] **Step 6:** In `src/expr/struct.jl`'s `with_fields` (lines 56-63), apply it (note this one
-  currently calls `API.polars_expr_struct_with_fields(expr, ptrs, length(ptrs))` directly — an
-  infallible call, not through `Ref{Ptr{polars_expr_t}}()`/`polars_error`, so keep that infallible
-  shape, only swap the ptr-building):
-
-```julia
-function with_fields(expr::Expr, fields::Expr...)
-    owned, ptrs = _expr_ptrs(collect(Expr, fields))
-    GC.@preserve owned begin
-        out = API.polars_expr_struct_with_fields(expr, ptrs, length(ptrs))
-    end
-    return Expr(out)
-end
-```
-
-- [ ] **Step 7:** In `src/expr/expr.jl`, apply it to `top_k_by`/`bottom_k_by` (the `by_ptrs =
-  Ptr{polars_expr_t}[e.ptr for e in by]` lines inside each, ~1142-1158/1168-1184 — leave the
-  `descending` resolution above untouched here, Task 17 handles that separately), `Base.coalesce`
-  (~1204-1212, the `ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]` line), `concat_str`
-  (~1235-1244), and `format` (~1264-1271) — each following the same `owned, ptrs = _expr_ptrs(...)`
-  substitution inside its existing `GC.@preserve` block (renaming the preserved variable from
-  `exprs`/`by` to `owned` at each site, and dropping the separate `ptrs = Ptr{...}[...]` line).
-
-- [ ] **Step 8:** In `src/dataframe.jl`, locate the `Series`-vector ptr-building site (grep
-  `Ptr{polars_series_t}\[` in `src/dataframe.jl`) and apply the analogous transformation using a
-  `Series`-typed sibling — add a second method to `_expr_ptrs` rather than a new function name,
-  since the shape is identical modulo pointer type:
-
-```julia
-_expr_ptrs(series::Vector{Series}) = (series, Ptr{polars_series_t}[s.ptr for s in series])
-```
-
-(Despite the name, `_expr_ptrs` is being used here as "the generic `_thing_ptrs` helper for any
-`polars_*_t`-wrapping Julia type with a `.ptr` field" — if this reads awkwardly once you're looking
-at both call sites side by side, renaming it to `_handle_ptrs` throughout Steps 1-8 is a reasonable
-judgment call; make it before committing, not after, so the name is consistent everywhere in one
-commit.)
-
-- [ ] **Step 9:** In `src/verbs.jl`, apply the `LazyFrame`-typed variant (a third method, same
-  reasoning as Step 8) to `concat` (lines 173-179) and the `Series`-typed variant (reusing Step 8's
-  method) to `hstack` (lines 187-195).
-
-- [ ] **Step 10:** `julia --project=. -e 'using Pkg; Pkg.test()'` — expect the Task 8 baseline. This
-  is the largest single-task diff in this plan (11 call sites across 8 files); if anything regresses,
-  bisect by reverting one file's hunk at a time rather than the whole commit.
-
-- [ ] **Step 11:** Commit:
-
-```bash
-git add src/macros.jl src/select.jl src/group_by.jl src/sort.jl src/join.jl src/expr/struct.jl src/expr/expr.jl src/dataframe.jl src/verbs.jl
-git commit -m "Julia: add _expr_ptrs (mirroring _name_ptrs), dedup the Vector{Expr}/Series/LazyFrame-to-GC.@preserve'd-ptr-array pattern across 11 call sites"
-```
+Verified: `julia --project=. -e 'using Pkg; Pkg.test()'` — 3305 passed / 6 broken / 0 failed / 3311
+total, matching the running baseline exactly.
 
 ---
 
@@ -1547,7 +1459,7 @@ git commit -m "Julia: add _expr_ptrs (mirroring _name_ptrs), dedup the Vector{Ex
   1082`, `src/io/csv.jl:100-110,189-199,260-270`, `src/io/json.jl:58-63`, `src/io/parquet.jl:117-
   122,201-202,258-259,311-312`, `src/io/ipc.jl:60-65,113-114,158-159`.
 
-- [ ] **Step 1:** Add to `macros.jl`, right after `_expr_ptrs`:
+- [ ] **Step 1:** Add to `macros.jl`, right after `_handle_ptrs`:
 
 ```julia
 """
