@@ -30,15 +30,7 @@ module Lists
     # `Polars`'s own top-level `head` (for `DataFrame`/`LazyFrame`) -- not a Base name, so the macro's
     # own Base-collision check can't catch it, and it must never be exported: it's designed for
     # qualified use (`Lists.head`), matching `get`/`contains` below.
-    """
-        head(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
-
-    First `n` elements of each list in `expr` (fewer if the list is shorter than `n`).
-    """
-    function head(a::Expr, b::Expr)
-        out = API.polars_expr_list_head(a, b)
-        return Expr(out)
-    end
+    @wrap_expr_method head(expr::Expr, n::Expr) polars_expr_list_head "First `n` elements of each list in `expr` (fewer if the list is shorter than `n`)."
 
     """
         head(n)::Base.Fix2{typeof(head)}
@@ -47,28 +39,10 @@ module Lists
     """
     head(n) = Base.Fix2(head, convert(Expr, n))
 
-    """
-        tail(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
-
-    Last `n` elements of each list in `expr` (fewer if the list is shorter than `n`). Complements
-    [`head`](@ref).
-    """
-    function tail(a::Expr, b::Expr)
-        out = API.polars_expr_list_tail(a, b)
-        return Expr(out)
-    end
+    @wrap_expr_method tail(expr::Expr, n::Expr) polars_expr_list_tail "Last `n` elements of each list in `expr` (fewer if the list is shorter than `n`). Complements [`head`](@ref)."
     tail(n) = Base.Fix2(tail, convert(Expr, n))
 
-    """
-        shift(expr::Polars.Expr, periods::Polars.Expr)::Polars.Expr
-
-    Shifts each list's elements by `periods` (negative shifts up), filling vacated positions with
-    `null` -- the per-list analogue of the top-level [`shift`](@ref).
-    """
-    function shift(a::Expr, b::Expr)
-        out = API.polars_expr_list_shift(a, b)
-        return Expr(out)
-    end
+    @wrap_expr_method shift(expr::Expr, periods::Expr) polars_expr_list_shift "Shifts each list's elements by `periods` (negative shifts up), filling vacated positions with `null` -- the per-list analogue of the top-level [`shift`](@ref)."
     shift(n) = Base.Fix2(shift, convert(Expr, n))
 
     @wrap_expr_method get(expr::Expr, index::Expr; null_on_oob::Bool = false) polars_expr_list_get "Get items in every sublist by index. If `null_on_oob` is `false` (default), an out-of-bounds index raises an error; if `true`, it returns `null` instead (more expensive, per the polars documentation)."

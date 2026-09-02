@@ -29,27 +29,9 @@ module Strings
     # collide with `Polars`'s own top-level `head`/`tail` (for `DataFrame`/`LazyFrame`) -- not Base
     # names, so the macro's own Base-collision check can't catch them, and they must never be exported:
     # designed for qualified use (`Strings.head`), matching `contains`/`replace` below.
-    """
-        head(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
+    @wrap_expr_method head(expr::Expr, n::Expr) polars_expr_str_head "First `n` characters of each string in `expr` (negative `n` keeps all but the last `|n|` characters; fewer than `n` characters if the string is shorter)."
 
-    First `n` characters of each string in `expr` (negative `n` keeps all but the last `|n|`
-    characters; fewer than `n` characters if the string is shorter).
-    """
-    function head(a::Expr, b::Expr)
-        out = API.polars_expr_str_head(a, b)
-        return Expr(out)
-    end
-
-    """
-        tail(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
-
-    Last `n` characters of each string in `expr` (negative `n` skips the first `|n|` characters
-    instead; fewer than `n` characters if the string is shorter).
-    """
-    function tail(a::Expr, b::Expr)
-        out = API.polars_expr_str_tail(a, b)
-        return Expr(out)
-    end
+    @wrap_expr_method tail(expr::Expr, n::Expr) polars_expr_str_tail "Last `n` characters of each string in `expr` (negative `n` skips the first `|n|` characters instead; fewer than `n` characters if the string is shorter)."
 
     """
         titlecase(expr::Polars.Expr)
