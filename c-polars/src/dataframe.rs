@@ -23,6 +23,12 @@ use crate::value::{
 };
 use crate::{guard_error, make_error, polars_error_t};
 
+/// Clamps a `usize` row count into polars' `IdxSize` -- the shared "don't overflow IdxSize"
+/// conversion every row-count-taking FFI entry point needs.
+fn to_idx_size(n: usize) -> IdxSize {
+    n.min(IdxSize::MAX as usize) as IdxSize
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn polars_dataframe_size(
     df: *mut polars_dataframe_t,
@@ -691,7 +697,7 @@ pub unsafe extern "C" fn polars_lazy_frame_slice(
 ) {
     let df = &mut (*df).inner;
     // See the `mem::take` comment on `polars_lazy_frame_sort` above.
-    *df = std::mem::take(df).slice(offset, len.min(IdxSize::MAX as usize) as IdxSize);
+    *df = std::mem::take(df).slice(offset, to_idx_size(len));
 }
 
 /// `top_k`/`bottom_k` share this shape with `polars_lazy_frame_sort`, plus the row-count `k` --
@@ -713,7 +719,7 @@ unsafe fn top_or_bottom_k(
 ) {
     let exprs = read_exprs(exprs, nexprs);
     let descending = read_bool_mask(descending, nexprs);
-    let k = k.min(IdxSize::MAX as usize) as IdxSize;
+    let k = to_idx_size(k);
     let options = SortMultipleOptions {
         descending,
         nulls_last: std::iter::repeat_n(false, nexprs).collect(),
@@ -1334,14 +1340,14 @@ pub unsafe extern "C" fn polars_lazy_frame_pivot(
 pub unsafe extern "C" fn polars_lazy_frame_head(df: *mut polars_lazy_frame_t, n: usize) {
     let df = &mut (*df).inner;
     // See the `mem::take` comment on `polars_lazy_frame_sort` above.
-    *df = std::mem::take(df).limit(n.min(IdxSize::MAX as usize) as IdxSize);
+    *df = std::mem::take(df).limit(to_idx_size(n));
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_tail(df: *mut polars_lazy_frame_t, n: usize) {
     let df = &mut (*df).inner;
     // See the `mem::take` comment on `polars_lazy_frame_sort` above.
-    *df = std::mem::take(df).tail(n.min(IdxSize::MAX as usize) as IdxSize);
+    *df = std::mem::take(df).tail(to_idx_size(n));
 }
 
 #[no_mangle]

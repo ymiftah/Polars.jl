@@ -19,8 +19,8 @@ use polars_plan::prelude::Literal;
 
 use crate::{
     ffi_util::{
-        read_bool_mask, read_exprs, read_f64_array, read_i64_array, read_names, read_opt_str,
-        read_opt_u64, read_str, selector_by_name, IOCallback, UserIOCallback,
+        read_array, read_bool_mask, read_exprs, read_names, read_opt_str, read_opt_u64, read_str,
+        selector_by_name, IOCallback, UserIOCallback,
     },
     guard_error, make_error, polars_error_t,
     types::*,
@@ -697,7 +697,7 @@ pub unsafe extern "C" fn polars_expr_cut(
 ) -> *const polars_error_t {
     guard_error(|| {
         let expr = (*expr).inner.clone();
-        let breaks = read_f64_array(breaks, n_breaks);
+        let breaks = read_array(breaks, n_breaks);
         let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
         *out = make_expr(expr.cut(breaks, labels, left_closed, false));
         std::ptr::null()
@@ -722,7 +722,7 @@ pub unsafe extern "C" fn polars_expr_qcut(
 ) -> *const polars_error_t {
     guard_error(|| {
         let expr = (*expr).inner.clone();
-        let probs = read_f64_array(probs, n_probs);
+        let probs = read_array(probs, n_probs);
         let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
         *out = make_expr(expr.qcut(probs, labels, left_closed, allow_duplicates, false));
         std::ptr::null()
@@ -2730,7 +2730,7 @@ pub unsafe extern "C" fn polars_expr_selector_by_index(
     n: usize,
     strict: bool,
 ) -> *const polars_expr_t {
-    let indices = read_i64_array(indices, n);
+    let indices = read_array(indices, n);
     make_expr(Expr::Selector(Selector::ByIndex {
         indices: indices.into(),
         strict,

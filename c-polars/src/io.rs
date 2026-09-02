@@ -463,12 +463,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet(
             target: SinkTarget::Path(PlRefPath::new(path)),
         };
         let file_format = FileWriteFormat::Parquet(Arc::new(options));
-        let sink_args = UnifiedSinkArgs {
-            mkdir,
-            maintain_order,
-            cloud_options: cloud_options.map(Arc::new),
-            ..Default::default()
-        };
+        let sink_args = build_sink_args(mkdir, maintain_order, cloud_options);
         let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
         *out = make_lazy_frame(sunk);
         std::ptr::null()
@@ -536,20 +531,30 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_parquet_partitioned(
             approximate_bytes_per_file,
         };
         let file_format = FileWriteFormat::Parquet(Arc::new(options));
-        let sink_args = UnifiedSinkArgs {
-            // `mkdir` has no effect on partitioned sinks -- the partitioned file provider always
-            // recursively creates each partition's parent directory regardless of this flag
-            // (confirmed in polars-stream's `FileProvider::open_file`), so there is nothing
-            // meaningful to thread through here.
-            mkdir: false,
-            maintain_order,
-            cloud_options: cloud_options.map(Arc::new),
-            ..Default::default()
-        };
+        // `mkdir` has no effect on partitioned sinks -- the partitioned file provider always
+        // recursively creates each partition's parent directory regardless of this flag
+        // (confirmed in polars-stream's `FileProvider::open_file`), so there is nothing
+        // meaningful to thread through here.
+        let sink_args = build_sink_args(false, maintain_order, cloud_options);
         let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
         *out = make_lazy_frame(sunk);
         std::ptr::null()
     })
+}
+
+/// Builds the `UnifiedSinkArgs` shared by every `sink_*` entry point (`mkdir`/`maintain_order`
+/// passed through, `cloud_options` wrapped in `Arc` if present, everything else defaulted).
+fn build_sink_args(
+    mkdir: bool,
+    maintain_order: bool,
+    cloud_options: Option<CloudOptions>,
+) -> UnifiedSinkArgs {
+    UnifiedSinkArgs {
+        mkdir,
+        maintain_order,
+        cloud_options: cloud_options.map(Arc::new),
+        ..Default::default()
+    }
 }
 
 /// Builds `CsvWriterOptions` from the primitive knobs shared by `sink_csv` (write_csv builds a
@@ -682,12 +687,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_csv(
             target: SinkTarget::Path(PlRefPath::new(path)),
         };
         let file_format = FileWriteFormat::Csv(options);
-        let sink_args = UnifiedSinkArgs {
-            mkdir,
-            maintain_order,
-            cloud_options: cloud_options.map(Arc::new),
-            ..Default::default()
-        };
+        let sink_args = build_sink_args(mkdir, maintain_order, cloud_options);
         let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
         *out = make_lazy_frame(sunk);
         std::ptr::null()
@@ -720,12 +720,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ipc(
             target: SinkTarget::Path(PlRefPath::new(path)),
         };
         let file_format = FileWriteFormat::Ipc(options);
-        let sink_args = UnifiedSinkArgs {
-            mkdir,
-            maintain_order,
-            cloud_options: cloud_options.map(Arc::new),
-            ..Default::default()
-        };
+        let sink_args = build_sink_args(mkdir, maintain_order, cloud_options);
         let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
         *out = make_lazy_frame(sunk);
         std::ptr::null()
@@ -750,12 +745,7 @@ pub unsafe extern "C" fn polars_lazy_frame_sink_ndjson(
             target: SinkTarget::Path(PlRefPath::new(path)),
         };
         let file_format = FileWriteFormat::NDJson(NDJsonWriterOptions::default());
-        let sink_args = UnifiedSinkArgs {
-            mkdir,
-            maintain_order,
-            cloud_options: cloud_options.map(Arc::new),
-            ..Default::default()
-        };
+        let sink_args = build_sink_args(mkdir, maintain_order, cloud_options);
         let sunk = tri!(lf.sink(sink_type, file_format, sink_args));
         *out = make_lazy_frame(sunk);
         std::ptr::null()
