@@ -1,18 +1,7 @@
 module Structs
-    using ..Polars: API, polars_expr_t, Expr, polars_error, _name_ptrs
+    using ..Polars: @wrap_expr_method, API, polars_expr_t, Expr, polars_error, _name_ptrs
 
-    """
-        field_by_name(expr::Polars.Expr, name::String)::Polars.Expr
-        field_by_name(name::String)::Base.Fix2{typeof(field_by_name), String}
-
-    Returns a new expression corresponding to values of the selected field.
-    """
-    function field_by_name(expr, name)
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_struct_field_by_name(expr, name, ncodeunits(name), out)
-        polars_error(err)
-        return Expr(out[])
-    end
+    @wrap_expr_method field_by_name(expr::Expr, name::AbstractString) polars_expr_struct_field_by_name "Returns a new expression corresponding to values of the selected field."
     field_by_name(name) = Base.Fix2(field_by_name, name)
 
     """
