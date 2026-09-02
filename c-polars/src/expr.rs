@@ -391,28 +391,6 @@ pub unsafe extern "C" fn polars_expr_suffix_fields(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_expr_keep_name(expr: *const polars_expr_t) -> *const polars_expr_t {
-    let aliased = (*expr).inner.clone().name().keep();
-    make_expr(aliased)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_to_lowercase(
-    expr: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let aliased = (*expr).inner.clone().name().to_lowercase();
-    make_expr(aliased)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_to_uppercase(
-    expr: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let aliased = (*expr).inner.clone().name().to_uppercase();
-    make_expr(aliased)
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn polars_expr_cast(
     expr: *const polars_expr_t,
     dtype: polars_value_type_t,
@@ -586,6 +564,10 @@ macro_rules! gen_impl_expr {
     };
 }
 
+gen_impl_expr!(polars_expr_keep_name, |e: Expr| e.name().keep());
+gen_impl_expr!(polars_expr_to_lowercase, |e: Expr| e.name().to_lowercase());
+gen_impl_expr!(polars_expr_to_uppercase, |e: Expr| e.name().to_uppercase());
+
 gen_impl_expr!(polars_expr_sum, Expr::sum);
 gen_impl_expr!(polars_expr_product, Expr::product);
 gen_impl_expr!(polars_expr_mean, Expr::mean);
@@ -624,16 +606,6 @@ pub unsafe extern "C" fn polars_expr_cov(
     let a = (*a).inner.clone();
     let b = (*b).inner.clone();
     make_expr(cov(a, b, ddof))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_pearson_corr(
-    a: *const polars_expr_t,
-    b: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let a = (*a).inner.clone();
-    let b = (*b).inner.clone();
-    make_expr(pearson_corr(a, b))
 }
 
 #[no_mangle]
@@ -1360,6 +1332,7 @@ gen_impl_expr_binary!(polars_expr_top_k, Expr::top_k);
 
 gen_impl_expr_binary!(polars_expr_arctan2, Expr::arctan2);
 gen_impl_expr_binary!(polars_expr_dot, Expr::dot);
+gen_impl_expr_binary!(polars_expr_pearson_corr, pearson_corr);
 
 /// Infallible -- `Expr::entropy` only builds a plan node.
 #[no_mangle]
@@ -2707,12 +2680,9 @@ pub unsafe extern "C" fn polars_expr_meta_has_multiple_outputs(expr: *const pola
     (*expr).inner.clone().meta().has_multiple_outputs()
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_meta_undo_aliases(
-    expr: *const polars_expr_t,
-) -> *const polars_expr_t {
-    make_expr((*expr).inner.clone().meta().undo_aliases())
-}
+gen_impl_expr!(polars_expr_meta_undo_aliases, |e: Expr| e
+    .meta()
+    .undo_aliases());
 
 /// Fails if the expression has no single well-defined output name (e.g. a wildcard or a
 /// selector-expanded expression).
