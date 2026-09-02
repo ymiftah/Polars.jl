@@ -69,11 +69,10 @@ function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
 
     maintain_order = stable
 
-    exprs = Expr[_as_expr(e) for e in exprs]
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
+    owned, ptrs = _handle_ptrs(Expr[_as_expr(e) for e in exprs], Ptr{polars_expr_t})
+    GC.@preserve owned begin
         API.polars_lazy_frame_sort(
-            df, exprs_ptrs,
+            df, ptrs,
             nexprs, descending,
             nulls_last, maintain_order,
         )
@@ -123,11 +122,10 @@ function _top_or_bottom_k!(df::LazyFrame, k::Integer, exprs::Vector, rev, stable
 
     maintain_order = stable
 
-    exprs = Expr[_as_expr(e) for e in exprs]
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
+    owned, ptrs = _handle_ptrs(Expr[_as_expr(e) for e in exprs], Ptr{polars_expr_t})
+    GC.@preserve owned begin
         f = bottom ? API.polars_lazy_frame_bottom_k : API.polars_lazy_frame_top_k
-        f(df, k, exprs_ptrs, nexprs, descending, maintain_order)
+        f(df, k, ptrs, nexprs, descending, maintain_order)
     end
 
     return df

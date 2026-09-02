@@ -108,6 +108,23 @@ function _enum_lookup(sym::Symbol, label::AbstractString, mapping::Pair{Symbol}.
     error("unknown $label $sym, expected one of ($valid)")
 end
 
+"""
+    _handle_ptrs(xs::AbstractVector, ::Type{P}) -> (owned::AbstractVector, ptrs::Vector{P})
+
+Builds the `(owned, ptrs)` pair for passing a vector of opaque-handle-wrapping values (`Expr`,
+`Series`, `LazyFrame`, ...) across the C ABI -- mirrors [`_name_ptrs`](@ref) for `Vector{String}`.
+`owned === xs` always (each element already owns a handle rather than needing conversion, unlike
+`_name_ptrs`'s `Vector{Symbol}` case), kept as a separate return purely so both helpers share the
+same `owned, ptrs = _thing_ptrs(...)` calling convention and the same "preserve `owned`, not your
+original argument" discipline. `ptrs` is what goes into the ccall alongside `length(ptrs)`.
+
+Takes the pointer type `P` (e.g. `Ptr{polars_expr_t}`) as an explicit argument rather than
+dispatching on `eltype(xs)`: this file loads before `Expr`/`Series`/`LazyFrame` exist (see
+`Polars.jl`'s `include` order), so a method specialized on any of those concrete types could not be
+defined here -- this generic, duck-typed-on-`.ptr` form has no such dependency.
+"""
+_handle_ptrs(xs::AbstractVector, ::Type{P}) where {P} = (xs, P[x.ptr for x in xs])
+
 """Processes one argument node from a `@curry` target signature, returning
 `(decl_node, name, forward_expr)`:
 - `decl_node` is what goes in the *curry's own* signature (same node, except an `::Expr`

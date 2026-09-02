@@ -33,10 +33,9 @@ The values for the group-by can be aggregated using the [`agg`](@ref) function.
 group_by(df::LazyFrame, exprs...; maintain_order::Bool = false) =
     groupby(df, collect(exprs)::Vector; maintain_order)
 function groupby(df::LazyFrame, exprs::Vector; maintain_order::Bool = false)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
-        out = polars_lazy_frame_group_by(df, exprs_ptrs, length(exprs_ptrs), maintain_order)
+    owned, ptrs = _handle_ptrs(_expr_vector(exprs), Ptr{polars_expr_t})
+    GC.@preserve owned begin
+        out = polars_lazy_frame_group_by(df, ptrs, length(ptrs), maintain_order)
     end
     return LazyGroupBy(out)
 end
@@ -48,10 +47,9 @@ Aggregates the value over the group-by object and return a resulting [`LazyFrame
 """
 agg(gb::LazyGroupBy, exprs...) = agg(gb, collect(exprs)::Vector)
 function agg(gb::LazyGroupBy, exprs::Vector)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
-        out = polars_lazy_group_by_agg(gb, exprs_ptrs, length(exprs_ptrs))
+    owned, ptrs = _handle_ptrs(_expr_vector(exprs), Ptr{polars_expr_t})
+    GC.@preserve owned begin
+        out = polars_lazy_group_by_agg(gb, ptrs, length(ptrs))
     end
     return LazyFrame(out)
 end

@@ -1,5 +1,6 @@
 module Structs
-    using ..Polars: @wrap_expr_method, API, polars_expr_t, Expr, polars_error, _name_ptrs
+    using ..Polars: @wrap_expr_method, API, polars_expr_t, Expr, polars_error, _name_ptrs,
+        _handle_ptrs
 
     @wrap_expr_method field_by_name(expr::Expr, name::AbstractString) polars_expr_struct_field_by_name "Returns a new expression corresponding to values of the selected field."
     field_by_name(name) = Base.Fix2(field_by_name, name)
@@ -43,9 +44,8 @@ module Structs
     new field instead.
     """
     function with_fields(expr::Expr, fields::Expr...)
-        fields = collect(Expr, fields)
-        GC.@preserve fields begin
-            ptrs = Ptr{polars_expr_t}[f.ptr for f in fields]
+        owned, ptrs = _handle_ptrs(collect(Expr, fields), Ptr{polars_expr_t})
+        GC.@preserve owned begin
             out = API.polars_expr_struct_with_fields(expr, ptrs, length(ptrs))
         end
         return Expr(out)

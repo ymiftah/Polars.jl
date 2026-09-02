@@ -1151,8 +1151,8 @@ function top_k_by(expr::Expr, k, by...; rev = false)
                 "$(length(descending)) rev)"
         )
     )
-    GC.@preserve by begin
-        by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
+    owned, by_ptrs = _handle_ptrs(by, Ptr{polars_expr_t})
+    GC.@preserve owned begin
         out = API.polars_expr_top_k_by(expr, k, by_ptrs, n_by, descending)
     end
     return Expr(out)
@@ -1177,8 +1177,8 @@ function bottom_k_by(expr::Expr, k, by...; rev = false)
                 "$(length(descending)) rev)"
         )
     )
-    GC.@preserve by begin
-        by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
+    owned, by_ptrs = _handle_ptrs(by, Ptr{polars_expr_t})
+    GC.@preserve owned begin
         out = API.polars_expr_bottom_k_by(expr, k, by_ptrs, n_by, descending)
     end
     return Expr(out)
@@ -1202,9 +1202,8 @@ _expr_vector(args) = Expr[_as_expr(arg) for arg in args]
 Returns the first non-null value among `exprs`, evaluated left to right.
 """
 function Base.coalesce(first::Expr, rest::Expr...)
-    exprs = _expr_vector((first, rest...))
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+    owned, ptrs = _handle_ptrs(_expr_vector((first, rest...)), Ptr{polars_expr_t})
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_expr_t}}()
         err = API.polars_expr_coalesce(ptrs, length(ptrs), out)
         polars_error(err)
@@ -1231,10 +1230,9 @@ value) and [`Lists.join`](@ref Polars.Lists.join) (joins each row's own list ind
 sibling columns within each row.
 """
 function concat_str(exprs...; separator::AbstractString = "", ignore_nulls::Bool = false)
-    exprs = _expr_vector(exprs)
+    owned, ptrs = _handle_ptrs(_expr_vector(exprs), Ptr{polars_expr_t})
     separator = String(separator)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_expr_t}}()
         err = API.polars_expr_concat_str(
             ptrs, length(ptrs), separator, ncodeunits(separator), ignore_nulls, out
@@ -1260,10 +1258,9 @@ several columns; see also [`concat_str`](@ref), which joins with a fixed separat
 template.
 """
 function format(fmt::AbstractString, args...)
-    exprs = _expr_vector(args)
+    owned, ptrs = _handle_ptrs(_expr_vector(args), Ptr{polars_expr_t})
     fmt = String(fmt)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_expr_t}}()
         err = API.polars_expr_format(fmt, ncodeunits(fmt), ptrs, length(ptrs), out)
         polars_error(err)

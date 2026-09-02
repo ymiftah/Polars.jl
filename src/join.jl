@@ -25,15 +25,13 @@ function _join(
     # `:streaming` engines) -- caught by `guard_error`'s `catch_unwind` rather than aborting the
     # process, but there is no working codepath behind it to expose. The FFI parameter stays
     # (always null here) so a future polars upgrade that fixes this needs only a Julia-side change.
-    exprs_a = _expr_vector(exprs_a)
-    exprs_b = _expr_vector(exprs_b)
     coalesce_enum = _join_coalesce_enum(coalesce)
     validate_enum = _join_validation_enum(validate)
     suffix_arg = suffix === nothing ? Ptr{UInt8}(C_NULL) : suffix
     suffix_len = suffix === nothing ? 0 : ncodeunits(suffix)
-    GC.@preserve exprs_a exprs_b begin
-        exprs_a_ptr = Ptr{polars_expr_t}[expr.ptr for expr in exprs_a]
-        exprs_b_ptr = Ptr{polars_expr_t}[expr.ptr for expr in exprs_b]
+    owned_a, exprs_a_ptr = _handle_ptrs(_expr_vector(exprs_a), Ptr{polars_expr_t})
+    owned_b, exprs_b_ptr = _handle_ptrs(_expr_vector(exprs_b), Ptr{polars_expr_t})
+    GC.@preserve owned_a owned_b begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_join(
             a, b,
