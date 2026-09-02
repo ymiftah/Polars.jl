@@ -191,6 +191,26 @@ macro wrap_path_writer(fname, errmsg)
     )
 end
 
+"""
+    _resolve_descending(rev, n::Integer, prefix::AbstractString) -> Vector{Bool}
+
+Broadcasts a bare `rev::Bool` to `n` copies, or validates an already-`Vector` `rev` has exactly `n`
+entries -- one per `\$prefix expression` (`prefix` is e.g. `"sort"`/`"key"`/`"by"`). Raises an
+`ArgumentError` naming `prefix` if the lengths disagree -- a real exception, not an `@assert`: this
+validates caller-supplied input, which the Julia manual says assertions (removable, "this cannot
+happen") must not be used for.
+"""
+function _resolve_descending(rev, n::Integer, prefix::AbstractString)
+    descending = rev isa Bool ? fill(rev, n) : rev
+    length(descending) == n || throw(
+        ArgumentError(
+            "rev must have one entry per $prefix expression (got $n $prefix expressions and " *
+                "$(length(descending)) rev)"
+        )
+    )
+    return descending
+end
+
 """Processes one argument node from a `@curry` target signature, returning
 `(decl_node, name, forward_expr)`:
 - `decl_node` is what goes in the *curry's own* signature (same node, except an `::Expr`

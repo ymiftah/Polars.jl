@@ -97,7 +97,7 @@ end
         e
     end
     @test err isa ArgumentError
-    @test contains(err.msg, "2 expressions")
+    @test contains(err.msg, "2 sort expressions")
     @test contains(err.msg, "1 rev")
 
     # a scalar `rev` is broadcast over every expression and stays valid

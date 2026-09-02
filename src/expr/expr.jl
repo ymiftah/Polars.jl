@@ -966,16 +966,9 @@ own values -- typically used inside [`over`](@ref)/[`agg`](@ref) for "most recen
 function sort_by(expr::Expr, by...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
     by = _expr_vector(by)
     n_by = length(by)
-    descending = rev isa Bool ? fill(rev, n_by) : rev
-    # See `_sort!` in sort.jl: user-argument validation gets a real exception, not an `@assert`.
-    length(descending) == n_by || throw(
-        ArgumentError(
-            "rev must have one entry per by expression (got $n_by by expressions and " *
-                "$(length(descending)) rev)"
-        )
-    )
-    GC.@preserve by begin
-        by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
+    descending = _resolve_descending(rev, n_by, "by")
+    owned, by_ptrs = _handle_ptrs(by, Ptr{polars_expr_t})
+    GC.@preserve owned begin
         out = API.polars_expr_sort_by(expr, by_ptrs, n_by, descending, nulls_last, maintain_order)
     end
     return Expr(out)
@@ -1144,13 +1137,7 @@ function top_k_by(expr::Expr, k, by...; rev = false)
     k = convert(Expr, k)
     by = _expr_vector(by)
     n_by = length(by)
-    descending = rev isa Bool ? fill(rev, n_by) : rev
-    length(descending) == n_by || throw(
-        ArgumentError(
-            "rev must have one entry per by expression (got $n_by by expressions and " *
-                "$(length(descending)) rev)"
-        )
-    )
+    descending = _resolve_descending(rev, n_by, "by")
     owned, by_ptrs = _handle_ptrs(by, Ptr{polars_expr_t})
     GC.@preserve owned begin
         out = API.polars_expr_top_k_by(expr, k, by_ptrs, n_by, descending)
@@ -1170,13 +1157,7 @@ function bottom_k_by(expr::Expr, k, by...; rev = false)
     k = convert(Expr, k)
     by = _expr_vector(by)
     n_by = length(by)
-    descending = rev isa Bool ? fill(rev, n_by) : rev
-    length(descending) == n_by || throw(
-        ArgumentError(
-            "rev must have one entry per by expression (got $n_by by expressions and " *
-                "$(length(descending)) rev)"
-        )
-    )
+    descending = _resolve_descending(rev, n_by, "by")
     owned, by_ptrs = _handle_ptrs(by, Ptr{polars_expr_t})
     GC.@preserve owned begin
         out = API.polars_expr_bottom_k_by(expr, k, by_ptrs, n_by, descending)
