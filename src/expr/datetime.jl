@@ -35,13 +35,7 @@ module Dt
     # each primal in the block above.
 
     @wrap_expr_method strftime(expr::Expr, format::AbstractString) polars_expr_dt_strftime "Formats a Date/Datetime/Duration/Time expression using a `chrono`-style format string (e.g. `\"%Y-%m-%d\"`)."
-
-    """
-        strftime(format::String)::Base.Fix2{typeof(strftime), String}
-
-    Curried form of [`strftime`](@ref) for use with `|>`.
-    """
-    strftime(format::AbstractString) = Base.Fix2(strftime, format)
+    @curry strftime(format::AbstractString) fix2 = true
 
     export strftime
 
@@ -55,13 +49,7 @@ module Dt
     a second identical shim.
     """
     to_string(expr::Expr, format::AbstractString) = strftime(expr, format)
-
-    """
-        to_string(format::String)::Base.Fix2{typeof(to_string), String}
-
-    Curried form of [`to_string`](@ref) for use with `|>`.
-    """
-    to_string(format::AbstractString) = Base.Fix2(to_string, format)
+    @curry to_string(format::AbstractString) fix2 = true
 
     export to_string
 
@@ -227,12 +215,7 @@ module Dt
 
     @wrap_expr_method convert_time_zone(expr::Expr, tz::AbstractString) polars_expr_dt_convert_time_zone "Re-labels a Datetime expression's instant into a different IANA time zone `tz` (e.g. `\"America/New_York\"`) -- the underlying instant is unchanged, only the display/interpretation changes. Compare [`replace_time_zone`](@ref), which does the opposite (preserves the wall-clock value, changes the instant).\n\n!!! note\n    Reading the *result* back into Julia (e.g. via `df[:col]`) needs `TimeZones.jl` loaded (`using TimeZones`) -- a naive read otherwise errors with an explanatory message."
 
-    """
-        convert_time_zone(tz::String)::Base.Fix2{typeof(convert_time_zone), String}
-
-    Curried form of [`convert_time_zone`](@ref) for use with `|>`.
-    """
-    convert_time_zone(tz::AbstractString) = Base.Fix2(convert_time_zone, tz)
+    @curry convert_time_zone(tz::AbstractString) fix2 = true
 
     export convert_time_zone
 

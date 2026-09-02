@@ -1,9 +1,9 @@
 module Structs
-    using ..Polars: @wrap_expr_method, API, polars_expr_t, Expr, polars_error, _name_ptrs,
+    using ..Polars: @wrap_expr_method, @curry, API, polars_expr_t, Expr, polars_error, _name_ptrs,
         _handle_ptrs
 
     @wrap_expr_method field_by_name(expr::Expr, name::AbstractString) polars_expr_struct_field_by_name "Returns a new expression corresponding to values of the selected field."
-    field_by_name(name) = Base.Fix2(field_by_name, name)
+    @curry field_by_name(name) fix2 = true
 
     """
         field_by_index(expr::Polars.Expr, index::Integer)::Polars.Expr
@@ -15,7 +15,7 @@ module Structs
         field = API.polars_expr_struct_field_by_index(expr, fieldidx)
         return Expr(field)
     end
-    field_by_index(fieldidx) = Base.Fix2(field_by_index, fieldidx)
+    @curry field_by_index(fieldidx) fix2 = true
 
     """
         rename_fields(expr::Polars.Expr, new_names::Vector{String})::Polars.Expr
@@ -32,7 +32,7 @@ module Structs
         end
         return Expr(out[])
     end
-    rename_fields(new_names) = Base.Fix2(rename_fields, new_names)
+    @curry rename_fields(new_names) fix2 = true
 
     """
         with_fields(expr::Polars.Expr, fields::Polars.Expr...)::Polars.Expr

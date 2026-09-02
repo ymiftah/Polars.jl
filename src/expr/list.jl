@@ -31,19 +31,13 @@ module Lists
     # own Base-collision check can't catch it, and it must never be exported: it's designed for
     # qualified use (`Lists.head`), matching `get`/`contains` below.
     @wrap_expr_method head(expr::Expr, n::Expr) polars_expr_list_head "First `n` elements of each list in `expr` (fewer if the list is shorter than `n`)."
-
-    """
-        head(n)::Base.Fix2{typeof(head)}
-
-    Curried form of `head` for use with `|>` -- e.g. `col("x") |> Lists.head(2)`.
-    """
-    head(n) = Base.Fix2(head, convert(Expr, n))
+    @curry head(n::Expr) fix2 = true
 
     @wrap_expr_method tail(expr::Expr, n::Expr) polars_expr_list_tail "Last `n` elements of each list in `expr` (fewer if the list is shorter than `n`). Complements [`head`](@ref)."
-    tail(n) = Base.Fix2(tail, convert(Expr, n))
+    @curry tail(n::Expr) fix2 = true
 
     @wrap_expr_method shift(expr::Expr, periods::Expr) polars_expr_list_shift "Shifts each list's elements by `periods` (negative shifts up), filling vacated positions with `null` -- the per-list analogue of the top-level [`shift`](@ref)."
-    shift(n) = Base.Fix2(shift, convert(Expr, n))
+    @curry shift(n::Expr) fix2 = true
 
     @wrap_expr_method get(expr::Expr, index::Expr; null_on_oob::Bool = false) polars_expr_list_get "Get items in every sublist by index. If `null_on_oob` is `false` (default), an out-of-bounds index raises an error; if `true`, it returns `null` instead (more expensive, per the polars documentation)."
     @curry get(index; null_on_oob::Bool = false)
@@ -105,7 +99,7 @@ module Lists
     @curry contains(other; nulls_equal::Bool = true)
 
     @wrap_expr_method count_matches(expr::Expr, element::Expr) polars_expr_list_count_matches "Counts occurrences of `element` within each list of `expr`."
-    count_matches(element) = Base.Fix2(count_matches, convert(Expr, element))
+    @curry count_matches(element::Expr) fix2 = true
     export count_matches
 
     @wrap_expr_method sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false) polars_expr_list_sort "Sorts the elements within each list of `expr` independently (list order/row count is unchanged -- compare the top-level `sort` (see [DataFrame](@ref)/[LazyFrame](@ref)), which reorders whole rows instead)."

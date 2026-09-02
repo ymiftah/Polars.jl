@@ -264,9 +264,22 @@ Not a fit for a curry whose accepted argument types are deliberately *narrower* 
 method's own (`sort_by`/`over` restrict their curried `by`/`partition_by` to column names, not
 arbitrary `Expr`s, since an `Expr` there would be ambiguous with the piped `expr` itself) or that
 splats a variable number of arguments -- both stay hand-written.
+
+An optional trailing `fix2 = true` (e.g. `@curry head(n::Expr) fix2 = true`) generates a
+`Base.Fix2` instead of a closure -- `f(x) = Base.Fix2(f, x)` (or `convert(Expr, x)` in its place
+per the same `::Expr`-annotation rule above) -- for the shape that has exactly one required
+positional argument and no keywords, matching the convention every `Base.Fix2`-returning curry in
+this package already follows (prints legibly at the REPL, unlike an anonymous closure). Only
+applies to that one-positional-arg, no-keywords shape; using it with keywords or more than one
+positional argument is an error at macro-expansion time.
 """
-macro curry(sig)
+macro curry(sig, opts...)
     @assert sig isa Base.Expr && sig.head === :call "@curry expects a call signature, e.g. `@curry f(x; y=1)`"
+    fix2 = false
+    for opt in opts
+        @assert opt isa Base.Expr && opt.head === :(=) && opt.args[1] === :fix2 "@curry: unknown option $opt (the only option is `fix2 = true`)"
+        fix2 = opt.args[2] === true
+    end
     fname = sig.args[1]
     posarg_decls, posarg_forwards = Any[], Any[]
     kwarg_decls, kwarg_forwards = Any[], Any[]
@@ -289,14 +302,21 @@ macro curry(sig)
     append!(curry_sig_args, posarg_decls)
     curry_sig = Base.Expr(:call, curry_sig_args...)
 
-    call_args = Any[fname, :expr]
-    append!(call_args, posarg_forwards)
-    call_expr = Base.Expr(:call, call_args...)
-    isempty(kwarg_forwards) || insert!(call_expr.args, 2, Base.Expr(:parameters, kwarg_forwards...))
-    curry_def = Base.Expr(:(=), curry_sig, Base.Expr(:->, :expr, Base.Expr(:block, call_expr)))
+    if fix2
+        @assert isempty(kwarg_decls) && length(posarg_decls) == 1 "@curry: fix2 = true only applies to a single required positional argument and no keywords"
+        curry_def = Base.Expr(:(=), curry_sig, Base.Expr(:call, :(Base.Fix2), fname, posarg_forwards[1]))
+        return_type = "Base.Fix2{typeof($fname)}"
+    else
+        call_args = Any[fname, :expr]
+        append!(call_args, posarg_forwards)
+        call_expr = Base.Expr(:call, call_args...)
+        isempty(kwarg_forwards) || insert!(call_expr.args, 2, Base.Expr(:parameters, kwarg_forwards...))
+        curry_def = Base.Expr(:(=), curry_sig, Base.Expr(:->, :expr, Base.Expr(:block, call_expr)))
+        return_type = "Base.Callable"
+    end
 
     docstring = """
-        $(curry_sig)::Base.Callable
+        $(curry_sig)::$return_type
 
     Curried form of [`$fname`](@ref) for use with `|>`.
     """
