@@ -91,27 +91,26 @@ function group_by_dynamic(
     group_by = _expr_vector(group_by)
     period = something(period, every)
 
-    label_cenum = label === :left ? API.PolarsLabelLeft :
-        label === :right ? API.PolarsLabelRight :
-        label === :data_point ? API.PolarsLabelDataPoint :
-        error("invalid label $label, expected :left, :right, or :data_point")
+    label_cenum = _enum_lookup(
+        label, "label",
+        :left => API.PolarsLabelLeft, :right => API.PolarsLabelRight,
+        :data_point => API.PolarsLabelDataPoint,
+    )
 
-    closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
-        closed === :right ? API.PolarsClosedWindowRight :
-        closed === :both ? API.PolarsClosedWindowBoth :
-        closed === :none ? API.PolarsClosedWindowNone :
-        error("invalid closed $closed, expected :left, :right, :both, or :none")
+    closed_cenum = _enum_lookup(
+        closed, "closed",
+        :left => API.PolarsClosedWindowLeft, :right => API.PolarsClosedWindowRight,
+        :both => API.PolarsClosedWindowBoth, :none => API.PolarsClosedWindowNone,
+    )
 
-    start_by_cenum = start_by === :window_bound ? API.PolarsStartByWindowBound :
-        start_by === :data_point ? API.PolarsStartByDataPoint :
-        start_by === :monday ? API.PolarsStartByMonday :
-        start_by === :tuesday ? API.PolarsStartByTuesday :
-        start_by === :wednesday ? API.PolarsStartByWednesday :
-        start_by === :thursday ? API.PolarsStartByThursday :
-        start_by === :friday ? API.PolarsStartByFriday :
-        start_by === :saturday ? API.PolarsStartBySaturday :
-        start_by === :sunday ? API.PolarsStartBySunday :
-        error("invalid start_by $start_by")
+    start_by_cenum = _enum_lookup(
+        start_by, "start_by",
+        :window_bound => API.PolarsStartByWindowBound, :data_point => API.PolarsStartByDataPoint,
+        :monday => API.PolarsStartByMonday, :tuesday => API.PolarsStartByTuesday,
+        :wednesday => API.PolarsStartByWednesday, :thursday => API.PolarsStartByThursday,
+        :friday => API.PolarsStartByFriday, :saturday => API.PolarsStartBySaturday,
+        :sunday => API.PolarsStartBySunday,
+    )
 
     # `every`/`period`/`offset` are passed as raw (pointer, len) pairs below (not through a
     # `String`-accepting ccall wrapper that would `cconvert` them itself), so they must be listed
@@ -166,11 +165,11 @@ function rolling(
     index_expr = _as_expr(index_column)
     group_by = _expr_vector(group_by)
 
-    closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
-        closed === :right ? API.PolarsClosedWindowRight :
-        closed === :both ? API.PolarsClosedWindowBoth :
-        closed === :none ? API.PolarsClosedWindowNone :
-        error("invalid closed $closed, expected :left, :right, :both, or :none")
+    closed_cenum = _enum_lookup(
+        closed, "closed",
+        :left => API.PolarsClosedWindowLeft, :right => API.PolarsClosedWindowRight,
+        :both => API.PolarsClosedWindowBoth, :none => API.PolarsClosedWindowNone,
+    )
 
     # See the matching comment in `group_by_dynamic` above: `period`/`offset` are passed as raw
     # (pointer, len) pairs, so they must be preserved through the ccall explicitly.

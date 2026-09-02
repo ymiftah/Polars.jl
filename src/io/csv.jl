@@ -1,21 +1,14 @@
-function _quote_style_enum(quote_style::Symbol)
-    quote_style == :necessary && return API.PolarsQuoteStyleNecessary
-    quote_style == :always && return API.PolarsQuoteStyleAlways
-    quote_style == :non_numeric && return API.PolarsQuoteStyleNonNumeric
-    quote_style == :never && return API.PolarsQuoteStyleNever
-    return error(
-        "unknown quote_style $quote_style, expected one of (:necessary, :always, :non_numeric, :never)"
-    )
-end
+_quote_style_enum(quote_style::Symbol) = _enum_lookup(
+    quote_style, "quote_style",
+    :necessary => API.PolarsQuoteStyleNecessary, :always => API.PolarsQuoteStyleAlways,
+    :non_numeric => API.PolarsQuoteStyleNonNumeric, :never => API.PolarsQuoteStyleNever,
+)
 
-function _csv_compression_enum(compression::Symbol)
-    compression == :uncompressed && return API.PolarsCsvCompressionUncompressed
-    compression == :gzip && return API.PolarsCsvCompressionGzip
-    compression == :zstd && return API.PolarsCsvCompressionZstd
-    return error(
-        "unknown compression $compression, expected one of (:uncompressed, :gzip, :zstd)"
-    )
-end
+_csv_compression_enum(compression::Symbol) = _enum_lookup(
+    compression, "compression",
+    :uncompressed => API.PolarsCsvCompressionUncompressed, :gzip => API.PolarsCsvCompressionGzip,
+    :zstd => API.PolarsCsvCompressionZstd,
+)
 
 """
     scan_csv(path::String;

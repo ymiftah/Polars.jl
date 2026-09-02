@@ -31,17 +31,11 @@ function Base.unique(
         lf::LazyFrame, subset::Vector{<:ColId} = String[];
         keep::Symbol = :any, maintain_order::Bool = false
     )
-    keep_enum = if keep == :first
-        API.PolarsUniqueKeepFirst
-    elseif keep == :last
-        API.PolarsUniqueKeepLast
-    elseif keep == :none
-        API.PolarsUniqueKeepNone
-    elseif keep == :any
-        API.PolarsUniqueKeepAny
-    else
-        error("unknown keep strategy $keep, expected one of (:first, :last, :none, :any)")
-    end
+    keep_enum = _enum_lookup(
+        keep, "keep strategy",
+        :first => API.PolarsUniqueKeepFirst, :last => API.PolarsUniqueKeepLast,
+        :none => API.PolarsUniqueKeepNone, :any => API.PolarsUniqueKeepAny,
+    )
     owned_names, ptrs, lens = _name_ptrs(subset)
     GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()

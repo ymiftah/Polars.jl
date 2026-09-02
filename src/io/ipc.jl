@@ -1,11 +1,8 @@
-function _ipc_compression_enum(compression::Symbol)
-    compression == :uncompressed && return API.PolarsIpcCompressionUncompressed
-    compression == :lz4 && return API.PolarsIpcCompressionLz4
-    compression == :zstd && return API.PolarsIpcCompressionZstd
-    return error(
-        "unknown compression $compression, expected one of (:uncompressed, :lz4, :zstd)"
-    )
-end
+_ipc_compression_enum(compression::Symbol) = _enum_lookup(
+    compression, "compression",
+    :uncompressed => API.PolarsIpcCompressionUncompressed, :lz4 => API.PolarsIpcCompressionLz4,
+    :zstd => API.PolarsIpcCompressionZstd,
+)
 
 """
     scan_ipc(path::String;

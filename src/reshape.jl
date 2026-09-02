@@ -118,13 +118,10 @@ function pivot(
     lf = lazy(df)
     on_columns = collect(unique(select(lf, map(col, on)...)))
 
-    naming_enum = if column_naming == :auto
-        API.PolarsPivotColumnNamingAuto
-    elseif column_naming == :combine
-        API.PolarsPivotColumnNamingCombine
-    else
-        error("unknown column_naming $column_naming, expected one of (:auto, :combine)")
-    end
+    naming_enum = _enum_lookup(
+        column_naming, "column_naming",
+        :auto => API.PolarsPivotColumnNamingAuto, :combine => API.PolarsPivotColumnNamingCombine,
+    )
 
     on_names, on_ptrs, on_lens = _name_ptrs(on)
     index_names, index_ptrs, index_lens = _name_ptrs(index)

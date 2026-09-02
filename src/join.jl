@@ -1,21 +1,17 @@
-function _join_coalesce_enum(coalesce::Symbol)
-    coalesce == :join_specific && return API.PolarsJoinCoalesceJoinSpecific
-    coalesce == :coalesce_columns && return API.PolarsJoinCoalesceCoalesceColumns
-    coalesce == :keep_columns && return API.PolarsJoinCoalesceKeepColumns
-    return error(
-        "unknown coalesce $coalesce, expected one of (:join_specific, :coalesce_columns, :keep_columns)"
-    )
-end
+_join_coalesce_enum(coalesce::Symbol) = _enum_lookup(
+    coalesce, "coalesce",
+    :join_specific => API.PolarsJoinCoalesceJoinSpecific,
+    :coalesce_columns => API.PolarsJoinCoalesceCoalesceColumns,
+    :keep_columns => API.PolarsJoinCoalesceKeepColumns,
+)
 
-function _join_validation_enum(validate::Symbol)
-    validate == :many_to_many && return API.PolarsJoinValidationManyToMany
-    validate == :many_to_one && return API.PolarsJoinValidationManyToOne
-    validate == :one_to_many && return API.PolarsJoinValidationOneToMany
-    validate == :one_to_one && return API.PolarsJoinValidationOneToOne
-    return error(
-        "unknown validate $validate, expected one of (:many_to_many, :many_to_one, :one_to_many, :one_to_one)"
-    )
-end
+_join_validation_enum(validate::Symbol) = _enum_lookup(
+    validate, "validate",
+    :many_to_many => API.PolarsJoinValidationManyToMany,
+    :many_to_one => API.PolarsJoinValidationManyToOne,
+    :one_to_many => API.PolarsJoinValidationOneToMany,
+    :one_to_one => API.PolarsJoinValidationOneToOne,
+)
 
 function _join(
         a::LazyFrame, b::LazyFrame, exprs_a::Vector, exprs_b::Vector, how;

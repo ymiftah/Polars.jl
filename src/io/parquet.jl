@@ -152,17 +152,13 @@ keyword options as [`scan_parquet`](@ref) (`n_rows`, `row_index_name`, `hive_par
 """
 read_parquet(path; kwargs...) = collect(scan_parquet(path; kwargs...))
 
-function _parquet_compression_enum(compression::Symbol)
-    compression == :uncompressed && return API.PolarsParquetCompressionUncompressed
-    compression == :snappy && return API.PolarsParquetCompressionSnappy
-    compression == :gzip && return API.PolarsParquetCompressionGzip
-    compression == :brotli && return API.PolarsParquetCompressionBrotli
-    compression == :zstd && return API.PolarsParquetCompressionZstd
-    compression == :lz4_raw && return API.PolarsParquetCompressionLz4Raw
-    return error(
-        "unknown compression $compression, expected one of (:uncompressed, :snappy, :gzip, :brotli, :zstd, :lz4_raw)"
-    )
-end
+_parquet_compression_enum(compression::Symbol) = _enum_lookup(
+    compression, "compression",
+    :uncompressed => API.PolarsParquetCompressionUncompressed,
+    :snappy => API.PolarsParquetCompressionSnappy, :gzip => API.PolarsParquetCompressionGzip,
+    :brotli => API.PolarsParquetCompressionBrotli, :zstd => API.PolarsParquetCompressionZstd,
+    :lz4_raw => API.PolarsParquetCompressionLz4Raw,
+)
 
 """
     write_parquet(io::IO, df::DataFrame;
