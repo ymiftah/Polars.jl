@@ -581,6 +581,30 @@ function polars_lazy_frame_quantile(df, quantile, method)
     return @ccall libpolars.polars_lazy_frame_quantile(df::Ptr{polars_lazy_frame_t}, quantile::Ptr{polars_expr_t}, method::polars_quantile_method_t)::Cvoid
 end
 
+function polars_lazy_frame_reverse(df)
+    return @ccall libpolars.polars_lazy_frame_reverse(df::Ptr{polars_lazy_frame_t})::Cvoid
+end
+
+function polars_lazy_frame_null_count(df)
+    return @ccall libpolars.polars_lazy_frame_null_count(df::Ptr{polars_lazy_frame_t})::Cvoid
+end
+
+function polars_lazy_frame_count(df)
+    return @ccall libpolars.polars_lazy_frame_count(df::Ptr{polars_lazy_frame_t})::Cvoid
+end
+
+function polars_lazy_frame_cache(df)
+    return @ccall libpolars.polars_lazy_frame_cache(df::Ptr{polars_lazy_frame_t})::Cvoid
+end
+
+function polars_lazy_frame_fill_nan(df, value)
+    return @ccall libpolars.polars_lazy_frame_fill_nan(df::Ptr{polars_lazy_frame_t}, value::Ptr{polars_expr_t})::Cvoid
+end
+
+function polars_lazy_frame_explain(df, optimized, user, callback)
+    return @ccall libpolars.polars_lazy_frame_explain(df::Ptr{polars_lazy_frame_t}, optimized::Bool, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
+end
+
 function polars_lazy_frame_collect(df, engine, out)
     return @ccall libpolars.polars_lazy_frame_collect(df::Ptr{polars_lazy_frame_t}, engine::polars_engine_t, out::Ptr{Ptr{polars_dataframe_t}})::Ptr{polars_error_t}
 end
@@ -781,6 +805,24 @@ function polars_expr_concat_str(exprs, n, separator, separator_len, ignore_nulls
     return @ccall libpolars.polars_expr_concat_str(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, separator::Ptr{UInt8}, separator_len::Csize_t, ignore_nulls::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
+"""
+    polars_expr_format(fmt, fmt_len, exprs, n, out)
+
+`pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order. Fallible: a mismatched placeholder/argument count raises rather than panicking (see `polars-plan-0.54.4/src/dsl/functions/concat.rs::format\\_str`).
+"""
+function polars_expr_format(fmt, fmt_len, exprs, n, out)
+    return @ccall libpolars.polars_expr_format(fmt::Ptr{UInt8}, fmt_len::Csize_t, exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_concat_arr(exprs, n, out)
+
+`pl.concat\\_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column. Gated on `dtype-array` inside `concat_arr` itself (`feature\\_gated!`), already enabled for `Expr::reshape` (Task 2 of this same plan).
+"""
+function polars_expr_concat_arr(exprs, n, out)
+    return @ccall libpolars.polars_expr_concat_arr(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
 function polars_expr_interpolate(expr, method)
     return @ccall libpolars.polars_expr_interpolate(expr::Ptr{polars_expr_t}, method::polars_interpolation_method_t)::Ptr{polars_expr_t}
 end
@@ -856,6 +898,24 @@ Casts to `Duration(unit)`.
 """
 function polars_expr_cast_duration(expr, unit, out)
     return @ccall libpolars.polars_expr_cast_duration(expr::Ptr{polars_expr_t}, unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_datetime(year, month, day, hour, minute, second, microsecond, time_unit, tz, tz_len, ambiguous, ambiguous_len, out)
+
+Component-wise `Datetime` constructor (`pl.datetime`). `ambiguous` controls how a DST fall-back local time resolves; passed through as a string-literal expression, matching upstream's own `DatetimeArgs::ambiguous: Expr` field.
+"""
+function polars_expr_datetime(year, month, day, hour, minute, second, microsecond, time_unit, tz, tz_len, ambiguous, ambiguous_len, out)
+    return @ccall libpolars.polars_expr_datetime(year::Ptr{polars_expr_t}, month::Ptr{polars_expr_t}, day::Ptr{polars_expr_t}, hour::Ptr{polars_expr_t}, minute::Ptr{polars_expr_t}, second::Ptr{polars_expr_t}, microsecond::Ptr{polars_expr_t}, time_unit::polars_time_unit_t, tz::Ptr{UInt8}, tz_len::Csize_t, ambiguous::Ptr{UInt8}, ambiguous_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_duration(weeks, days, hours, minutes, seconds, milliseconds, microseconds, nanoseconds, time_unit, out)
+
+Component-wise `Duration` constructor (`pl.duration`).
+"""
+function polars_expr_duration(weeks, days, hours, minutes, seconds, milliseconds, microseconds, nanoseconds, time_unit, out)
+    return @ccall libpolars.polars_expr_duration(weeks::Ptr{polars_expr_t}, days::Ptr{polars_expr_t}, hours::Ptr{polars_expr_t}, minutes::Ptr{polars_expr_t}, seconds::Ptr{polars_expr_t}, milliseconds::Ptr{polars_expr_t}, microseconds::Ptr{polars_expr_t}, nanoseconds::Ptr{polars_expr_t}, time_unit::polars_time_unit_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 """
@@ -1297,6 +1357,22 @@ function polars_expr_reverse(expr)
     return @ccall libpolars.polars_expr_reverse(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
+function polars_expr_arg_unique(expr)
+    return @ccall libpolars.polars_expr_arg_unique(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_to_physical(expr)
+    return @ccall libpolars.polars_expr_to_physical(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_lower_bound(expr)
+    return @ccall libpolars.polars_expr_lower_bound(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_upper_bound(expr)
+    return @ccall libpolars.polars_expr_upper_bound(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
 function polars_expr_eq(a, b)
     return @ccall libpolars.polars_expr_eq(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -1405,6 +1481,50 @@ end
 
 function polars_expr_top_k(a, b)
     return @ccall libpolars.polars_expr_top_k(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_arctan2(a, b)
+    return @ccall libpolars.polars_expr_arctan2(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_dot(a, b)
+    return @ccall libpolars.polars_expr_dot(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_entropy(expr, base, normalize)
+
+Infallible -- `Expr::entropy` only builds a plan node.
+"""
+function polars_expr_entropy(expr, base, normalize)
+    return @ccall libpolars.polars_expr_entropy(expr::Ptr{polars_expr_t}, base::Cdouble, normalize::Bool)::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_extend_constant(expr, value, n)
+
+Infallible -- `Expr::extend\\_constant` only builds a plan node.
+"""
+function polars_expr_extend_constant(expr, value, n)
+    return @ccall libpolars.polars_expr_extend_constant(expr::Ptr{polars_expr_t}, value::Ptr{polars_expr_t}, n::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_shuffle(expr, seed)
+
+Infallible -- `Expr::shuffle` only builds a plan node. `seed` null means "draw one from the OS".
+"""
+function polars_expr_shuffle(expr, seed)
+    return @ccall libpolars.polars_expr_shuffle(expr::Ptr{polars_expr_t}, seed::Ptr{UInt64})::Ptr{polars_expr_t}
+end
+
+"""
+    polars_expr_reshape(expr, dims, n_dims)
+
+Infallible -- `Expr::reshape` only builds a plan node.
+"""
+function polars_expr_reshape(expr, dims, n_dims)
+    return @ccall libpolars.polars_expr_reshape(expr::Ptr{polars_expr_t}, dims::Ptr{Int64}, n_dims::Csize_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_cum_sum(expr, reverse)
@@ -1706,6 +1826,10 @@ end
 
 function polars_expr_str_len_chars(a)
     return @ccall libpolars.polars_expr_str_len_chars(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+end
+
+function polars_expr_str_escape_regex(a)
+    return @ccall libpolars.polars_expr_str_escape_regex(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_str_starts_with(a, b)

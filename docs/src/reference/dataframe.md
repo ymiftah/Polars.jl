@@ -144,6 +144,17 @@ head(orders, 2)
 tail(orders, 2)
 ```
 
+`limit` (see [Expressions](@ref)) is a plain alias for `head`, matching upstream polars; it has
+both a `DataFrame`/`LazyFrame` method (documented here via the same generic function) and an
+`Expr` one.
+
+`reverse(df)` (see [Expressions](@ref) for the docstring, shared with the `Expr` method) reverses
+`df`'s row order:
+
+```@example dataframe
+reverse(orders)
+```
+
 ```@docs
 Base.unique
 ```
@@ -173,6 +184,17 @@ columns — don't confuse this frame-level verb with the expression-level `drop_
 
 ```@example dataframe
 with_columns(orders, (col("qty") * col("price")) |> alias("revenue")) |> x -> drop_nulls(x, ["revenue"])
+```
+
+## Whole-frame computation
+
+`null_count`/`count` (docstrings in [Expressions](@ref), shared with the `Expr` methods) return a
+single-row frame counting, per column, the number of `null` values and the number of non-`null`
+values respectively. `fill_nan` (same page) replaces every `NaN` (not `missing`) in every float
+column; see `fill_null` for the `missing`-replacing counterpart.
+
+```@example dataframe
+null_count(orders)
 ```
 
 ## Aggregation & group-by
