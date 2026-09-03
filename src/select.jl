@@ -12,7 +12,8 @@ end
     select(lf::LazyFrame, exprs...)::LazyFrame
     select(df::DataFrame, exprs...)::DataFrame
 
-Select a fixed set of expressions from the provided frames.
+Select (and optionally rename, with [`alias`](@ref)) columns from the query. Columns can be
+selected with [`col`](@ref); to select all columns use `col("*")`.
 """
 select(df::LazyFrame, exprs...) = _select!(clone(df), exprs...)
 select(df::DataFrame, exprs...) = _select!(lazy(df), exprs...) |> collect
@@ -21,8 +22,7 @@ select(df::DataFrame, exprs...) = _select!(lazy(df), exprs...) |> collect
     with_columns(lf::LazyFrame, exprs...)::LazyFrame
     with_columns(df::DataFrame, exprs...)::DataFrame
 
-Select a fixed set of expressions from the provided frames and
-also returns the existing columns.
+Add or replace multiple columns, given as expressions, to `df`.
 
 ```julia-repl
 julia> df = DataFrame((; x=[1,2,3]))
@@ -60,8 +60,7 @@ end
     head(lf::LazyFrame, n)::LazyFrame
     head(df::DataFrame, n)::DataFrame
 
-Returns the first `n` rows of the frame. Unlike upstream polars, `n` must be non-negative --
-there is no `height + n` negative-index convenience here (see the docstring note below).
+Limit the frame to the first `n` rows. `n` must be non-negative.
 """
 head(df::LazyFrame, n = 5) = _head!(clone(df), n)
 head(df::DataFrame, n = 5) = _head!(lazy(df), n) |> collect
@@ -79,8 +78,7 @@ import Base: tail
     tail(lf::LazyFrame, n)::LazyFrame
     tail(df::DataFrame, n)::DataFrame
 
-Returns the last `n` rows of the frame. Unlike upstream polars, `n` must be non-negative -- there
-is no `height + n` negative-index convenience here (see the docstring note below).
+Get the last `n` rows. `n` must be non-negative. Equivalent to `slice(df, -n, n)`.
 
 !!! note
     Extends `Base.tail` (which otherwise operates on `Tuple`/`NamedTuple`); `Base` does not
@@ -104,9 +102,9 @@ end
     filter(lf::LazyFrame, expr)
     filter(df::DataFrame, expr)
 
-Filters the rows of the provided frames based on the provided predicate expression: a
-`String`/`Symbol` column name, an `Expr`, or a `Selector` (each treated as a boolean-dtype column
-reference).
+Filter the rows of the frame based on `expr`: a `String`/`Symbol` column name, an `Expr`, or a
+`Selector` (each treated as a boolean-dtype column reference). `expr` must yield boolean values;
+rows where it resolves to `missing` are not included in the result.
 """
 Base.filter(df::LazyFrame, expr) = _filter!(clone(df), expr)
 Base.filter(df::DataFrame, expr) = _filter!(lazy(df), expr) |> collect

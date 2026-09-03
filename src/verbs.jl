@@ -20,10 +20,12 @@ _name_ptrs(names::AbstractVector{<:ColId}) = _name_ptrs(String[String(name) for 
     unique(lf::LazyFrame, subset::Vector{String}=String[]; keep::Symbol=:any, maintain_order::Bool=false)::LazyFrame
     unique(df::DataFrame, subset::Vector{String}=String[]; keep::Symbol=:any, maintain_order::Bool=false)::DataFrame
 
-Removes duplicate rows, considering only `subset` columns if provided (all columns otherwise).
+Drop non-unique rows, considering only `subset` columns if provided (all columns otherwise).
 `keep` selects which duplicate to retain: `:first`, `:last`, `:none` (drop all duplicates), or
-`:any` (default — no order guarantee, allows more optimization). `maintain_order` preserves row
-order in the output (default `false`, which allows more optimization).
+`:any` (default — no order guarantee, allows more optimization).
+
+With `maintain_order=true`, the order of kept rows is maintained; with `maintain_order=false` (the
+default), the order of the kept rows may change.
 """
 Base.unique(df::DataFrame, subset::Vector{<:ColId} = String[]; keep::Symbol = :any, maintain_order::Bool = false) =
     unique(lazy(df), subset; keep, maintain_order) |> collect
@@ -61,8 +63,11 @@ Base.unique(df::DataFrame, subset::Vararg{ColId}; keep::Symbol = :any, maintain_
     drop(lf::LazyFrame, columns::Vector{String}; strict::Bool=true)::LazyFrame
     drop(df::DataFrame, columns::Vector{String}; strict::Bool=true)::DataFrame
 
-Removes the given columns from the frame. If `strict` is `true` (default), every name in
-`columns` must exist; otherwise unknown names are silently ignored, matching [`rename`](@ref)'s
+Removes the given columns from the frame. It's better to only [`select`](@ref) the columns you
+need and let projection pushdown optimize away the unneeded columns.
+
+If `strict` is `true` (the default), any given column not in the schema raises a
+[`PolarsError`](@ref); otherwise unknown names are silently ignored, matching [`rename`](@ref)'s
 own `strict` convention.
 """
 drop(df::DataFrame, columns::Vector{<:ColId}; strict::Bool = true) =
@@ -83,9 +88,11 @@ import Base: rename
     rename(lf::LazyFrame, existing::Vector{String}, new::Vector{String}; strict::Bool=true)::LazyFrame
     rename(df::DataFrame, existing::Vector{String}, new::Vector{String}; strict::Bool=true)::DataFrame
 
-Renames `existing` columns to the corresponding `new` names (same length, paired by position).
-If `strict` is `true` (default), every `existing` column must be present; otherwise, missing
-ones are silently ignored.
+Rename columns in the frame. `existing` and `new` are vectors of the same length containing the
+old and corresponding new column names. Renaming happens to all `existing` columns
+simultaneously, not iteratively. If `strict` is `true` (the default), every column in `existing`
+must be present when `rename` is called; otherwise, only those columns that are actually found
+are renamed (others are ignored).
 """
 Base.rename(df::DataFrame, existing::Vector{<:ColId}, new::Vector{<:ColId}; strict::Bool = true) =
     Base.rename(lazy(df), existing, new; strict) |> collect
@@ -115,11 +122,13 @@ end
     drop_nulls(lf::LazyFrame, subset::Vector{String}=String[])::LazyFrame
     drop_nulls(df::DataFrame, subset::Vector{String}=String[])::DataFrame
 
-Removes rows containing a `null` in any of the `subset` columns (all columns if not provided).
+Drop rows containing one or more `null` values, considering only `subset` columns (all columns if
+not provided).
 
-An explicitly-empty `subset` behaves the same as omitting it (checks *all* columns) rather than
-py-polars' `subset=[]`, which checks zero columns and is therefore a no-op -- this wrapper has no
-way to distinguish "not provided" from "provided empty" once both collapse to an empty `Vector`.
+Note: an explicitly-empty `subset` behaves the same as omitting it (checks *all* columns) rather
+than py-polars' `subset=[]`, which checks zero columns and is therefore a no-op — this wrapper has
+no way to distinguish "not provided" from "provided empty" once both collapse to an empty
+`Vector`.
 """
 drop_nulls(df::DataFrame, subset::Vector{<:ColId} = String[]) = drop_nulls(lazy(df), subset) |> collect
 function drop_nulls(lf::LazyFrame, subset::Vector{<:ColId} = String[])
@@ -136,7 +145,11 @@ end
     with_row_index(lf::LazyFrame, name::String="index"; offset::Integer=0)::LazyFrame
     with_row_index(df::DataFrame, name::String="index"; offset::Integer=0)::DataFrame
 
-Adds a row-index column named `name`, starting at `offset` (default `0`).
+Add a new column as the first column that counts the rows, named `name`, starting at `offset` (`0`
+if not given).
+
+This can have a negative effect on query performance -- it may, for instance, block predicate
+pushdown optimization.
 """
 with_row_index(df::DataFrame, name::ColId = "index"; offset::Integer = 0) =
     with_row_index(lazy(df), name; offset) |> collect
@@ -151,7 +164,7 @@ end
     concat(frames::Vector{LazyFrame}; how::Symbol=:vertical)::LazyFrame
     concat(frames::Vector{DataFrame}; how::Symbol=:vertical)::DataFrame
 
-Concatenates the provided frames. `how` selects the mode:
+Concatenate multiple frames. `how` selects the mode:
 - `:vertical` (default): stack rows, matching columns by position -- every frame must have
   identical column names/order.
 - `:vertical_relaxed`: like `:vertical`, but matching columns are cast to their common supertype
@@ -189,7 +202,7 @@ end
 """
     hstack(df::DataFrame, columns::Vector{<:Series})::DataFrame
 
-Return a new [`DataFrame`](@ref) grown horizontally by stacking multiple [`Series`](@ref) to it.
+Add multiple [`Series`](@ref) to `df`. The added series are required to have the same length.
 """
 function hstack(df::DataFrame, columns::Vector{<:Series})
     GC.@preserve columns begin
@@ -204,7 +217,7 @@ end
 """
     vstack(df::DataFrame, other::DataFrame)::DataFrame
 
-Grow a [`DataFrame`](@ref) vertically by stacking a DataFrame to it.
+Concatenate `other` to `df` vertically and return as a newly allocated [`DataFrame`](@ref).
 """
 function vstack(df::DataFrame, other::DataFrame)
     out = Ref{Ptr{polars_dataframe_t}}()
@@ -217,9 +230,10 @@ end
     fill_null(df::LazyFrame, value)::LazyFrame
     fill_null(df::DataFrame, value)::DataFrame
 
-Replaces every `null` value across all columns of `df` with `value` (an `Expr`, or a literal
-promoted via [`lit`](@ref)). Distinct from the `Expr`-level [`fill_null`](@ref) (fills nulls within
-one expression, for use inside [`select`](@ref)/[`with_columns`](@ref)) and from
+Fill `null` values in `df` with `value` (an `Expr`, or a literal promoted via [`lit`](@ref)).
+
+Note: distinct from the `Expr`-level [`fill_null`](@ref) (fills nulls within one expression, for
+use inside [`select`](@ref)/[`with_columns`](@ref)) and from
 [`forward_fill`](@ref)/[`backward_fill`](@ref) (strategy-based, not a fixed replacement value).
 """
 fill_null(df::DataFrame, value) = fill_null(lazy(df), value) |> collect
@@ -233,11 +247,9 @@ end
     cast(df::LazyFrame, dtypes::AbstractDict; strict::Bool=false)::LazyFrame
     cast(df::DataFrame, dtypes::AbstractDict; strict::Bool=false)::DataFrame
 
-Casts the columns named in `dtypes` (a mapping of column name to Julia type, same spellings
+Cast the columns named in `dtypes` (a mapping of column name to Julia type, same spellings
 [`Polars.cast`](@ref) accepts on a single `Expr`) to their new dtype, leaving every other column
-unchanged. Composed from [`with_columns`](@ref) and the per-`Expr` [`Polars.cast`](@ref), so it
-supports the same dtypes that one does (including `DateTime`/duration `Period` subtypes via their
-`time_unit`/`time_zone` special-casing there) -- there is no dedicated FFI function for this form.
+unchanged, resulting in a new frame with updated dtypes.
 """
 function cast(df::LazyFrame, dtypes::AbstractDict; strict::Bool = false)
     exprs = Expr[cast(col(String(name)), dtype; strict) for (name, dtype) in dtypes]
@@ -249,10 +261,12 @@ cast(df::DataFrame, dtypes::AbstractDict; strict::Bool = false) = cast(lazy(df),
     cast(df::LazyFrame, dtype::Type; strict::Bool=false)::LazyFrame
     cast(df::DataFrame, dtype::Type; strict::Bool=false)::DataFrame
 
-Casts *every* column of `df` to `dtype`. Only plain (parameter-free) dtypes are reachable here --
-same restriction as the single-`Expr` [`Polars.cast`](@ref) -- since the underlying FFI type code
-can't carry a `DateTime`'s time unit/zone; use the `AbstractDict` form (per-column, going through
-`Polars.cast` itself) for that.
+Cast all frame columns of `df` to `dtype`, resulting in a new frame.
+
+Note: only plain (parameter-free) dtypes are reachable through this whole-frame form, the same
+restriction as the single-`Expr` [`Polars.cast`](@ref) — a `DateTime`/duration `Period` subtype
+with its own `time_unit`/`time_zone` needs the `AbstractDict` form instead (per-column, going
+through `Polars.cast` itself).
 """
 function cast(df::LazyFrame, dtype::Type; strict::Bool = false)
     value_type = _plain_value_type_code(dtype)
@@ -270,8 +284,11 @@ export fill_null, cast
     Base.sum(df::LazyFrame)::LazyFrame
     Base.sum(df::DataFrame)::DataFrame
 
-Sums the non-null values of every column of `df`, returning a single-row frame with the same
-column names.
+Aggregate all the columns of `df` as their sum values. Aggregated columns have the same names as
+the original columns.
+
+Boolean columns sum to the count of `true`s; string columns sum to `missing`; integer overflow
+silently wraps.
 """
 Base.sum(df::LazyFrame) = _frame_sum!(clone(df))
 Base.sum(df::DataFrame) = _frame_sum!(lazy(df)) |> collect
@@ -284,8 +301,8 @@ end
     Base.min(df::LazyFrame)::LazyFrame
     Base.min(df::DataFrame)::DataFrame
 
-The minimum non-null value of every column of `df`, returning a single-row frame with the same
-column names.
+Aggregate all the columns of `df` as their minimum values. Aggregated columns have the same names
+as the original columns.
 """
 Base.min(df::LazyFrame) = _frame_min!(clone(df))
 Base.min(df::DataFrame) = _frame_min!(lazy(df)) |> collect
@@ -298,8 +315,8 @@ end
     Base.max(df::LazyFrame)::LazyFrame
     Base.max(df::DataFrame)::DataFrame
 
-The maximum non-null value of every column of `df`, returning a single-row frame with the same
-column names.
+Aggregate all the columns of `df` as their maximum values. Aggregated columns have the same names
+as the original columns.
 """
 Base.max(df::LazyFrame) = _frame_max!(clone(df))
 Base.max(df::DataFrame) = _frame_max!(lazy(df)) |> collect
@@ -312,7 +329,8 @@ end
     Statistics.mean(df::LazyFrame)::LazyFrame
     Statistics.mean(df::DataFrame)::DataFrame
 
-Arithmetic mean of every column of `df`, returning a single-row frame with the same column names.
+Aggregate all the columns of `df` as their mean values. Boolean and integer columns are converted
+to `Float64` before computing the mean; string columns have a mean of `missing`.
 """
 Statistics.mean(df::LazyFrame) = _frame_mean!(clone(df))
 Statistics.mean(df::DataFrame) = _frame_mean!(lazy(df)) |> collect
@@ -325,7 +343,9 @@ end
     Statistics.median(df::LazyFrame)::LazyFrame
     Statistics.median(df::DataFrame)::DataFrame
 
-Median of every column of `df`, returning a single-row frame with the same column names.
+Aggregate all the columns of `df` as their median values. Boolean and integer results are
+converted to `Float64` (though they are still susceptible to overflow before this conversion
+occurs); string columns sum to `missing`.
 """
 Statistics.median(df::LazyFrame) = _frame_median!(clone(df))
 Statistics.median(df::DataFrame) = _frame_median!(lazy(df)) |> collect
@@ -338,8 +358,15 @@ end
     Statistics.std(df::LazyFrame; ddof::Integer=1)::LazyFrame
     Statistics.std(df::DataFrame; ddof::Integer=1)::DataFrame
 
-Standard deviation of every column of `df`, with `ddof` degrees of freedom subtracted (defaults to
-`ddof=1`), returning a single-row frame with the same column names.
+Aggregate all the columns of `df` as their standard deviation values.
+
+`ddof` is the "Delta Degrees of Freedom"; `N - ddof` is the denominator when computing the
+variance, where `N` is the number of rows. In standard statistical practice, `ddof=1` (the
+default) provides an unbiased estimator of the variance of a hypothetical infinite population;
+`ddof=0` provides a maximum likelihood estimate of the variance for normally distributed
+variables. The standard deviation computed here is the square root of the estimated variance, so
+even with `ddof=1` it is not an unbiased estimate of the standard deviation per se. Source:
+[Numpy](https://numpy.org/doc/stable/reference/generated/numpy.std.html#).
 """
 Statistics.std(df::LazyFrame; ddof::Integer = 1) = _frame_std!(clone(df), ddof)
 Statistics.std(df::DataFrame; ddof::Integer = 1) = _frame_std!(lazy(df), ddof) |> collect
@@ -352,8 +379,13 @@ end
     Statistics.var(df::LazyFrame; ddof::Integer=1)::LazyFrame
     Statistics.var(df::DataFrame; ddof::Integer=1)::DataFrame
 
-Variance of every column of `df`, with `ddof` degrees of freedom subtracted (defaults to
-`ddof=1`), returning a single-row frame with the same column names.
+Aggregate all the columns of `df` as their variance values.
+
+`ddof` is the "Delta Degrees of Freedom"; `N - ddof` is the denominator when computing the
+variance, where `N` is the number of rows. In standard statistical practice, `ddof=1` (the
+default) provides an unbiased estimator of the variance of a hypothetical infinite population;
+`ddof=0` provides a maximum likelihood estimate of the variance for normally distributed
+variables. Source: [Numpy](https://numpy.org/doc/stable/reference/generated/numpy.var.html#).
 """
 Statistics.var(df::LazyFrame; ddof::Integer = 1) = _frame_var!(clone(df), ddof)
 Statistics.var(df::DataFrame; ddof::Integer = 1) = _frame_var!(lazy(df), ddof) |> collect
@@ -366,9 +398,9 @@ end
     Statistics.quantile(df::LazyFrame, q; method::Symbol=:nearest)::LazyFrame
     Statistics.quantile(df::DataFrame, q; method::Symbol=:nearest)::DataFrame
 
-The `q`-th quantile (`q` an `Expr` or a numeric literal in `[0, 1]`) of every column of `df`, using
-the given interpolation `method` (see the per-`Expr` [`Statistics.quantile`](@ref) for the
-choices), returning a single-row frame with the same column names.
+Aggregate all the columns of `df` as their `q`-th quantile values (`q` an `Expr` or a numeric
+literal in `[0, 1]`), using the given interpolation `method` (see the per-`Expr`
+[`Statistics.quantile`](@ref) for the choices).
 """
 Statistics.quantile(df::LazyFrame, q; method::Symbol = :nearest) = _frame_quantile!(clone(df), q, method)
 Statistics.quantile(df::DataFrame, q; method::Symbol = :nearest) = _frame_quantile!(lazy(df), q, method) |> collect
@@ -401,8 +433,7 @@ Base.prod(df::DataFrame) = Base.prod(lazy(df)) |> collect
     limit(df::LazyFrame, n::Integer)::LazyFrame
     limit(df::DataFrame, n::Integer)::DataFrame
 
-The first `n` rows of `df`. A plain alias for [`head`](@ref), matching upstream polars, which
-defines `limit` as an alias for the same reason.
+Limit `df` to the first `n` rows. An alias for [`head`](@ref).
 """
 limit(df::LazyFrame, n::Integer) = head(df, n)
 limit(df::DataFrame, n::Integer) = head(df, n)
@@ -413,7 +444,7 @@ export limit
     Base.reverse(df::LazyFrame)::LazyFrame
     Base.reverse(df::DataFrame)::DataFrame
 
-Reverses the row order of `df`.
+Reverse `df` from top to bottom.
 """
 Base.reverse(df::LazyFrame) = _frame_reverse!(clone(df))
 Base.reverse(df::DataFrame) = _frame_reverse!(lazy(df)) |> collect
@@ -426,8 +457,8 @@ end
     null_count(df::LazyFrame)::LazyFrame
     null_count(df::DataFrame)::DataFrame
 
-The number of `null` values in every column of `df`, as a single-row frame with the same column
-names. The per-column expression form is [`null_count(::Polars.Expr)`](@ref).
+Aggregate all the columns of `df` as the sum of their `null` value count. The per-column
+expression form is [`null_count(::Polars.Expr)`](@ref).
 """
 null_count(df::LazyFrame) = _frame_null_count!(clone(df))
 null_count(df::DataFrame) = _frame_null_count!(lazy(df)) |> collect
@@ -440,10 +471,9 @@ end
     Base.count(df::LazyFrame)::LazyFrame
     Base.count(df::DataFrame)::DataFrame
 
-The number of non-`null` values in every column of `df`, as a single-row frame with the same
-column names -- matching the per-column [`Polars.count`](@ref); the complementary
-[`null_count`](@ref) counts the other way. **Not** the row count including nulls, despite the
-name (verified live: a 3-`missing` column reports `count == 0`).
+Return the number of non-`null` elements for each column of `df`, as a single-row frame with the
+same column names -- the per-column expression form is [`Polars.count`](@ref); the complementary
+[`null_count`](@ref) counts the other way.
 """
 Base.count(df::LazyFrame) = _frame_count!(clone(df))
 Base.count(df::DataFrame) = _frame_count!(lazy(df)) |> collect
@@ -456,8 +486,8 @@ end
     fill_nan(df::LazyFrame, value)::LazyFrame
     fill_nan(df::DataFrame, value)::DataFrame
 
-Replaces every `NaN` in every float column of `df` with `value` (an expression or a plain scalar).
-The `null`-replacing counterpart is [`fill_null`](@ref).
+Fill `NaN` values in `df` with `value` (an expression or a plain scalar). The `null`-replacing
+counterpart is [`fill_null`](@ref).
 """
 fill_nan(df::LazyFrame, value) = _frame_fill_nan!(clone(df), convert(Expr, value))
 fill_nan(df::DataFrame, value) = _frame_fill_nan!(lazy(df), convert(Expr, value)) |> collect

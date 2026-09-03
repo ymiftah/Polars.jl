@@ -2,7 +2,8 @@
     sort(df::LazyFrame, exprs...; rev=false, stable=true, nulls_last=true)::LazyFrame
     sort(df::DataFrame, exprs...; rev=false, stable=true, nulls_last=true)::DataFrame
 
-Sorts the columns of the dataframe based on the provided expressions.
+Add a sort operation to the logical plan. Sorts `df` by the provided list of expressions, which
+are turned into concrete columns before sorting.
 
  - The `rev` keyword parameter can be used to sort in reverse (descending) order. It
 can also be provided as an array of booleans of the same size as the provided expressions.
@@ -139,9 +140,14 @@ export top_k, bottom_k
     slice(df::LazyFrame, offset::Integer, length::Integer)::LazyFrame
     slice(df::DataFrame, offset::Integer, length::Integer)::DataFrame
 
-Returns `length` rows of `df` starting at `offset` (0-based; a negative `offset` counts from the
-end). Distinct from the `Expr`-level [`slice`](@ref) (slices one expression's own result, not the
-whole frame's rows).
+Slice `df` using an `offset` (starting row) and a `length`. If `offset` is negative, it is counted
+from the end of the frame -- e.g. `slice(df, -5, 3)` gets three rows, starting at the row fifth
+from the end. If `offset` and `length` are such that the slice extends beyond the end of the
+frame, the portion between `offset` and the end is returned, so the result has fewer than `length`
+rows.
+
+Note: distinct from the `Expr`-level [`slice`](@ref), which slices one expression's own result,
+not the whole frame's rows.
 """
 slice(df::LazyFrame, offset::Integer, length::Integer) = _slice!(clone(df), offset, length)
 slice(df::DataFrame, offset::Integer, length::Integer) = _slice!(lazy(df), offset, length) |> collect

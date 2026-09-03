@@ -99,6 +99,27 @@ path is safe — exercise every option combination live.**
    data fixtures — generate parquet/CSV into a `mktempdir()`). Persist any multi-step plan under
    `plans/` with a `## Status` line, set to `Done` once landed.
 
+## Docstrings for public API
+
+A public API docstring (any exported top-level function, any `Lists`/`Strings`/`Dt`/`Structs`/
+`Selectors` submodule export, any Base method we extend on `DataFrame`/`LazyFrame`/`Series`/`Expr`)
+must stay as close as possible to the wording of the upstream Rust `polars` crate's own doc comment
+for the method being wrapped — not py-polars, not a paraphrase. Look up the pinned version's source
+(`~/.cargo/registry/src/*/polars-*-<version from c-polars/Cargo.toml>/`) for the corresponding
+`LazyFrame`/`Expr`/`Series` method and pull from it directly; for an eager `DataFrame` entry point
+that's `collect ∘ op ∘ lazy`, match its `LazyFrame`/`Expr` counterpart's doc rather than hunting for
+a separate `DataFrame` rustdoc.
+
+Where this wrapper's behavior differs from the Rust doc — a different default, a case Rust doesn't
+need to call out but our FFI shape does (e.g. `subset=[]` ambiguity), an eager-vs-lazy nuance — flag
+it as a `Note:` paragraph appended to the docstring, in user-facing terms.
+
+**Never put a "dev note" in a public API docstring** — no FFI/ABI plumbing, GC/ownership reasoning,
+"why we implemented it this way", or asides aimed at future contributors; that belongs in a `plans/`
+file, a code comment next to the implementation, or this file. A docstring is read by someone calling
+the function, not someone maintaining the wrapper. `_`-prefixed private helpers are exempt from all of
+this — their docstrings stay implementation notes for maintainers, as today.
+
 ## Known sharp edges
 
 - **`@wrap_simple_ops` qualifies by `isdefined(Base, f)`, not `isexported`** — colliding with an
