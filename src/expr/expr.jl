@@ -203,6 +203,18 @@ _null_behavior_enum(null_behavior::Symbol) = _enum_lookup(
     :drop => API.PolarsNullBehaviorDrop,
 )
 
+"""Shared `closed` window resolver (`:left`/`:right`/`:both`/`:none`, `polars_closed_window_t`)
+for `group_by_dynamic`/`rolling` (`src/group_by.jl`) and [`date_range`](@ref)/
+[`datetime_range`](@ref)/[`time_range`](@ref) here. Distinct from `is_between`'s own
+`polars_closed_interval_t` above -- a different C enum, not interchangeable."""
+_closed_window_enum(closed::Symbol) = _enum_lookup(
+    closed, "closed",
+    :left => API.PolarsClosedWindowLeft,
+    :right => API.PolarsClosedWindowRight,
+    :both => API.PolarsClosedWindowBoth,
+    :none => API.PolarsClosedWindowNone,
+)
+
 """
     nth(n::Int64)::Polars.Expr
 

@@ -332,3 +332,150 @@ end
     @test_throws PolarsError select(dfstr, alias(from_epoch(col("x"), :ms), "r"))
     @test_throws PolarsError select(dfstr, alias(from_epoch(col("x"), :s), "r"))
 end
+
+@testset "int_range (py-polars functions/range/test_int_range.py)" begin
+    df = DataFrame((; x = [1]))
+
+    # test_int_range: basic sequence, exclusive end
+    r = select(df, alias(int_range(0, 3), "r"))
+    @test r[:r] == [0, 1, 2]
+
+    # test_int_range_decreasing: a negative step counts down. `stop` is exclusive (Python's
+    # `range(10, -1, -1)` stops at 0, not -1 -- Julia's `10:-1:-1` would include -1, so the
+    # expected values are spelled out rather than built from a Julia range literal).
+    @test select(df, alias(int_range(10, 1; step = -2), "r"))[:r] == collect(10:-2:2)
+    @test select(df, alias(int_range(10, -1; step = -1), "r"))[:r] == collect(10:-1:0)
+
+    # test_int_range_expr: end computed from an expression (here, `len()`), not a plain scalar
+    dfe = DataFrame((; a = ["foobar", "barfoo"]))
+    oute = select(dfe, int_range(0, len() * 10))
+    @test size(oute) == (20, 1)
+    @test collect(oute[1])[end] == 19
+
+    # test_int_range_schema: the default dtype is Int64
+    rd = select(df, alias(int_range(-3, 3), "r"))
+    @test eltype(rd[:r]) == Int64
+
+    # test_int_range_null_input: a null bound raises rather than aborting
+    @test_throws PolarsError select(df, int_range(3, missing; step = -1, dtype = UInt32))
+
+    # test_int_range_non_integer_dtype: a non-integer `dtype` raises (checked at execution time,
+    # since `int_range` itself does not validate `dtype` eagerly)
+    @test_throws PolarsError select(df, int_range(3, -1; step = -1, dtype = Float64))
+end
+
+@testset "date_range (py-polars functions/range/test_date_range.py)" begin
+    # test_date_range: monthly interval between two Dates
+    r = select(DataFrame((; x = [1])), alias(date_range(Date(2022, 1, 1), Date(2022, 3, 1); interval = "1mo"), "r"))
+    @test r[:r] == [Date(2022, 1, 1), Date(2022, 2, 1), Date(2022, 3, 1)]
+
+    # default interval "1d", default closed :both
+    rd = select(DataFrame((; x = [1])), alias(date_range(Date(2022, 1, 1), Date(2022, 1, 3)), "r"))
+    @test rd[:r] == [Date(2022, 1, 1), Date(2022, 1, 2), Date(2022, 1, 3)]
+
+    # test_date_range_start_end_interval_forwards: every `closed` variant, plus the
+    # wrong-direction-is-empty case
+    start, stop = Date(2025, 1, 1), Date(2025, 1, 10)
+    df1 = DataFrame((; x = [1]))
+    @test select(df1, alias(date_range(start, stop; interval = "3d", closed = :left), "r"))[:r] ==
+        [Date(2025, 1, 1), Date(2025, 1, 4), Date(2025, 1, 7)]
+    @test select(df1, alias(date_range(start, stop; interval = "3d", closed = :right), "r"))[:r] ==
+        [Date(2025, 1, 4), Date(2025, 1, 7), Date(2025, 1, 10)]
+    @test select(df1, alias(date_range(start, stop; interval = "3d", closed = :none), "r"))[:r] ==
+        [Date(2025, 1, 4), Date(2025, 1, 7)]
+    @test select(df1, alias(date_range(start, stop; interval = "3d", closed = :both), "r"))[:r] ==
+        [Date(2025, 1, 1), Date(2025, 1, 4), Date(2025, 1, 7), Date(2025, 1, 10)]
+    @test size(select(df1, alias(date_range(stop, start; interval = "3d"), "r"))) == (0, 1)
+
+    # test_date_range_end_of_month_5441: month-end clamping
+    rmo = select(df1, alias(date_range(Date(2020, 1, 31), Date(2020, 3, 31); interval = "1mo", closed = :both), "r"))
+    @test rmo[:r] == [Date(2020, 1, 31), Date(2020, 2, 29), Date(2020, 3, 31)]
+
+    # test_date_range_start_later_than_end: an empty (not erroring) result
+    @test size(select(df1, alias(date_range(Date(2000, 3, 20), Date(2000, 3, 5)), "r"))) == (0, 1)
+
+    # test_date_range_24h_interval_raises: `interval` for `date_range` must be a whole number of
+    # days -- raised directly from the `date_range` call (interval validation happens while
+    # building the expression, not at `select`/execution time)
+    @test_throws PolarsError date_range(Date(2022, 1, 1), Date(2022, 1, 3); interval = "24h")
+
+    # test_date_range_invalid_time_unit: an unparseable interval string raises the same way
+    @test_throws PolarsError date_range(Date(2021, 12, 16), Date(2021, 12, 18); interval = "1X")
+
+    # test_date_range_datetime_input: `start`/`stop` accept `DateTime`s too (truncated to `Date`)
+    rdt = select(df1, alias(date_range(DateTime(2022, 1, 1, 12), DateTime(2022, 1, 3); interval = "1d"), "r"))
+    @test rdt[:r] == [Date(2022, 1, 1), Date(2022, 1, 2), Date(2022, 1, 3)]
+
+    # test_date_range_expr_scalar: `start`/`stop` as aggregation expressions, not plain scalars
+    dfa = DataFrame((; a = [Date(2025, 1, 3), Date(2025, 1, 1)]))
+    ra = select(dfa, alias(date_range(min(col("a")), max(col("a")); interval = "1d"), "r"))
+    @test ra[:r] == [Date(2025, 1, 1), Date(2025, 1, 2), Date(2025, 1, 3)]
+end
+
+@testset "datetime_range (py-polars functions/range/test_datetime_range.py)" begin
+    df1 = DataFrame((; x = [1]))
+
+    # test_datetime_range: 2h interval between a DateTime and a Date, swept over every time_unit
+    for tu in (:ms, :us, :ns)
+        rtu = select(df1, alias(datetime_range(DateTime(2020, 1, 1), Date(2020, 1, 2); interval = "2h", time_unit = tu), "r"))
+        @test size(rtu) == (13, 1)
+        @test rtu[:r][1] == DateTime(2020, 1, 1)
+        @test rtu[:r][end] == DateTime(2020, 1, 2)
+    end
+
+    # test_datetime_range_start_end_interval_forwards (adapted to `Date`, the naive/no-time_zone
+    # case): every `closed` variant, plus the wrong-direction-is-empty case
+    start, stop = Date(2025, 1, 1), Date(2025, 1, 10)
+    @test select(df1, alias(datetime_range(start, stop; interval = "3d", closed = :left), "r"))[:r] ==
+        DateTime.([Date(2025, 1, 1), Date(2025, 1, 4), Date(2025, 1, 7)])
+    @test select(df1, alias(datetime_range(start, stop; interval = "3d", closed = :right), "r"))[:r] ==
+        DateTime.([Date(2025, 1, 4), Date(2025, 1, 7), Date(2025, 1, 10)])
+    @test select(df1, alias(datetime_range(start, stop; interval = "3d", closed = :none), "r"))[:r] ==
+        DateTime.([Date(2025, 1, 4), Date(2025, 1, 7)])
+    @test select(df1, alias(datetime_range(start, stop; interval = "3d", closed = :both), "r"))[:r] ==
+        DateTime.([Date(2025, 1, 1), Date(2025, 1, 4), Date(2025, 1, 7), Date(2025, 1, 10)])
+    @test size(select(df1, alias(datetime_range(stop, start; interval = "3d"), "r"))) == (0, 1)
+
+    # test_datetime_range_invalid_time_unit: an unparseable interval string raises directly from
+    # the `datetime_range` call
+    @test_throws PolarsError datetime_range(DateTime(2021, 12, 16), DateTime(2021, 12, 16, 3); interval = "1X")
+
+    # test_datetime_range_invalid_time_zone: an unparseable time zone name raises directly too
+    @test_throws PolarsError datetime_range(DateTime(2001, 1, 1), DateTime(2001, 1, 3); time_zone = "foo")
+
+    # time_zone round-trips through the ABI cleanly (size-only check, since reading a tz-aware
+    # value back requires TimeZones.jl, per CLAUDE.md -- same convention as `datetime`'s own tests)
+    for tz in (nothing, "Europe/Amsterdam", "UTC")
+        rtz = select(df1, alias(datetime_range(DateTime(2022, 1, 1), DateTime(2022, 1, 2); interval = "6h", time_zone = tz), "r"))
+        @test size(rtz) == (5, 1)
+    end
+end
+
+@testset "time_range (py-polars functions/range/test_time_range.py)" begin
+    df1 = DataFrame((; x = [1]))
+
+    # test_time_range_eager_explode-equivalent: a plain hourly sequence
+    r = select(df1, alias(time_range(Time(9, 0), Time(11, 0); interval = "1h"), "r"))
+    @test r[:r] == [Time(9, 0), Time(10, 0), Time(11, 0)]
+
+    # test_time_range_start_equals_end / test_time_range_start_equals_end_open: a degenerate
+    # `start == stop` range is a single point under `:both`, empty under every other `closed`
+    t = Time(12, 0)
+    @test select(df1, alias(time_range(t, t; closed = :both), "r"))[:r] == [t]
+    for closed in (:left, :right, :none)
+        @test size(select(df1, alias(time_range(t, t; closed = closed), "r"))) == (0, 1)
+    end
+
+    # test_time_range_start_later_than_end: an empty (not erroring) result
+    @test size(select(df1, alias(time_range(Time(12), Time(11)), "r"))) == (0, 1)
+
+    # test_time_range_lit_lazy: exact fixture, closed = :right, sub-second interval
+    rlit = select(
+        df1,
+        alias(time_range(Time(1, 2, 3), Time(23, 59, 59); interval = "5h45m10s333ms", closed = :right), "r"),
+    )
+    @test rlit[:r] == [Time(6, 47, 13, 333), Time(12, 32, 23, 666), Time(18, 17, 33, 999)]
+
+    # test_time_range_invalid_step: a non-positive interval raises (checked at execution time)
+    @test_throws PolarsError select(df1, alias(time_range(Time(11), Time(12); interval = "-10m"), "r"))
+end

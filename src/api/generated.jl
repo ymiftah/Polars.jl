@@ -929,6 +929,42 @@ function polars_expr_duration(weeks, days, hours, minutes, seconds, milliseconds
 end
 
 """
+    polars_expr_int_range(start, _end, step, dtype, out)
+
+Generates a sequence of integers from `start` to `end` (exclusive), spaced `step` apart, typed `dtype`. `pl.int\\_range`.
+"""
+function polars_expr_int_range(start, _end, step, dtype, out)
+    return @ccall libpolars.polars_expr_int_range(start::Ptr{polars_expr_t}, _end::Ptr{polars_expr_t}, step::Int64, dtype::polars_value_type_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_date_range(start, _end, interval, interval_len, closed_window, out)
+
+Generates a `Date` column from `start` to `end`, spaced `interval` apart (a duration-literal string, e.g. `"1d"`). `closed_window` controls which end(s) of the range are inclusive. `pl.date\\_range`, scoped to the `start`/`end`/`interval` argument combination (no `num_samples`).
+"""
+function polars_expr_date_range(start, _end, interval, interval_len, closed_window, out)
+    return @ccall libpolars.polars_expr_date_range(start::Ptr{polars_expr_t}, _end::Ptr{polars_expr_t}, interval::Ptr{UInt8}, interval_len::Csize_t, closed_window::polars_closed_window_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_datetime_range(start, _end, interval, interval_len, closed_window, time_unit, tz, tz_len, out)
+
+Generates a `Datetime` column from `start` to `end`, spaced `interval` apart, at resolution `time_unit` and (optionally) time zone `tz`/`tz_len` (empty = naive). `pl.datetime\\_range`, scoped the same way as [[`polars_expr_date_range`](@ref)].
+"""
+function polars_expr_datetime_range(start, _end, interval, interval_len, closed_window, time_unit, tz, tz_len, out)
+    return @ccall libpolars.polars_expr_datetime_range(start::Ptr{polars_expr_t}, _end::Ptr{polars_expr_t}, interval::Ptr{UInt8}, interval_len::Csize_t, closed_window::polars_closed_window_t, time_unit::polars_time_unit_t, tz::Ptr{UInt8}, tz_len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
+    polars_expr_time_range(start, _end, interval, interval_len, closed_window, out)
+
+Generates a `Time` column from `start` to `end`, spaced `interval` apart. `pl.time\\_range`. Unlike `date_range`/`datetime_range`, upstream's `time_range` takes `start`/`end` directly (not `Option`) and is infallible once `interval` itself parses.
+"""
+function polars_expr_time_range(start, _end, interval, interval_len, closed_window, out)
+    return @ccall libpolars.polars_expr_time_range(start::Ptr{polars_expr_t}, _end::Ptr{polars_expr_t}, interval::Ptr{UInt8}, interval_len::Csize_t, closed_window::polars_closed_window_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+end
+
+"""
     polars_expr_cast_decimal(expr, precision, scale)
 
 Targeted cast to `Decimal(precision, scale)` (`dtype-decimal` is already enabled). polars' own invariant is `1 <= precision <= 38`; violating it surfaces as a normal cast error rather than a panic (`DataType::Decimal` itself does not validate -- `cast` does, at execution time).
