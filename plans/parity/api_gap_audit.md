@@ -485,6 +485,13 @@ Called out separately because each function looks complete from the outside.
 - `rolling_*` accept `window_size`/`min_samples`/`center` but have no `by`/`closed` temporal form.
 - `describe` is `DataFrame`-only (upstream also has it on `LazyFrame`). `pivot`, `transpose`,
   `hstack`, `vstack`, and `upsample` being `DataFrame`-only matches upstream.
+- **No join variant accepts `maintain_order`** (confirmed live, Batch 11 of the test-parity
+  sweep — `crossjoin(a, b; maintain_order=:left)` is a plain `MethodError`, and `maintain_order`
+  doesn't appear anywhere in `c-polars/src/*.rs`'s join-related code at all, unlike the
+  `group_by`/`unique`/sort family closed above). Upstream's `JoinArgs`/`.join(maintain_order=...)`
+  covers every join type, not just cross joins (`test_cross_join_maintain_order_24663`); a
+  Rust-side fix here would need the same "closed" treatment `group_by`/`unique` already got —
+  out of scope for a no-Cargo-change batch.
 
 ## Group 7 — Missing I/O
 
@@ -582,9 +589,9 @@ option must be exercised live.
 
 ## Group 11 — Test-coverage gaps (adjacent, not API gaps)
 
-Per [`LEDGER.md`](LEDGER.md), **batches 11, 12, and 14 of the py-polars parity sweep are still
-unswept** (batches 10 and 13 are now done, findings below): join/group_by/group_by_dynamic/rolling
-(7 upstream files), series/binary/construction/io/describe (9), and
+Per [`LEDGER.md`](LEDGER.md), **batches 12 and 14 of the py-polars parity sweep are still
+unswept** (batches 10, 11, and 13 are now done, findings below):
+series/binary/construction/io/describe (9 upstream files), and
 selectors/meta/horizontal/naming/sample (8).
 
 **So this audit is not the final list.** It is the static view — what has no binding at all. The
