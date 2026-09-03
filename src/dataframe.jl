@@ -287,10 +287,9 @@ Tables.rowaccess(::DataFrame) = true # enables Pluto.jl viewer
 Implements the row half of the Tables.jl interface, making good on the promise
 `Tables.rowaccess(::DataFrame)` above makes to row-oriented consumers.
 
-Row access over a columnar frame is inherently a materialization, so this is deliberately explicit
-about it: every column is `collect`ed into a native Julia `Vector` once (through the bulk
-`read_series` path, not one element at a time), and rows are then iterated over that. Prefer
-`Tables.columns` when you don't actually need rows.
+Row access over a columnar frame is inherently a materialization: every column is `collect`ed into
+a native Julia `Vector` once, and rows are then iterated over that. Prefer `Tables.columns` when
+you don't actually need rows.
 """
 Tables.rows(df::DataFrame) = Tables.rows(map(collect, Tables.columntable(df)))
 

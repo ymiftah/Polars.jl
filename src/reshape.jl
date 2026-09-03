@@ -2,10 +2,10 @@
     explode(lf::LazyFrame, columns::Vector{String}; empty_as_null::Bool=true, keep_nulls::Bool=true)::LazyFrame
     explode(df::DataFrame, columns::Vector{String}; empty_as_null::Bool=true, keep_nulls::Bool=true)::DataFrame
 
-Explodes list-typed `columns`, turning each list element into its own row (other columns are
-repeated to match). `empty_as_null`: an empty list produces one `null` row when `true` (default),
-rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true`
-(default), rather than disappearing.
+Explode `df` to long format by exploding list-typed `columns`, turning each list element into its
+own row (other columns are repeated to match). `empty_as_null`: an empty list produces one `null`
+row when `true` (default), rather than disappearing. `keep_nulls`: a `null` list entry produces
+one `null` row when `true` (default), rather than disappearing.
 """
 explode(df::DataFrame, columns::Vector{<:ColId}; kwargs...) = explode(lazy(df), columns; kwargs...) |> collect
 function explode(
@@ -27,8 +27,8 @@ end
     unpivot(df::DataFrame, index::Vector{String}; on::Vector{String}=String[],
             variable_name=nothing, value_name=nothing)::DataFrame
 
-Unpivots (melts) `on` columns (all non-`index` columns if not provided) from wide to long
-format: `index` columns are repeated, and the melted columns become two new columns —
+Unpivot `df` from wide to long format: `on` columns (all non-`index` columns if not provided) are
+melted, `index` columns are repeated, and the melted columns become two new columns —
 `variable_name` (default `"variable"`) holding the original column name, and `value_name`
 (default `"value"`) holding its value.
 """
@@ -63,12 +63,12 @@ end
     unnest(lf::LazyFrame, columns::Vector{String}; separator::Union{Nothing,AbstractString}=nothing)::LazyFrame
     unnest(df::DataFrame, columns::Vector{String}; separator::Union{Nothing,AbstractString}=nothing)::DataFrame
 
-Unnests struct-typed `columns`: each is replaced (in place) by one new column per struct field, in
-field order. Unnesting a column name that doesn't exist in the frame, or that isn't struct-typed,
-errors rather than silently no-op-ing. If `separator` is given, each new field is named
-`"<column><separator><field>"`; without it (the default), the bare field name is used as-is, so
-two unnested fields sharing a name -- or a field name colliding with an existing column -- errors
-rather than silently overwriting.
+Unnest the given struct-typed `columns`: the fields of the struct type are inserted as columns, in
+field order, in place of the original column. Unnesting a column name that doesn't exist in the
+frame, or that isn't struct-typed, errors rather than silently no-op-ing. If `separator` is given,
+each new field is named `"<column><separator><field>"`; without it (the default), the bare field
+name is used as-is, so two unnested fields sharing a name -- or a field name colliding with an
+existing column -- errors rather than silently overwriting.
 """
 function unnest(
         df::DataFrame, columns::Vector{<:ColId};

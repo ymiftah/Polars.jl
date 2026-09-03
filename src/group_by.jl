@@ -24,8 +24,8 @@ Base.show(io::IO, ::LazyGroupBy) = print(io, "LazyGroupBy(...) (call agg(...) to
 """
     group_by(df::LazyFrame, exprs...; maintain_order::Bool=false)
 
-Returns a lazy group-by object over the provided [`LazyFrame`](@ref).
-The values for the group-by can be aggregated using the [`agg`](@ref) function.
+Performs a "group-by" on a [`LazyFrame`](@ref), producing a [`LazyGroupBy`](@ref), which can
+subsequently be aggregated with [`agg`](@ref). Takes a list of expressions to group on.
 
 `maintain_order`: preserve each group's row order, and the order groups first appear in, through
 `agg`'s output (default `false`, which allows more optimizations).
@@ -44,7 +44,8 @@ end
 """
     agg(gb, exprs...)::LazyFrame
 
-Aggregates the value over the group-by object and return a resulting [`LazyFrame`](@ref).
+Group by and aggregate. Select a column with [`col`](@ref) and choose an aggregation. To
+aggregate all columns use `col("*")`.
 """
 agg(gb::LazyGroupBy, exprs...) = agg(gb, collect(exprs)::Vector)
 function agg(gb::LazyGroupBy, exprs::Vector)
@@ -62,7 +63,8 @@ end
                      closed::Symbol=:left, label::Symbol=:left,
                      include_boundaries::Bool=false, start_by::Symbol=:window_bound)::LazyGroupBy
 
-Groups rows into fixed-size, dynamic time windows based on a time-indexed column. Returns a
+Group based on a time value (or index value). Time windows are calculated and rows are assigned to
+windows; unlike an ordinary group-by, a row can be a member of multiple groups. Returns a
 [`LazyGroupBy`](@ref) object for aggregation with [`agg`](@ref).
 
 - `index_column`: time-indexed column (as `String` or `Expr`), e.g. `"timestamp"`
@@ -146,8 +148,10 @@ end
     rolling(df::LazyFrame, index_column, group_by::Vector=[];
             period, offset="0ns", closed::Symbol=:right)::LazyGroupBy
 
-Creates rolling groups based on a time-indexed column. Returns a [`LazyGroupBy`](@ref) object for
-aggregation with [`agg`](@ref).
+Create rolling groups based on a time column (also works for integer index columns). Unlike
+[`group_by_dynamic`](@ref), the windows are determined by the individual values and are not of
+constant intervals; for constant intervals use `group_by_dynamic`. Returns a [`LazyGroupBy`](@ref)
+object for aggregation with [`agg`](@ref).
 
 - `index_column`: time-indexed column (as `String` or `Expr`), e.g. `"timestamp"`
 - `group_by`: optional extra grouping keys (as `String`s or `Expr`s), e.g. `["store"]`

@@ -38,7 +38,7 @@ end
 """
     lazy(df::DataFrame)::LazyFrame
 
-Returns a lazy frame over the provided dataframe.
+Converts `df` into a `LazyFrame`.
 
 See also [`collect`](@ref).
 """
@@ -50,8 +50,11 @@ end
 """
     collect(lf::LazyFrame; engine=:default)::DataFrame
 
-Materializes the lazy frame as a DataFrame.
-`engine` can be either `:default` (in-memory engine) or `:streaming`.
+Execute all the lazy operations and collect them into a [`DataFrame`](@ref). The query is
+optimized prior to execution.
+
+Note: `engine` selects `:default` (the in-memory engine) or `:streaming` explicitly; upstream's
+own default additionally auto-selects between engines, which this wrapper does not expose.
 """
 function Base.collect(df::LazyFrame; engine = :default)
     engine = engine === :default ? API.PolarsEngineInMemory : engine === :streaming ? API.PolarsEngineStreaming : error("unknown engine $engine, expected one of (:default, :streaming)")
@@ -75,11 +78,13 @@ end
 """
     collect_schema(lf::LazyFrame)::Tables.Schema
 
-Resolves and returns the schema of the provided lazy frame, without collecting it.
+A handle to the schema — a map from column names to data types — of the current `LazyFrame`
+computation, without executing the query.
 
-Since this does not execute the query, actual null counts are unknown and every column is
-reported as nullable (`Union{T,Missing}`); see [`schema`](@ref) for a `DataFrame`'s schema
-refined by actual null counts.
+Note: unlike upstream, whose schema carries no nullability, this wrapper must choose between `T`
+and `Union{T,Missing}` per column; since the query hasn't run, actual null counts are unknown and
+every column is conservatively reported as nullable. See [`schema`](@ref) for a `DataFrame`'s
+schema refined by actual null counts.
 """
 function collect_schema(df::LazyFrame)
     out = Ref{CArrowSchema}()
@@ -91,9 +96,9 @@ end
 """
     explain(df::LazyFrame; optimized::Bool=true)::String
 
-Renders `df`'s query plan as text. With `optimized=true` (the default) this is the plan polars will
-actually execute, after predicate/projection pushdown and the other optimizer passes; with
-`optimized=false` it is the plan exactly as built.
+Return a `String` describing `df`'s logical plan. If `optimized` is `true` (the default), explains
+the optimized plan — after predicate/projection pushdown and the other optimizer passes. If
+`optimized` is `false`, explains the naive, un-optimized plan.
 """
 function explain(df::LazyFrame; optimized::Bool = true)
     io = Ref(IOBuffer())
@@ -106,8 +111,8 @@ end
 """
     cache(df::LazyFrame)::LazyFrame
 
-Marks `df`'s subtree for caching, so a plan that consumes it more than once evaluates it once.
-Advisory: it changes evaluation strategy, never results.
+Caches the result into a new `LazyFrame`. This should be used to prevent computations running
+multiple times.
 """
 function cache(df::LazyFrame)
     out = clone(df)
