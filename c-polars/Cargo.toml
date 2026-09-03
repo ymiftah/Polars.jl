@@ -2,7 +2,7 @@
 name = "c-polars"
 # Source of truth for the published libpolars version: the release workflow reads this to name the
 # tag, the tarballs, and the Artifacts.toml URLs. Bump it in the PR that changes the C ABI.
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 
 [lib]
@@ -14,14 +14,15 @@ crate-type = ["cdylib"]
 nightly = ["polars-plan/nightly"]
 
 [dependencies]
-polars-core = "0.54.4"
-polars-plan = "0.54.4"
-polars-compute = "0.54.4"
-polars-utils = "0.54.4"
+either = "1"
+polars-core = "0.55.2"
+polars-plan = "0.55.2"
+polars-compute = "0.55.2"
+polars-utils = "0.55.2"
 # `dtype-time` is not implied by polars' defaults and polars-ops does not get it transitively.
 # Without it, `take_chunked_unchecked`'s Time arm compiles out to `unreachable!()` and any
 # join/gather over a Time column aborts the process. Keep it explicit.
-polars-ops = { version = "0.54.4", features = ["round_series", "dtype-time"] }
+polars-ops = { version = "0.55.2", features = ["round_series", "dtype-time"] }
 # `aws`/`gcp`/`azure` are the only cloud features listed here: `cloud`, `async`, `file_cache` and
 # `http` are already active transitively via this crate's `lazy`/`streaming`, as is
 # `dtype-categorical`. Do not add them back -- they would be dead weight, not a fix. Check with
@@ -31,7 +32,7 @@ polars-ops = { version = "0.54.4", features = ["round_series", "dtype-time"] }
 # `dtype-array`: `list.to_array`. `concat_str`: string `join`. `extract_groups`: named-capture
 # regex into a Struct. `json`: `struct.json_encode`. `is_first_distinct`/`is_last_distinct`: the
 # dedicated dedup flags.
-polars = { version = "0.54.4", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration", "aws", "gcp", "azure", "rolling_window", "moment", "is_between", "rle", "cov", "ewma", "cutqcut", "list_sets", "list_count", "list_gather", "list_drop_nulls", "list_sample", "list_to_struct", "dtype-array", "concat_str", "extract_groups", "json", "is_first_distinct", "is_last_distinct"] }
+polars = { version = "0.55.2", features = ["parquet", "lazy", "performant", "trigonometry", "abs", "round_series", "strings", "regex", "dynamic_group_by", "product", "propagate_nans", "is_in", "offset_by", "string_pad", "cum_agg", "diff", "rank", "pct_change", "semi_anti_join", "cross_join", "asof_join", "log", "sign", "dtype-decimal", "replace", "pivot", "top_k", "is_unique", "random", "ipc", "interpolate", "timezones", "decompress", "dtype-time", "meta", "dtype-duration", "aws", "gcp", "azure", "rolling_window", "moment", "is_between", "rle", "cov", "ewma", "cutqcut", "list_sets", "list_count", "list_gather", "list_drop_nulls", "list_sample", "list_to_struct", "dtype-array", "concat_str", "extract_groups", "json", "is_first_distinct", "is_last_distinct"] }
 
 # Optimize the vendored polars kernels even in dev: at the default opt-level 0, every dev/test/CI
 # run executes unoptimized kernels, which invalidates any live timing impression. This crate's own

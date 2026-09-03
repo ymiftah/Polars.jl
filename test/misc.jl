@@ -1,7 +1,7 @@
 @testset "version" begin
     v = Polars.version()
     @test v isa VersionNumber
-    @test v == v"0.54.4"
+    @test v == v"0.55.2"
 end
 
 @testset "PolarsError (Julia-side P2.3)" begin

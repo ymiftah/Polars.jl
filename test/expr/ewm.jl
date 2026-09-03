@@ -82,8 +82,9 @@ end
 
     r_var = select(df, alias(ewm_var(col("a"); alpha = 0.5, ignore_nulls = false), "v"))
     r_std = select(df, alias(ewm_std(col("a"); alpha = 0.5, ignore_nulls = false), "s"))
-    # first element is 0.0, not null -- with one observation the weighted variance is zero
-    @test approx_or_missing(r_var[:v], [0.0, 4.5, 1.9285714285714284])
+    # first element is null, not 0.0 -- the unbiased (sample) variance of one observation is
+    # undefined (polars-compute 0.55: cov.rs no longer special-cases non_null_count == 1 to 0.0)
+    @test approx_or_missing(r_var[:v], [missing, 4.5, 1.9285714285714284])
     @test approx_or_missing(r_std[:s] .^ 2, r_var[:v])
 end
 
@@ -92,12 +93,12 @@ end
 
     r_var_ignore = select(df, alias(ewm_var(col("a"); alpha = 0.5, ignore_nulls = true), "v"))
     r_std_ignore = select(df, alias(ewm_std(col("a"); alpha = 0.5, ignore_nulls = true), "s"))
-    @test approx_or_missing(r_var_ignore[:v], [0.0, 4.5, missing, 1.9285714285714284])
+    @test approx_or_missing(r_var_ignore[:v], [missing, 4.5, missing, 1.9285714285714284])
     @test approx_or_missing(r_std_ignore[:s] .^ 2, r_var_ignore[:v])
 
     r_var_noignore = select(df, alias(ewm_var(col("a"); alpha = 0.5, ignore_nulls = false), "v"))
     r_std_noignore = select(df, alias(ewm_std(col("a"); alpha = 0.5, ignore_nulls = false), "s"))
-    @test approx_or_missing(r_var_noignore[:v], [0.0, 4.5, missing, 1.7307692307692313])
+    @test approx_or_missing(r_var_noignore[:v], [missing, 4.5, missing, 1.7307692307692313])
     @test approx_or_missing(r_std_noignore[:s] .^ 2, r_var_noignore[:v])
 end
 
