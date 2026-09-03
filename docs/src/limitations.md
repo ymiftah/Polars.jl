@@ -93,9 +93,10 @@ See [Developer](@ref) for the full API-design rationale behind these choices.
   Julia nested data.** `Selectors.array()` and `Lists.to_array` (List → Array, given a fixed width)
   cover selection and List-to-Array construction — there is simply nothing else that operates on an
   Array column once built, and no path straight from a Julia nested literal to one. An `Array`
-  column materializes into Julia as a plain `Vector{T}` per row, same as `List` — except when it's
-  nested more than one `Array`/`List` level deep (e.g. from a `reshape` with more than 2
-  dimensions), which has no per-element read path yet and raises when read.
+  column materializes into Julia as a plain `Vector{T}` per row, same as `List` — except when its
+  element type has no bulk-read path yet, which raises when read: a nested `List`/`Array` (e.g. from
+  a `reshape` with more than 2 dimensions), a `Struct`, a `Categorical`/`Enum`, or a timezone-aware
+  `Datetime`.
 
 ## Performance notes
 

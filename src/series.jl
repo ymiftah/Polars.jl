@@ -153,10 +153,11 @@ function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{Ma
     if MT <: MaybeMissing{Vector} && startswith(series.fmt, "+w")
         row = read_series(series[index:index])
         row === nothing && error(
-            "cannot materialize element $index of a nested Array column: an Array whose own " *
-                "elements are List/Array-typed (e.g. from a >2-dimensional `reshape`) has no " *
-                "per-element read path in Polars.jl yet -- only the outermost Array level " *
-                "materializes."
+            "cannot materialize element $index of this Array column: Polars.jl has no bulk read " *
+                "path yet for an Array whose own elements are List/Array-typed (e.g. from a " *
+                ">2-dimensional `reshape`), Struct-typed, Categorical/Enum-typed, or a " *
+                "timezone-aware Datetime -- only a leaf-typed (numeric/bool/string/binary/plain " *
+                "temporal) element type materializes."
         )
         return only(row)
     end

@@ -472,7 +472,14 @@ function _read_list(series::Series, fmt::String)
 
     child_ca, child_bufs = _buffers(unsafe_load(unsafe_load(ca.children, 1)))
     child_data_raw = _read_view_dispatch(child_fmt, child_ca, child_bufs, false, nothing)
-    if child_data_raw === nothing # defensive: shouldn't happen given the pre-check above
+    if child_data_raw === nothing
+        # Genuinely reachable, not just defensive: `unsupported` above only screens the formats
+        # this file has a *type* (`parse_format`) but no *bulk-read* branch for -- a
+        # timezone-aware Datetime child (`parse_format` resolves it fine once TimeZones.jl is
+        # loaded, but `_read_view_dispatch` explicitly declines a non-empty tz), a Null-dtype
+        # child ("n", which `parse_format` accepts but no `_read_view_dispatch` branch handles),
+        # and a fixed-size-list (`+w`, Array-dtype) child are all real cases that fall through to
+        # here rather than being caught by `unsupported`.
         release!(h)
         return nothing
     end
@@ -554,7 +561,10 @@ function _read_fixed_list(series::Series, fmt::String)
 
     child_ca, child_bufs = _buffers(unsafe_load(unsafe_load(ca.children, 1)))
     child_data_raw = _read_view_dispatch(child_fmt, child_ca, child_bufs, false, nothing)
-    if child_data_raw === nothing # defensive: shouldn't happen given the pre-check above
+    if child_data_raw === nothing
+        # Genuinely reachable, not just defensive -- same two cases as `_read_list`'s identical
+        # check just above in this file: a timezone-aware Datetime child, or a Null-dtype child
+        # ("n"). `unsupported` above already screens every nested-container/dictionary case.
         release!(h)
         return nothing
     end
