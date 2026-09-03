@@ -22,6 +22,7 @@ Polars.Lists.arg_min
 Polars.Lists.head
 Polars.Lists.get
 Polars.Lists.contains
+Polars.Lists.join
 ```
 
 Each per-list aggregation reduces a `List` column to one scalar per row:

@@ -88,3 +88,15 @@ end
     @test result[:max_x][a_row] == 5
     @test result[:min_x][a_row] == 1
 end
+
+@testset "group_by agg abort-safety: unsupported dtype and out-of-bounds get" begin
+    # summing a String column inside an agg is a clean PolarsError, not a process abort
+    # (py-polars test_group_by_sum_on_strings_should_error_24659)
+    df_str = DataFrame((; str = ["a", "b"]))
+    @test_throws PolarsError agg(group_by(lazy(df_str), lit(1)), Base.sum(col("str"))) |> collect
+
+    # an out-of-bounds `get` index inside an agg is also a clean PolarsError, not a crash
+    # (py-polars test_group_by_agg_get_oob_error_26747)
+    df_x = DataFrame((; x = [1, 1, 2, 3]))
+    @test_throws PolarsError agg(group_by(lazy(df_x), "x"), Base.get(col("x"), 100) |> alias("y")) |> collect
+end

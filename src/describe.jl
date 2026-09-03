@@ -45,7 +45,8 @@ function describe(df::DataFrame; percentiles::AbstractVector{<:Real} = [0.25, 0.
     push!(rows, stat_row("min", (name, T) -> is_orderable(T) ? Polars.min(col(name)) : nothing))
 
     for q in percentiles
-        stat_name = string(round(Int, q * 100), "%")
+        pct = round(q * 100, digits = 10)  # clear float noise (e.g. 0.999*100 != 99.9 exactly)
+        stat_name = string(pct == round(pct) ? string(Int(round(pct))) : string(pct), "%")
         push!(stat_names, stat_name)
         push!(rows, stat_row(stat_name, (name, T) -> is_numeric(T) ? quantile(col(name), q) : nothing))
     end

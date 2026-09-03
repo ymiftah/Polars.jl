@@ -10,9 +10,9 @@ use polars_ops::series::round::RoundMode;
 use polars_ops::series::InterpolationMethod;
 use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_plan::dsl::functions::{
-    all_horizontal, any_horizontal, as_struct, coalesce, concat_list, concat_str, cov,
-    max_horizontal, mean_horizontal, min_horizontal, pearson_corr, spearman_rank_corr,
-    sum_horizontal,
+    all_horizontal, any_horizontal, as_struct, coalesce, concat_arr, concat_list, concat_str, cov,
+    datetime, duration, format_str, max_horizontal, mean_horizontal, min_horizontal, pearson_corr,
+    spearman_rank_corr, sum_horizontal, DatetimeArgs, DurationArgs,
 };
 use polars_plan::dsl::DataTypeExpr;
 use polars_plan::prelude::Literal;
@@ -235,6 +235,51 @@ pub unsafe extern "C" fn polars_expr_concat_str(
     })
 }
 
+/// `pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order.
+/// Fallible: a mismatched placeholder/argument count raises rather than panicking (see
+/// `polars-plan-0.54.4/src/dsl/functions/concat.rs::format_str`).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_format(
+    fmt: *const u8,
+    fmt_len: usize,
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let fmt = tri!(read_str(fmt, fmt_len));
+        let exprs = read_exprs(exprs, n);
+        match format_str(fmt, &exprs) {
+            Ok(expr) => {
+                *out = make_expr(expr);
+                std::ptr::null()
+            }
+            Err(err) => make_error(err),
+        }
+    })
+}
+
+/// `pl.concat_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column.
+/// Gated on `dtype-array` inside `concat_arr` itself (`feature_gated!`), already enabled for
+/// `Expr::reshape` (Task 2 of this same plan).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_concat_arr(
+    exprs: *const *const polars_expr_t,
+    n: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let exprs = read_exprs(exprs, n);
+        match concat_arr(exprs) {
+            Ok(expr) => {
+                *out = make_expr(expr);
+                std::ptr::null()
+            }
+            Err(err) => make_error(err),
+        }
+    })
+}
+
 #[repr(C)]
 #[allow(dead_code)]
 pub enum polars_interpolation_method_t {
@@ -430,6 +475,79 @@ pub unsafe extern "C" fn polars_expr_cast_duration(
         let unit = tri!(unit.to_time_unit());
         let dtype = DataType::Duration(unit);
         *out = make_expr(cast((*expr).inner.clone(), dtype));
+        std::ptr::null()
+    })
+}
+
+/// Component-wise `Datetime` constructor (`pl.datetime`). `ambiguous` controls how a DST
+/// fall-back local time resolves; passed through as a string-literal expression, matching
+/// upstream's own `DatetimeArgs::ambiguous: Expr` field.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_datetime(
+    year: *const polars_expr_t,
+    month: *const polars_expr_t,
+    day: *const polars_expr_t,
+    hour: *const polars_expr_t,
+    minute: *const polars_expr_t,
+    second: *const polars_expr_t,
+    microsecond: *const polars_expr_t,
+    time_unit: polars_time_unit_t,
+    tz: *const u8,
+    tz_len: usize,
+    ambiguous: *const u8,
+    ambiguous_len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let time_unit = tri!(time_unit.to_time_unit());
+        let tz = tri!(read_opt_str(tz, tz_len));
+        let time_zone = tri!(TimeZone::opt_try_new(tz));
+        let ambiguous = tri!(read_str(ambiguous, ambiguous_len));
+        let args = DatetimeArgs {
+            year: (*year).inner.clone(),
+            month: (*month).inner.clone(),
+            day: (*day).inner.clone(),
+            hour: (*hour).inner.clone(),
+            minute: (*minute).inner.clone(),
+            second: (*second).inner.clone(),
+            microsecond: (*microsecond).inner.clone(),
+            time_unit,
+            time_zone,
+            ambiguous: ambiguous.to_string().lit(),
+        };
+        *out = make_expr(datetime(args));
+        std::ptr::null()
+    })
+}
+
+/// Component-wise `Duration` constructor (`pl.duration`).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_duration(
+    weeks: *const polars_expr_t,
+    days: *const polars_expr_t,
+    hours: *const polars_expr_t,
+    minutes: *const polars_expr_t,
+    seconds: *const polars_expr_t,
+    milliseconds: *const polars_expr_t,
+    microseconds: *const polars_expr_t,
+    nanoseconds: *const polars_expr_t,
+    time_unit: polars_time_unit_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let time_unit = tri!(time_unit.to_time_unit());
+        let args = DurationArgs {
+            weeks: (*weeks).inner.clone(),
+            days: (*days).inner.clone(),
+            hours: (*hours).inner.clone(),
+            minutes: (*minutes).inner.clone(),
+            seconds: (*seconds).inner.clone(),
+            milliseconds: (*milliseconds).inner.clone(),
+            microseconds: (*microseconds).inner.clone(),
+            nanoseconds: (*nanoseconds).inner.clone(),
+            time_unit,
+        };
+        *out = make_expr(duration(args));
         std::ptr::null()
     })
 }
@@ -1157,6 +1275,11 @@ pub unsafe extern "C" fn polars_expr_flatten(
 
 gen_impl_expr!(polars_expr_reverse, Expr::reverse);
 
+gen_impl_expr!(polars_expr_arg_unique, Expr::arg_unique);
+gen_impl_expr!(polars_expr_to_physical, Expr::to_physical);
+gen_impl_expr!(polars_expr_lower_bound, Expr::lower_bound);
+gen_impl_expr!(polars_expr_upper_bound, Expr::upper_bound);
+
 macro_rules! gen_impl_expr_binary {
     ($n: ident, $t: expr) => {
         #[no_mangle]
@@ -1234,6 +1357,56 @@ gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change);
 gen_impl_expr_binary!(polars_expr_log, Expr::log);
 gen_impl_expr_binary!(polars_expr_rem, core::ops::Rem::rem);
 gen_impl_expr_binary!(polars_expr_top_k, Expr::top_k);
+
+gen_impl_expr_binary!(polars_expr_arctan2, Expr::arctan2);
+gen_impl_expr_binary!(polars_expr_dot, Expr::dot);
+
+/// Infallible -- `Expr::entropy` only builds a plan node.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_entropy(
+    expr: *const polars_expr_t,
+    base: f64,
+    normalize: bool,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    make_expr(expr.entropy(base, normalize))
+}
+
+/// Infallible -- `Expr::extend_constant` only builds a plan node.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_extend_constant(
+    expr: *const polars_expr_t,
+    value: *const polars_expr_t,
+    n: *const polars_expr_t,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let value = (*value).inner.clone();
+    let n = (*n).inner.clone();
+    make_expr(expr.extend_constant(value, n))
+}
+
+/// Infallible -- `Expr::shuffle` only builds a plan node. `seed` null means "draw one from the OS".
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_shuffle(
+    expr: *const polars_expr_t,
+    seed: *const u64,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let seed = if seed.is_null() { None } else { Some(*seed) };
+    make_expr(expr.shuffle(seed))
+}
+
+/// Infallible -- `Expr::reshape` only builds a plan node.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_reshape(
+    expr: *const polars_expr_t,
+    dims: *const i64,
+    n_dims: usize,
+) -> *const polars_expr_t {
+    let expr = (*expr).inner.clone();
+    let dims = std::slice::from_raw_parts(dims, n_dims);
+    make_expr(expr.reshape(dims))
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_cum_sum(
@@ -1850,6 +2023,7 @@ gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::to_lowercase);
 gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::to_titlecase);
 gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes);
 gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars);
+gen_impl_expr_str!(polars_expr_str_escape_regex, StringNameSpace::escape_regex);
 
 macro_rules! gen_impl_expr_binary_str {
     ($n: ident, $t: expr) => {

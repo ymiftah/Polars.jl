@@ -20,6 +20,12 @@ const S = Selectors
 
     # zero names is a legitimate selector matching zero columns, not an error
     @test size(select(df, S.by_name())) == (0, 0)
+
+    # `by_name` preserves the ORDER given, not the frame's own column order (the `sort(...)` above
+    # would silently pass either way -- this pins the order down explicitly, matching upstream's
+    # own `require_all=True`/`False` producing the same order either way -- py-polars
+    # test_by_name_order_19384)
+    @test names(select(df, S.by_name("c", "a"))) == ["c", "a"]
 end
 
 @testset "exclude: inverse of by_name, always non-strict (API gap audit quick-win batch; py-polars test_exprs.py::test_exclude / test_expansion.py::test_exclude_selection)" begin
