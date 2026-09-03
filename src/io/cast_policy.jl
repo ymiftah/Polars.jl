@@ -3,6 +3,8 @@
                float_upcast=false, float_downcast=false,
                datetime_nanoseconds_downcast=false,
                datetime_microseconds_downcast=false,
+               datetime_milliseconds_upcast=false,
+               datetime_microseconds_upcast=false,
                datetime_convert_timezone=false,
                null_upcast=true,
                categorical_to_string=false,
@@ -21,6 +23,8 @@ of that.
 - `datetime_nanoseconds_downcast`: allow `datetime[ns]` to be cast to a lower precision — needed to
   read datasets written by Spark, which always writes nanosecond precision.
 - `datetime_microseconds_downcast`: allow `datetime[us]` to be cast to `datetime[ms]`.
+- `datetime_milliseconds_upcast`: allow `datetime[ms]` to be cast to `datetime[us]` or `datetime[ns]`.
+- `datetime_microseconds_upcast`: allow `datetime[us]` to be cast to `datetime[ns]`.
 - `datetime_convert_timezone`: allow casting that changes a datetime column's time zone.
 - `null_upcast`: allow an all-`Null` column to be cast to any target type (default `true`, matching
   upstream's default).
@@ -46,6 +50,8 @@ struct CastPolicy
     float_downcast::Bool
     datetime_nanoseconds_downcast::Bool
     datetime_microseconds_downcast::Bool
+    datetime_milliseconds_upcast::Bool
+    datetime_microseconds_upcast::Bool
     datetime_convert_timezone::Bool
     null_upcast::Bool
     categorical_to_string::Bool
@@ -59,6 +65,8 @@ struct CastPolicy
             float_downcast::Bool = false,
             datetime_nanoseconds_downcast::Bool = false,
             datetime_microseconds_downcast::Bool = false,
+            datetime_milliseconds_upcast::Bool = false,
+            datetime_microseconds_upcast::Bool = false,
             datetime_convert_timezone::Bool = false,
             null_upcast::Bool = true,
             categorical_to_string::Bool = false,
@@ -68,6 +76,7 @@ struct CastPolicy
         return new(
             integer_upcast, integer_to_float_cast, float_upcast, float_downcast,
             datetime_nanoseconds_downcast, datetime_microseconds_downcast,
+            datetime_milliseconds_upcast, datetime_microseconds_upcast,
             datetime_convert_timezone, null_upcast, categorical_to_string,
             missing_struct_fields_raise, extra_struct_fields_raise
         )
@@ -79,6 +88,7 @@ _dict_to_cast_policy(d::AbstractDict) = CastPolicy(; (Symbol(k) => v for (k, v) 
 _to_api_struct(p::CastPolicy) = API.polars_cast_columns_policy_t(
     p.integer_upcast, p.integer_to_float_cast, p.float_upcast, p.float_downcast,
     p.datetime_nanoseconds_downcast, p.datetime_microseconds_downcast,
+    p.datetime_milliseconds_upcast, p.datetime_microseconds_upcast,
     p.datetime_convert_timezone, p.null_upcast, p.categorical_to_string,
     p.missing_struct_fields_raise, p.extra_struct_fields_raise
 )

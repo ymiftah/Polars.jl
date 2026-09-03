@@ -1522,7 +1522,7 @@ pub unsafe extern "C" fn polars_expr_sample_n(
     let seed = if seed.is_null() { None } else { Some(*seed) };
     let expr = (*expr).inner.clone();
     let n = (*n).inner.clone();
-    make_expr(expr.sample_n(n, with_replacement, shuffle, seed))
+    make_expr(expr.sample_n(n, with_replacement, Some(shuffle), seed))
 }
 
 #[no_mangle]
@@ -1536,7 +1536,7 @@ pub unsafe extern "C" fn polars_expr_sample_frac(
     let seed = if seed.is_null() { None } else { Some(*seed) };
     let expr = (*expr).inner.clone();
     let frac = (*frac).inner.clone();
-    make_expr(expr.sample_frac(frac, with_replacement, shuffle, seed))
+    make_expr(expr.sample_frac(frac, with_replacement, Some(shuffle), seed))
 }
 
 #[no_mangle]
@@ -1941,11 +1941,12 @@ pub unsafe extern "C" fn polars_expr_list_sample_n(
     seed: *const u64,
 ) -> *const polars_expr_t {
     let seed = if seed.is_null() { None } else { Some(*seed) };
-    let expr =
-        (*a).inner
-            .clone()
-            .list()
-            .sample_n((*n).inner.clone(), with_replacement, shuffle, seed);
+    let expr = (*a).inner.clone().list().sample_n(
+        (*n).inner.clone(),
+        with_replacement,
+        Some(shuffle),
+        seed,
+    );
     make_expr(expr)
 }
 
@@ -1961,7 +1962,7 @@ pub unsafe extern "C" fn polars_expr_list_sample_fraction(
     let expr = (*a).inner.clone().list().sample_fraction(
         (*fraction).inner.clone(),
         with_replacement,
-        shuffle,
+        Some(shuffle),
         seed,
     );
     make_expr(expr)

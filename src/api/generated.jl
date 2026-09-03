@@ -342,6 +342,8 @@ struct polars_cast_columns_policy_t
     float_downcast::Bool
     datetime_nanoseconds_downcast::Bool
     datetime_microseconds_downcast::Bool
+    datetime_milliseconds_upcast::Bool
+    datetime_microseconds_upcast::Bool
     datetime_convert_timezone::Bool
     null_upcast::Bool
     categorical_to_string::Bool

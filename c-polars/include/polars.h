@@ -303,6 +303,8 @@ typedef struct polars_cast_columns_policy_t {
   bool float_downcast;
   bool datetime_nanoseconds_downcast;
   bool datetime_microseconds_downcast;
+  bool datetime_milliseconds_upcast;
+  bool datetime_microseconds_upcast;
   bool datetime_convert_timezone;
   bool null_upcast;
   bool categorical_to_string;
