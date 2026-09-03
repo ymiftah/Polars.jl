@@ -128,16 +128,17 @@ function parse_format(schema)
         return MaybeMissing{Vector{T}}
     end
 
-    if startswith(fmt, "+w") # Fixed size list (polars' Array dtype)
-        # `Series`/`getindex`/`load_value` have no materialization path for a fixed-size-list
-        # element type (unlike the `+l`/`+L` List case just above) -- raise here with a clear
-        # explanation rather than returning an `NTuple` type that then fails opaquely (a bare
-        # `MethodError` from `getindex`) the moment anyone actually reads the column.
-        error(
-            "Array dtype (fixed-size list, arrow format \"$fmt\") is not supported -- " *
-                "Polars.jl cannot materialize it into a Julia value yet. Cast to a List " *
-                "column (e.g. `Lists.explode`/an ordinary variable-length list) instead."
+    if startswith(fmt, "+w") # Fixed size list (polars' Array dtype), format is "+w:N"
+        # Materializes the same way List does just above -- a plain `Vector{T}` per row, not a
+        # fixed-shape `NTuple` -- see `_read_fixed_list` in arrow/read.jl for the bulk reader. `N`
+        # (the fixed width) isn't needed here: the Julia *type* is `Vector{T}` regardless of
+        # width, exactly like List; only the bulk reader needs to parse it out, to slice rows.
+        schema.n_children == 1 || error(
+            "malformed Arrow FixedSizeList schema: expected exactly 1 child, got $(schema.n_children)"
         )
+        children = unsafe_load(schema.children) |> unsafe_load
+        T = parse_format(children)
+        return MaybeMissing{Vector{T}}
     end
 
     error("unknown schema format $fmt")

@@ -141,6 +141,26 @@ end
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Vector}, MaybeMissing{String}, MaybeMissing{NamedTuple}}}
     checkbounds(series, index)
+
+    # FixedSizeList (polars' Array dtype) has no per-value Rust accessor -- `polars_value_list_get`
+    # (below, via `load_value`) only recognizes the variable-length List dtype and errors on an
+    # Array value. Go through the same bulk Arrow reader `collect` uses instead, on a cheap 1-row
+    # slice (`Series`'s own `UnitRange` `getindex`, backed by `polars_series_slice` -- an
+    # Arc-refcount clone, no data copy). Calls `read_series` directly rather than `collect`: a
+    # nested/unsupported Array (e.g. Array-of-Array from a >2D `reshape`) makes `read_series`
+    # return `nothing`, and `collect` falls back to *this very method* -- looping forever instead
+    # of raising. `read_series` itself never falls back, so this bounds the recursion at one level.
+    if MT <: MaybeMissing{Vector} && startswith(series.fmt, "+w")
+        row = read_series(series[index:index])
+        row === nothing && error(
+            "cannot materialize element $index of a nested Array column: an Array whose own " *
+                "elements are List/Array-typed (e.g. from a >2-dimensional `reshape`) has no " *
+                "per-element read path in Polars.jl yet -- only the outermost Array level " *
+                "materializes."
+        )
+        return only(row)
+    end
+
     index = index - 1
 
     if series.null_count > 0 && polars_series_is_null(series, index)

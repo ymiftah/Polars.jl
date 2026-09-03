@@ -116,15 +116,17 @@ end
 
 """Dispatches on a raw Arrow format string (`series.fmt`, cached at `Series` construction time --
 see `load_series_schema`) to the matching bulk reader, or `nothing` if unsupported. Exports the
-carray once (except for List, which does its own export -- see `_read_list`) and releases it
-exactly once after the leaf reader (`_read_view_dispatch`) returns -- *unless* that reader handed
-back a `Vector` that still aliases `h`'s buffers (`h.borrowed`, set by `_read_numeric`'s zero-copy
+carray once (except for List and FixedSizeList, which do their own export -- see `_read_list`/
+`_read_fixed_list`) and releases it exactly once after the leaf reader (`_read_view_dispatch`)
+returns -- *unless* that reader handed back a `Vector` that still aliases `h`'s buffers
+(`h.borrowed`, set by `_read_numeric`'s zero-copy
 branch), in which case releasing here would free the buffers out from under the very array being
 returned; release is deferred to `h`'s own finalizer instead, once the returned array is no longer
 reachable."""
 function _dispatch_read(fmt::String, series::Series, zerocopy::Bool)
     isempty(fmt) && return nothing # dictionary-encoded -- see `load_series_schema`'s sentinel
     fmt in ("+l", "+L") && return _read_list(series, fmt)
+    startswith(fmt, "+w") && return _read_fixed_list(series, fmt)
 
     h = _export_carray(series)
     ca, bufs = _buffers(h)
@@ -504,6 +506,89 @@ function _read_list(series::Series, fmt::String)
             lo = unsafe_load(offsets_ptr, i + 1)
             hi = unsafe_load(offsets_ptr, i + 2)
             out[i + 1] = child_data[(Int(lo) + 1):Int(hi)]
+        else
+            out[i + 1] = missing
+        end
+    end
+    release!(h)
+    return out
+end
+
+"""
+    _read_fixed_list(series::Series, fmt::String)
+
+Bulk reader for Arrow's FixedSizeList format (`"+w:N"`, polars' `Array` dtype) -- the fixed-width
+counterpart of `_read_list` just above; read its docstring first, this one only calls out what
+differs. `buffers[0]` = validity only -- unlike List/LargeList, a FixedSizeList array has **no
+offsets buffer**: every row occupies exactly `width` child elements, so row `i`'s slice is the
+fixed range `child_data[(i-1)*width+1 : i*width]`, computed directly from `width` (parsed out of
+`fmt`'s `"N"` suffix) rather than read from any buffer. Same leaf-child-only scope as `_read_list`
+(a nested List/Array/Struct/dictionary-encoded child falls back to `nothing`).
+"""
+function _read_fixed_list(series::Series, fmt::String)
+    width = parse(Int, split(fmt, ':')[2])
+
+    schema_out = Ref{CArrowSchema}()
+    err = polars_series_schema(series, schema_out)
+    polars_error(err)
+    schema = schema_out[]
+    child_schema = unsafe_load(unsafe_load(schema.children, 1))
+    is_dict_child = child_schema.dictionary != C_NULL
+    child_fmt = is_dict_child ? "" : unsafe_string(child_schema.format)
+    # Same scope as `_read_list`'s own pre-check, plus nested FixedSizeList (`+w`, e.g. a
+    # higher-dimensional `reshape`) -- `_read_view_dispatch` below has no leaf case for `+w`
+    # either, so screening it out here keeps the "shouldn't happen" branch below actually
+    # unreachable instead of silently relying on it.
+    unsupported = is_dict_child || startswith(child_fmt, "+l") || startswith(child_fmt, "+L") ||
+        startswith(child_fmt, "+w") || child_fmt == "+s"
+    # `parse_format` only touches `child_schema.format`/`.dictionary` for a leaf format (no
+    # recursion into `.children`), so calling it here is safe even though the parent `schema`
+    # (and thus `child_schema`, which borrows from it) is released right after.
+    ElemT = unsupported ? Missing : parse_format(child_schema)
+    schema_ref = Ref(schema)
+    GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
+    unsupported && return nothing
+
+    h = _export_carray(series)
+    ca, bufs = _buffers(h)
+
+    child_ca, child_bufs = _buffers(unsafe_load(unsafe_load(ca.children, 1)))
+    child_data_raw = _read_view_dispatch(child_fmt, child_ca, child_bufs, false, nothing)
+    if child_data_raw === nothing # defensive: shouldn't happen given the pre-check above
+        release!(h)
+        return nothing
+    end
+    child_data = eltype(child_data_raw) === ElemT ? child_data_raw : convert(Vector{ElemT}, child_data_raw)
+
+    n = Int(ca.length)
+    if length(child_data) != n * width
+        release!(h)
+        error(
+            "malformed Arrow FixedSizeList array: expected child length $(n * width) " *
+                "($n rows x width $width), got $(length(child_data))"
+        )
+    end
+
+    if n == 0
+        release!(h)
+        return Vector{ElemT}[]
+    end
+
+    if ca.null_count == 0
+        out = Vector{Vector{ElemT}}(undef, n)
+        for i in 1:n
+            out[i] = child_data[((i - 1) * width + 1):(i * width)]
+        end
+        release!(h)
+        return out
+    end
+
+    validity_ptr = Ptr{UInt8}(bufs[1])
+    offset = Int(ca.offset)
+    out = Vector{Union{Vector{ElemT}, Missing}}(undef, n)
+    for i in 0:(n - 1)
+        if isvalid(validity_ptr, offset + i)
+            out[i + 1] = child_data[(i * width + 1):((i + 1) * width)]
         else
             out[i + 1] = missing
         end

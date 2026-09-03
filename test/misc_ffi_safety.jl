@@ -155,18 +155,27 @@ end
     end
 end
 
-@testset "fixed-size-list schema raises a clear error, not a TypeError (Julia-side P0.2)" begin
-    # An unsupported fixed-size-list schema must reach its "not supported" message rather than
-    # dying earlier in a `TypeError` (asserting on a bare `Int64` `n_children` field, say, instead
-    # of a comparison against it). There's no way to construct an Array-dtype column through this
-    # package's own API (only reachable by scanning a file written by another Arrow
-    # implementation), so drive `parse_format` directly against a hand-built schema.
+@testset "fixed-size-list schema: valid single-child schema resolves; a malformed one raises a clear error, not a TypeError (Julia-side P0.2)" begin
+    # `Lists.to_array`/`concat_arr` (see test/datatypes/lists.jl, test/expr/horizontal.jl) already
+    # exercise `parse_format`'s "+w:N" arm end-to-end against a real polars-produced schema. This
+    # testset instead drives `parse_format` directly against a hand-built schema, to cover the
+    # malformed-input guard (`n_children != 1`) that a real polars schema should never actually
+    # trigger -- a slip there must reach its own clear "malformed Arrow FixedSizeList schema"
+    # message rather than dying earlier in a `TypeError` (asserting on a bare `Int64` `n_children`
+    # field, say, instead of a comparison against it) or an out-of-bounds pointer read.
     child = Polars.ArrowSchema(; format = "i", name = "item")
-    sch = Polars.ArrowSchema(; format = "+w4", name = "col", children = [child])
-    csch = unsafe_load(Base.unsafe_convert(Ptr{Polars.API.ArrowSchema}, sch))
-    @test_throws Exception Polars.parse_format(csch)
+
+    # well-formed: exactly one child resolves to Vector{T}, same as the List arm just above it
+    sch_ok = Polars.ArrowSchema(; format = "+w:4", name = "col", children = [child])
+    csch_ok = unsafe_load(Base.unsafe_convert(Ptr{Polars.API.ArrowSchema}, sch_ok))
+    @test Polars.parse_format(csch_ok) == Polars.MaybeMissing{Vector{Polars.MaybeMissing{Int32}}}
+
+    # malformed: zero children
+    sch_bad = Polars.ArrowSchema(; format = "+w:4", name = "col", children = Polars.ArrowSchema[])
+    csch_bad = unsafe_load(Base.unsafe_convert(Ptr{Polars.API.ArrowSchema}, sch_bad))
+    @test_throws Exception Polars.parse_format(csch_bad)
     try
-        Polars.parse_format(csch)
+        Polars.parse_format(csch_bad)
     catch e
         @test !(e isa TypeError)
     end
@@ -183,9 +192,11 @@ end
     #
     # The companion guarantee -- the Series constructor destroying its owned pointer when
     # `parse_format` throws on an unsupported dtype (`src/series.jl`) -- has no independent test
-    # here: there's no way to construct a genuinely unsupported-dtype `Series` through this
-    # package's public API (see the fixed-size-list testset above), so the only assertion available
-    # is that ordinary construction installs a working finalizer, which the rest of this suite
+    # here: there's no way to construct a genuinely *malformed*-schema `Series` (as opposed to one
+    # with a merely-unsupported dtype, e.g. Decimal) through this package's public API (see the
+    # fixed-size-list testset above, which drives that case directly against a hand-built schema
+    # instead), so the only assertion available is that ordinary construction installs a working
+    # finalizer, which the rest of this suite
     # already exercises continuously.
     df = DataFrame(
         (;

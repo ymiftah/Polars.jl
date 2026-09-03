@@ -196,12 +196,7 @@ module Lists
     Converts a `List`-typed `expr` to a fixed-width `Array` column of the given `width` (every row's
     list must have exactly `width` elements).
 
-    !!! warning "Result cannot be materialized into Julia yet"
-        The `Array` dtype this produces cannot currently be read back into a Julia value -- the Arrow
-        schema decoder (`parse_format` in `src/arrow/schema.jl`) recognizes the fixed-size-list format
-        but has no materialization path for it (see [Limitations](@ref)). Selecting/passing the column onward (e.g.
-        `Selectors.array()`, writing straight to parquet) works fine; `collect(df)[:col]`/`getindex` on
-        the result raises.
+    Note: the result materializes as a `Vector{T}` per row, same as a `List` column.
     """
     to_array(expr::Expr, width::Integer) = Expr(API.polars_expr_list_to_array(expr, Csize_t(width)))
     export to_array
