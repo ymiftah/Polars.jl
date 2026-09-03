@@ -1050,6 +1050,7 @@ pub unsafe extern "C" fn polars_lazy_frame_join(
     coalesce: polars_join_coalesce_t,
     validate: polars_join_validation_t,
     nulls_equal: bool,
+    maintain_order: polars_maintain_order_join_t,
     slice_offset: *const i64,
     slice_len: *const usize,
     out: *mut *mut polars_lazy_frame_t,
@@ -1067,6 +1068,7 @@ pub unsafe extern "C" fn polars_lazy_frame_join(
             coalesce: coalesce.to_join_coalesce(),
             validation: validate.to_join_validation(),
             nulls_equal,
+            maintain_order: maintain_order.to_maintain_order_join(),
             slice,
             ..JoinArgs::new(how.to_join_type())
         };
@@ -1103,6 +1105,7 @@ pub unsafe extern "C" fn polars_lazy_frame_join_asof(
     suffix: *const u8,
     suffix_len: usize,
     nulls_equal: bool,
+    maintain_order: polars_maintain_order_join_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     guard_error(|| {
@@ -1134,6 +1137,7 @@ pub unsafe extern "C" fn polars_lazy_frame_join_asof(
         let args = JoinArgs {
             suffix,
             nulls_equal,
+            maintain_order: maintain_order.to_maintain_order_join(),
             ..JoinArgs::new(JoinType::AsOf(Box::new(asof_options)))
         };
         let df = LazyFrame::join(
@@ -1178,11 +1182,12 @@ pub unsafe extern "C" fn polars_lazy_frame_drop(
     names: *const *const u8,
     lens: *const usize,
     n: usize,
+    strict: bool,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
     guard_error(|| {
         let names = tri!(read_names(names, lens, n));
-        let result = (*lf).inner.clone().drop(selector_by_name(names, true));
+        let result = (*lf).inner.clone().drop(selector_by_name(names, strict));
         *out = make_lazy_frame(result);
         std::ptr::null()
     })

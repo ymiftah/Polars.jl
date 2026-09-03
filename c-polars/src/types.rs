@@ -323,6 +323,32 @@ impl polars_join_validation_t {
     }
 }
 
+#[repr(C)]
+#[allow(dead_code)]
+pub enum polars_maintain_order_join_t {
+    PolarsMaintainOrderJoinNone,
+    PolarsMaintainOrderJoinLeft,
+    PolarsMaintainOrderJoinRight,
+    PolarsMaintainOrderJoinLeftRight,
+    PolarsMaintainOrderJoinRightLeft,
+}
+
+impl polars_maintain_order_join_t {
+    pub(crate) fn to_maintain_order_join(&self) -> MaintainOrderJoin {
+        match self {
+            polars_maintain_order_join_t::PolarsMaintainOrderJoinNone => MaintainOrderJoin::None,
+            polars_maintain_order_join_t::PolarsMaintainOrderJoinLeft => MaintainOrderJoin::Left,
+            polars_maintain_order_join_t::PolarsMaintainOrderJoinRight => MaintainOrderJoin::Right,
+            polars_maintain_order_join_t::PolarsMaintainOrderJoinLeftRight => {
+                MaintainOrderJoin::LeftRight
+            }
+            polars_maintain_order_join_t::PolarsMaintainOrderJoinRightLeft => {
+                MaintainOrderJoin::RightLeft
+            }
+        }
+    }
+}
+
 impl polars_asof_strategy_t {
     pub(crate) fn to_asof_strategy(&self) -> AsofStrategy {
         match self {

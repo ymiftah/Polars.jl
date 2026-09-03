@@ -17,12 +17,24 @@ function _join_validation_enum(validate::Symbol)
     )
 end
 
+function _join_maintain_order_enum(maintain_order::Symbol)
+    maintain_order == :none && return API.PolarsMaintainOrderJoinNone
+    maintain_order == :left && return API.PolarsMaintainOrderJoinLeft
+    maintain_order == :right && return API.PolarsMaintainOrderJoinRight
+    maintain_order == :left_right && return API.PolarsMaintainOrderJoinLeftRight
+    maintain_order == :right_left && return API.PolarsMaintainOrderJoinRightLeft
+    return error(
+        "unknown maintain_order $maintain_order, expected one of (:none, :left, :right, :left_right, :right_left)"
+    )
+end
+
 function _join(
         a::LazyFrame, b::LazyFrame, exprs_a::Vector, exprs_b::Vector, how;
         suffix::Union{Nothing, AbstractString} = nothing,
         coalesce::Symbol = :join_specific,
         validate::Symbol = :many_to_many,
-        nulls_equal::Bool = false
+        nulls_equal::Bool = false,
+        maintain_order::Symbol = :none
     )
     # No `slice` keyword: `JoinArgs.slice` panics unconditionally in this polars version
     # ("impl error: slice is not handled", verified live against both the in-memory and
@@ -33,6 +45,7 @@ function _join(
     exprs_b = _expr_vector(exprs_b)
     coalesce_enum = _join_coalesce_enum(coalesce)
     validate_enum = _join_validation_enum(validate)
+    maintain_order_enum = _join_maintain_order_enum(maintain_order)
     suffix_arg = suffix === nothing ? Ptr{UInt8}(C_NULL) : suffix
     suffix_len = suffix === nothing ? 0 : ncodeunits(suffix)
     GC.@preserve exprs_a exprs_b begin
@@ -44,6 +57,7 @@ function _join(
             exprs_a_ptr, length(exprs_a_ptr),
             exprs_b_ptr, length(exprs_b_ptr),
             how, suffix_arg, suffix_len, coalesce_enum, validate_enum, nulls_equal,
+            maintain_order_enum,
             Ptr{Int64}(C_NULL), Ptr{Csize_t}(C_NULL), out,
         )
         polars_error(err)
@@ -92,6 +106,9 @@ for (jl_name, how, description) in (
       `:many_to_many` (default, no check), `:many_to_one`/`:one_to_many`/`:one_to_one`.
     - `nulls_equal`: whether a `null` key on one side matches a `null` key on the other (default
       `false`, matching upstream).
+    - `maintain_order`: which side's row order to preserve in the output -- `:none` (default, no
+      guarantee), `:left`, `:right`, `:left_right` (left order first, right as the tiebreak), or
+      `:right_left`.
     """
     @eval begin
         $jl_name(a, b, expr; kwargs...) = $jl_name(a, b, expr, expr; kwargs...)
@@ -106,16 +123,20 @@ for (jl_name, how, description) in (
 end
 
 """
-    crossjoin(a::LazyFrame, b::LazyFrame; suffix=nothing)::LazyFrame
-    crossjoin(a::DataFrame, b::DataFrame; suffix=nothing)::DataFrame
+    crossjoin(a::LazyFrame, b::LazyFrame; suffix=nothing, maintain_order=:none)::LazyFrame
+    crossjoin(a::DataFrame, b::DataFrame; suffix=nothing, maintain_order=:none)::DataFrame
 
 Returns the Cartesian product of the rows of `a` and `b` (`nrow(a) * nrow(b)` rows, no join
 keys involved). `suffix` is appended to a right-side column name that collides with a left-side
-one (upstream default: `"_right"`, applied when `suffix` is left `nothing`).
+one (upstream default: `"_right"`, applied when `suffix` is left `nothing`). `maintain_order`
+selects which side's row order to preserve -- `:none` (default), `:left`, `:right`,
+`:left_right`, or `:right_left` -- see [`innerjoin`](@ref).
 """
 crossjoin(a::DataFrame, b::DataFrame; kwargs...) = crossjoin(lazy(a), lazy(b); kwargs...) |> collect
-crossjoin(a::LazyFrame, b::LazyFrame; suffix::Union{Nothing, AbstractString} = nothing) =
-    _join(a, b, Expr[], Expr[], API.PolarsJoinTypeCross; suffix)
+crossjoin(
+    a::LazyFrame, b::LazyFrame; suffix::Union{Nothing, AbstractString} = nothing,
+    maintain_order::Symbol = :none
+) = _join(a, b, Expr[], Expr[], API.PolarsJoinTypeCross; suffix, maintain_order)
 
 """
     join_asof(a, b, on; by_left=String[], by_right=String[], strategy::Symbol=:backward,
@@ -135,7 +156,7 @@ group-by column names applied before the asof match.
 - `check_sortedness`: validate that `on` is sorted within each `by` group before joining (default
   `true`); upstream requires `on` to be sorted regardless, this only controls whether a violation
   is caught with a clear error or produces silently wrong results.
-- `suffix`/`nulls_equal`: same as the other join verbs, see [`innerjoin`](@ref).
+- `suffix`/`nulls_equal`/`maintain_order`: same as the other join verbs, see [`innerjoin`](@ref).
 """
 function join_asof(
         a, b, on;
@@ -145,11 +166,12 @@ function join_asof(
         allow_eq::Bool = true,
         check_sortedness::Bool = true,
         suffix::Union{Nothing, AbstractString} = nothing,
-        nulls_equal::Bool = false
+        nulls_equal::Bool = false,
+        maintain_order::Symbol = :none
     )
     return join_asof(
         a, b, on, on; by_left, by_right, strategy, tolerance, allow_eq, check_sortedness, suffix,
-        nulls_equal
+        nulls_equal, maintain_order
     )
 end
 function join_asof(
@@ -160,11 +182,12 @@ function join_asof(
         allow_eq::Bool = true,
         check_sortedness::Bool = true,
         suffix::Union{Nothing, AbstractString} = nothing,
-        nulls_equal::Bool = false
+        nulls_equal::Bool = false,
+        maintain_order::Symbol = :none
     )
     return join_asof(
         lazy(a), lazy(b), on_a, on_b; by_left, by_right, strategy, tolerance, allow_eq,
-        check_sortedness, suffix, nulls_equal
+        check_sortedness, suffix, nulls_equal, maintain_order
     ) |> collect
 end
 function join_asof(
@@ -175,7 +198,8 @@ function join_asof(
         allow_eq::Bool = true,
         check_sortedness::Bool = true,
         suffix::Union{Nothing, AbstractString} = nothing,
-        nulls_equal::Bool = false
+        nulls_equal::Bool = false,
+        maintain_order::Symbol = :none
     )
     on_a = _as_expr(on_a)
     on_b = _as_expr(on_b)
@@ -194,6 +218,7 @@ function join_asof(
     tolerance_len = tolerance === nothing ? 0 : ncodeunits(tolerance)
     suffix_arg = suffix === nothing ? Ptr{UInt8}(C_NULL) : suffix
     suffix_len = suffix === nothing ? 0 : ncodeunits(suffix)
+    maintain_order_enum = _join_maintain_order_enum(maintain_order)
     GC.@preserve by_left_names by_right_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_join_asof(
@@ -201,7 +226,7 @@ function join_asof(
             by_left_ptrs, by_left_lens, length(by_left_ptrs),
             by_right_ptrs, by_right_lens, length(by_right_ptrs),
             strategy_enum, tolerance_arg, tolerance_len, allow_eq, check_sortedness,
-            suffix_arg, suffix_len, nulls_equal, out,
+            suffix_arg, suffix_len, nulls_equal, maintain_order_enum, out,
         )
         polars_error(err)
     end

@@ -58,17 +58,20 @@ Base.unique(df::DataFrame, subset::Vararg{ColId}; keep::Symbol = :any, maintain_
     Base.unique(lazy(df), subset...; keep, maintain_order) |> collect
 
 """
-    drop(lf::LazyFrame, columns::Vector{String})::LazyFrame
-    drop(df::DataFrame, columns::Vector{String})::DataFrame
+    drop(lf::LazyFrame, columns::Vector{String}; strict::Bool=true)::LazyFrame
+    drop(df::DataFrame, columns::Vector{String}; strict::Bool=true)::DataFrame
 
-Removes the given columns from the frame.
+Removes the given columns from the frame. If `strict` is `true` (default), every name in
+`columns` must exist; otherwise unknown names are silently ignored, matching [`rename`](@ref)'s
+own `strict` convention.
 """
-drop(df::DataFrame, columns::Vector{<:ColId}) = drop(lazy(df), columns) |> collect
-function drop(lf::LazyFrame, columns::Vector{<:ColId})
+drop(df::DataFrame, columns::Vector{<:ColId}; strict::Bool = true) =
+    drop(lazy(df), columns; strict) |> collect
+function drop(lf::LazyFrame, columns::Vector{<:ColId}; strict::Bool = true)
     owned_names, ptrs, lens = _name_ptrs(columns)
     GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
-        err = polars_lazy_frame_drop(lf, ptrs, lens, length(ptrs), out)
+        err = polars_lazy_frame_drop(lf, ptrs, lens, length(ptrs), strict, out)
         polars_error(err)
     end
     return LazyFrame(out[])

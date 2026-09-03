@@ -85,6 +85,13 @@ end
 
     # drop non-existent column should error
     @test_throws PolarsError drop(df, ["nonexistent"])
+    # strict=true (the default) is equivalent to omitting it
+    @test_throws PolarsError drop(df, ["nonexistent"]; strict = true)
+
+    # strict=false: an unknown column is silently ignored rather than raising, matching
+    # rename's own strict convention -- known columns in the same call are still dropped
+    r_lenient = drop(df, ["a", "nonexistent"]; strict = false)
+    @test Tables.columnnames(r_lenient) == (:b, :c)
 
     # drop all columns results in a fully empty DataFrame (0 rows, 0 cols) -- with no columns
     # to carry a row count, there's nothing to preserve it against (matches select() with zero

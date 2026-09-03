@@ -281,4 +281,37 @@ end
     # but nulls_equal is exercised here for API-surface coverage/no-crash, matching the other
     # join verbs' own convention
     @test join_asof(trades, quotes, "time"; nulls_equal = true)[:bid] == r_no_tolerance[:bid]
+
+    # maintain_order: exercised for API-surface coverage/no-crash, same convention as the other
+    # join verbs
+    @test join_asof(trades, quotes, "time"; maintain_order = :left)[:bid] == r_no_tolerance[:bid]
+end
+
+@testset "maintain_order across join variants" begin
+    # crossjoin: :none/:left/:left_right give left-major row order (every b-row for a given
+    # a-row before advancing a); :right/:right_left give right-major order -- matches upstream's
+    # own primary/secondary iteration pattern (py-polars test_cross_join_maintain_order_24663)
+    a = DataFrame((; x = [0, 1, 2]))
+    b = DataFrame((; y = [0, 1]))
+    left_major = [(x, y) for x in 0:2 for y in 0:1]
+    right_major = [(x, y) for y in 0:1 for x in 0:2]
+    for mo in (:none, :left, :left_right)
+        r = crossjoin(a, b; maintain_order = mo)
+        @test collect(zip(r[:x], r[:y])) == left_major
+    end
+    for mo in (:right, :right_left)
+        r = crossjoin(a, b; maintain_order = mo)
+        @test collect(zip(r[:x], r[:y])) == right_major
+    end
+
+    # innerjoin: :left preserves the left frame's key order even when the right frame's rows
+    # arrive in a different order
+    c = DataFrame((; k = [1, 2, 3], v = ["a", "b", "c"]))
+    d = DataFrame((; k = [3, 2, 1], w = ["x", "y", "z"]))
+    r_left = innerjoin(c, d, col("k"); maintain_order = :left)
+    @test r_left[:k] == [1, 2, 3]
+    @test r_left[:w] == ["z", "y", "x"]
+
+    # an unknown maintain_order value is a clear ArgumentError-style error, not a crash
+    @test_throws ErrorException innerjoin(c, d, col("k"); maintain_order = :bogus)
 end

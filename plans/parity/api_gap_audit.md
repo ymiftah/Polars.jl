@@ -482,6 +482,19 @@ Called out separately because each function looks complete from the outside.
   available. Each dispatches between polars' own paired methods (`group_by`/`group_by_stable`,
   `unique`/`unique_stable`, `Expr::unique`/`Expr::unique_stable`) rather than threading a bool
   through a single call, matching how upstream itself expresses the option.
+- ~~**No join variant accepts `maintain_order`**~~ **Closed**: `innerjoin`/`leftjoin`/`rightjoin`/
+  `outerjoin`/`semijoin`/`antijoin`/`crossjoin`/`join_asof` all now accept
+  `maintain_order::Symbol=:none` (`:none`/`:left`/`:right`/`:left_right`/`:right_left`), threaded
+  through a new `polars_maintain_order_join_t` FFI enum into `JoinArgs::maintain_order`
+  (`c-polars/src/types.rs`, `dataframe.rs`) — the same `JoinArgs` struct whose other fields
+  (`suffix`/`coalesce`/`validation`/`nulls_equal`) were already threaded through above, this field
+  had simply been missed. Live-verified `crossjoin`'s left-major/right-major ordering matches
+  upstream's own iteration pattern exactly, and `innerjoin(...; maintain_order=:left)` preserves
+  the left frame's key order against an out-of-order right frame.
+- ~~**`drop` has no `strict` keyword**~~ **Closed**: `drop(df, columns; strict=true)` now matches
+  `rename`'s existing convention — `strict=false` silently ignores an unknown column instead of
+  raising. `LazyFrame::drop` already took a `Selector::ByName { names, strict }`; the FFI shim
+  (`polars_lazy_frame_drop`) had simply hardcoded `strict: true` with no parameter to control it.
 - `rolling_*` accept `window_size`/`min_samples`/`center` but have no `by`/`closed` temporal form.
 - `describe` is `DataFrame`-only (upstream also has it on `LazyFrame`). `pivot`, `transpose`,
   `hstack`, `vstack`, and `upsample` being `DataFrame`-only matches upstream.
