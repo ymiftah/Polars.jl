@@ -123,7 +123,7 @@ branch), in which case releasing here would free the buffers out from under the 
 returned; release is deferred to `h`'s own finalizer instead, once the returned array is no longer
 reachable."""
 function _dispatch_read(fmt::String, series::Series, zerocopy::Bool)
-    isempty(fmt) && return nothing # dictionary-encoded -- see `load_series_schema`'s sentinel
+    isempty(fmt) && return _read_categorical(series) # dictionary-encoded -- see `load_series_schema`'s sentinel
     fmt in ("+l", "+L") && return _read_list(series, fmt)
 
     h = _export_carray(series)
@@ -511,6 +511,72 @@ function _read_list(series::Series, fmt::String)
     release!(h)
     return out
 end
+
+"""
+    _read_categorical(series::Series)
+
+Bulk reader for a dictionary-encoded (Categorical/Enum) `series` (`series.fmt == ""`, the
+sentinel `load_series_schema` caches for this case). Casts `series` to `String` -- a single
+columnar cast on the Rust side, not a per-row FFI round trip -- and bulk-reads the result through
+the ordinary `String` fast path (`_read_view`, via `read_series`), then hands the decoded strings
+to `_categorical_array`, which returns them unchanged by default or converts them into a
+`CategoricalArrays.CategoricalArray` once that package's extension is loaded.
+
+!!! note
+    The raw Arrow export of a Categorical `Series` (`polars_series_export_carray`) does not
+    actually carry the dictionary's category values: confirmed live, `ArrowArray.dictionary` is
+    null on the exported array, because `polars_series_export_carray` exports the column's
+    *physical* chunk (a plain `UInt32` index array) rather than a true Arrow-Dictionary-typed
+    array -- even though `polars_series_schema` (a separate call, over the *logical* field)
+    correctly reports a dictionary-typed schema for the same column. So a genuinely zero-copy
+    "index buffer + shared dictionary values" bulk read is not reachable through the current C
+    ABI without a new `c-polars` entry point; this cast-based route is the best available bulk
+    (as opposed to per-element `getindex`) path today.
+
+!!! warning
+    Must go through a single-column `Expr`-level cast inside `select` (`cast(col(name), String)`),
+    never the whole-frame `cast(df::DataFrame, String)` convenience (`polars_lazy_frame_cast_all`)
+    -- confirmed live that the latter panics *inside upstream polars* (not this package's own code,
+    and not catchable as a `PolarsError`: a bare Rust panic crossing `extern "C"` aborts the whole
+    process, see CLAUDE.md's "C ABI conventions") when cast-alling an empty (0-row) Categorical
+    column's frame: `range start index 1 out of range for slice of length 0` in
+    `polars-plan`'s `aexpr/function_expr/schema.rs`. The single-column `Expr` cast path does not
+    hit this.
+"""
+function _read_categorical(series::Series)
+    colname = Symbol(name(series))
+    decoded = collect(select(lazy(DataFrame([series])), cast(col(String(colname)), String)))[colname]
+    strings = read_series(decoded)
+    strings === nothing && return nothing # defensive: the cast result is always "vu"/bulk-readable in practice
+    return _categorical_array(strings)
+end
+
+"""
+    _categorical_array(strings)
+
+Extension hook: builds the materialized column value for a Categorical/Enum column from its
+bulk-decoded category `strings` (a `Vector{String}` or `Vector{Union{String,Missing}}` -- see
+`_read_categorical`). Returns `strings` unchanged by default. Loading `CategoricalArrays.jl`
+activates this package's `PolarsCategoricalArraysExt` extension, which adds the first-ever method
+for `_resolve_categorical_array` and makes this function return `CategoricalArrays.categorical(strings)`
+instead.
+
+!!! note
+    Delegates to `_resolve_categorical_array` (declared with zero methods, just below) for the
+    same precompilation-restriction reason as `_tz_aware_datetime_type`/`_categorical_column_type`
+    -- see `_categorical_column_type`'s docstring in `arrow/schema.jl`.
+"""
+function _categorical_array(strings)
+    try
+        return _resolve_categorical_array(strings)
+    catch e
+        e isa MethodError && e.f === _resolve_categorical_array && return strings
+        rethrow()
+    end
+end
+
+"""Zero-method extension point -- see `_categorical_array`'s docstring."""
+function _resolve_categorical_array end
 
 function Base.collect(series::Series)
     out = read_series(series)

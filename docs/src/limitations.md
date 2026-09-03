@@ -26,6 +26,15 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   yet. Select/pass the column onward instead of collecting its values directly (e.g. write straight
   to parquet, or cast to a `String`/scalar column first).
 
+- **A `Categorical`/`Enum`-typed column materializes as plain `String`/`missing` by default, and
+  as a `CategoricalArrays.CategoricalArray` once `CategoricalArrays.jl` is loaded** (`using
+  CategoricalArrays`) — see [Developer](@ref) for the extension mechanism. Either way, `dtype`
+  cannot distinguish a Categorical/Enum column from a plain String one; only the Arrow schema
+  carries that distinction, and this package doesn't expose it directly. The `CategoricalArray`'s
+  levels are derived only from the values that actually appear in the column being read (in
+  `CategoricalArrays.categorical`'s own default order) — a category defined elsewhere in the
+  global category registry but never used in this particular column does not appear as a level.
+
 ## Date/time limitations
 
 - **A `lit(dt::DateTime)` literal is built at nanosecond resolution and inherits that

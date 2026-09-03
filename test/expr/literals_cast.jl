@@ -205,10 +205,29 @@ end
     to_dec_curried = select(df, col("x") |> cast_decimal(10, 2))
     @test size(to_dec_curried) == (3, 1)
 
-    # Categorical: casts, and reads back as String with no extra step
+    # Categorical: casts, and reads back as String with no extra step (bulk path, not per-element
+    # `getindex` -- see `_read_categorical` in src/arrow/read.jl -- when CategoricalArrays.jl
+    # isn't loaded; test/expr/categoricalarrays_ext.jl covers the CategoricalArray materialization)
     dfs = DataFrame((; s = ["a", "b", "a", "c"]))
     to_cat = select(dfs, cast_categorical(col("s")))
-    @test collect(to_cat[:s]) == ["a", "b", "a", "c"]
+    cat_series = to_cat[:s]
+    @test eltype(cat_series) == String
+    @test collect(cat_series) == ["a", "b", "a", "c"]
+
+    # nulls survive the bulk Categorical read path
+    dfs_null = DataFrame((; s = ["a", missing, "a", "c"]))
+    to_cat_null = select(dfs_null, cast_categorical(col("s")))
+    @test isequal(collect(to_cat_null[:s]), ["a", missing, "a", "c"])
+
+    # an empty Categorical column
+    dfs_empty = DataFrame((; s = String[]))
+    to_cat_empty = select(dfs_empty, cast_categorical(col("s")))
+    @test collect(to_cat_empty[:s]) == String[]
+
+    # `dtype(series)` doesn't distinguish Categorical from plain String (only the Arrow schema
+    # does -- see the `dtype` docstring in src/series.jl)
+    plain_series = select(dfs, col("s"))[:s]
+    @test Polars.dtype(cat_series) == Polars.dtype(plain_series)
 end
 
 @testset "Null-dtype DataFrame show/print" begin
