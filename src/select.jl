@@ -60,13 +60,15 @@ end
     head(lf::LazyFrame, n)::LazyFrame
     head(df::DataFrame, n)::DataFrame
 
-Returns the first `n` rows of the frame.
+Returns the first `n` rows of the frame. Unlike upstream polars, `n` must be non-negative --
+there is no `height + n` negative-index convenience here (see the docstring note below).
 """
 head(df::LazyFrame, n = 5) = _head!(clone(df), n)
 head(df::DataFrame, n = 5) = _head!(lazy(df), n) |> collect
 
 
 function _head!(df::LazyFrame, n)
+    n >= 0 || throw(ArgumentError("head: n must be non-negative, got $n"))
     polars_lazy_frame_head(df, n)
     return df
 end
@@ -77,7 +79,8 @@ import Base: tail
     tail(lf::LazyFrame, n)::LazyFrame
     tail(df::DataFrame, n)::DataFrame
 
-Returns the last `n` rows of the frame.
+Returns the last `n` rows of the frame. Unlike upstream polars, `n` must be non-negative -- there
+is no `height + n` negative-index convenience here (see the docstring note below).
 
 !!! note
     Extends `Base.tail` (which otherwise operates on `Tuple`/`NamedTuple`); `Base` does not
@@ -87,6 +90,7 @@ Base.tail(df::LazyFrame, n = 5) = _tail!(clone(df), n)
 Base.tail(df::DataFrame, n = 5) = _tail!(lazy(df), n) |> collect
 
 function _tail!(df::LazyFrame, n)
+    n >= 0 || throw(ArgumentError("tail: n must be non-negative, got $n"))
     polars_lazy_frame_tail(df, n)
     return df
 end

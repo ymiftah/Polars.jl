@@ -589,9 +589,9 @@ option must be exercised live.
 
 ## Group 11 — Test-coverage gaps (adjacent, not API gaps)
 
-Per [`LEDGER.md`](LEDGER.md), **batches 13 and 14 of the py-polars parity sweep are still
-unswept** (batches 10, 11, and 12 are now done, findings below): lazyframe
-scan/sink/collect_schema/head (9 upstream files), and selectors/meta/horizontal/naming/sample (8).
+Per [`LEDGER.md`](LEDGER.md), **batch 14 of the py-polars parity sweep is the only one still
+unswept** (batches 10-13 are now done, findings below): selectors/meta/horizontal/naming/sample
+(8 upstream files).
 
 **So this audit is not the final list.** It is the static view — what has no binding at all. The
 unswept batches are the behavioural view: what has a binding that does the wrong thing. Expect the
@@ -688,6 +688,22 @@ recorded:
   row/column hashing family have no binding at all here. Feature-gate status not yet checked
   against the vendored `polars-plan`/`polars-ops` source; flagging for a future no-Cargo-change
   batch to scope properly rather than guessing here.
+
+**Batch 13 findings** (`lazyframe/scan_*.jl`, `sink_*.jl`, `collect_schema.jl`, `head.jl` vs.
+`io/test_csv.py`, `test_ipc.py`, `test_lazy_csv.py`, `test_lazy_ipc.py`, `test_lazy_parquet.py`,
+`test_parquet.py`, `test_scan_options.py`, `test_sink.py`, `lazyframe/test_collect_schema.py` —
+combined ~13,700 lines, two files over 3000 lines each; triaged via `grep` for named-regression
+tests given the scale — see `plans/parity/batch-13-io-lazyframe.md`): **one real bug fixed**:
+
+- **`head(df, n)`/`tail(df, n)` crashed with a bare `InexactError` on a negative `n`**, instead of
+  either supporting it or rejecting it cleanly. The underlying `polars_lazy_frame_head`/`_tail` FFI
+  functions take an unsigned `usize`; upstream's own Python-level `.head(n=-2)` negative-index
+  convenience (`height + n`) is implemented in Python before ever reaching Rust, so it was never
+  ported here — but the missing case fell through to an unguarded `@ccall` type-coercion failure
+  rather than a clear rejection. Fixed with an explicit `n >= 0` check raising a descriptive
+  `ArgumentError` in both `head` and `tail` (`src/select.jl`); negative-`n` support itself remains
+  unimplemented (would need `DataFrame`'s known height, straightforward, vs. `LazyFrame`'s
+  unknown height without materializing, not straightforward) and is not attempted here.
 
 ## Caveats
 
