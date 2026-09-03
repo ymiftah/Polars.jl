@@ -14,6 +14,10 @@ docs/build/
 # `debug/` directory nested anywhere else in the tree.
 /debug/
 
+# Planning docs and parity ledgers are working notes for active development, not project
+# documentation -- keep them local instead of committing them to history.
+/plans/
+
 # Python bytecode from c-polars/check_header_drift.py
 __pycache__/
 *.pyc
