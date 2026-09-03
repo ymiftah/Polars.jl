@@ -43,3 +43,13 @@ end
 
     @test_throws Exception collect(lf; engine = :bogus)
 end
+
+@testset "with_row_index name collision surfaces at collect_schema (py-polars test_collect_schema_with_row_index_duplicate)" begin
+    # a real column already named "index" collides with with_row_index's default name
+    lf_existing = lazy(DataFrame((; index = Int[])))
+    @test_throws PolarsError collect_schema(with_row_index(lf_existing))
+
+    # ...and so does calling with_row_index twice on the same (default-named) frame
+    lf_twice = lazy(DataFrame(NamedTuple()))
+    @test_throws PolarsError collect_schema(with_row_index(with_row_index(lf_twice)))
+end
