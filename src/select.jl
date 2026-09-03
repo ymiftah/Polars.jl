@@ -1,9 +1,8 @@
 _select!(df::LazyFrame, exprs...) = _select!(df, collect(exprs)::Vector)
 function _select!(df::LazyFrame, exprs::Vector)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
-        polars_lazy_frame_select(df, exprs_ptrs, length(exprs_ptrs))
+    owned, ptrs = _handle_ptrs(_expr_vector(exprs), Ptr{polars_expr_t})
+    GC.@preserve owned begin
+        polars_lazy_frame_select(df, ptrs, length(ptrs))
     end
     return df
 end
@@ -48,10 +47,9 @@ with_columns(df::LazyFrame, exprs...) = _with_columns!(clone(df), collect(exprs)
 with_columns(df::DataFrame, exprs...) = _with_columns!(lazy(df), collect(exprs)::Vector) |> collect
 
 function _with_columns!(df::LazyFrame, exprs::Vector)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
-        polars_lazy_frame_with_columns(df, exprs_ptrs, length(exprs_ptrs))
+    owned, ptrs = _handle_ptrs(_expr_vector(exprs), Ptr{polars_expr_t})
+    GC.@preserve owned begin
+        polars_lazy_frame_with_columns(df, ptrs, length(ptrs))
     end
     return df
 end

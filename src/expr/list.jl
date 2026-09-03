@@ -1,6 +1,6 @@
 module Lists
     using ..Polars: @wrap_simple_ops, @wrap_expr_method, @curry,
-        API, polars_expr_t, Expr, polars_error, _null_behavior_enum
+        API, polars_expr_t, Expr, polars_error, _null_behavior_enum, _nullable_ref
 
     @wrap_simple_ops begin
         gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths, "Length of each list in `expr` (`null` list entries count, and a `null` list itself gives a `null` length -- an empty list gives `0`).")
@@ -30,46 +30,14 @@ module Lists
     # `Polars`'s own top-level `head` (for `DataFrame`/`LazyFrame`) -- not a Base name, so the macro's
     # own Base-collision check can't catch it, and it must never be exported: it's designed for
     # qualified use (`Lists.head`), matching `get`/`contains` below.
-    """
-        head(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
+    @wrap_expr_method head(expr::Expr, n::Expr) polars_expr_list_head "First `n` elements of each list in `expr` (fewer if the list is shorter than `n`)."
+    @curry head(n::Expr) fix2 = true
 
-    First `n` elements of each list in `expr` (fewer if the list is shorter than `n`).
-    """
-    function head(a::Expr, b::Expr)
-        out = API.polars_expr_list_head(a, b)
-        return Expr(out)
-    end
+    @wrap_expr_method tail(expr::Expr, n::Expr) polars_expr_list_tail "Last `n` elements of each list in `expr` (fewer if the list is shorter than `n`). Complements [`head`](@ref)."
+    @curry tail(n::Expr) fix2 = true
 
-    """
-        head(n)::Base.Fix2{typeof(head)}
-
-    Curried form of `head` for use with `|>` -- e.g. `col("x") |> Lists.head(2)`.
-    """
-    head(n) = Base.Fix2(head, convert(Expr, n))
-
-    """
-        tail(expr::Polars.Expr, n::Polars.Expr)::Polars.Expr
-
-    Last `n` elements of each list in `expr` (fewer if the list is shorter than `n`). Complements
-    [`head`](@ref).
-    """
-    function tail(a::Expr, b::Expr)
-        out = API.polars_expr_list_tail(a, b)
-        return Expr(out)
-    end
-    tail(n) = Base.Fix2(tail, convert(Expr, n))
-
-    """
-        shift(expr::Polars.Expr, periods::Polars.Expr)::Polars.Expr
-
-    Shifts each list's elements by `periods` (negative shifts up), filling vacated positions with
-    `null` -- the per-list analogue of the top-level [`shift`](@ref).
-    """
-    function shift(a::Expr, b::Expr)
-        out = API.polars_expr_list_shift(a, b)
-        return Expr(out)
-    end
-    shift(n) = Base.Fix2(shift, convert(Expr, n))
+    @wrap_expr_method shift(expr::Expr, periods::Expr) polars_expr_list_shift "Shifts each list's elements by `periods` (negative shifts up), filling vacated positions with `null` -- the per-list analogue of the top-level [`shift`](@ref)."
+    @curry shift(n::Expr) fix2 = true
 
     @wrap_expr_method get(expr::Expr, index::Expr; null_on_oob::Bool = false) polars_expr_list_get "Get items in every sublist by index. If `null_on_oob` is `false` (default), an out-of-bounds index raises an error; if `true`, it returns `null` instead (more expensive, per the polars documentation)."
     @curry get(index; null_on_oob::Bool = false)
@@ -103,7 +71,7 @@ module Lists
             seed::Union{Nothing, Integer} = nothing
         )
         n = convert(Expr, n)
-        seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+        seed_ref = _nullable_ref(seed, UInt64)
         out = GC.@preserve seed_ref API.polars_expr_list_sample_n(expr, n, with_replacement, shuffle, seed_ref)
         return Expr(out)
     end
@@ -119,7 +87,7 @@ module Lists
             seed::Union{Nothing, Integer} = nothing
         )
         fraction = convert(Expr, fraction)
-        seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+        seed_ref = _nullable_ref(seed, UInt64)
         out = GC.@preserve seed_ref API.polars_expr_list_sample_fraction(
             expr, fraction, with_replacement, shuffle, seed_ref
         )
@@ -131,7 +99,7 @@ module Lists
     @curry contains(other; nulls_equal::Bool = true)
 
     @wrap_expr_method count_matches(expr::Expr, element::Expr) polars_expr_list_count_matches "Counts occurrences of `element` within each list of `expr`."
-    count_matches(element) = Base.Fix2(count_matches, convert(Expr, element))
+    @curry count_matches(element::Expr) fix2 = true
     export count_matches
 
     @wrap_expr_method sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false) polars_expr_list_sort "Sorts the elements within each list of `expr` independently (list order/row count is unchanged -- compare the top-level `sort` (see [DataFrame](@ref)/[LazyFrame](@ref)), which reorders whole rows instead)."

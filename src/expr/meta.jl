@@ -8,7 +8,7 @@ DataFrame/LazyFrame it might later be applied to, so no schema is consulted (e.g
 [`tree_format`](@ref)/[`show_graph`](@ref) render unresolved column types as untyped).
 """
 module Meta
-using ..Polars: API, Expr, polars_error, _io_callback, _as_expr
+using ..Polars: API, Expr, _as_expr, _io_read
 
 """
     output_name(expr)::String
@@ -20,11 +20,7 @@ selector-expanded expression that can match more than one column.
 """
 function output_name(expr)
     expr = _as_expr(expr)
-    io = Ref(IOBuffer())
-    callback = _io_callback()
-    err = API.polars_expr_meta_output_name(expr, io, callback)
-    polars_error(err)
-    return String(take!(io[]))
+    return String(_io_read((io, cb) -> API.polars_expr_meta_output_name(expr, io, cb)))
 end
 
 """
@@ -87,24 +83,16 @@ function root_names(expr)
     # wrap around instead of underflowing to a negative, turning `0:(n - 1)` into a giant nonempty
     # range instead of the intended empty one. Convert to a signed `Int` first.
     n = Int(API.polars_expr_meta_root_names_len(expr))
-    callback = _io_callback()
     names = Vector{String}(undef, n)
     for i in 0:(n - 1)
-        io = Ref(IOBuffer())
-        err = API.polars_expr_meta_root_names_get(expr, i, io, callback)
-        polars_error(err)
-        names[i + 1] = String(take!(io[]))
+        names[i + 1] = String(_io_read((io, cb) -> API.polars_expr_meta_root_names_get(expr, i, io, cb)))
     end
     return names
 end
 
 function _tree_format(expr, display_as_dot::Bool)
     expr = _as_expr(expr)
-    io = Ref(IOBuffer())
-    callback = _io_callback()
-    err = API.polars_expr_meta_tree_format(expr, display_as_dot, io, callback)
-    polars_error(err)
-    return String(take!(io[]))
+    return String(_io_read((io, cb) -> API.polars_expr_meta_tree_format(expr, display_as_dot, io, cb)))
 end
 
 """

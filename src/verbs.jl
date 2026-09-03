@@ -31,17 +31,11 @@ function Base.unique(
         lf::LazyFrame, subset::Vector{<:ColId} = String[];
         keep::Symbol = :any, maintain_order::Bool = false
     )
-    keep_enum = if keep == :first
-        API.PolarsUniqueKeepFirst
-    elseif keep == :last
-        API.PolarsUniqueKeepLast
-    elseif keep == :none
-        API.PolarsUniqueKeepNone
-    elseif keep == :any
-        API.PolarsUniqueKeepAny
-    else
-        error("unknown keep strategy $keep, expected one of (:first, :last, :none, :any)")
-    end
+    keep_enum = _enum_lookup(
+        keep, "keep strategy",
+        :first => API.PolarsUniqueKeepFirst, :last => API.PolarsUniqueKeepLast,
+        :none => API.PolarsUniqueKeepNone, :any => API.PolarsUniqueKeepAny,
+    )
     owned_names, ptrs, lens = _name_ptrs(subset)
     GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
@@ -157,21 +151,16 @@ Concatenates the provided frames. `how` selects the mode:
 concat(frames::Vector{DataFrame}; how::Symbol = :vertical) =
     collect(concat(map(lazy, frames); how))
 function concat(frames::Vector{LazyFrame}; how::Symbol = :vertical)
-    how_enum = if how == :vertical
-        API.PolarsConcatHowVertical
-    elseif how == :vertical_relaxed
-        API.PolarsConcatHowVerticalRelaxed
-    elseif how == :diagonal
-        API.PolarsConcatHowDiagonal
-    elseif how == :diagonal_relaxed
-        API.PolarsConcatHowDiagonalRelaxed
-    elseif how == :horizontal
-        API.PolarsConcatHowHorizontal
-    else
-        error("unknown concat how=$how, expected one of (:vertical, :vertical_relaxed, :diagonal, :diagonal_relaxed, :horizontal)")
-    end
-    GC.@preserve frames begin
-        frame_ptrs = Ptr{polars_lazy_frame_t}[frame.ptr for frame in frames]
+    how_enum = _enum_lookup(
+        how, "concat how",
+        :vertical => API.PolarsConcatHowVertical,
+        :vertical_relaxed => API.PolarsConcatHowVerticalRelaxed,
+        :diagonal => API.PolarsConcatHowDiagonal,
+        :diagonal_relaxed => API.PolarsConcatHowDiagonalRelaxed,
+        :horizontal => API.PolarsConcatHowHorizontal,
+    )
+    owned, frame_ptrs = _handle_ptrs(frames, Ptr{polars_lazy_frame_t})
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_concat(frame_ptrs, length(frame_ptrs), how_enum, out)
         polars_error(err)
@@ -185,8 +174,8 @@ end
 Return a new [`DataFrame`](@ref) grown horizontally by stacking multiple [`Series`](@ref) to it.
 """
 function hstack(df::DataFrame, columns::Vector{<:Series})
-    GC.@preserve columns begin
-        ptrs = Ptr{polars_series_t}[s.ptr for s in columns]
+    owned, ptrs = _handle_ptrs(columns, Ptr{polars_series_t})
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_dataframe_t}}()
         err = polars_dataframe_hstack(df, ptrs, length(ptrs), out)
         polars_error(err)

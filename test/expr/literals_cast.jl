@@ -176,6 +176,9 @@ end
     to_dt_direct = select(df, cast_datetime(col("x"); time_unit = :ms))
     @test collect(to_dt_direct[:x]) == collect(to_dt[:x])
 
+    to_dt_curried = select(df, col("x") |> cast_datetime(time_unit = :ms))
+    @test collect(to_dt_curried[:x]) == collect(to_dt[:x])
+
     to_dt_ns = select(df, col("x") |> cast(DateTime; time_unit = :ns))
     @test eltype(to_dt_ns[:x]) == DateTime
 

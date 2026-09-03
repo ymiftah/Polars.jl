@@ -1,11 +1,8 @@
-function _ipc_compression_enum(compression::Symbol)
-    compression == :uncompressed && return API.PolarsIpcCompressionUncompressed
-    compression == :lz4 && return API.PolarsIpcCompressionLz4
-    compression == :zstd && return API.PolarsIpcCompressionZstd
-    return error(
-        "unknown compression $compression, expected one of (:uncompressed, :lz4, :zstd)"
-    )
-end
+_ipc_compression_enum(compression::Symbol) = _enum_lookup(
+    compression, "compression",
+    :uncompressed => API.PolarsIpcCompressionUncompressed, :lz4 => API.PolarsIpcCompressionLz4,
+    :zstd => API.PolarsIpcCompressionZstd,
+)
 
 """
     scan_ipc(path::String;
@@ -57,12 +54,10 @@ function scan_ipc(
     # upstream inconsistency between formats, not something fixable from `c-polars` without
     # patching vendored polars. The FFI parameter stays (always `false` here) so a future polars
     # upgrade that fixes this needs only a Julia-side change.
-    n_rows_ref = n_rows === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n_rows))
-    row_index_name_arg = row_index_name === nothing ? Ptr{UInt8}(C_NULL) : row_index_name
-    row_index_name_len = row_index_name === nothing ? 0 : ncodeunits(row_index_name)
-    include_file_paths_arg = include_file_paths === nothing ? Ptr{UInt8}(C_NULL) : include_file_paths
-    include_file_paths_len = include_file_paths === nothing ? 0 : ncodeunits(include_file_paths)
-    hive_partitioning_ref = hive_partitioning === nothing ? Ptr{Bool}(C_NULL) : Ref(hive_partitioning)
+    n_rows_ref = _nullable_ref(n_rows, Csize_t)
+    row_index_name_arg, row_index_name_len = _nullable_str(row_index_name)
+    include_file_paths_arg, include_file_paths_len = _nullable_str(include_file_paths)
+    hive_partitioning_ref = _nullable_ref(hive_partitioning, Bool)
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = _with_cloud_options(storage_options) do cloud_options
@@ -110,8 +105,8 @@ function write_ipc(
         record_batch_size::Union{Nothing, Integer} = nothing
     )
     compression_enum = _ipc_compression_enum(compression)
-    compression_level_ref = compression_level === nothing ? Ptr{Int32}(C_NULL) : Ref(Int32(compression_level))
-    record_batch_size_ref = record_batch_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(record_batch_size))
+    compression_level_ref = _nullable_ref(compression_level, Int32)
+    record_batch_size_ref = _nullable_ref(record_batch_size, Csize_t)
 
     callback = _io_callback()
     ref = Ref(io)
@@ -123,10 +118,7 @@ function write_ipc(
     polars_error(err)
     return nothing
 end
-function write_ipc(p::String, df::DataFrame; kwargs...)
-    occursin("://", p) && error("write_ipc writes local files; use sink_ipc for cloud URIs")
-    return open(io -> write_ipc(io, df; kwargs...), p, "w")
-end
+@wrap_path_writer write_ipc "write_ipc writes local files; use sink_ipc for cloud URIs"
 
 """
     sink_ipc(lf::LazyFrame, path::String; kwargs...)
@@ -155,8 +147,8 @@ function sink_ipc(
         storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     compression_enum = _ipc_compression_enum(compression)
-    compression_level_ref = compression_level === nothing ? Ptr{Int32}(C_NULL) : Ref(Int32(compression_level))
-    record_batch_size_ref = record_batch_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(record_batch_size))
+    compression_level_ref = _nullable_ref(compression_level, Int32)
+    record_batch_size_ref = _nullable_ref(record_batch_size, Csize_t)
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = _with_cloud_options(storage_options) do cloud_options

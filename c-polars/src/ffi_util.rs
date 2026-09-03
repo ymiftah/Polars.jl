@@ -76,23 +76,25 @@ pub(crate) unsafe fn read_bool_mask(ptr: *const bool, n: usize) -> Vec<bool> {
         .collect()
 }
 
-/// Reads an `n`-element `i64` array supplied by the caller (e.g. `Selector::ByIndex`'s column
-/// indices). `n == 0` short-circuits (see `read_names` for why).
-pub(crate) unsafe fn read_i64_array(ptr: *const i64, n: usize) -> Vec<i64> {
+/// Reads an `n`-element array supplied by the caller (e.g. `Selector::ByIndex`'s column indices,
+/// or `cut`/`qcut`'s `breaks`/`probs`, passed by value rather than as `Expr`s). `n == 0`
+/// short-circuits (see `read_names` for why).
+pub(crate) unsafe fn read_array<T: Copy>(ptr: *const T, n: usize) -> Vec<T> {
     if n == 0 {
         return Vec::new();
     }
     std::slice::from_raw_parts(ptr, n).to_vec()
 }
 
-/// Reads an `n`-element `f64` array supplied by the caller (e.g. `cut`/`qcut`'s `breaks`/`probs`,
-/// passed by value rather than as `Expr`s). Modeled on `read_i64_array`; `n == 0` short-circuits
-/// (see `read_names` for why).
-pub(crate) unsafe fn read_f64_array(ptr: *const f64, n: usize) -> Vec<f64> {
-    if n == 0 {
-        return Vec::new();
+/// Reads an optional scalar behind a nullable pointer: `ptr.is_null()` means `None`, otherwise
+/// `Some(*ptr)` -- the shared convention for an optional scalar argument (as opposed to an
+/// optional string, see `read_opt_str` above), e.g. `Expr::shuffle`'s `seed`.
+pub(crate) unsafe fn read_opt_u64(ptr: *const u64) -> Option<u64> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(*ptr)
     }
-    std::slice::from_raw_parts(ptr, n).to_vec()
 }
 
 /// Reads a required `(ptr, len)` UTF-8 string. `len == 0` yields `""` without dereferencing `ptr`

@@ -114,12 +114,10 @@ function scan_parquet(
             "unknown parallel strategy $parallel, expected one of (:auto, :none, :columns, :row_groups)"
         )
 
-    n_rows_ref = n_rows === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n_rows))
-    row_index_name_arg = row_index_name === nothing ? Ptr{UInt8}(C_NULL) : row_index_name
-    row_index_name_len = row_index_name === nothing ? 0 : ncodeunits(row_index_name)
-    include_file_paths_arg = include_file_paths === nothing ? Ptr{UInt8}(C_NULL) : include_file_paths
-    include_file_paths_len = include_file_paths === nothing ? 0 : ncodeunits(include_file_paths)
-    hive_partitioning_ref = hive_partitioning === nothing ? Ptr{Bool}(C_NULL) : Ref(hive_partitioning)
+    n_rows_ref = _nullable_ref(n_rows, Csize_t)
+    row_index_name_arg, row_index_name_len = _nullable_str(row_index_name)
+    include_file_paths_arg, include_file_paths_len = _nullable_str(include_file_paths)
+    hive_partitioning_ref = _nullable_ref(hive_partitioning, Bool)
 
     cast_policy_ref = Ref(
         _to_api_struct(
@@ -152,17 +150,13 @@ keyword options as [`scan_parquet`](@ref) (`n_rows`, `row_index_name`, `hive_par
 """
 read_parquet(path; kwargs...) = collect(scan_parquet(path; kwargs...))
 
-function _parquet_compression_enum(compression::Symbol)
-    compression == :uncompressed && return API.PolarsParquetCompressionUncompressed
-    compression == :snappy && return API.PolarsParquetCompressionSnappy
-    compression == :gzip && return API.PolarsParquetCompressionGzip
-    compression == :brotli && return API.PolarsParquetCompressionBrotli
-    compression == :zstd && return API.PolarsParquetCompressionZstd
-    compression == :lz4_raw && return API.PolarsParquetCompressionLz4Raw
-    return error(
-        "unknown compression $compression, expected one of (:uncompressed, :snappy, :gzip, :brotli, :zstd, :lz4_raw)"
-    )
-end
+_parquet_compression_enum(compression::Symbol) = _enum_lookup(
+    compression, "compression",
+    :uncompressed => API.PolarsParquetCompressionUncompressed,
+    :snappy => API.PolarsParquetCompressionSnappy, :gzip => API.PolarsParquetCompressionGzip,
+    :brotli => API.PolarsParquetCompressionBrotli, :zstd => API.PolarsParquetCompressionZstd,
+    :lz4_raw => API.PolarsParquetCompressionLz4Raw,
+)
 
 """
     write_parquet(io::IO, df::DataFrame;
@@ -196,10 +190,9 @@ function write_parquet(
         data_page_size::Union{Nothing, Integer} = nothing
     )
     compression_enum = _parquet_compression_enum(compression)
-    compression_level_ref = compression_level === nothing ? Ptr{Int32}(C_NULL) :
-        Ref(Int32(compression_level))
-    row_group_size_ref = row_group_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(row_group_size))
-    data_page_size_ref = data_page_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(data_page_size))
+    compression_level_ref = _nullable_ref(compression_level, Int32)
+    row_group_size_ref = _nullable_ref(row_group_size, Csize_t)
+    data_page_size_ref = _nullable_ref(data_page_size, Csize_t)
 
     callback = _io_callback()
     ref = Ref(io)
@@ -253,10 +246,9 @@ function sink_parquet(
         storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     compression_enum = _parquet_compression_enum(compression)
-    compression_level_ref = compression_level === nothing ? Ptr{Int32}(C_NULL) :
-        Ref(Int32(compression_level))
-    row_group_size_ref = row_group_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(row_group_size))
-    data_page_size_ref = data_page_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(data_page_size))
+    compression_level_ref = _nullable_ref(compression_level, Int32)
+    row_group_size_ref = _nullable_ref(row_group_size, Csize_t)
+    data_page_size_ref = _nullable_ref(data_page_size, Csize_t)
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = _with_cloud_options(storage_options) do cloud_options
@@ -306,14 +298,11 @@ function sink_parquet(
         storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
     compression_enum = _parquet_compression_enum(compression)
-    compression_level_ref = compression_level === nothing ? Ptr{Int32}(C_NULL) :
-        Ref(Int32(compression_level))
-    row_group_size_ref = row_group_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(row_group_size))
-    data_page_size_ref = data_page_size === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(data_page_size))
-    max_rows_ref = target.max_rows_per_file === nothing ? Ptr{UInt64}(C_NULL) :
-        Ref(UInt64(target.max_rows_per_file))
-    approx_bytes_ref = target.approximate_bytes_per_file === nothing ? Ptr{UInt64}(C_NULL) :
-        Ref(UInt64(target.approximate_bytes_per_file))
+    compression_level_ref = _nullable_ref(compression_level, Int32)
+    row_group_size_ref = _nullable_ref(row_group_size, Csize_t)
+    data_page_size_ref = _nullable_ref(data_page_size, Csize_t)
+    max_rows_ref = _nullable_ref(target.max_rows_per_file, UInt64)
+    approx_bytes_ref = _nullable_ref(target.approximate_bytes_per_file, UInt64)
     keys = target.by
 
     out = Ref{Ptr{polars_lazy_frame_t}}()

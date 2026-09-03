@@ -53,8 +53,8 @@ cloned, not consumed. Column names are each series' own `name`; a series with an
 assigned `"column_i"` (0-based) instead. Duplicate resulting names raise an error.
 """
 function DataFrame(series::AbstractVector{<:Series})
-    GC.@preserve series begin
-        ptrs = Ptr{polars_series_t}[s.ptr for s in series]
+    owned, ptrs = _handle_ptrs(series, Ptr{polars_series_t})
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_dataframe_t}}()
         err = API.polars_dataframe_new_from_series(ptrs, length(ptrs), out)
         polars_error(err)
@@ -135,13 +135,7 @@ py-polars), rather than this package's default `PrettyTables.jl`-based `Base.sho
 for comparing against upstream output or when you specifically want the canonical polars text
 form.
 """
-function native_repr(df::DataFrame)
-    io = Ref(IOBuffer())
-    callback = _io_callback()
-    err = API.polars_dataframe_show(df, io, callback)
-    polars_error(err)
-    return String(take!(io[]))
-end
+native_repr(df::DataFrame) = String(_io_read((io, cb) -> API.polars_dataframe_show(df, io, cb)))
 
 function _pretty_tables_highlighter_func(data, i::Integer, j::Integer)
     try

@@ -19,8 +19,8 @@ use polars_plan::prelude::Literal;
 
 use crate::{
     ffi_util::{
-        read_bool_mask, read_exprs, read_f64_array, read_i64_array, read_names, read_opt_str,
-        read_str, selector_by_name, IOCallback, UserIOCallback,
+        read_array, read_bool_mask, read_exprs, read_names, read_opt_str, read_opt_u64, read_str,
+        selector_by_name, IOCallback, UserIOCallback,
     },
     guard_error, make_error, polars_error_t,
     types::*,
@@ -310,109 +310,6 @@ pub unsafe extern "C" fn polars_expr_interpolate(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_expr_alias(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().alias(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_prefix(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().name().prefix(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_suffix(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().name().suffix(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-/// Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
-/// contrast [`polars_expr_prefix`], which does that). Gated `#[cfg(feature = "dtype-struct")]` in
-/// polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_prefix_fields(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().name().prefix_fields(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-/// Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
-/// contrast [`polars_expr_suffix`], which does that). Same feature gate as
-/// [`polars_expr_prefix_fields`] above.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_suffix_fields(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        let aliased = (*expr).inner.clone().name().suffix_fields(name);
-        *out = make_expr(aliased);
-        std::ptr::null()
-    })
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_keep_name(expr: *const polars_expr_t) -> *const polars_expr_t {
-    let aliased = (*expr).inner.clone().name().keep();
-    make_expr(aliased)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_to_lowercase(
-    expr: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let aliased = (*expr).inner.clone().name().to_lowercase();
-    make_expr(aliased)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_to_uppercase(
-    expr: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let aliased = (*expr).inner.clone().name().to_uppercase();
-    make_expr(aliased)
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn polars_expr_cast(
     expr: *const polars_expr_t,
     dtype: polars_value_type_t,
@@ -586,6 +483,51 @@ macro_rules! gen_impl_expr {
     };
 }
 
+/// Like `gen_impl_expr!`, but for a fallible method taking one further `(ptr, len)` string
+/// argument -- the shape `alias`/`prefix`/`suffix`/`dt.strftime`/etc. share.
+macro_rules! gen_impl_expr_named {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            expr: *const polars_expr_t,
+            name: *const u8,
+            len: usize,
+            out: *mut *const polars_expr_t,
+        ) -> *const polars_error_t {
+            guard_error(|| {
+                let name = tri!(read_str(name, len));
+                let result = $t((*expr).inner.clone(), name);
+                *out = make_expr(result);
+                std::ptr::null()
+            })
+        }
+    };
+}
+
+gen_impl_expr_named!(polars_expr_alias, |e: Expr, name: &str| e.alias(name));
+gen_impl_expr_named!(polars_expr_prefix, |e: Expr, name: &str| e
+    .name()
+    .prefix(name));
+gen_impl_expr_named!(polars_expr_suffix, |e: Expr, name: &str| e
+    .name()
+    .suffix(name));
+// Prefixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+// contrast `polars_expr_prefix`, which does that). Gated `#[cfg(feature = "dtype-struct")]` in
+// polars-plan, already active here (same feature the rest of the `Structs` namespace needs).
+gen_impl_expr_named!(polars_expr_prefix_fields, |e: Expr, name: &str| e
+    .name()
+    .prefix_fields(name));
+// Suffixes every *field name* of a Struct-typed `expr` (not the expression's own output name --
+// contrast `polars_expr_suffix`, which does that). Same feature gate as `polars_expr_prefix_fields`
+// above.
+gen_impl_expr_named!(polars_expr_suffix_fields, |e: Expr, name: &str| e
+    .name()
+    .suffix_fields(name));
+
+gen_impl_expr!(polars_expr_keep_name, |e: Expr| e.name().keep());
+gen_impl_expr!(polars_expr_to_lowercase, |e: Expr| e.name().to_lowercase());
+gen_impl_expr!(polars_expr_to_uppercase, |e: Expr| e.name().to_uppercase());
+
 gen_impl_expr!(polars_expr_sum, Expr::sum);
 gen_impl_expr!(polars_expr_product, Expr::product);
 gen_impl_expr!(polars_expr_mean, Expr::mean);
@@ -624,16 +566,6 @@ pub unsafe extern "C" fn polars_expr_cov(
     let a = (*a).inner.clone();
     let b = (*b).inner.clone();
     make_expr(cov(a, b, ddof))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_pearson_corr(
-    a: *const polars_expr_t,
-    b: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let a = (*a).inner.clone();
-    let b = (*b).inner.clone();
-    make_expr(pearson_corr(a, b))
 }
 
 #[no_mangle]
@@ -765,7 +697,7 @@ pub unsafe extern "C" fn polars_expr_cut(
 ) -> *const polars_error_t {
     guard_error(|| {
         let expr = (*expr).inner.clone();
-        let breaks = read_f64_array(breaks, n_breaks);
+        let breaks = read_array(breaks, n_breaks);
         let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
         *out = make_expr(expr.cut(breaks, labels, left_closed, false));
         std::ptr::null()
@@ -790,7 +722,7 @@ pub unsafe extern "C" fn polars_expr_qcut(
 ) -> *const polars_error_t {
     guard_error(|| {
         let expr = (*expr).inner.clone();
-        let probs = read_f64_array(probs, n_probs);
+        let probs = read_array(probs, n_probs);
         let labels = tri!(read_opt_labels(labels, label_lens, n_labels));
         *out = make_expr(expr.qcut(probs, labels, left_closed, allow_duplicates, false));
         std::ptr::null()
@@ -1122,17 +1054,60 @@ pub unsafe extern "C" fn polars_expr_round(
     make_expr(expr.round(decimals, mode.to_round_mode()))
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_clip(
-    expr: *const polars_expr_t,
-    min: *const polars_expr_t,
-    max: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*expr).inner.clone();
-    let min = (*min).inner.clone();
-    let max = (*max).inner.clone();
-    make_expr(expr.clip(min, max))
+macro_rules! gen_impl_expr_ternary {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            b: *const polars_expr_t,
+            c: *const polars_expr_t,
+        ) -> *const polars_expr_t {
+            let a = &(*a).inner;
+            let b = &(*b).inner;
+            let c = &(*c).inner;
+            make_expr($t(a.clone(), b.clone(), c.clone()))
+        }
+    };
 }
+
+macro_rules! gen_impl_expr_ternary_list {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            b: *const polars_expr_t,
+            c: *const polars_expr_t,
+        ) -> *const polars_expr_t {
+            let expr = $t(
+                (*a).inner.clone().list(),
+                (*b).inner.clone(),
+                (*c).inner.clone(),
+            );
+            make_expr(expr)
+        }
+    };
+}
+
+macro_rules! gen_impl_expr_ternary_str {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            a: *const polars_expr_t,
+            b: *const polars_expr_t,
+            c: *const polars_expr_t,
+        ) -> *const polars_expr_t {
+            let expr = $t(
+                (*a).inner.clone().str(),
+                (*b).inner.clone(),
+                (*c).inner.clone(),
+            );
+            make_expr(expr)
+        }
+    };
+}
+
+gen_impl_expr_ternary!(polars_expr_clip, |e: Expr, min: Expr, max: Expr| e
+    .clip(min, max));
 
 // Unary negation (`-expr`). Not reachable by composing `0 .- expr` from the existing binary
 // `sub` -- that silently wraps on an unsigned column (e.g. `UInt8` `0-1` -> `255`) where
@@ -1140,17 +1115,8 @@ pub unsafe extern "C" fn polars_expr_clip(
 // instead (upstream `test_neg_unsigned_int`, live-verified both directions before writing this).
 gen_impl_expr!(polars_expr_neg, Neg::neg);
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_replace(
-    expr: *const polars_expr_t,
-    old: *const polars_expr_t,
-    new: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*expr).inner.clone();
-    let old = (*old).inner.clone();
-    let new = (*new).inner.clone();
-    make_expr(expr.replace(old, new))
-}
+gen_impl_expr_ternary!(polars_expr_replace, |e: Expr, old: Expr, new: Expr| e
+    .replace(old, new));
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_replace_strict(
@@ -1360,6 +1326,7 @@ gen_impl_expr_binary!(polars_expr_top_k, Expr::top_k);
 
 gen_impl_expr_binary!(polars_expr_arctan2, Expr::arctan2);
 gen_impl_expr_binary!(polars_expr_dot, Expr::dot);
+gen_impl_expr_binary!(polars_expr_pearson_corr, pearson_corr);
 
 /// Infallible -- `Expr::entropy` only builds a plan node.
 #[no_mangle]
@@ -1372,18 +1339,11 @@ pub unsafe extern "C" fn polars_expr_entropy(
     make_expr(expr.entropy(base, normalize))
 }
 
-/// Infallible -- `Expr::extend_constant` only builds a plan node.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_extend_constant(
-    expr: *const polars_expr_t,
-    value: *const polars_expr_t,
-    n: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*expr).inner.clone();
-    let value = (*value).inner.clone();
-    let n = (*n).inner.clone();
-    make_expr(expr.extend_constant(value, n))
-}
+// Infallible -- `Expr::extend_constant` only builds a plan node.
+gen_impl_expr_ternary!(
+    polars_expr_extend_constant,
+    |e: Expr, value: Expr, n: Expr| e.extend_constant(value, n)
+);
 
 /// Infallible -- `Expr::shuffle` only builds a plan node. `seed` null means "draw one from the OS".
 #[no_mangle]
@@ -1392,7 +1352,7 @@ pub unsafe extern "C" fn polars_expr_shuffle(
     seed: *const u64,
 ) -> *const polars_expr_t {
     let expr = (*expr).inner.clone();
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     make_expr(expr.shuffle(seed))
 }
 
@@ -1519,7 +1479,7 @@ pub unsafe extern "C" fn polars_expr_sample_n(
     shuffle: bool,
     seed: *const u64,
 ) -> *const polars_expr_t {
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     let expr = (*expr).inner.clone();
     let n = (*n).inner.clone();
     make_expr(expr.sample_n(n, with_replacement, shuffle, seed))
@@ -1533,7 +1493,7 @@ pub unsafe extern "C" fn polars_expr_sample_frac(
     shuffle: bool,
     seed: *const u64,
 ) -> *const polars_expr_t {
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     let expr = (*expr).inner.clone();
     let frac = (*frac).inner.clone();
     make_expr(expr.sample_frac(frac, with_replacement, shuffle, seed))
@@ -1876,19 +1836,10 @@ pub unsafe extern "C" fn polars_expr_list_join(
     make_expr(expr)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_list_slice(
-    a: *const polars_expr_t,
-    offset: *const polars_expr_t,
-    length: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*a)
-        .inner
-        .clone()
-        .list()
-        .slice((*offset).inner.clone(), (*length).inner.clone());
-    make_expr(expr)
-}
+gen_impl_expr_ternary_list!(
+    polars_expr_list_slice,
+    |l: ListNameSpace, offset: Expr, length: Expr| l.slice(offset, length)
+);
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_list_gather(
@@ -1904,19 +1855,10 @@ pub unsafe extern "C" fn polars_expr_list_gather(
     make_expr(expr)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_list_gather_every(
-    a: *const polars_expr_t,
-    n: *const polars_expr_t,
-    offset: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*a)
-        .inner
-        .clone()
-        .list()
-        .gather_every((*n).inner.clone(), (*offset).inner.clone());
-    make_expr(expr)
-}
+gen_impl_expr_ternary_list!(
+    polars_expr_list_gather_every,
+    |l: ListNameSpace, n: Expr, offset: Expr| l.gather_every(n, offset)
+);
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_list_diff(
@@ -1940,7 +1882,7 @@ pub unsafe extern "C" fn polars_expr_list_sample_n(
     shuffle: bool,
     seed: *const u64,
 ) -> *const polars_expr_t {
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     let expr =
         (*a).inner
             .clone()
@@ -1957,7 +1899,7 @@ pub unsafe extern "C" fn polars_expr_list_sample_fraction(
     shuffle: bool,
     seed: *const u64,
 ) -> *const polars_expr_t {
-    let seed = if seed.is_null() { None } else { Some(*seed) };
+    let seed = read_opt_u64(seed);
     let expr = (*a).inner.clone().list().sample_fraction(
         (*fraction).inner.clone(),
         with_replacement,
@@ -2153,19 +2095,10 @@ pub unsafe extern "C" fn polars_expr_str_contains(
     make_expr(expr)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_str_slice(
-    a: *const polars_expr_t,
-    offset: *const polars_expr_t,
-    length: *const polars_expr_t,
-) -> *const polars_expr_t {
-    let expr = (*a)
-        .inner
-        .clone()
-        .str()
-        .slice((*offset).inner.clone(), (*length).inner.clone());
-    make_expr(expr)
-}
+gen_impl_expr_ternary_str!(
+    polars_expr_str_slice,
+    |s: StringNameSpace, offset: Expr, length: Expr| s.slice(offset, length)
+);
 
 /// Position (not just presence, unlike `contains`) of the first regex match.
 #[no_mangle]
@@ -2464,55 +2397,40 @@ pub unsafe extern "C" fn polars_expr_dt_replace_time_zone(
     })
 }
 
-/// Fallible since `polars_time_unit_t` mirrors a Julia-side `@cenum` and must reject an
-/// out-of-range value rather than let `to_time_unit` panic across the FFI boundary.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_dt_timestamp(
-    expr: *const polars_expr_t,
-    unit: polars_time_unit_t,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let unit = tri!(unit.to_time_unit());
-        let result = (*expr).inner.clone().dt().timestamp(unit);
-        *out = make_expr(result);
-        std::ptr::null()
-    })
+// Like `gen_impl_expr_dt!`, but for the sub-family that takes a `polars_time_unit_t` and must
+// convert it fallibly (`to_time_unit` rejects an out-of-range enum value rather than panicking
+// across the FFI boundary -- `polars_time_unit_t` mirrors a Julia-side `@cenum`).
+macro_rules! gen_impl_expr_dt_timeunit {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(
+            expr: *const polars_expr_t,
+            unit: polars_time_unit_t,
+            out: *mut *const polars_expr_t,
+        ) -> *const polars_error_t {
+            guard_error(|| {
+                let unit = tri!(unit.to_time_unit());
+                let result = $t((*expr).inner.clone(), unit);
+                *out = make_expr(result);
+                std::ptr::null()
+            })
+        }
+    };
 }
 
-/// Changes the underlying `TimeUnit` and rescales the data accordingly (e.g. `:ms` -> `:ns`
-/// multiplies by 1e6). Compare [`polars_expr_dt_with_time_unit`], which relabels without rescaling.
-/// Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_dt_cast_time_unit(
-    expr: *const polars_expr_t,
-    unit: polars_time_unit_t,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let unit = tri!(unit.to_time_unit());
-        let result = (*expr).inner.clone().dt().cast_time_unit(unit);
-        *out = make_expr(result);
-        std::ptr::null()
-    })
-}
-
-/// Relabels the underlying `TimeUnit` without touching the data (e.g. reinterpreting `:ms` values
-/// as `:ns` without rescaling). Compare [`polars_expr_dt_cast_time_unit`], which rescales.
-/// Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_dt_with_time_unit(
-    expr: *const polars_expr_t,
-    unit: polars_time_unit_t,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let unit = tri!(unit.to_time_unit());
-        let result = (*expr).inner.clone().dt().with_time_unit(unit);
-        *out = make_expr(result);
-        std::ptr::null()
-    })
-}
+gen_impl_expr_dt_timeunit!(polars_expr_dt_timestamp, |e: Expr, unit| e
+    .dt()
+    .timestamp(unit));
+// Changes the underlying `TimeUnit` and rescales the data accordingly (e.g. `:ms` -> `:ns`
+// multiplies by 1e6). Compare `polars_expr_dt_with_time_unit`, which relabels without rescaling.
+gen_impl_expr_dt_timeunit!(polars_expr_dt_cast_time_unit, |e: Expr, unit| e
+    .dt()
+    .cast_time_unit(unit));
+// Relabels the underlying `TimeUnit` without touching the data (e.g. reinterpreting `:ms` values
+// as `:ns` without rescaling). Compare `polars_expr_dt_cast_time_unit`, which rescales.
+gen_impl_expr_dt_timeunit!(polars_expr_dt_with_time_unit, |e: Expr, unit| e
+    .dt()
+    .with_time_unit(unit));
 
 /// Combines a Date/Datetime `expr` with a Time `time`, producing a new Datetime at the given
 /// `TimeUnit`. Fallible for the same reason as [`polars_expr_dt_timestamp`] above.
@@ -2566,20 +2484,9 @@ pub unsafe extern "C" fn polars_expr_dt_replace(
     make_expr(result)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_dt_strftime(
-    expr: *const polars_expr_t,
-    format: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let format = tri!(read_str(format, len));
-        let result = (*expr).inner.clone().dt().strftime(format);
-        *out = make_expr(result);
-        std::ptr::null()
-    })
-}
+gen_impl_expr_named!(polars_expr_dt_strftime, |e: Expr, format: &str| e
+    .dt()
+    .strftime(format));
 
 /// `total_*` Duration-decomposition family (`total_days`/`total_hours`/`total_minutes`/
 /// `total_seconds`/`total_milliseconds`/`total_microseconds`/`total_nanoseconds`) -- each takes
@@ -2626,19 +2533,9 @@ gen_impl_expr_dt_fractional!(
     DateLikeNameSpace::total_nanoseconds
 );
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_struct_field_by_name(
-    a: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    guard_error(|| {
-        let name = tri!(read_str(name, len));
-        *out = make_expr((*a).inner.clone().struct_().field_by_name(name));
-        std::ptr::null()
-    })
-}
+gen_impl_expr_named!(polars_expr_struct_field_by_name, |e: Expr, name: &str| e
+    .struct_()
+    .field_by_name(name));
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_struct_field_by_index(
@@ -2707,12 +2604,9 @@ pub unsafe extern "C" fn polars_expr_meta_has_multiple_outputs(expr: *const pola
     (*expr).inner.clone().meta().has_multiple_outputs()
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_meta_undo_aliases(
-    expr: *const polars_expr_t,
-) -> *const polars_expr_t {
-    make_expr((*expr).inner.clone().meta().undo_aliases())
-}
+gen_impl_expr!(polars_expr_meta_undo_aliases, |e: Expr| e
+    .meta()
+    .undo_aliases());
 
 /// Fails if the expression has no single well-defined output name (e.g. a wildcard or a
 /// selector-expanded expression).
@@ -2836,7 +2730,7 @@ pub unsafe extern "C" fn polars_expr_selector_by_index(
     n: usize,
     strict: bool,
 ) -> *const polars_expr_t {
-    let indices = read_i64_array(indices, n);
+    let indices = read_array(indices, n);
     make_expr(Expr::Selector(Selector::ByIndex {
         indices: indices.into(),
         strict,

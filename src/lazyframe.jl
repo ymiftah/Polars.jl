@@ -95,13 +95,8 @@ Renders `df`'s query plan as text. With `optimized=true` (the default) this is t
 actually execute, after predicate/projection pushdown and the other optimizer passes; with
 `optimized=false` it is the plan exactly as built.
 """
-function explain(df::LazyFrame; optimized::Bool = true)
-    io = Ref(IOBuffer())
-    callback = _io_callback()
-    err = API.polars_lazy_frame_explain(df, optimized, io, callback)
-    polars_error(err)
-    return String(take!(io[]))
-end
+explain(df::LazyFrame; optimized::Bool = true) =
+    String(_io_read((io, cb) -> API.polars_lazy_frame_explain(df, optimized, io, cb)))
 
 """
     cache(df::LazyFrame)::LazyFrame

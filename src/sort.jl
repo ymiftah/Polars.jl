@@ -56,24 +56,14 @@ Base.sort(df::DataFrame, exprs...; rev = false, stable = true, nulls_last = true
 
 function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
     nexprs = length(exprs)
-    descending = rev isa Bool ? fill(rev, nexprs) : rev
-    # A real exception, not an `@assert`: this validates a user-supplied argument, which the Julia
-    # manual explicitly says assertions (removable, and semantically "this cannot happen") must
-    # not be used for.
-    length(descending) == nexprs || throw(
-        ArgumentError(
-            "rev must have one entry per sort expression (got $nexprs expressions and " *
-                "$(length(descending)) rev)"
-        )
-    )
+    descending = _resolve_descending(rev, nexprs, "sort")
 
     maintain_order = stable
 
-    exprs = Expr[_as_expr(e) for e in exprs]
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
+    owned, ptrs = _handle_ptrs(Expr[_as_expr(e) for e in exprs], Ptr{polars_expr_t})
+    GC.@preserve owned begin
         API.polars_lazy_frame_sort(
-            df, exprs_ptrs,
+            df, ptrs,
             nexprs, descending,
             nulls_last, maintain_order,
         )
@@ -113,21 +103,14 @@ bottom_k(df::DataFrame, k::Integer, exprs...; rev = false, stable = true) =
 
 function _top_or_bottom_k!(df::LazyFrame, k::Integer, exprs::Vector, rev, stable, bottom::Bool)
     nexprs = length(exprs)
-    descending = rev isa Bool ? fill(rev, nexprs) : rev
-    length(descending) == nexprs || throw(
-        ArgumentError(
-            "rev must have one entry per key expression (got $nexprs expressions and " *
-                "$(length(descending)) rev)"
-        )
-    )
+    descending = _resolve_descending(rev, nexprs, "key")
 
     maintain_order = stable
 
-    exprs = Expr[_as_expr(e) for e in exprs]
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
+    owned, ptrs = _handle_ptrs(Expr[_as_expr(e) for e in exprs], Ptr{polars_expr_t})
+    GC.@preserve owned begin
         f = bottom ? API.polars_lazy_frame_bottom_k : API.polars_lazy_frame_top_k
-        f(df, k, exprs_ptrs, nexprs, descending, maintain_order)
+        f(df, k, ptrs, nexprs, descending, maintain_order)
     end
 
     return df

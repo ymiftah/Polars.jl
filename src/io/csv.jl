@@ -1,21 +1,14 @@
-function _quote_style_enum(quote_style::Symbol)
-    quote_style == :necessary && return API.PolarsQuoteStyleNecessary
-    quote_style == :always && return API.PolarsQuoteStyleAlways
-    quote_style == :non_numeric && return API.PolarsQuoteStyleNonNumeric
-    quote_style == :never && return API.PolarsQuoteStyleNever
-    return error(
-        "unknown quote_style $quote_style, expected one of (:necessary, :always, :non_numeric, :never)"
-    )
-end
+_quote_style_enum(quote_style::Symbol) = _enum_lookup(
+    quote_style, "quote_style",
+    :necessary => API.PolarsQuoteStyleNecessary, :always => API.PolarsQuoteStyleAlways,
+    :non_numeric => API.PolarsQuoteStyleNonNumeric, :never => API.PolarsQuoteStyleNever,
+)
 
-function _csv_compression_enum(compression::Symbol)
-    compression == :uncompressed && return API.PolarsCsvCompressionUncompressed
-    compression == :gzip && return API.PolarsCsvCompressionGzip
-    compression == :zstd && return API.PolarsCsvCompressionZstd
-    return error(
-        "unknown compression $compression, expected one of (:uncompressed, :gzip, :zstd)"
-    )
-end
+_csv_compression_enum(compression::Symbol) = _enum_lookup(
+    compression, "compression",
+    :uncompressed => API.PolarsCsvCompressionUncompressed, :gzip => API.PolarsCsvCompressionGzip,
+    :zstd => API.PolarsCsvCompressionZstd,
+)
 
 """
     scan_csv(path::String;
@@ -98,17 +91,13 @@ function scan_csv(
         allow_missing_columns::Bool = false,
         storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
-    n_rows_ref = n_rows === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n_rows))
-    row_index_name_arg = row_index_name === nothing ? Ptr{UInt8}(C_NULL) : row_index_name
-    row_index_name_len = row_index_name === nothing ? 0 : ncodeunits(row_index_name)
-    quote_char_ref = quote_char === nothing ? Ptr{UInt8}(C_NULL) : Ref(UInt8(quote_char))
-    comment_prefix_arg = comment_prefix === nothing ? Ptr{UInt8}(C_NULL) : comment_prefix
-    comment_prefix_len = comment_prefix === nothing ? 0 : ncodeunits(comment_prefix)
-    null_value_arg = null_value === nothing ? Ptr{UInt8}(C_NULL) : null_value
-    null_value_len = null_value === nothing ? 0 : ncodeunits(null_value)
-    infer_schema_length_ref = infer_schema_length === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(infer_schema_length))
-    include_file_paths_arg = include_file_paths === nothing ? Ptr{UInt8}(C_NULL) : include_file_paths
-    include_file_paths_len = include_file_paths === nothing ? 0 : ncodeunits(include_file_paths)
+    n_rows_ref = _nullable_ref(n_rows, Csize_t)
+    row_index_name_arg, row_index_name_len = _nullable_str(row_index_name)
+    quote_char_ref = _nullable_ref(quote_char, UInt8)
+    comment_prefix_arg, comment_prefix_len = _nullable_str(comment_prefix)
+    null_value_arg, null_value_len = _nullable_str(null_value)
+    infer_schema_length_ref = _nullable_ref(infer_schema_length, Csize_t)
+    include_file_paths_arg, include_file_paths_len = _nullable_str(include_file_paths)
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = _with_cloud_options(storage_options) do cloud_options
@@ -186,17 +175,12 @@ function write_csv(
         float_precision::Union{Nothing, Integer} = nothing,
         decimal_comma::Bool = false
     )
-    null_value_arg = null_value === nothing ? Ptr{UInt8}(C_NULL) : null_value
-    null_value_len = null_value === nothing ? 0 : ncodeunits(null_value)
-    line_terminator_arg = line_terminator === nothing ? Ptr{UInt8}(C_NULL) : line_terminator
-    line_terminator_len = line_terminator === nothing ? 0 : ncodeunits(line_terminator)
-    date_format_arg = date_format === nothing ? Ptr{UInt8}(C_NULL) : date_format
-    date_format_len = date_format === nothing ? 0 : ncodeunits(date_format)
-    time_format_arg = time_format === nothing ? Ptr{UInt8}(C_NULL) : time_format
-    time_format_len = time_format === nothing ? 0 : ncodeunits(time_format)
-    datetime_format_arg = datetime_format === nothing ? Ptr{UInt8}(C_NULL) : datetime_format
-    datetime_format_len = datetime_format === nothing ? 0 : ncodeunits(datetime_format)
-    float_precision_ref = float_precision === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(float_precision))
+    null_value_arg, null_value_len = _nullable_str(null_value)
+    line_terminator_arg, line_terminator_len = _nullable_str(line_terminator)
+    date_format_arg, date_format_len = _nullable_str(date_format)
+    time_format_arg, time_format_len = _nullable_str(time_format)
+    datetime_format_arg, datetime_format_len = _nullable_str(datetime_format)
+    float_precision_ref = _nullable_ref(float_precision, Csize_t)
     quote_style_enum = _quote_style_enum(quote_style)
 
     callback = _io_callback()
@@ -212,10 +196,7 @@ function write_csv(
     polars_error(err)
     return nothing
 end
-function write_csv(p::String, df::DataFrame; kwargs...)
-    occursin("://", p) && error("write_csv writes local files; use sink_csv for cloud URIs")
-    return open(io -> write_csv(io, df; kwargs...), p, "w")
-end
+@wrap_path_writer write_csv "write_csv writes local files; use sink_csv for cloud URIs"
 
 """
     sink_csv(lf::LazyFrame, path::String; kwargs..., compression::Symbol=:uncompressed,
@@ -257,20 +238,15 @@ function sink_csv(
         maintain_order::Bool = true,
         storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
-    null_value_arg = null_value === nothing ? Ptr{UInt8}(C_NULL) : null_value
-    null_value_len = null_value === nothing ? 0 : ncodeunits(null_value)
-    line_terminator_arg = line_terminator === nothing ? Ptr{UInt8}(C_NULL) : line_terminator
-    line_terminator_len = line_terminator === nothing ? 0 : ncodeunits(line_terminator)
-    date_format_arg = date_format === nothing ? Ptr{UInt8}(C_NULL) : date_format
-    date_format_len = date_format === nothing ? 0 : ncodeunits(date_format)
-    time_format_arg = time_format === nothing ? Ptr{UInt8}(C_NULL) : time_format
-    time_format_len = time_format === nothing ? 0 : ncodeunits(time_format)
-    datetime_format_arg = datetime_format === nothing ? Ptr{UInt8}(C_NULL) : datetime_format
-    datetime_format_len = datetime_format === nothing ? 0 : ncodeunits(datetime_format)
-    float_precision_ref = float_precision === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(float_precision))
+    null_value_arg, null_value_len = _nullable_str(null_value)
+    line_terminator_arg, line_terminator_len = _nullable_str(line_terminator)
+    date_format_arg, date_format_len = _nullable_str(date_format)
+    time_format_arg, time_format_len = _nullable_str(time_format)
+    datetime_format_arg, datetime_format_len = _nullable_str(datetime_format)
+    float_precision_ref = _nullable_ref(float_precision, Csize_t)
     quote_style_enum = _quote_style_enum(quote_style)
     compression_enum = _csv_compression_enum(compression)
-    compression_level_ref = compression_level === nothing ? Ptr{UInt32}(C_NULL) : Ref(UInt32(compression_level))
+    compression_level_ref = _nullable_ref(compression_level, UInt32)
 
     out = Ref{Ptr{polars_lazy_frame_t}}()
     err = _with_cloud_options(storage_options) do cloud_options

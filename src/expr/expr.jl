@@ -382,6 +382,7 @@ function cast_datetime(
     polars_error(err)
     return Expr(out[])
 end
+@curry cast_datetime(; time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing)
 
 """
     cast_duration(expr::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr
@@ -601,7 +602,7 @@ Randomly permutes `expr`'s values. `seed` makes the permutation reproducible; `n
 default) draws a fresh seed from the OS each call.
 """
 function shuffle(expr::Expr; seed::Union{Nothing, Integer} = nothing)
-    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    seed_ref = _nullable_ref(seed, UInt64)
     out = GC.@preserve seed_ref API.polars_expr_shuffle(expr, seed_ref)
     return Expr(out)
 end
@@ -754,7 +755,7 @@ function fill_null(expr::Expr; strategy::Symbol, limit::Union{Nothing, Integer} 
         :zero => API.PolarsFillNullStrategyZero,
         :one => API.PolarsFillNullStrategyOne,
     )
-    limit_ref = limit === nothing ? Ptr{UInt32}(C_NULL) : Ref(UInt32(limit))
+    limit_ref = _nullable_ref(limit, UInt32)
     out = GC.@preserve limit_ref API.polars_expr_fill_null_with_strategy(expr, strategy_enum, limit_ref)
     return Expr(out)
 end
@@ -965,16 +966,9 @@ own values -- typically used inside [`over`](@ref)/[`agg`](@ref) for "most recen
 function sort_by(expr::Expr, by...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
     by = _expr_vector(by)
     n_by = length(by)
-    descending = rev isa Bool ? fill(rev, n_by) : rev
-    # See `_sort!` in sort.jl: user-argument validation gets a real exception, not an `@assert`.
-    length(descending) == n_by || throw(
-        ArgumentError(
-            "rev must have one entry per by expression (got $n_by by expressions and " *
-                "$(length(descending)) rev)"
-        )
-    )
-    GC.@preserve by begin
-        by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
+    descending = _resolve_descending(rev, n_by, "by")
+    owned, by_ptrs = _handle_ptrs(by, Ptr{polars_expr_t})
+    GC.@preserve owned begin
         out = API.polars_expr_sort_by(expr, by_ptrs, n_by, descending, nulls_last, maintain_order)
     end
     return Expr(out)
@@ -1061,7 +1055,7 @@ Returns the first `n` values of `expr`'s result (default: polars' own default of
 from `head` on a `LazyFrame`/`DataFrame`, which takes the first `n` whole rows.
 """
 function head(expr::Expr, n::Union{Nothing, Integer} = nothing)
-    n_ref = n === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n))
+    n_ref = _nullable_ref(n, Csize_t)
     out = GC.@preserve n_ref API.polars_expr_head(expr, n_ref)
     return Expr(out)
 end
@@ -1079,7 +1073,7 @@ Returns the last `n` values of `expr`'s result (default: polars' own default of 
     `Base.tail` for the rest of the module, breaking `import Base: tail` wherever it runs next.
 """
 function Base.tail(expr::Expr, n::Union{Nothing, Integer} = nothing)
-    n_ref = n === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n))
+    n_ref = _nullable_ref(n, Csize_t)
     out = GC.@preserve n_ref API.polars_expr_tail(expr, n_ref)
     return Expr(out)
 end
@@ -1143,15 +1137,9 @@ function top_k_by(expr::Expr, k, by...; rev = false)
     k = convert(Expr, k)
     by = _expr_vector(by)
     n_by = length(by)
-    descending = rev isa Bool ? fill(rev, n_by) : rev
-    length(descending) == n_by || throw(
-        ArgumentError(
-            "rev must have one entry per by expression (got $n_by by expressions and " *
-                "$(length(descending)) rev)"
-        )
-    )
-    GC.@preserve by begin
-        by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
+    descending = _resolve_descending(rev, n_by, "by")
+    owned, by_ptrs = _handle_ptrs(by, Ptr{polars_expr_t})
+    GC.@preserve owned begin
         out = API.polars_expr_top_k_by(expr, k, by_ptrs, n_by, descending)
     end
     return Expr(out)
@@ -1169,15 +1157,9 @@ function bottom_k_by(expr::Expr, k, by...; rev = false)
     k = convert(Expr, k)
     by = _expr_vector(by)
     n_by = length(by)
-    descending = rev isa Bool ? fill(rev, n_by) : rev
-    length(descending) == n_by || throw(
-        ArgumentError(
-            "rev must have one entry per by expression (got $n_by by expressions and " *
-                "$(length(descending)) rev)"
-        )
-    )
-    GC.@preserve by begin
-        by_ptrs = Ptr{polars_expr_t}[e.ptr for e in by]
+    descending = _resolve_descending(rev, n_by, "by")
+    owned, by_ptrs = _handle_ptrs(by, Ptr{polars_expr_t})
+    GC.@preserve owned begin
         out = API.polars_expr_bottom_k_by(expr, k, by_ptrs, n_by, descending)
     end
     return Expr(out)
@@ -1201,9 +1183,8 @@ _expr_vector(args) = Expr[_as_expr(arg) for arg in args]
 Returns the first non-null value among `exprs`, evaluated left to right.
 """
 function Base.coalesce(first::Expr, rest::Expr...)
-    exprs = _expr_vector((first, rest...))
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+    owned, ptrs = _handle_ptrs(_expr_vector((first, rest...)), Ptr{polars_expr_t})
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_expr_t}}()
         err = API.polars_expr_coalesce(ptrs, length(ptrs), out)
         polars_error(err)
@@ -1230,10 +1211,9 @@ value) and [`Lists.join`](@ref Polars.Lists.join) (joins each row's own list ind
 sibling columns within each row.
 """
 function concat_str(exprs...; separator::AbstractString = "", ignore_nulls::Bool = false)
-    exprs = _expr_vector(exprs)
+    owned, ptrs = _handle_ptrs(_expr_vector(exprs), Ptr{polars_expr_t})
     separator = String(separator)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_expr_t}}()
         err = API.polars_expr_concat_str(
             ptrs, length(ptrs), separator, ncodeunits(separator), ignore_nulls, out
@@ -1259,10 +1239,9 @@ several columns; see also [`concat_str`](@ref), which joins with a fixed separat
 template.
 """
 function format(fmt::AbstractString, args...)
-    exprs = _expr_vector(args)
+    owned, ptrs = _handle_ptrs(_expr_vector(args), Ptr{polars_expr_t})
     fmt = String(fmt)
-    GC.@preserve exprs begin
-        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+    GC.@preserve owned begin
         out = Ref{Ptr{polars_expr_t}}()
         err = API.polars_expr_format(fmt, ncodeunits(fmt), ptrs, length(ptrs), out)
         polars_error(err)

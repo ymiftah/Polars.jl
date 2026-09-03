@@ -33,10 +33,9 @@ The values for the group-by can be aggregated using the [`agg`](@ref) function.
 group_by(df::LazyFrame, exprs...; maintain_order::Bool = false) =
     groupby(df, collect(exprs)::Vector; maintain_order)
 function groupby(df::LazyFrame, exprs::Vector; maintain_order::Bool = false)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
-        out = polars_lazy_frame_group_by(df, exprs_ptrs, length(exprs_ptrs), maintain_order)
+    owned, ptrs = _handle_ptrs(_expr_vector(exprs), Ptr{polars_expr_t})
+    GC.@preserve owned begin
+        out = polars_lazy_frame_group_by(df, ptrs, length(ptrs), maintain_order)
     end
     return LazyGroupBy(out)
 end
@@ -48,10 +47,9 @@ Aggregates the value over the group-by object and return a resulting [`LazyFrame
 """
 agg(gb::LazyGroupBy, exprs...) = agg(gb, collect(exprs)::Vector)
 function agg(gb::LazyGroupBy, exprs::Vector)
-    exprs = _expr_vector(exprs)
-    GC.@preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
-        out = polars_lazy_group_by_agg(gb, exprs_ptrs, length(exprs_ptrs))
+    owned, ptrs = _handle_ptrs(_expr_vector(exprs), Ptr{polars_expr_t})
+    GC.@preserve owned begin
+        out = polars_lazy_group_by_agg(gb, ptrs, length(ptrs))
     end
     return LazyFrame(out)
 end
@@ -91,27 +89,26 @@ function group_by_dynamic(
     group_by = _expr_vector(group_by)
     period = something(period, every)
 
-    label_cenum = label === :left ? API.PolarsLabelLeft :
-        label === :right ? API.PolarsLabelRight :
-        label === :data_point ? API.PolarsLabelDataPoint :
-        error("invalid label $label, expected :left, :right, or :data_point")
+    label_cenum = _enum_lookup(
+        label, "label",
+        :left => API.PolarsLabelLeft, :right => API.PolarsLabelRight,
+        :data_point => API.PolarsLabelDataPoint,
+    )
 
-    closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
-        closed === :right ? API.PolarsClosedWindowRight :
-        closed === :both ? API.PolarsClosedWindowBoth :
-        closed === :none ? API.PolarsClosedWindowNone :
-        error("invalid closed $closed, expected :left, :right, :both, or :none")
+    closed_cenum = _enum_lookup(
+        closed, "closed",
+        :left => API.PolarsClosedWindowLeft, :right => API.PolarsClosedWindowRight,
+        :both => API.PolarsClosedWindowBoth, :none => API.PolarsClosedWindowNone,
+    )
 
-    start_by_cenum = start_by === :window_bound ? API.PolarsStartByWindowBound :
-        start_by === :data_point ? API.PolarsStartByDataPoint :
-        start_by === :monday ? API.PolarsStartByMonday :
-        start_by === :tuesday ? API.PolarsStartByTuesday :
-        start_by === :wednesday ? API.PolarsStartByWednesday :
-        start_by === :thursday ? API.PolarsStartByThursday :
-        start_by === :friday ? API.PolarsStartByFriday :
-        start_by === :saturday ? API.PolarsStartBySaturday :
-        start_by === :sunday ? API.PolarsStartBySunday :
-        error("invalid start_by $start_by")
+    start_by_cenum = _enum_lookup(
+        start_by, "start_by",
+        :window_bound => API.PolarsStartByWindowBound, :data_point => API.PolarsStartByDataPoint,
+        :monday => API.PolarsStartByMonday, :tuesday => API.PolarsStartByTuesday,
+        :wednesday => API.PolarsStartByWednesday, :thursday => API.PolarsStartByThursday,
+        :friday => API.PolarsStartByFriday, :saturday => API.PolarsStartBySaturday,
+        :sunday => API.PolarsStartBySunday,
+    )
 
     # `every`/`period`/`offset` are passed as raw (pointer, len) pairs below (not through a
     # `String`-accepting ccall wrapper that would `cconvert` them itself), so they must be listed
@@ -166,11 +163,11 @@ function rolling(
     index_expr = _as_expr(index_column)
     group_by = _expr_vector(group_by)
 
-    closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
-        closed === :right ? API.PolarsClosedWindowRight :
-        closed === :both ? API.PolarsClosedWindowBoth :
-        closed === :none ? API.PolarsClosedWindowNone :
-        error("invalid closed $closed, expected :left, :right, :both, or :none")
+    closed_cenum = _enum_lookup(
+        closed, "closed",
+        :left => API.PolarsClosedWindowLeft, :right => API.PolarsClosedWindowRight,
+        :both => API.PolarsClosedWindowBoth, :none => API.PolarsClosedWindowNone,
+    )
 
     # See the matching comment in `group_by_dynamic` above: `period`/`offset` are passed as raw
     # (pointer, len) pairs, so they must be preserved through the ccall explicitly.

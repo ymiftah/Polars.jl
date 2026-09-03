@@ -1,19 +1,9 @@
 module Structs
-    using ..Polars: API, polars_expr_t, Expr, polars_error, _name_ptrs
+    using ..Polars: @wrap_expr_method, @curry, API, polars_expr_t, Expr, polars_error, _name_ptrs,
+        _handle_ptrs
 
-    """
-        field_by_name(expr::Polars.Expr, name::String)::Polars.Expr
-        field_by_name(name::String)::Base.Fix2{typeof(field_by_name), String}
-
-    Returns a new expression corresponding to values of the selected field.
-    """
-    function field_by_name(expr, name)
-        out = Ref{Ptr{polars_expr_t}}()
-        err = API.polars_expr_struct_field_by_name(expr, name, ncodeunits(name), out)
-        polars_error(err)
-        return Expr(out[])
-    end
-    field_by_name(name) = Base.Fix2(field_by_name, name)
+    @wrap_expr_method field_by_name(expr::Expr, name::AbstractString) polars_expr_struct_field_by_name "Returns a new expression corresponding to values of the selected field."
+    @curry field_by_name(name) fix2 = true
 
     """
         field_by_index(expr::Polars.Expr, index::Integer)::Polars.Expr
@@ -25,7 +15,7 @@ module Structs
         field = API.polars_expr_struct_field_by_index(expr, fieldidx)
         return Expr(field)
     end
-    field_by_index(fieldidx) = Base.Fix2(field_by_index, fieldidx)
+    @curry field_by_index(fieldidx) fix2 = true
 
     """
         rename_fields(expr::Polars.Expr, new_names::Vector{String})::Polars.Expr
@@ -42,7 +32,7 @@ module Structs
         end
         return Expr(out[])
     end
-    rename_fields(new_names) = Base.Fix2(rename_fields, new_names)
+    @curry rename_fields(new_names) fix2 = true
 
     """
         with_fields(expr::Polars.Expr, fields::Polars.Expr...)::Polars.Expr
@@ -54,9 +44,8 @@ module Structs
     new field instead.
     """
     function with_fields(expr::Expr, fields::Expr...)
-        fields = collect(Expr, fields)
-        GC.@preserve fields begin
-            ptrs = Ptr{polars_expr_t}[f.ptr for f in fields]
+        owned, ptrs = _handle_ptrs(collect(Expr, fields), Ptr{polars_expr_t})
+        GC.@preserve owned begin
             out = API.polars_expr_struct_with_fields(expr, ptrs, length(ptrs))
         end
         return Expr(out)

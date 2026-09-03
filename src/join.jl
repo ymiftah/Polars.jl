@@ -1,21 +1,17 @@
-function _join_coalesce_enum(coalesce::Symbol)
-    coalesce == :join_specific && return API.PolarsJoinCoalesceJoinSpecific
-    coalesce == :coalesce_columns && return API.PolarsJoinCoalesceCoalesceColumns
-    coalesce == :keep_columns && return API.PolarsJoinCoalesceKeepColumns
-    return error(
-        "unknown coalesce $coalesce, expected one of (:join_specific, :coalesce_columns, :keep_columns)"
-    )
-end
+_join_coalesce_enum(coalesce::Symbol) = _enum_lookup(
+    coalesce, "coalesce",
+    :join_specific => API.PolarsJoinCoalesceJoinSpecific,
+    :coalesce_columns => API.PolarsJoinCoalesceCoalesceColumns,
+    :keep_columns => API.PolarsJoinCoalesceKeepColumns,
+)
 
-function _join_validation_enum(validate::Symbol)
-    validate == :many_to_many && return API.PolarsJoinValidationManyToMany
-    validate == :many_to_one && return API.PolarsJoinValidationManyToOne
-    validate == :one_to_many && return API.PolarsJoinValidationOneToMany
-    validate == :one_to_one && return API.PolarsJoinValidationOneToOne
-    return error(
-        "unknown validate $validate, expected one of (:many_to_many, :many_to_one, :one_to_many, :one_to_one)"
-    )
-end
+_join_validation_enum(validate::Symbol) = _enum_lookup(
+    validate, "validate",
+    :many_to_many => API.PolarsJoinValidationManyToMany,
+    :many_to_one => API.PolarsJoinValidationManyToOne,
+    :one_to_many => API.PolarsJoinValidationOneToMany,
+    :one_to_one => API.PolarsJoinValidationOneToOne,
+)
 
 function _join(
         a::LazyFrame, b::LazyFrame, exprs_a::Vector, exprs_b::Vector, how;
@@ -29,15 +25,12 @@ function _join(
     # `:streaming` engines) -- caught by `guard_error`'s `catch_unwind` rather than aborting the
     # process, but there is no working codepath behind it to expose. The FFI parameter stays
     # (always null here) so a future polars upgrade that fixes this needs only a Julia-side change.
-    exprs_a = _expr_vector(exprs_a)
-    exprs_b = _expr_vector(exprs_b)
     coalesce_enum = _join_coalesce_enum(coalesce)
     validate_enum = _join_validation_enum(validate)
-    suffix_arg = suffix === nothing ? Ptr{UInt8}(C_NULL) : suffix
-    suffix_len = suffix === nothing ? 0 : ncodeunits(suffix)
-    GC.@preserve exprs_a exprs_b begin
-        exprs_a_ptr = Ptr{polars_expr_t}[expr.ptr for expr in exprs_a]
-        exprs_b_ptr = Ptr{polars_expr_t}[expr.ptr for expr in exprs_b]
+    suffix_arg, suffix_len = _nullable_str(suffix)
+    owned_a, exprs_a_ptr = _handle_ptrs(_expr_vector(exprs_a), Ptr{polars_expr_t})
+    owned_b, exprs_b_ptr = _handle_ptrs(_expr_vector(exprs_b), Ptr{polars_expr_t})
+    GC.@preserve owned_a owned_b begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_join(
             a, b,
@@ -190,10 +183,8 @@ function join_asof(
     end
     by_left_names, by_left_ptrs, by_left_lens = _name_ptrs(by_left)
     by_right_names, by_right_ptrs, by_right_lens = _name_ptrs(by_right)
-    tolerance_arg = tolerance === nothing ? Ptr{UInt8}(C_NULL) : tolerance
-    tolerance_len = tolerance === nothing ? 0 : ncodeunits(tolerance)
-    suffix_arg = suffix === nothing ? Ptr{UInt8}(C_NULL) : suffix
-    suffix_len = suffix === nothing ? 0 : ncodeunits(suffix)
+    tolerance_arg, tolerance_len = _nullable_str(tolerance)
+    suffix_arg, suffix_len = _nullable_str(suffix)
     GC.@preserve by_left_names by_right_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
         err = polars_lazy_frame_join_asof(

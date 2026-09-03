@@ -80,8 +80,7 @@ function unnest(
         lf::LazyFrame, columns::Vector{<:ColId};
         separator::Union{Nothing, AbstractString} = nothing
     )
-    separator_arg = separator === nothing ? Ptr{UInt8}(C_NULL) : separator
-    separator_len = separator === nothing ? 0 : ncodeunits(separator)
+    separator_arg, separator_len = _nullable_str(separator)
     owned_names, ptrs, lens = _name_ptrs(columns)
     GC.@preserve owned_names begin
         out = Ref{Ptr{polars_lazy_frame_t}}()
@@ -118,13 +117,10 @@ function pivot(
     lf = lazy(df)
     on_columns = collect(unique(select(lf, map(col, on)...)))
 
-    naming_enum = if column_naming == :auto
-        API.PolarsPivotColumnNamingAuto
-    elseif column_naming == :combine
-        API.PolarsPivotColumnNamingCombine
-    else
-        error("unknown column_naming $column_naming, expected one of (:auto, :combine)")
-    end
+    naming_enum = _enum_lookup(
+        column_naming, "column_naming",
+        :auto => API.PolarsPivotColumnNamingAuto, :combine => API.PolarsPivotColumnNamingCombine,
+    )
 
     on_names, on_ptrs, on_lens = _name_ptrs(on)
     index_names, index_ptrs, index_lens = _name_ptrs(index)
@@ -196,8 +192,7 @@ function Base.transpose(
         df::DataFrame; keep_names_as::Union{Nothing, AbstractString} = nothing,
         new_col_names::Union{Nothing, Vector{<:ColId}} = nothing
     )
-    keep_names_as_arg = keep_names_as === nothing ? Ptr{UInt8}(C_NULL) : keep_names_as
-    keep_names_as_len = keep_names_as === nothing ? 0 : ncodeunits(keep_names_as)
+    keep_names_as_arg, keep_names_as_len = _nullable_str(keep_names_as)
     owned_names, ptrs, lens = _name_ptrs(something(new_col_names, String[]))
     GC.@preserve owned_names begin
         out = Ref{Ptr{polars_dataframe_t}}()
