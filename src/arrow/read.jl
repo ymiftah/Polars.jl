@@ -95,6 +95,17 @@ function _export_carray(series::Series)
     return ExportedArray(out[])
 end
 
+"""Like `_export_carray`, but for a dictionary-encoded (Categorical/Enum) `series` specifically,
+via `polars_series_export_carray_dictionary` -- see that function's Rust docstring
+(`c-polars/src/series.rs`) for why `_export_carray`'s plain physical-chunk export isn't usable
+here (its `ArrowArray.dictionary` field comes back null for a Categorical/Enum series)."""
+function _export_carray_dictionary(series::Series)
+    out = Ref{CArrowArray}()
+    err = polars_series_export_carray_dictionary(series, out)
+    polars_error(err)
+    return ExportedArray(out[])
+end
+
 """
     read_series(series::Series; zerocopy::Bool = false)
 
@@ -123,7 +134,7 @@ branch), in which case releasing here would free the buffers out from under the 
 returned; release is deferred to `h`'s own finalizer instead, once the returned array is no longer
 reachable."""
 function _dispatch_read(fmt::String, series::Series, zerocopy::Bool)
-    isempty(fmt) && return nothing # dictionary-encoded -- see `load_series_schema`'s sentinel
+    isempty(fmt) && return _read_categorical(series) # dictionary-encoded -- see `load_series_schema`'s sentinel
     fmt in ("+l", "+L") && return _read_list(series, fmt)
 
     h = _export_carray(series)
@@ -511,6 +522,81 @@ function _read_list(series::Series, fmt::String)
     release!(h)
     return out
 end
+
+"""
+    _read_categorical(series::Series)
+
+Bulk reader for a dictionary-encoded (Categorical/Enum) `series` (`series.fmt == ""`, the
+sentinel `load_series_schema` caches for this case). Exports `series` via
+`_export_carray_dictionary` (a genuine Arrow `DictionaryArray`, unlike `_export_carray`'s plain
+physical-chunk export -- see that function's docstring), reads the physical index buffer through
+the ordinary numeric fast path and the shared dictionary values through the ordinary `String` fast
+path (`_read_view_dispatch`, in each case -- no per-row FFI round trip, and no intermediate
+`String`-cast/`collect` of the whole column either), then decodes indices into category strings
+and hands them to `_categorical_array`, which returns them unchanged by default or converts them
+into a `CategoricalArrays.CategoricalArray` once that package's extension is loaded.
+"""
+function _read_categorical(series::Series)
+    schema_out = Ref{CArrowSchema}()
+    err = polars_series_schema(series, schema_out)
+    polars_error(err)
+    schema = schema_out[]
+    index_fmt = unsafe_string(schema.format)
+    schema.dictionary == C_NULL && error("expected a dictionary-typed schema for a Categorical/Enum series")
+    dict_fmt = unsafe_string(unsafe_load(schema.dictionary).format)
+    schema_ref = Ref(schema)
+    GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
+
+    h = _export_carray_dictionary(series)
+    ca, bufs = _buffers(h)
+
+    if ca.dictionary == C_NULL # defensive: shouldn't happen given the schema check above
+        release!(h)
+        return nothing
+    end
+    dict_ca, dict_bufs = _buffers(unsafe_load(ca.dictionary))
+    categories = _read_view_dispatch(dict_fmt, dict_ca, dict_bufs, false, nothing)
+    if categories === nothing
+        release!(h)
+        return nothing
+    end
+
+    indices = _read_view_dispatch(index_fmt, ca, bufs, false, nothing)
+    release!(h)
+    indices === nothing && return nothing # defensive: polars' physical index type is always numeric
+
+    strings = map(indices) do idx
+        ismissing(idx) ? missing : categories[Int(idx) + 1]
+    end
+    return _categorical_array(strings)
+end
+
+"""
+    _categorical_array(strings)
+
+Extension hook: builds the materialized column value for a Categorical/Enum column from its
+bulk-decoded category `strings` (a `Vector{String}` or `Vector{Union{String,Missing}}` -- see
+`_read_categorical`). Returns `strings` unchanged by default. Loading `CategoricalArrays.jl`
+activates this package's `PolarsCategoricalArraysExt` extension, which adds the first-ever method
+for `_resolve_categorical_array` and makes this function return `CategoricalArrays.categorical(strings)`
+instead.
+
+!!! note
+    Delegates to `_resolve_categorical_array` (declared with zero methods, just below) for the
+    same precompilation-restriction reason as `_tz_aware_datetime_type`/`_categorical_column_type`
+    -- see `_categorical_column_type`'s docstring in `arrow/schema.jl`.
+"""
+function _categorical_array(strings)
+    try
+        return _resolve_categorical_array(strings)
+    catch e
+        e isa MethodError && e.f === _resolve_categorical_array && return strings
+        rethrow()
+    end
+end
+
+"""Zero-method extension point -- see `_categorical_array`'s docstring."""
+function _resolve_categorical_array end
 
 function Base.collect(series::Series)
     out = read_series(series)
