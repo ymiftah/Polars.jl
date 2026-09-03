@@ -66,10 +66,12 @@ Polars.Dt.truncate
 Polars.Dt.round
 Polars.Dt.offset_by
 Polars.Dt.strftime
+Polars.Dt.to_string
 ```
 
 Intervals use polars' duration string format: `"1d"`, `"4h"`, `"30m"`, `"5s"`, etc. `strftime`
-accepts standard `strftime` format codes (`%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, etc.).
+accepts standard `strftime` format codes (`%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, etc.). `to_string` is
+upstream's current name for the same thing (`strftime` is kept as the familiar alias).
 
 ```@example dt
 select(df, col("ts") |> Dt.truncate("1h") |> alias("trunc"), col("ts") |> Dt.strftime("%Y-%m-%d") |> alias("formatted"))
@@ -186,7 +188,7 @@ select(df, col("ts") |> Dt.replace_time_zone("Europe/London") |> Dt.dst_offset |
 
 ## Curried forms
 
-`truncate`, `round`, `offset_by`, `strftime`, every `total_*` function, both time-zone functions,
+`truncate`, `round`, `offset_by`, `strftime`, `to_string`, every `total_*` function, both time-zone functions,
 `combine`, `replace`, `cast_time_unit`, and `with_time_unit` have curried forms for `|>` pipelines
 — see [Curried forms for pipe-based composition](@ref). Every plain component accessor above
 (`year`, `iso_year`, `is_leap_year`, ...) needs no currying at all: since it takes nothing beyond

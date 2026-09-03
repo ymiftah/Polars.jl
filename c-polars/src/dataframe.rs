@@ -807,6 +807,66 @@ pub unsafe extern "C" fn polars_lazy_frame_quantile(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_reverse(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).reverse();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_null_count(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).null_count();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_count(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).count();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_cache(df: *mut polars_lazy_frame_t) {
+    let df = &mut (*df).inner;
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).cache();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_fill_nan(
+    df: *mut polars_lazy_frame_t,
+    value: *const polars_expr_t,
+) {
+    let value = (*value).inner.clone();
+    let df = &mut (*df).inner;
+    // See the `mem::take` comment on `polars_lazy_frame_sort` above.
+    *df = std::mem::take(df).fill_nan(value);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_lazy_frame_explain(
+    df: *mut polars_lazy_frame_t,
+    optimized: bool,
+    user: *const c_void,
+    callback: IOCallback,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let df = (*df).inner.clone();
+        let text = match df.explain(optimized) {
+            Ok(text) => text,
+            Err(err) => return make_error(err),
+        };
+        let mut w = UserIOCallback(callback, user);
+        if let Err(err) = write!(w, "{text}") {
+            return make_error(err);
+        }
+        std::ptr::null()
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_collect(
     df: *mut polars_lazy_frame_t,
     engine: polars_engine_t,

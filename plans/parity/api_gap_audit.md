@@ -135,6 +135,97 @@ annotated): `strict_cast` was never actually a gap by the time that file's "expo
 T; strict=false)`" suggestion was written up here — `cast(expr, dtype; strict=true)` already
 dispatches to `polars_expr_strict_cast` (`src/expr/expr.jl`, `_plain_value_type_code`'s call site).
 
+**2026-09-01 update.** [`tier12_low_hanging_parity.md`](tier12_low_hanging_parity.md) closed the
+entire no-Cargo-change remainder identified by a fresh triage of Groups 2, 3, 4, and 6: seven
+frame-level verbs (`limit`, `Base.reverse`, `null_count`, `Base.count`, `fill_nan`, `explain`,
+`cache`), eleven `Expr` methods (`arctan2`, `dot`, `entropy`, `arg_unique`, `to_physical`,
+`lower_bound`, `upper_bound`, `extend_constant`, `shuffle`, `Base.reshape`,
+`Strings.escape_regex`), three top-level functions (`format`, `concat_arr`, plus the temporal
+constructors `datetime`/`duration`/`date`/`Base.time`/`from_epoch`), and `Dt.to_string`. No
+`Cargo.toml` change was needed for any of it — every symbol was reachable under features already
+enabled — so this closure needs no new `libpolars` artifact release. Cost: four commits over five
+tasks, all live-verified before their tests were written per `CLAUDE.md`'s workflow, each with its
+own plan-file correction where the live behavior diverged from what was assumed going in (recorded
+in [`tier12_low_hanging_parity.md`](tier12_low_hanging_parity.md) itself rather than repeated here
+in full). The findings worth carrying forward:
+
+- **`LazyFrame::count()` counts non-null values per column, not rows.** Confirmed with a
+  fully-`missing` 3-row column, which reports `count == 0`. So `count` and `null_count` are
+  complementary — `count(df).a + null_count(df).a == nrow(df)` — not redundant as the pre-closure
+  Group 6 text implied by listing them side by side with no distinction drawn.
+- **`Expr::reshape`'s `-1` placeholder is only inferred in the *first* dimension.**
+  `reshape(col("x"), -1, 2)` works; `reshape(col("x"), 2, -1)` raises `PolarsError("can only infer
+  the first dimension")`. Not previously documented anywhere in this repo.
+- **Array-dtype columns are less broken than Group 5's `.arr` entry said.** `collect` on a plan
+  containing a `reshape`/`concat_arr`-built `Array` column succeeds — the failure is specifically
+  in the Arrow *schema* path (`collect_schema`, `Polars.schema`, indexing a collected `Array`
+  column), which raises a plain `ErrorException` (not `PolarsError`) from
+  `src/arrow/schema.jl:136`'s `parse_format`, which doesn't recognize the fixed-size-list Arrow
+  format (`"+w:N"`). Group 5's `.arr` row above is updated to reflect this.
+- **`Dt.to_string` needed no new FFI symbol.** `polars-plan-0.54.4/src/dsl/dt.rs`'s
+  `DateLikeNameSpace::strftime` is defined as `self.to_string(format)` — the same upstream method
+  under two names, not two capabilities — and `strftime` was already wrapped as
+  `polars_expr_dt_strftime`. `Dt.to_string` is a plain Julia-level alias over that existing
+  binding, honoring `CLAUDE.md`'s "one new symbol per capability" principle by adding zero symbols.
+- **`format` coexists with the internal `format(T)` in `src/arrow/array.jl` with no new
+  ambiguity.** `Aqua.detect_ambiguities` reports 46 ambiguities before and after this change,
+  checked in the same session by stashing and re-running — an exact match, not just "no crash."
+- **`Base.time` needed an Aqua carve-out.** Its whole point (`time(9, 30)` on bare scalars) means
+  none of its methods has an argument of this package's own type, which is what every other
+  `Base.*` extension here relies on to not be piracy — `test/aqua.jl` whitelists it via
+  `piracies = (treat_as_own = [Base.time],)`, the exact shape Aqua's own docs recommend for a
+  lightweight C-wrapper package adding scalar-taking convenience functions.
+
+Also closed, independently discovered while executing that plan: `docs/src/reference/functions.md`
+had no `@docs` entry for `concat_str`/`concat_list` at all (added by PR #46, this branch's base),
+which had silently forced two `@ref` links in `format`'s and `concat_arr`'s own docstrings down to
+plain backticks to avoid a docs-build failure. Both are now in the same `@docs` block as
+`format`/`concat_arr`, and the two downgraded links are restored to `@ref`.
+
+**2026-09-01, same day: `pypolars-test-parity` sweep of everything the above added.** The tests
+written alongside those 25 functions were derived from *live-observed behavior of this
+implementation* rather than from upstream fixtures -- the exact anti-pattern
+`.claude/skills/pypolars-test-parity/` exists to prevent, since such a test pins whatever we
+already do and can never detect that we diverge from polars. All 25 were re-swept against upstream's
+own fixtures in four batches, each with its own note:
+[frame verbs](tier12-sweep-frame-verbs.md), [Expr math](tier12-sweep-expr-math.md),
+[Expr manipulation](tier12-sweep-expr-manipulation.md), [temporal/top-level](tier12-sweep-temporal.md).
+Test count went 3116 -> 3304 (+188) with 4 -> 6 `@test_broken`.
+
+The sweep paid for itself: **three user-visible wrong answers and one shape divergence that the
+original tests all passed against.**
+
+- **`from_epoch` silently truncated sub-second precision** -- `:s`/`:ms` scaled to `Datetime(:ms)`
+  instead of upstream's x1,000,000/x1,000-then-`Datetime(:us)`, losing five digits on upstream's own
+  fractional-second fixture (`-609066.723456` gave `.277`, not `.276544`). Fixed in
+  `src/expr/ranges.jl`; a `String` input at `:s`/`:ms` now raises `PolarsError` rather than silently
+  becoming `missing`.
+- **`date`/`Base.time` never aliased their output column** -- both compose over `datetime`, whose
+  output is always named `"datetime"`; upstream's `pl.date`/`pl.time` rename to `"date"`/`"time"`.
+  Fixed.
+- **`null_count`/`count` on a 0-column frame** return shape `(0,0)` here vs upstream's `(1,0)`. Ours
+  are `collect .∘ verb .∘ lazy` and so hit `LazyFrame::null_count()`, while py-polars' eager
+  `DataFrame.null_count()` uses a different binding that special-cases zero columns. Rust-side, not
+  a marshalling bug -- 2 `@test_broken` in `test/operations/frame_verbs.jl`.
+- **`datetime`'s output column is always named `"datetime"`**, never the left-hand argument's name.
+  The vendored `polars-plan` 0.54.4 source carries a `// TODO: follow left-hand rule in Polars 2.0`
+  for exactly this -- upstream behavior, not ours; 2 `@test_broken`.
+
+Non-bugs worth recording, each verified against upstream source rather than assumed: `arctan2` on a
+String column non-strictly casts to `Float64` rather than raising (upstream's own
+`arctan2_on_columns` dispatch does this, same shape as `cbrt`'s already-recorded behavior);
+`reshape`'s `-1` is inferrable only in the first dimension **upstream too**; `shuffle` reproduces
+upstream's pinned permutation bit-for-bit at `seed=1`; `entropy`'s `base`/`normalize` defaults match
+upstream's documented value exactly. `reshape(expr)` with zero dimensions panics inside
+`polars-plan`'s schema resolution but is caught by `guard_error` and surfaces as a clean
+`PolarsError` -- the FFI panic-safety net working as designed, now pinned by a test.
+
+Two API divergences recorded rather than closed (Step 8): there is no top-level
+`escape_regex(::AbstractString)` (only the `Expr`-level `Strings.escape_regex`; upstream keeps
+`pl.escape_regex` and `Expr.str.escape_regex` separate), and `dot`/`arctan2` take a Julia `String`
+as a string *literal* rather than as `col(name)` -- pre-existing package-wide
+`gen_impl_expr_binary!` convention, not new.
+
 Read alongside its two siblings, which cover different slices of the same problem:
 
 - [`LEDGER.md`](LEDGER.md) — the py-polars *test*-parity sweep (batches 0-9 done, 10-14 unswept).
@@ -206,14 +297,15 @@ Confirmed absent from both the definition set and the FFI symbol table.
 `date_range`, `date_ranges`, `datetime_range`, `datetime_ranges`, `time_range`, `time_ranges`,
 `repeat`, `ones`, `zeros`.
 
-**Temporal constructors** — `date()`, `datetime()`, `time()`, `duration()`, `from_epoch`. Note
-`cast_datetime`/`cast_duration` exist but are *casts*, not constructors from component expressions.
+**Temporal constructors** — ~~`date()`, `datetime()`, `time()`, `duration()`, `from_epoch`~~
+**Closed** (see [Status](#status)). Note `cast_datetime`/`cast_duration` exist but are *casts*, not
+constructors from component expressions.
 
 **String and list combination** — ~~`concat_str`, `concat_list`~~ **Closed** (see [Status](#status)).
-`concat_arr`, `format` remain missing. `Strings.join`/`Lists.join` are the *aggregating* joins,
-distinct from the row-wise horizontal `concat_str`/`concat_list`.
-(`format` is defined in `src/arrow/array.jl:90`, but that is the internal Julia-type-to-Arrow-format
-mapping — unrelated to `pl.format`, and a name collision to watch when adding the real one.)
+~~`concat_arr`, `format`~~ **Closed** (see [Status](#status)). `Strings.join`/`Lists.join` are the
+*aggregating* joins, distinct from the row-wise horizontal `concat_str`/`concat_list`.
+(`format` coexists with the internal `format(T)` in `src/arrow/array.jl:90` — the
+Julia-type-to-Arrow-format mapping — with no dispatch ambiguity; see [Status](#status).)
 
 **Reductions and folds** — `fold`, `reduce`, `cum_fold`, `cum_reduce`, `cum_sum_horizontal`,
 `approx_n_unique`. ~~`len`~~ **Closed** (see [Status](#status)).
@@ -226,7 +318,8 @@ was therefore itself incomplete; do not add it without batching the Cargo change
 **Windowed correlation** — `rolling_corr`, `rolling_cov`. (Scalar `cov`/`cor` and
 `spearman_rank_corr` do exist, in `src/expr/statistics.jl`.)
 
-**Math** — `arctan2`. **Business calendar** — `business_day_count`. **SQL** — `sql_expr`.
+**Math** — ~~`arctan2`~~ **Closed** (see [Status](#status)). **Business calendar** —
+`business_day_count`. **SQL** — `sql_expr`.
 
 > Present, for contrast: `col`, `nth`, `lit`, `element`, `when`, `coalesce`, `as_struct`,
 > `all_horizontal`, `any_horizontal`, `min_horizontal`, `max_horizontal`, `sum_horizontal`,
@@ -234,8 +327,10 @@ was therefore itself incomplete; do not add it without batching the Cargo change
 
 ## Group 3 — Missing `Expr` methods
 
-**Aggregations and reductions**: `mode`, `entropy`, `unique_counts`, `approx_n_unique`, `arg_true`,
-`arg_unique`, `dot`, and the per-`Expr` aggregation form of `len` (`expr.len()`, distinct from
+**Aggregations and reductions**: `mode`, ~~`entropy`~~ **Closed** (see [Status](#status)),
+`unique_counts`, `approx_n_unique`, `arg_true`, ~~`arg_unique`~~ **Closed** (see [Status](#status)),
+~~`dot`~~ **Closed** (see [Status](#status)), and the per-`Expr` aggregation form of `len`
+(`expr.len()`, distinct from
 `count`, which exists and skips nulls -- also distinct from the now-closed top-level `pl.len()`,
 see [Status](#status), which this Group 3 row does not cover: `expr.len()` would need its own
 `gen_impl_expr!(polars_expr_len_agg, Expr::len)` under a name that doesn't collide with the
@@ -255,13 +350,16 @@ covered by `flatten` (`src/expr/expr.jl`, calling `polars_expr_flatten`), which 
 alias for it.
 
 **Window and ordering**: `cumulative_eval`, `peak_min`, `peak_max`, `search_sorted`, `set_sorted`,
-`lower_bound`, `upper_bound`, `rolling_skew`, `rolling_kurtosis`, `rolling_map`, every temporal
-`rolling_*_by` variant (`rolling_mean_by`, `rolling_sum_by`, …), `ewm_mean_by`, `interpolate_by`.
+~~`lower_bound`, `upper_bound`~~ **Closed** (see [Status](#status)), `rolling_skew`,
+`rolling_kurtosis`, `rolling_map`, every temporal `rolling_*_by` variant (`rolling_mean_by`,
+`rolling_sum_by`, …), `ewm_mean_by`, `interpolate_by`.
 
-**Manipulation**: `extend_constant`, `repeat_by`, `reshape`, `shuffle`, `round_sig_figs`,
-`shrink_dtype`, `to_physical`, `reinterpret`, `hist`, `is_close`. **`is_close` is gated behind
-Cargo's `is_close` feature** — like `arg_where` above, absent from `c-polars/Cargo.toml` and from
-[Group 10](#group-10)'s table; needs a batched Cargo change, not a thin wrapper.
+**Manipulation**: ~~`extend_constant`~~ **Closed** (see [Status](#status)), `repeat_by`,
+~~`reshape`, `shuffle`~~ **Closed** (see [Status](#status)), `round_sig_figs`, `shrink_dtype`,
+~~`to_physical`~~ **Closed** (see [Status](#status)), `reinterpret`, `hist`, `is_close`.
+**`is_close` is gated behind Cargo's `is_close` feature** — like `arg_where` above, absent from
+`c-polars/Cargo.toml` and from [Group 10](#group-10)'s table; needs a batched Cargo change, not a
+thin wrapper.
 
 **Math**: ~~`cbrt`, `cot`, `arcsinh`, `arccosh`, `arctanh`~~ **Closed** (see [Status](#status)).
 (`sin`, `cos`, `tan`, `sinh`, `cosh`, `tanh`, `arcsin`, `arccos`, `arctan`, `degrees`, `radians`,
@@ -275,8 +373,9 @@ Cargo's `is_close` feature** — like `arg_where` above, absent from `c-polars/C
 
 `json_decode`, `json_path_match`, `to_decimal`, `to_time`, `strptime` (the generic form — `to_date`
 and `to_datetime` cover two of its three targets), `decode`/`encode` (base64/hex), `contains_any`,
-`replace_many`, `find_many`, `extract_many`, `escape_regex`, `normalize`. Plus `to_integer`,
-`reverse`, and `titlecase` from [Group 0](#group-0--explicit-unavailable-in-this-build-stubs-6).
+`replace_many`, `find_many`, `extract_many`, ~~`escape_regex`~~ **Closed** (see [Status](#status)),
+`normalize`. Plus `to_integer`, `reverse`, and `titlecase` from
+[Group 0](#group-0--explicit-unavailable-in-this-build-stubs-6).
 
 ### `Dt` (upstream `.dt`)
 
@@ -289,8 +388,9 @@ scaling convention; only works on `Datetime`/`Time`, not a plain `Date`
 ~~Also: `iso_year`, `is_leap_year`, `century`, `millennium`, `combine`, `datetime`, `cast_time_unit`,
 `with_time_unit`, `base_utc_offset`, `dst_offset`, `dt.replace` (replacing date components)~~ **All
 closed** (PR #45, see [Status](#status)). Still missing: `add_business_days` (genuinely
-Cargo-gated, see [Group 10](#group-10)) and `to_string`. Plus `month_start`/`month_end` from
-Group 0.
+Cargo-gated, see [Group 10](#group-10)). ~~`to_string`~~ **Closed** (see [Status](#status)) — a
+plain Julia-level alias of the already-wrapped `strftime`, no new FFI symbol; see that entry for
+why. Plus `month_start`/`month_end` from Group 0.
 
 ### `Lists` (upstream `.list`)
 
@@ -319,34 +419,41 @@ Confirmed by symbol search: **zero** `polars_expr_bin_*`, `polars_expr_cat_*`, o
 |---|---|
 | **`.bin` (Binary)** | `contains`, `starts_with`, `ends_with`, `size`, `decode`, `encode`. Binary columns *read* correctly (`test/datatypes/binary.jl`); there are simply no operations on them. |
 | **`.cat` (Categorical)** | `get_categories` and the categorical string ops. `cast_categorical` and `Selectors.categorical()` exist, so categorical columns can be produced and selected but never introspected. |
-| **`.arr` (Array / fixed-size list)** | The whole namespace. `Lists.to_array` exists and `dtype-array` is enabled, so Array columns can be *created*; nothing operates on them, and there is no write-side path for building one from Julia data. |
+| **`.arr` (Array / fixed-size list)** | The whole namespace. `Lists.to_array`, `reshape`, and `concat_arr` all exist and `dtype-array` is enabled, so Array columns can be *created* — and, sharpened by this effort's live testing (see [Status](#status)): building the plan **and `collect`ing it both succeed**, so materialization itself is not the blocker as earlier text here implied. What actually fails is the Arrow *schema* path specifically — `collect_schema`, `Polars.schema`, and indexing an `Array` column of an already-collected `DataFrame` all raise a plain `ErrorException` (not `PolarsError`) from `src/arrow/schema.jl:136`'s `parse_format`, which doesn't recognize the fixed-size-list Arrow format (`"+w:N"`). Nothing else operates on Array columns either, and there is no write-side path for building one from Julia data. |
 
 ## Group 6 — Missing frame-level (`DataFrame`/`LazyFrame`) methods
 
 The complete frame FFI surface is 33 `polars_lazy_frame_*` + 16 `polars_dataframe_*` symbols.
 
-**Row/column selection**: ~~`slice`~~, `limit`, `reverse`, `sample`, ~~frame-level `top_k`/`bottom_k`
+**Row/column selection**: ~~`slice`~~, ~~`limit`~~ **Closed** (see [Status](#status)),
+~~`reverse`~~ **Closed** (see [Status](#status)), `sample`, ~~frame-level `top_k`/`bottom_k`
 (the `Expr` forms exist)~~, `partition_by` (distinct from the sink-side `PartitionByKey`),
 `insert_column`, `replace_column`, `drop_in_place`, `extend`, `clear`. `slice`/`top_k`/`bottom_k`
-are **closed** (see [Status](#status)); `limit` is a plain alias for `head` upstream and is still
-missing here as its own frame-level name (the `Expr`-level `limit` already exists, see Group 3).
+are **closed** (see [Status](#status)); `limit` is a plain alias for `head` upstream, matching the
+same relationship at the `Expr` level.
 
-**Whole-frame computation**: ~~frame-level `fill_null`~~, `fill_nan`, `interpolate`, ~~`cast` (dtype
-mapping)~~, `null_count`, `count`, `approx_n_unique`, `to_dummies`, `corr`, and ~~the frame-level
-aggregations `sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`product`/`quantile`~~. `fill_null`/`cast`
+**Whole-frame computation**: ~~frame-level `fill_null`~~, ~~`fill_nan`~~ **Closed** (see
+[Status](#status)), `interpolate`, ~~`cast` (dtype mapping)~~, ~~`null_count`~~ **Closed** (see
+[Status](#status)), ~~`count`~~ **Closed** (see [Status](#status)), `approx_n_unique`,
+`to_dummies`, `corr`, and ~~the frame-level aggregations
+`sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`product`/`quantile`~~. `fill_null`/`cast`
 are **closed** (see [Status](#status)) — `cast` covers both upstream's per-column `AbstractDict`
 form and its single-`Type` whole-frame form (only plain, parameter-free dtypes reach the latter,
 same restriction as the single-`Expr` `cast`). The frame-level aggregations are **closed** too (see
 [Status](#status)): `sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile` wrap genuine
 `LazyFrame` methods (null-tolerant per column, not the naive `select(df, wildcard.sum())` that
 raises instead); `product` has no such upstream Rust method and is composed per-column like
-py-polars' own pure-Python `DataFrame.product()`. `null_count`/`count`/`approx_n_unique`/
-`to_dummies`/`corr` remain open — still only reachable via `select(df, ...(col("*")))` (`corr`
-additionally needs two named columns, not a single wildcard).
+py-polars' own pure-Python `DataFrame.product()`. `null_count`/`count` are also now **closed** (see
+[Status](#status)) as genuine `LazyFrame` methods, distinct from each other in a way that turned
+out to matter: `count()` counts non-null values per column (same semantics as the per-`Expr`
+`count`), not the row count including nulls, so the two are complementary rather than redundant.
+`approx_n_unique`/`to_dummies`/`corr` remain open — still only reachable via
+`select(df, ...(col("*")))` (`corr` additionally needs two named columns, not a single wildcard).
 
 **Joins**: `join_where` (inequality/IE join), `merge_sorted`, `update`. **Reshaping**: `unstack`.
 
-**Introspection and plumbing**: `explain`, `profile`, `cache`, `set_sorted`, `with_context`,
+**Introspection and plumbing**: ~~`explain`~~ **Closed** (see [Status](#status)), `profile`,
+~~`cache`~~ **Closed** (see [Status](#status)), `set_sorted`, `with_context`,
 `glimpse`, `estimated_size`, `rechunk`, `is_empty`, frame-level `is_duplicated`/`is_unique`.
 
 **Not real gaps**: `equals` (covered by `Base.==`, `src/dataframe.jl:159`), `pipe` (covered by `|>`),
@@ -475,9 +582,9 @@ option must be exercised live.
 
 ## Group 11 — Test-coverage gaps (adjacent, not API gaps)
 
-Per [`LEDGER.md`](LEDGER.md), **batches 10-14 of the py-polars parity sweep are unswept**: frame
-verbs/reshape/concat/select/filter (11 upstream files), join/group_by/group_by_dynamic/rolling (7),
-series/binary/construction/io/describe (9), lazyframe scan/sink/collect_schema/head (9), and
+Per [`LEDGER.md`](LEDGER.md), **batches 11, 12, and 14 of the py-polars parity sweep are still
+unswept** (batches 10 and 13 are now done, findings below): join/group_by/group_by_dynamic/rolling
+(7 upstream files), series/binary/construction/io/describe (9), and
 selectors/meta/horizontal/naming/sample (8).
 
 **So this audit is not the final list.** It is the static view — what has no binding at all. The
@@ -487,6 +594,66 @@ latter to add entries.
 `LEDGER.md` also carries three known hygiene problems: its batch-order table still says `unswept`
 for batches 1-7 (all merged), the 211-row per-function table is entirely stale, and its `## Status`
 preamble still describes a pre-sweep baseline.
+
+**Batch 10 findings** (`operations/frame_verbs.jl`, `reshape.jl`, `concat.jl`,
+`select_with_columns.jl`, `filter.jl` vs. 11 upstream files — see
+`plans/parity/batch-10-frame-verbs.md`): four confirmed behavioural divergences, all `@test_broken`
+or documented in place rather than fixed, since none are reachable without a Rust/FFI change or are
+outside this batch's no-Cargo-change scope:
+
+- **`drop(df, ["*"])` doesn't wildcard-drop every column.** Upstream's `.drop("*")` drops all
+  columns (shape `(n, 0)`); this wrapper calls `Selector::ByName` with the literal string `"*"`,
+  which isn't a real column name, so it raises `ColumnNotFoundError`-equivalent instead. Fixing it
+  would mean special-casing `"*"` in `drop`'s Julia wrapper (resolving it to `names(df)` first) —
+  plausible as a follow-up, not attempted here to avoid scope creep into a "new capability" during
+  a test-porting pass.
+- **`drop_nulls(df, subset)`'s explicitly-empty `subset` is not a no-op**, unlike upstream's
+  `subset=[]`. Root cause: `c-polars/src/ffi_util.rs::selector_by_name_opt` collapses an empty name
+  list to `None` ("no subset specified" = check all columns) rather than `Some(vec![])` ("check
+  zero columns" = no-op) — the two are indistinguishable once both become an empty Julia `Vector`.
+  `drop_nulls`'s docstring now documents this; fixing it for real needs a Rust-side way to pass
+  "explicitly none" separately from "unspecified", which is a real signature change.
+- **`concat([schemaless_df, ...])` fails where upstream succeeds**, specifically for a genuinely
+  0-column frame (`DataFrame(NamedTuple())`) mixed with a real one — `pl.concat` treats a 0-column
+  input as vacuously compatible with any schema; this wrapper's `:vertical` passes every frame
+  straight to the Rust `concat`/`union` primitive, which enforces exact schema equality with no
+  such special case. A 0-row-but-typed frame (a real schema, just no rows) concats fine either
+  order — confirmed live, only the *columnless* case diverges. A Julia-side pre-filter (drop any
+  0-column frame from the list before the FFI call, for `:vertical`/`:vertical_relaxed`) would
+  likely fix this without touching Rust, but wasn't attempted here — same "don't add capability
+  mid-sweep" reasoning as `drop`'s wildcard above.
+- **`transpose` on any 0-row frame raises, where the current upstream *main* branch's test suite
+  expects it to succeed** (`pl.DataFrame(schema={"a": Int32, "b": Int32}).transpose().shape ==
+  (2, 0)`). Live-verified against this repo's vendored `polars-plan`/`polars-core` 0.54.4: `no
+  data: unable to transpose an empty DataFrame` is raised unconditionally, so this is a genuine
+  Rust-crate-version-pinned gap between 0.54.4 and whatever newer polars-rust version the current
+  py-polars main branch's tests are written against — not fixable without an artifact bump. The
+  existing test (`test/operations/reshape.jl`'s `"transpose"` testset) already asserted this
+  correctly; this sweep just confirmed it against the real upstream test name
+  (`test_transpose_empty`) instead of an untraced assumption.
+
+**Also found, not a parity gap**: `drop` has no `strict` keyword at all (upstream's
+`drop(..., strict=False)` silently ignores an unknown column name instead of raising) — the
+underlying `polars_lazy_frame_drop` FFI function hardcodes `Selector::ByName { strict: true, .. }`
+with no parameter to control it, unlike `rename`'s already-threaded `strict`. Needs a Rust
+signature change to add, out of scope here; add to a future no-Cargo-change batch alongside a
+frame-level `drop_nans` (`Expr`-level `drop_nans` exists in `src/expr/aggregation.jl`, but there is
+no `DataFrame`/`LazyFrame` form the way `drop_nulls` has both — confirmed via `MethodError` live).
+
+**Also found, unrelated to this batch's own changes**: a fresh `origin/main` checkout's full test
+suite currently errors on at least 8 pre-existing testsets (`fill_null`/`cast`/frame-level
+aggregations in `frame_verbs.jl`; `top_k`/`bottom_k`/`slice` in `sort.jl`; `len` in
+`expr/aggregation.jl`; `concat_str`/`concat_list` in `expr/horizontal.jl`) with `could not load
+symbol "polars_lazy_frame_..."` / `undefined symbol` from `libpolars.so`. This is the exact hazard
+`CLAUDE.md`'s generation-pipeline section describes: `src/api/generated.jl` on `main` already
+references FFI symbols (`polars_lazy_frame_fill_null`, `_cast_all`, `_sum`, and others) that
+aren't in the currently-published `Artifacts.toml`-pinned `libpolars.so` binary — some `c-polars`
+change landed without a corresponding new artifact release. Confirmed unrelated to this batch: none
+of these functions or their tests were touched here, and running just this batch's own new/changed
+testsets in isolation (bypassing the broken ones) shows 285 passed, 0 failed, 3 broken (exactly the
+three divergences above) — so this is a pre-existing, repo-wide infrastructure gap, not something
+introduced by this sweep. Worth a `c-polars/check_header_drift.py --lib PATH` run and a fresh
+artifact release; out of scope for this PR.
 
 **Batch 13 findings** (`lazyframe/scan_*.jl`, `sink_*.jl`, `collect_schema.jl`, `head.jl` vs.
 `io/test_csv.py`, `test_ipc.py`, `test_lazy_csv.py`, `test_lazy_ipc.py`, `test_lazy_parquet.py`,

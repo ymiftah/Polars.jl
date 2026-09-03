@@ -50,6 +50,7 @@ Polars.Strings.ends_with
 Polars.Strings.extract
 Polars.Strings.extract_all
 Polars.Strings.count_matches
+Polars.Strings.escape_regex
 ```
 
 ```@example strings
@@ -115,6 +116,16 @@ the entire string must match `format`.
 ```@example strings
 dates = DataFrame((; s = ["2024-03-15", "2024-06-01"]))
 select(dates, Strings.to_date(col("s")) |> alias("d"), Strings.to_datetime(col("s"); format = "%Y-%m-%d") |> alias("dt"))
+```
+
+## Joining
+
+```@docs
+Polars.Strings.join
+```
+
+```@example strings
+select(DataFrame((; s = ["a", "b", "c"])), Strings.join(col("s"), "-") |> alias("joined"))
 ```
 
 ## Curried forms
