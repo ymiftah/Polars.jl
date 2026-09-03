@@ -198,6 +198,9 @@ arcsinh
 arctanh
 degrees
 radians
+arctan2
+dot
+entropy
 Base.log10
 Base.log1p
 pow
@@ -412,6 +415,13 @@ sample_n
 sample_frac
 rle
 rle_id
+arg_unique
+to_physical
+lower_bound
+upper_bound
+extend_constant
+shuffle
+Base.reshape
 ```
 
 `filter`, `sort`, `head`/`tail` on an `Expr` are documented alongside their `LazyFrame`/`DataFrame`

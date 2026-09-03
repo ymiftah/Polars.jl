@@ -60,3 +60,19 @@ end
 
     @test_throws ErrorException concat([a, e]; how = :bogus)
 end
+
+@testset "concat with empty (0-row) frames" begin
+    # a 0-row frame with a real (non-empty) schema concatenates cleanly with data on either side
+    # (py-polars test_concat_with_empty_dataframes)
+    empty_typed = DataFrame((; a = Int64[], b = String[]))
+    data = DataFrame((; a = [1, 2], b = ["x", "y"]))
+    @test collect(concat([empty_typed, data])[:a]) == [1, 2]
+    @test collect(concat([data, empty_typed])[:a]) == [1, 2]
+
+    # a genuinely SCHEMA-LESS frame (0 rows, 0 columns -- distinct from a 0-row frame that still
+    # has a real column schema, above) fails to concat here even though py-polars' `pl.concat`
+    # treats it as vacuously compatible with anything (py-polars test_concat_to_empty). Confirmed
+    # live divergence -- see plans/parity/api_gap_audit.md Group 1.
+    schemaless = DataFrame(NamedTuple())
+    @test_broken collect(concat([schemaless, DataFrame((; a = [1]))])[:a]) == [1]
+end

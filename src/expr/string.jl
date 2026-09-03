@@ -7,6 +7,7 @@ module Strings
         gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase, "Converts each string of `expr` to lowercase.")
         gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes, "Length of each string of `expr`, in bytes. Differs from [`len_chars`](@ref) for non-ASCII text (a multi-byte UTF-8 character counts as more than one byte but one char).")
         gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars, "Length of each string of `expr`, in Unicode characters. Differs from [`len_bytes`](@ref) for non-ASCII text.")
+        gen_impl_expr_str!(polars_expr_str_escape_regex, StringNameSpace::escape_regex, "Escapes every regex metacharacter in each string, so the result matches itself literally when used as a pattern.")
         # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
         gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with, "Row-wise boolean flag: `true` where `a` starts with the literal (non-regex) substring `b`.\n\n!!! note \"Has a curried form\"\n    `starts_with(pat)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
@@ -228,7 +229,7 @@ module Strings
     """
     split_exact(by, n::Integer) = expr -> split_exact(expr, convert(Expr, by), n)
 
-    @wrap_expr_method join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true) polars_expr_str_join "Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from [`Lists.join`](@ref) (joins each row's own list independently, not an aggregation across rows)."
+    @wrap_expr_method join(expr::Expr, delimiter::AbstractString; ignore_nulls::Bool = true) polars_expr_str_join "Aggregates every string value of `expr` (across *all* rows, or per group inside `agg`) into a single value, joined by `delimiter`. If `ignore_nulls` is `true` (default), `null` values are skipped; if `false`, any `null` poisons the whole result to `null`. Distinct from [`Lists.join`](@ref Polars.Lists.join) (joins each row's own list independently, not an aggregation across rows)."
 
     """
         to_integer(expr::Polars.Expr; base::Integer=10, strict::Bool=true)::Polars.Expr

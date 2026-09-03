@@ -533,6 +533,11 @@ end
     gen_impl_expr!(polars_expr_implode, Expr::implode, "Collects every value of `expr` in the current context (or per group, inside `agg`) into a single `List` value (see [List](@ref expr-list)).")
     gen_impl_expr!(polars_expr_reverse, Expr::reverse, "Reverses the row order of `expr`'s values.")
 
+    gen_impl_expr!(polars_expr_arg_unique, Expr::arg_unique, "The row indices of the first occurrence of each distinct value of `expr`, in order of first appearance.")
+    gen_impl_expr!(polars_expr_to_physical, Expr::to_physical, "The physical (storage) representation of `expr` -- e.g. a `Date` becomes its `Int32` days-since-epoch, a `Categorical` its `UInt32` index. Leaves already-physical dtypes unchanged.")
+    gen_impl_expr!(polars_expr_lower_bound, Expr::lower_bound, "A single-row column holding the smallest value `expr`'s dtype can represent.")
+    gen_impl_expr!(polars_expr_upper_bound, Expr::upper_bound, "A single-row column holding the largest value `expr`'s dtype can represent.")
+
     gen_impl_expr_binary!(polars_expr_eq, Expr::eq, "Elementwise equality between `a` and `b` -- the named-function form of `a .== b` (see [Named binary functions](@ref)). Comparing against `null` gives `null`, not `false` (three-valued logic).")
     gen_impl_expr_binary!(polars_expr_lt, Expr::lt, "Elementwise `a < b` -- the named-function form of the `<` operator. Call it qualified as `Base.lt(a, b)`, or use `.>` with the arguments flipped.")
     gen_impl_expr_binary!(polars_expr_gt, Expr::gt, "Elementwise `a > b` -- the named-function form of `a .> b`.")
@@ -557,7 +562,70 @@ end
     gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
 
     gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
+
+    gen_impl_expr_binary!(polars_expr_arctan2, Expr::arctan2, "Two-argument inverse tangent: `arctan2(y, x)` is the angle in radians between the positive x-axis and the point `(x, y)`, using both signs to pick the correct quadrant. Note the `y`-then-`x` argument order, matching upstream polars and C's `atan2`.")
+    gen_impl_expr_binary!(polars_expr_dot, Expr::dot, "The dot product of two columns: the sum of their elementwise product, as a single row.")
 end
+
+"""
+    entropy(expr::Polars.Expr; base::Real=ℯ, normalize::Bool=true)::Polars.Expr
+    entropy(; base::Real=ℯ, normalize::Bool=true)
+
+The Shannon entropy of `expr`'s value distribution, as a single row. `base` is the logarithm base
+(`ℯ` for nats, `2` for bits); `normalize=true` normalizes the counts into probabilities first.
+
+!!! note "Has a curried form"
+    The keyword-only method above, for `|>` pipelines.
+"""
+function entropy(expr::Expr; base::Real = ℯ, normalize::Bool = true)
+    return Expr(API.polars_expr_entropy(expr, Float64(base), normalize))
+end
+@curry entropy(; base::Real = ℯ, normalize::Bool = true)
+
+"""
+    extend_constant(expr::Polars.Expr, value, n)::Polars.Expr
+
+Appends `n` copies of `value` to the end of `expr`. `value` and `n` may be expressions or plain
+scalars; `value` may be `missing`, which appends nulls.
+"""
+function extend_constant(expr::Expr, value, n)
+    return Expr(
+        API.polars_expr_extend_constant(expr, convert(Expr, value), convert(Expr, n)),
+    )
+end
+
+"""
+    shuffle(expr::Polars.Expr; seed::Union{Nothing,Integer}=nothing)::Polars.Expr
+
+Randomly permutes `expr`'s values. `seed` makes the permutation reproducible; `nothing` (the
+default) draws a fresh seed from the OS each call.
+"""
+function shuffle(expr::Expr; seed::Union{Nothing, Integer} = nothing)
+    seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
+    out = GC.@preserve seed_ref API.polars_expr_shuffle(expr, seed_ref)
+    return Expr(out)
+end
+
+"""
+    Base.reshape(expr::Polars.Expr, dims::Integer...)::Polars.Expr
+
+Reshapes `expr` into an `Array`-dtype column of the given dimensions. A `-1` as the *first*
+dimension is inferred from the length (only that position; a `-1` elsewhere raises a
+`PolarsError`). **Building the plan and `collect`ing it both succeed, but nothing that
+needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a
+collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser,
+which does not yet recognize the fixed-size-list format (`"+w:N"`) -- this is a package
+limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the
+result away from `Array` before inspecting it. Extends `Base.reshape` rather than shadowing it,
+the same way `Base.get`/`Base.sort`/`Base.tail` are extended elsewhere in this file.
+"""
+function Base.reshape(expr::Expr, dims::Integer...)
+    dims_vec = Int64[Int64(d) for d in dims]
+    out = GC.@preserve dims_vec API.polars_expr_reshape(expr, pointer(dims_vec), length(dims_vec))
+    return Expr(out)
+end
+
+export entropy, extend_constant, shuffle
 
 """
     unique(expr::Polars.Expr; maintain_order::Bool=false)::Polars.Expr
@@ -1147,7 +1215,7 @@ end
 
 export as_struct
 
-@wrap_multi_expr_function concat_list polars_expr_concat_list false "Horizontally concatenates the `List`-typed `exprs` into a single `List` per row (row `i`'s output is every input's row-`i` list, in order, flattened one level). Distinct from [`Lists.join`](@ref) (string-joins one row's own list into a scalar) and [`concat`](@ref Base.concat) (stacks whole frames, not per-row lists). Errors if `exprs` is empty."
+@wrap_multi_expr_function concat_list polars_expr_concat_list false "Horizontally concatenates the `List`-typed `exprs` into a single `List` per row (row `i`'s output is every input's row-`i` list, in order, flattened one level). Distinct from [`Lists.join`](@ref Polars.Lists.join) (string-joins one row's own list into a scalar) and [`concat`](@ref) (stacks whole frames, not per-row lists). Errors if `exprs` is empty."
 
 export concat_list
 
@@ -1157,8 +1225,8 @@ export concat_list
 Row-wise (horizontal) string concatenation across `exprs` (columns or expressions -- non-string
 dtypes are cast to string first), joined by `separator`. If `ignore_nulls` is `false` (default),
 any `null` in a row makes that row's whole result `null`; if `true`, `null`s are skipped (treated
-as empty) instead. Distinct from [`Strings.join`](@ref) (an aggregation across *all* rows into one
-value) and [`Lists.join`](@ref) (joins each row's own list independently) -- this concatenates
+as empty) instead. Distinct from [`Strings.join`](@ref Polars.Strings.join) (an aggregation across *all* rows into one
+value) and [`Lists.join`](@ref Polars.Lists.join) (joins each row's own list independently) -- this concatenates
 sibling columns within each row.
 """
 function concat_str(exprs...; separator::AbstractString = "", ignore_nulls::Bool = false)
@@ -1176,6 +1244,37 @@ function concat_str(exprs...; separator::AbstractString = "", ignore_nulls::Bool
 end
 
 export concat_str
+
+"""
+    format(fmt::AbstractString, args...)::Polars.Expr
+
+Formats `args` into `fmt`, where each `{}` placeholder consumes one argument in order. Each
+argument is an `Expr`, or a `String`/`Symbol` naming a column (as in [`col`](@ref)) -- a bare
+numeric literal is **not** accepted here, unlike some other functions in this package; wrap it in
+[`lit`](@ref) first. The number of `{}` placeholders must equal the number of `args`, or a
+`PolarsError` is raised. `fmt` also accepts upstream's `{0}`/`{name}` forms (positional/named
+placeholders, matching `args` by index or resolving `name` directly as a column reference) --
+but not mixed with bare `{}` in the same call. The row-wise counterpart of `Base.string` over
+several columns; see also [`concat_str`](@ref), which joins with a fixed separator instead of a
+template.
+"""
+function format(fmt::AbstractString, args...)
+    exprs = _expr_vector(args)
+    fmt = String(fmt)
+    GC.@preserve exprs begin
+        ptrs = Ptr{polars_expr_t}[e.ptr for e in exprs]
+        out = Ref{Ptr{polars_expr_t}}()
+        err = API.polars_expr_format(fmt, ncodeunits(fmt), ptrs, length(ptrs), out)
+        polars_error(err)
+    end
+    return Expr(out[])
+end
+
+export format
+
+@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenates `exprs` into a single fixed-size `Array` column, one element per input expression -- the `Array`-dtype counterpart of [`concat_list`](@ref). All inputs must share a dtype. **Building the plan and `collect`ing it both succeed, but nothing that needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser, which does not yet recognize the fixed-size-list format -- this is a package limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the result away from `Array` before inspecting it."
+
+export concat_arr
 
 @wrap_multi_expr_function all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
 @wrap_multi_expr_function any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."

@@ -68,3 +68,22 @@ end
     r_has_null = filter(df, (col("a") |> is_null) | (col("b") |> is_null))
     @test size(r_has_null) == (2, 2)  # rows 3 and 4 have nulls
 end
+
+@testset "filter on empty frames (py-polars test_filter_on_empty)" begin
+    # an is_null() predicate against a zero-row column of various dtypes stays empty rather than
+    # erroring -- there's nothing to iterate, but the predicate must still resolve cleanly
+    for col_ in (Int32[], Bool[], String[], Vector{UInt8}[])
+        df = DataFrame((; a = col_))
+        r = filter(df, col("a") |> is_null)
+        @test size(r) == (0, 1)
+    end
+end
+
+@testset "filter(lit(true)) preserves an all-null column (py-polars test_filter_19771)" begin
+    # a predicate that's true for every row is a genuine no-op -- it must not coerce the column's
+    # existing `missing`s into anything else
+    df = DataFrame((; a = Union{Missing, Int}[missing, missing]))
+    r = filter(df, lit(true))
+    @test size(r) == (2, 1)
+    @test isequal(collect(r[:a]), [missing, missing])
+end
