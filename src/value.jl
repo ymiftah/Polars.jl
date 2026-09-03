@@ -106,6 +106,7 @@ function load_value(value::Value{NT}) where {NT <: NamedTuple}
     field_values = map(enumerate(types)) do args
         field_index, T = args
         field_value_out = Ref{Ptr{polars_value_t}}()
+        # `field_index` is 1-based (from `enumerate`); `polars_value_struct_get` is 0-based
         err = polars_value_struct_get(value, field_index - 1, field_value_out)
         polars_error(err)
         field_value = field_value_out[]

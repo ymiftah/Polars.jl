@@ -20,6 +20,10 @@ module Structs
         field_by_index(index::Integer)::Base.Fix2{typeof(field_by_index), Integer}
 
     Returns a new expression corresponding to values of the selected field.
+
+    !!! note "Indices are 0-based"
+        `index` is 0-based, and negative indices count from the end. This differs from
+        [`Polars.nth`](@ref), which is 1-based.
     """
     function field_by_index(expr, fieldidx)
         field = API.polars_expr_struct_field_by_index(expr, fieldidx)

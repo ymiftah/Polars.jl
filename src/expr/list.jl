@@ -6,8 +6,8 @@ module Lists
         gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths, "Length of each list in `expr` (`null` list entries count, and a `null` list itself gives a `null` length -- an empty list gives `0`).")
         gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max, "Maximum value within each list of `expr`.")
         gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min, "Minimum value within each list of `expr`.")
-        gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max, "Index of the maximum value within each list of `expr`.")
-        gen_impl_expr_list!(polars_expr_list_arg_min, ListNameSpace::arg_min, "Index of the minimum value within each list of `expr`.")
+        gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max, "Index of the maximum value within each list of `expr`. The returned index is 0-based, matching [`get`](@ref)/[`gather`](@ref)'s own indexing -- e.g. `get(x, arg_max(x))` composes with no offset.")
+        gen_impl_expr_list!(polars_expr_list_arg_min, ListNameSpace::arg_min, "Index of the minimum value within each list of `expr`. The returned index is 0-based, matching [`get`](@ref)/[`gather`](@ref)'s own indexing -- e.g. `get(x, arg_min(x))` composes with no offset.")
         gen_impl_expr_list!(polars_expr_list_sum, ListNameSpace::sum, "Sum of the values within each list of `expr`.")
         gen_impl_expr_list!(polars_expr_list_mean, ListNameSpace::mean, "Mean of the values within each list of `expr`.")
         gen_impl_expr_list!(polars_expr_list_reverse, ListNameSpace::reverse, "Reverses the element order within each list of `expr` (the list count/row order is unchanged -- compare the top-level [`reverse`](@ref), which reverses row order).")
@@ -71,7 +71,7 @@ module Lists
     end
     shift(n) = Base.Fix2(shift, convert(Expr, n))
 
-    @wrap_expr_method get(expr::Expr, index::Expr; null_on_oob::Bool = false) polars_expr_list_get "Get items in every sublist by index. If `null_on_oob` is `false` (default), an out-of-bounds index raises an error; if `true`, it returns `null` instead (more expensive, per the polars documentation)."
+    @wrap_expr_method get(expr::Expr, index::Expr; null_on_oob::Bool = false) polars_expr_list_get "Get items in every sublist by index. `index` is 0-based, and negative indices count from the end of each sublist (same convention as [`gather`](@ref) and [`slice`](@ref)). If `null_on_oob` is `false` (default), an out-of-bounds index raises an error; if `true`, it returns `null` instead (more expensive, per the polars documentation)."
     @curry get(index; null_on_oob::Bool = false)
 
     """
@@ -84,13 +84,18 @@ module Lists
     `index` should be a genuinely List-typed expression (e.g. `implode(lit([...]))`, or another
     `Lists`-namespace result) -- passing a bare, non-list literal like `lit([0, -1])` still works but
     prints an upstream deprecation warning (`list.gather with a flat datatype is deprecated`).
+
+    !!! note "Indices are 0-based"
+        `index`'s values are 0-based, and negative indices count from the end of each sublist --
+        same convention as [`get`](@ref) and `arg_max`/`arg_min`, so e.g. `gather(x, arg_max(x))`
+        composes with no offset.
     """
     function gather(expr::Expr, index::Expr; null_on_oob::Bool = false)
         out = API.polars_expr_list_gather(expr, index, null_on_oob)
         return Expr(out)
     end
 
-    @wrap_expr_method gather_every(expr::Expr, n::Expr; offset::Expr = 0) polars_expr_list_gather_every "Within each list of `expr`, keeps every `n`-th element starting at `offset`. Distinct from the top-level [`gather_every`](@ref) (row-level, across the whole column)."
+    @wrap_expr_method gather_every(expr::Expr, n::Expr; offset::Expr = 0) polars_expr_list_gather_every "Within each list of `expr`, keeps every `n`-th element starting at `offset` (0-based, same convention as [`get`](@ref)). Distinct from the top-level [`gather_every`](@ref) (row-level, across the whole column)."
 
     """
         sample_n(expr::Polars.Expr, n; with_replacement::Bool=false, shuffle::Bool=false,
