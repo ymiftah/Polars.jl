@@ -112,3 +112,28 @@ end
         collect
     @test size(r2)[1] > 0
 end
+
+@testset "group_by_dynamic abort-safety: negative every, and every/column-kind mismatch" begin
+    # a non-positive `every` is a clean PolarsError, not a crash (py-polars test_group_by_dynamic_validation)
+    df = DataFrame((; index = [0, 0, 1, 1], group = ["banana", "pear", "banana", "pear"], weight = [2, 3, 5, 7]))
+    @test_throws PolarsError agg(
+        group_by_dynamic(lazy(df), "index", ["group"]; every = "-1i", period = "2i"), col("weight")
+    ) |> collect
+
+    # a parsed-integer duration ("Ni") against a temporal column, and a calendar duration ("Nd")
+    # against a plain integer column, are each the wrong convention for that column's kind --
+    # both raise cleanly (the same domain-mismatch class `upsample` hits, see batch 10's
+    # test/operations/frame_verbs.jl upsample testset) (py-polars test_group_by_dynamic_invalid)
+    df_temporal = DataFrame((; values = [1, 4], times = [DateTime(2020, 1, 3), DateTime(2020, 1, 1)]))
+    df_temporal_sorted = sort(df_temporal, col("times"))
+    @test_throws PolarsError agg(
+        group_by_dynamic(lazy(df_temporal_sorted), "times"; every = "3000i"),
+        Base.sum(col("values")) |> alias("sum"),
+    ) |> collect
+
+    df_indexed = with_row_index(df_temporal)
+    @test_throws PolarsError agg(
+        group_by_dynamic(lazy(df_indexed), "index"; every = "3000d"),
+        Base.sum(col("values")) |> alias("sum"),
+    ) |> collect
+end
