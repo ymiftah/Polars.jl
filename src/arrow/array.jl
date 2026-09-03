@@ -151,6 +151,19 @@ format(::Type{DateTime}) = "tsn:"
 format(::Type{Date}) = "tdD"
 format(::Type{Dates.Time}) = "ttn"
 
+# Arrow Duration: the three units `parse_format` reads back (arrow/schema.jl's "tDm"/"tDu"/"tDn"
+# arms). These must come *before* the `isstructtype` fallback above would see them -- every
+# `Dates.Period` is a one-field immutable struct, so without these a Duration column silently
+# maps to Arrow's Struct layout, and a Duration read out of polars cannot be written back.
+format(::Type{Dates.Millisecond}) = "tDm"
+format(::Type{Dates.Microsecond}) = "tDu"
+format(::Type{Dates.Nanosecond}) = "tDn"
+format(::Type{P}) where {P <: Dates.Period} = error(
+    "Arrow has no Duration unit for $P -- polars' Duration is Millisecond, Microsecond or " *
+        "Nanosecond only. Convert the column first, e.g. " *
+        "`Dates.Millisecond.(column)` for a Day/Hour/Minute/Second column."
+)
+
 mutable struct ArrowArray
     vm::ValidityMap
 
@@ -334,6 +347,14 @@ function arrowvector(v::Vector{S}) where {S <: Union{MaybeMissing{Dates.Time}, D
     # NB: `Dates.value(t)` is the *total* nanoseconds; `Dates.Nanosecond(t)` would be the 0-999
     # nanosecond component accessor instead.
     values = map(t -> ismissing(t) ? zero(Int64) : Int64(Dates.value(t)), v)
+    return ArrowArray(ValidityMap(v), Vector[values])
+end
+
+function arrowvector(v::Vector{S}) where {P <: Union{Dates.Millisecond, Dates.Microsecond, Dates.Nanosecond}, S <: MaybeMissing{P}}
+    # A Duration is stored as a plain Int64 count of its own unit (arrow "tDm"/"tDu"/"tDn"),
+    # which is exactly `Dates.value`; see the DateTime method above for why missing entries can be
+    # mapped to a dummy 0.
+    values = map(d -> ismissing(d) ? zero(Int64) : Int64(Dates.value(d)), v)
     return ArrowArray(ValidityMap(v), Vector[values])
 end
 

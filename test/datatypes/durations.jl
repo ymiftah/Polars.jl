@@ -89,3 +89,34 @@ end
     @test collect(j[:d]) == [Dates.Nanosecond(100), Dates.Nanosecond(200)]
     @test collect(j[:w]) == ["y", "x"]
 end
+
+@testset "Duration columns can be constructed, not just read" begin
+    # `format` used to fall through to its `isstructtype` "+s" branch for every Period (they are
+    # one-field immutable structs), so a Duration column read out of polars could not be written
+    # back -- `arrowvector(::Vector{Nanosecond})` had no method.
+    @test Polars.format(Dates.Millisecond) == "tDm"
+    @test Polars.format(Dates.Microsecond) == "tDu"
+    @test Polars.format(Dates.Nanosecond) == "tDn"
+
+    df = DataFrame((; d = [Millisecond(5), Millisecond(7)]))
+    @test collect(df[:d]) == [Millisecond(5), Millisecond(7)]
+
+    dfn = DataFrame((; d = Union{Nanosecond, Missing}[Nanosecond(1), missing, Nanosecond(3)]))
+    @test isequal(collect(dfn[:d]), [Nanosecond(1), missing, Nanosecond(3)])
+
+    # The round-trip that motivated this: a Duration produced by polars, rebuilt from its own
+    # columns. Every other dtype already round-trips; this one raised a MethodError.
+    src = DataFrame((; a = [DateTime(2024, 1, 2)], b = [DateTime(2024, 1, 1)]))
+    dur = select(src, (col("a") - col("b")) |> alias("d"))
+    rebuilt = DataFrame(Tables.columntable(dur))
+    @test collect(rebuilt[:d]) == collect(dur[:d])
+
+    # A Period with no Arrow Duration unit must say so, not fall through to a struct column.
+    @test_throws ErrorException Polars.format(Dates.Day)
+    err = try
+        Polars.format(Dates.Day)
+    catch e
+        e
+    end
+    @test contains(err.msg, "Millisecond")
+end
