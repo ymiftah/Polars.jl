@@ -57,6 +57,26 @@ module Dt
     export strftime
 
     """
+        to_string(expr::Polars.Expr, format::String)::Polars.Expr
+
+    Formats a Date/Datetime/Duration/Time expression using a `chrono`-style format string
+    (e.g. `"%Y-%m-%d"`). Upstream's current name for [`strftime`](@ref), which the underlying
+    polars method is itself defined in terms of (`DateLikeNameSpace::strftime` just calls
+    `to_string`) -- a plain alias sharing the same `polars_expr_dt_strftime` C binding rather than
+    a second identical shim.
+    """
+    to_string(expr::Expr, format::AbstractString) = strftime(expr, format)
+
+    """
+        to_string(format::String)::Base.Fix2{typeof(to_string), String}
+
+    Curried form of [`to_string`](@ref) for use with `|>`.
+    """
+    to_string(format::AbstractString) = Base.Fix2(to_string, format)
+
+    export to_string
+
+    """
         timestamp(expr::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr
 
     Number of `time_unit`s (one of `:ns`, `:us` (default), `:ms`) since the Unix epoch

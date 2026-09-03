@@ -80,6 +80,21 @@ end
     # index/on also accept Symbol identifiers
     long_sym = unpivot(wide, [:id]; on = [:a])
     @test long_sym[:value] == partial[:val]
+
+    # no `on` given and nothing left to melt (index covers every column) -- an empty result with
+    # the variable/value columns still present, not an error (py-polars test_unpivot_no_on)
+    only_index = DataFrame((; a = [1, 2, 3]))
+    r_no_on = unpivot(only_index, ["a"])
+    @test Tables.columnnames(r_no_on) == (:a, :variable, :value)
+    @test size(r_no_on) == (0, 3)
+
+    # unpivoting on a nonexistent index column -- clean PolarsError, not a crash
+    # (py-polars test_unpivot_index_not_found_23165)
+    @test_throws PolarsError unpivot(DataFrame((; a = [1])), ["b"])
+
+    # a custom `variable_name`/`value_name` that collides with an existing (non-`on`) column is a
+    # clean PolarsError (py-polars test_unpivot_name_collides_with_existing_column)
+    @test_throws PolarsError unpivot(wide, ["id"]; variable_name = "id")
 end
 
 @testset "pivot" begin
@@ -111,6 +126,18 @@ end
     @test r4[:a] == r[:a]
 
     @test_throws ErrorException pivot(df, "var", "id", "val"; column_naming = :bogus)
+
+    # zero-row input still resolves an `index`-only schema, across every integer index dtype
+    # (py-polars test_pivot_empty_index_dtypes)
+    df_empty = DataFrame((; index = Int32[], on = String[], values = Int64[]))
+    r_empty = pivot(df_empty, "on", "index", "values")
+    @test size(r_empty) == (0, 1)
+    @test Tables.columnnames(r_empty) == (:index,)
+
+    # `index` naming the same column twice (e.g. via a caller-built list) is a Step-5 abort-safety
+    # check: a clean PolarsError, not a crash (py-polars test_duplicate_column_names_which_should_raise_14305)
+    df_dup = DataFrame((; a = [1, 3, 2], c = ["a", "a", "a"], d = [7, 8, 9]))
+    @test_throws PolarsError pivot(df_dup, "c", ["a", "a"], "d")
 end
 
 @testset "unnest" begin

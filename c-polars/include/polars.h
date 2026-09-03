@@ -566,6 +566,21 @@ void polars_lazy_frame_quantile(struct polars_lazy_frame_t *df,
                                 const struct polars_expr_t *quantile,
                                 enum polars_quantile_method_t method);
 
+void polars_lazy_frame_reverse(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_null_count(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_count(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_cache(struct polars_lazy_frame_t *df);
+
+void polars_lazy_frame_fill_nan(struct polars_lazy_frame_t *df, const struct polars_expr_t *value);
+
+const struct polars_error_t *polars_lazy_frame_explain(struct polars_lazy_frame_t *df,
+                                                       bool optimized,
+                                                       const void *user,
+                                                       IOCallback callback);
+
 const struct polars_error_t *polars_lazy_frame_collect(struct polars_lazy_frame_t *df,
                                                        enum polars_engine_t engine,
                                                        struct polars_dataframe_t **out);
@@ -840,6 +855,26 @@ const struct polars_error_t *polars_expr_concat_str(const struct polars_expr_t *
                                                     bool ignore_nulls,
                                                     const struct polars_expr_t **out);
 
+/**
+ * `pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order.
+ * Fallible: a mismatched placeholder/argument count raises rather than panicking (see
+ * `polars-plan-0.54.4/src/dsl/functions/concat.rs::format_str`).
+ */
+const struct polars_error_t *polars_expr_format(const uint8_t *fmt,
+                                                uintptr_t fmt_len,
+                                                const struct polars_expr_t *const *exprs,
+                                                uintptr_t n,
+                                                const struct polars_expr_t **out);
+
+/**
+ * `pl.concat_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column.
+ * Gated on `dtype-array` inside `concat_arr` itself (`feature_gated!`), already enabled for
+ * `Expr::reshape` (Task 2 of this same plan).
+ */
+const struct polars_error_t *polars_expr_concat_arr(const struct polars_expr_t *const *exprs,
+                                                    uintptr_t n,
+                                                    const struct polars_expr_t **out);
+
 const struct polars_expr_t *polars_expr_interpolate(const struct polars_expr_t *expr,
                                                     enum polars_interpolation_method_t method);
 
@@ -914,6 +949,39 @@ const struct polars_error_t *polars_expr_cast_datetime(const struct polars_expr_
 const struct polars_error_t *polars_expr_cast_duration(const struct polars_expr_t *expr,
                                                        enum polars_time_unit_t unit,
                                                        const struct polars_expr_t **out);
+
+/**
+ * Component-wise `Datetime` constructor (`pl.datetime`). `ambiguous` controls how a DST
+ * fall-back local time resolves; passed through as a string-literal expression, matching
+ * upstream's own `DatetimeArgs::ambiguous: Expr` field.
+ */
+const struct polars_error_t *polars_expr_datetime(const struct polars_expr_t *year,
+                                                  const struct polars_expr_t *month,
+                                                  const struct polars_expr_t *day,
+                                                  const struct polars_expr_t *hour,
+                                                  const struct polars_expr_t *minute,
+                                                  const struct polars_expr_t *second,
+                                                  const struct polars_expr_t *microsecond,
+                                                  enum polars_time_unit_t time_unit,
+                                                  const uint8_t *tz,
+                                                  uintptr_t tz_len,
+                                                  const uint8_t *ambiguous,
+                                                  uintptr_t ambiguous_len,
+                                                  const struct polars_expr_t **out);
+
+/**
+ * Component-wise `Duration` constructor (`pl.duration`).
+ */
+const struct polars_error_t *polars_expr_duration(const struct polars_expr_t *weeks,
+                                                  const struct polars_expr_t *days,
+                                                  const struct polars_expr_t *hours,
+                                                  const struct polars_expr_t *minutes,
+                                                  const struct polars_expr_t *seconds,
+                                                  const struct polars_expr_t *milliseconds,
+                                                  const struct polars_expr_t *microseconds,
+                                                  const struct polars_expr_t *nanoseconds,
+                                                  enum polars_time_unit_t time_unit,
+                                                  const struct polars_expr_t **out);
 
 /**
  * Targeted cast to `Decimal(precision, scale)` (`dtype-decimal` is already enabled). polars'
@@ -1276,6 +1344,14 @@ const struct polars_expr_t *polars_expr_flatten(const struct polars_expr_t *expr
 
 const struct polars_expr_t *polars_expr_reverse(const struct polars_expr_t *expr);
 
+const struct polars_expr_t *polars_expr_arg_unique(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_to_physical(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_lower_bound(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_upper_bound(const struct polars_expr_t *expr);
+
 const struct polars_expr_t *polars_expr_eq(const struct polars_expr_t *a,
                                            const struct polars_expr_t *b);
 
@@ -1361,6 +1437,39 @@ const struct polars_expr_t *polars_expr_rem(const struct polars_expr_t *a,
 
 const struct polars_expr_t *polars_expr_top_k(const struct polars_expr_t *a,
                                               const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_arctan2(const struct polars_expr_t *a,
+                                                const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_dot(const struct polars_expr_t *a,
+                                            const struct polars_expr_t *b);
+
+/**
+ * Infallible -- `Expr::entropy` only builds a plan node.
+ */
+const struct polars_expr_t *polars_expr_entropy(const struct polars_expr_t *expr,
+                                                double base,
+                                                bool normalize);
+
+/**
+ * Infallible -- `Expr::extend_constant` only builds a plan node.
+ */
+const struct polars_expr_t *polars_expr_extend_constant(const struct polars_expr_t *expr,
+                                                        const struct polars_expr_t *value,
+                                                        const struct polars_expr_t *n);
+
+/**
+ * Infallible -- `Expr::shuffle` only builds a plan node. `seed` null means "draw one from the OS".
+ */
+const struct polars_expr_t *polars_expr_shuffle(const struct polars_expr_t *expr,
+                                                const uint64_t *seed);
+
+/**
+ * Infallible -- `Expr::reshape` only builds a plan node.
+ */
+const struct polars_expr_t *polars_expr_reshape(const struct polars_expr_t *expr,
+                                                const int64_t *dims,
+                                                uintptr_t n_dims);
 
 const struct polars_expr_t *polars_expr_cum_sum(const struct polars_expr_t *expr, bool reverse);
 
@@ -1606,6 +1715,8 @@ const struct polars_expr_t *polars_expr_str_to_lowercase(const struct polars_exp
 const struct polars_expr_t *polars_expr_str_len_bytes(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_str_len_chars(const struct polars_expr_t *a);
+
+const struct polars_expr_t *polars_expr_str_escape_regex(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_str_starts_with(const struct polars_expr_t *a,
                                                         const struct polars_expr_t *b);

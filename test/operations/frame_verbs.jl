@@ -91,6 +91,27 @@ end
     # expressions, see test/operations/select_with_columns.jl)
     r_all = drop(df, ["a", "b", "c"])
     @test size(r_all) == (0, 0)
+
+    # py-polars test_drop: "*" wildcard-drops every column (shape (3, 0)). Confirmed divergence,
+    # live-verified: our `drop` calls the Rust `Selector::ByName` primitive directly with the
+    # literal string "*", which has no glob meaning there (unlike `col("*")`'s expression-level
+    # wildcard) -- it looks for an actual column named "*" and raises `ColumnNotFoundError`-
+    # equivalent instead. See plans/parity/api_gap_audit.md Group 1.
+    @test_broken size(drop(df, ["*"])) == (3, 0)
+end
+
+@testset "drop_nulls: empty explicit subset does NOT no-op here (py-polars test_drop_nulls_empty_subset diverges)" begin
+    # Upstream distinguishes subset=None (check all columns, the default) from subset=[]
+    # (explicitly check zero columns -> nothing can be null -> unchanged). Our FFI layer collapses
+    # both onto the same `None` (see `c-polars/src/ffi_util.rs::selector_by_name_opt`'s doc
+    # comment), so an explicitly-empty `String[]` here means "check all columns", the same as
+    # omitting the argument -- not upstream's no-op. Confirmed live: both give the same (smaller)
+    # result on a frame where every row has a null somewhere.
+    df = DataFrame((; a = [1, missing], b = [missing, 2]))
+    r_explicit_empty = drop_nulls(df, String[])
+    r_default = drop_nulls(df)
+    @test size(r_explicit_empty) == size(r_default) == (0, 2)
+    @test_broken size(drop_nulls(df, String[])) == (2, 2)  # upstream: explicit [] is a no-op
 end
 
 @testset "rename" begin
@@ -110,6 +131,24 @@ end
 
     # rename creating a name collision should error
     @test_throws PolarsError Base.rename(df, ["a", "b"], ["X", "X"])
+
+    # simultaneous swap (a<->b): both renames apply against the ORIGINAL names, not sequentially
+    # -- a naive sequential rename would either collide or silently lose a column
+    # (py-polars test_rename_swap)
+    df_swap = DataFrame((; a = [1, 2, 3, 4, 5], b = [5, 4, 3, 2, 1]))
+    r_swap = Base.rename(df_swap, ["a", "b"], ["b", "a"])
+    @test Tables.columnnames(r_swap) == (:b, :a)
+    @test r_swap[:a] == [5, 4, 3, 2, 1]
+    @test r_swap[:b] == [1, 2, 3, 4, 5]
+
+    # identity rename(s) -- renaming a column to its own current name is a no-op, not an error,
+    # including when every column is renamed to itself at once (py-polars test_rename_same_name)
+    df_id = DataFrame((; nrs = [1, 2, 3], groups = ["A", "B", "C"]))
+    r_id_one = Base.rename(df_id, ["groups"], ["groups"])
+    @test Tables.columnnames(r_id_one) == (:nrs, :groups)
+    r_id_all = Base.rename(df_id, ["nrs", "groups"], ["nrs", "groups"])
+    @test Tables.columnnames(r_id_all) == (:nrs, :groups)
+    @test r_id_all[:groups] == df_id[:groups]
 end
 
 @testset "drop_nulls (frame-level)" begin
@@ -178,6 +217,40 @@ end
     r_unstable = upsample(df, "time"; every = "1h", stable = false)
     @test size(r_unstable) == (4, 2)
     @test r_unstable[:time] |> collect |> sort == r[:time] |> collect |> sort
+
+    # `Date` (not just `DateTime`) works too (py-polars test_upsample_date)
+    df_date = DataFrame((; date = [Date(2025, 1, 1), Date(2026, 1, 1)]))
+    r_date = upsample(df_date, "date"; every = "3mo")
+    @test collect(r_date[:date]) ==
+        [Date(2025, 1, 1), Date(2025, 4, 1), Date(2025, 7, 1), Date(2025, 10, 1), Date(2026, 1, 1)]
+
+    # a calendar duration ("1h") against a plain integer time column is a Step-5 abort-safety
+    # check: upstream needs its own index-duration syntax ("2i") there, and raises cleanly rather
+    # than misinterpreting the unit (py-polars test_upsample_index_invalid)
+    df_int = DataFrame((; index = Int64[1, 2, 4, 5, 7]))
+    @test_throws PolarsError upsample(df_int, "index"; every = "1h")
+
+    # `by` naming the same column as `time_column` is a legal (if unusual) degenerate case: every
+    # group has exactly one row, so nothing is inserted (py-polars test_upsample_with_group_by_15530)
+    df_grp = DataFrame(
+        (;
+            time = [
+                DateTime(2025, 1, 1, 9, 0), DateTime(2025, 1, 1, 9, 0),
+                DateTime(2025, 1, 1, 9, 2), DateTime(2025, 1, 1, 9, 2),
+            ],
+            symbol = ["AAPL", "MSFT", "AAPL", "MSFT"],
+        )
+    )
+    r_self_group = upsample(df_grp, "time"; by = ["time"], every = "1d")
+    @test size(r_self_group) == size(df_grp)
+
+    # duplicate `by` names -- clean PolarsError (py-polars raises DuplicateError), not a crash
+    @test_throws PolarsError upsample(df_grp, "time"; by = ["time", "time"], every = "1d")
+
+    # an empty (0-row) frame has no time values to infer upsample boundaries from -- clean
+    # PolarsError, not a crash (py-polars test_upsample_empty_dataframe_with_group_by_26342)
+    df_empty = DataFrame((; time = DateTime[], my_group = Int32[]))
+    @test_throws PolarsError upsample(df_empty, "time"; by = ["my_group"], every = "15m")
 end
 
 @testset "with_row_index" begin
@@ -433,4 +506,202 @@ end
     # schema mismatch: same names, incompatible dtype
     df_wrong_dtype = DataFrame((; a = ["x", "y"], b = [10, 20]))
     @test_throws PolarsError vstack(df1, df_wrong_dtype)
+
+    # a `Null`-dtype column (an all-`missing` column built with no other type hint) is compatible
+    # with any concrete dtype in one direction only: it can be appended onto a typed column
+    # (upcasting), but a typed column cannot be appended onto a `Null` one -- asymmetric on
+    # purpose (py-polars test_vstack_with_null_column)
+    typed = DataFrame((; x = [3.5]))
+    null_col = DataFrame((; x = [missing]))
+    r_null = vstack(typed, null_col)
+    @test isequal(collect(r_null[:x]), [3.5, missing])
+    @test_throws PolarsError vstack(null_col, typed)
+end
+
+@testset "limit/reverse/null_count/count/fill_nan/explain/cache (frame-level)" begin
+    df = DataFrame((; a = [1.0, NaN, 3.0, missing], b = [10, 20, 30, 40]))
+
+    # limit is a plain alias for head
+    r_limit = limit(df, 2)
+    @test size(r_limit) == (2, 2)
+    @test collect(r_limit[:b]) == [10, 20]
+    @test isequal(collect(limit(df, 2)[:a]), collect(head(df, 2)[:a]))
+
+    # limit(df, n) with n > row count returns everything, same as head
+    r_limit_over = limit(df, 100)
+    @test size(r_limit_over) == (4, 2)
+
+    # LazyFrame form agrees
+    r_limit_lazy = limit(lazy(df), 2) |> collect
+    @test size(r_limit_lazy) == (2, 2)
+
+    # upstream test_limit (py-polars lazyframe/test_lazyframe.py): limit(1) on a LazyFrame
+    # equals the first row of the collected frame, fixture from the `fruits_cars` conftest fixture
+    fruits_cars = DataFrame(
+        (;
+            A = [1, 2, 3, 4, 5],
+            fruits = ["banana", "banana", "apple", "apple", "banana"],
+            B = [5, 4, 3, 2, 1],
+            cars = ["beetle", "audi", "beetle", "beetle", "beetle"],
+        )
+    )
+    r_limit_fc = limit(lazy(fruits_cars), 1) |> collect
+    @test collect(r_limit_fc[:A]) == [1]
+    @test collect(r_limit_fc[:fruits]) == ["banana"]
+    @test collect(r_limit_fc[:cars]) == ["beetle"]
+
+    # reverse: row order flips; round-trips back to the original
+    r_rev = Base.reverse(df)
+    @test collect(r_rev[:b]) == [40, 30, 20, 10]
+    @test isequal(Base.reverse(Base.reverse(df)), df)
+
+    r_rev_lazy = Base.reverse(lazy(df)) |> collect
+    @test collect(r_rev_lazy[:b]) == [40, 30, 20, 10]
+
+    # upstream test_reverse_df (py-polars operations/test_reverse.py)
+    r_rev_upstream = Base.reverse(lazy(DataFrame((; a = [1, 2], b = [3, 4])))) |> collect
+    @test collect(r_rev_upstream[:a]) == [2, 1]
+    @test collect(r_rev_upstream[:b]) == [4, 3]
+
+    # reverse preserves schema on a 0-row frame (upstream test_reverse_list_22829, minus the
+    # List(Binary) dtype which is out of scope for this sweep -- schema preservation on a plain
+    # numeric 0-row frame is the part that's portable)
+    r_rev_empty = Base.reverse(DataFrame((; x = Int[], y = Int[])))
+    @test size(r_rev_empty) == (0, 2)
+
+    # null_count and count disagree on a column with a `missing`: null_count counts nulls,
+    # count counts non-nulls -- the whole point of having both. Live-verified: `a` has one
+    # `missing` (NaN is not null), `b` has none.
+    r_nc = null_count(df)
+    @test collect(r_nc[:a]) == [1]
+    @test collect(r_nc[:b]) == [0]
+
+    r_cnt = count(df)
+    @test collect(r_cnt[:a]) == [3]
+    @test collect(r_cnt[:b]) == [4]
+
+    # LazyFrame forms agree
+    r_nc_lazy = null_count(lazy(df)) |> collect
+    @test collect(r_nc_lazy[:a]) == [1]
+    r_cnt_lazy = count(lazy(df)) |> collect
+    @test collect(r_cnt_lazy[:a]) == [3]
+
+    # a fully-null column counts to 0 (not the row count), confirming `count` really is
+    # non-null-count, not row-count
+    df_allnull = DataFrame((; a = [missing, missing, missing], b = [1, 2, 3]))
+    @test collect(count(df_allnull)[:a]) == [0]
+    @test collect(count(df_allnull)[:b]) == [3]
+    @test collect(null_count(df_allnull)[:a]) == [3]
+
+    # upstream test_null_count (py-polars lazyframe/test_lazyframe.py): a=[1,2,None,2] (1 null),
+    # b=[None,3,None,3] (2 nulls)
+    lf_nc = lazy(DataFrame((; a = [1, 2, missing, 2], b = [missing, 3, missing, 3])))
+    r_nc_upstream = null_count(lf_nc) |> collect
+    @test collect(r_nc_upstream[:a]) == [1]
+    @test collect(r_nc_upstream[:b]) == [2]
+
+    # upstream test_count (py-polars operations/test_statistics.py): non-null counts per column,
+    # cast to the index dtype (UInt32 here); verifies dtype, not just value
+    df_count = DataFrame(
+        (;
+            nulls = [missing, missing, missing],
+            one_null_str = ["one", missing, "three"],
+            one_null_float = [1.0, 2.0, missing],
+            no_nulls_int = [1, 2, 3],
+        )
+    )
+    r_count_upstream = count(df_count)
+    @test collect(r_count_upstream[:nulls]) == [0]
+    @test collect(r_count_upstream[:one_null_str]) == [2]
+    @test collect(r_count_upstream[:one_null_float]) == [2]
+    @test collect(r_count_upstream[:no_nulls_int]) == [3]
+    @test eltype(collect(r_count_upstream[:nulls])) == UInt32
+
+    # upstream's hypothesis test_null_count carries two explicit (non-generated) @example cases:
+    # a schema-only 0-row frame (null_count.shape == (1, ncols)) and a fully empty 0x0 frame
+    # (shape == (1, 0)). The 0-row/N-col case matches for both null_count and count; the 0x0 case
+    # does not -- see the note below and plans/parity/tier12-sweep-frame-verbs.md.
+    df_schema_only = DataFrame((; x = Int[], y = Int[], z = Int[]))
+    @test size(null_count(df_schema_only)) == (1, 3)
+    @test size(count(df_schema_only)) == (1, 3)
+
+    # a genuinely 0-column DataFrame: upstream's own hypothesis @example asserts shape (1, 0) for
+    # null_count on `pl.DataFrame()`. Our implementation is `collect ∘ null_count ∘ lazy`, and
+    # LazyFrame::null_count()/count() on a 0-column input never emits a row to begin with, giving
+    # (0, 0) instead -- upstream's eager `DataFrame.null_count()` goes through a *different* Rust
+    # binding (`PyDataFrame.null_count`, not the lazy planner) that apparently special-cases this.
+    # This is a Rust/FFI-path divergence, not a Julia-side marshalling bug (no Rust changes in
+    # this task) -- @test_broken per the parity skill, recorded in the plan note.
+    df_zero_cols = DataFrame(NamedTuple())
+    @test size(df_zero_cols) == (0, 0)
+    @test_broken size(null_count(df_zero_cols)) == (1, 0)
+    @test size(null_count(df_zero_cols)) == (0, 0) # documents actual current behavior
+    @test_broken size(count(df_zero_cols)) == (1, 0)
+    @test size(count(df_zero_cols)) == (0, 0)
+
+    # fill_nan replaces only NaN, leaves `missing` untouched -- distinct concepts
+    r_fn = fill_nan(df, 0.0)
+    @test isequal(collect(r_fn[:a]), [1.0, 0.0, 3.0, missing])
+    @test collect(r_fn[:b]) == [10, 20, 30, 40] # untouched, no NaN/missing here
+
+    r_fn_lazy = fill_nan(lazy(df), 0.0) |> collect
+    @test isequal(collect(r_fn_lazy[:a]), [1.0, 0.0, 3.0, missing])
+
+    # fill_nan accepts an Expr, not just a plain scalar
+    r_fn_expr = fill_nan(df, lit(-1.0))
+    @test isequal(collect(r_fn_expr[:a]), [1.0, -1.0, 3.0, missing])
+
+    # upstream test_fill_nan (py-polars dataframe/test_df.py + lazyframe/test_lazyframe.py):
+    # fill_nan(None) turns NaN into a genuine null, not a no-op -- distinct from the default-value
+    # case above (verified live: `convert(Expr, missing)` already exists, see src/expr/expr.jl)
+    df_fn = DataFrame((; a = [1.0, NaN, 3.0]))
+    r_fn_none = fill_nan(df_fn, missing)
+    @test isequal(collect(r_fn_none[:a]), [1.0, missing, 3.0])
+    r_fn_none_lazy = fill_nan(lazy(df_fn), missing) |> collect
+    @test isequal(collect(r_fn_none_lazy[:a]), [1.0, missing, 3.0])
+
+    # fill_nan only touches float columns -- a Datetime column (and its dtype) passes through
+    # unchanged even though the frame also has a NaN-bearing float column (upstream test_fill_nan,
+    # dataframe/test_df.py: `df.fill_nan(2.0).dtypes == [pl.Float64, pl.Datetime]`)
+    df_fn_dt = DataFrame(
+        (; a = [1.0, NaN, 3.0], b = [DateTime(2001, 2, 2), DateTime(2002, 2, 2), DateTime(2003, 2, 2)])
+    )
+    r_fn_dt = fill_nan(df_fn_dt, 2.0)
+    @test isequal(collect(r_fn_dt[:a]), [1.0, 2.0, 3.0])
+    @test collect(r_fn_dt[:b]) == [DateTime(2001, 2, 2), DateTime(2002, 2, 2), DateTime(2003, 2, 2)]
+
+    # explain: optimized plan contains the DF scan node
+    plan = explain(lazy(df))
+    @test occursin("DF [\"a\", \"b\"]", plan)
+
+    # explain(optimized=false) differs from the optimized plan once there's something for the
+    # optimizer to do (projection pushdown trims the unused column here)
+    df3 = DataFrame((; a = [1, 2, 3, 4], b = [10, 20, 30, 40], c = [100, 200, 300, 400]))
+    lf3 = select(filter(lazy(df3), col("a") > 1), col("a"))
+    @test explain(lf3; optimized = true) != explain(lf3; optimized = false)
+    @test occursin("PROJECT[\"a\"]", explain(lf3; optimized = true))
+    @test occursin("SELECT", explain(lf3; optimized = false))
+
+    # upstream test_describe_plan (py-polars lazyframe/test_lazyframe.py): explain returns a
+    # String for both optimized values
+    @test explain(lazy(DataFrame((; a = [1]))); optimized = true) isa String
+    @test explain(lazy(DataFrame((; a = [1]))); optimized = false) isa String
+
+    # cache is result-preserving: collecting a cached plan agrees with collecting the plain one
+    r_cache = collect(cache(lazy(df)))
+    @test isequal(collect(r_cache[:a]), collect(df[:a]))
+    @test collect(r_cache[:b]) == collect(df[:b])
+
+    # upstream test_cache_hit_with_proj_and_pred_pushdown (py-polars lazyframe/test_lazyframe.py):
+    # concatenating a cached LazyFrame with itself dedups to a single CACHE node id in the
+    # optimized plan, and collecting still returns each branch's rows
+    lf_cache = lazy(DataFrame((; a = [1, 2, 3], b = [3, 4, 5], c = ["x", "y", "z"])))
+    cached = cache(lf_cache)
+    q = select(Polars.concat(Polars.LazyFrame[cached, cached]), "a", "b")
+    r_q = collect(q)
+    @test collect(r_q[:a]) == [1, 2, 3, 1, 2, 3]
+    q_plan = explain(q)
+    cache_ids = [m.match for m in eachmatch(r"CACHE\[id: [^\]]+\]", q_plan)]
+    @test length(cache_ids) == 2
+    @test cache_ids[1] == cache_ids[2] # both branches share the same cache id
 end

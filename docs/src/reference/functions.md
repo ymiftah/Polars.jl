@@ -82,3 +82,44 @@ select(
     sum_horizontal(col("a"), col("b"), col("c")) |> alias("row_sum"),
 )
 ```
+
+## String & array combination
+
+```@docs
+format
+concat_arr
+concat_str
+concat_list
+```
+
+`format(fmt, args...)` fills a `{}`-templated string with `args`, one per placeholder, row-wise —
+the row-wise counterpart of `Base.string` over several columns. `concat_arr(exprs...)` combines
+`exprs` row-wise into a fixed-size `Array` column; see its docstring for the current limitation on
+materializing/introspecting an `Array`-dtype result. `concat_str`/`concat_list` are the same family
+of row-wise horizontal combinators, joining into a `String`/`List` respectively instead of a
+fixed-size `Array`.
+
+```@example functions
+df11 = DataFrame((; name = ["a", "b"], age = [1, 2]))
+select(df11, format("{} is {}", col("name"), col("age")) |> alias("greeting"))
+```
+
+## Temporal constructors
+
+```@docs
+datetime
+duration
+date
+Base.time(::Union{Real, Polars.Expr}, ::Union{Real, Polars.Expr}, ::Union{Real, Polars.Expr}, ::Union{Real, Polars.Expr})
+from_epoch
+```
+
+`datetime`/`date`/`Base.time` build a `Datetime`/`Date`/`Dates.Time` column from component
+expressions (year/month/day, hour/minute/second/microsecond); `duration` builds a `Duration`
+column from a set of unit-named components. `from_epoch` is the inverse of `Dt.epoch`: it
+interprets an integer column as a count of `time_unit`s since the Unix epoch.
+
+```@example functions
+dft = DataFrame((; y = [2024, 2025], m = [1, 6], d = [15, 30]))
+select(dft, datetime(col("y"), col("m"), col("d"); hour = 12) |> alias("dt"))
+```

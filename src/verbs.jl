@@ -113,6 +113,10 @@ end
     drop_nulls(df::DataFrame, subset::Vector{String}=String[])::DataFrame
 
 Removes rows containing a `null` in any of the `subset` columns (all columns if not provided).
+
+An explicitly-empty `subset` behaves the same as omitting it (checks *all* columns) rather than
+py-polars' `subset=[]`, which checks zero columns and is therefore a no-op -- this wrapper has no
+way to distinguish "not provided" from "provided empty" once both collapse to an empty `Vector`.
 """
 drop_nulls(df::DataFrame, subset::Vector{<:ColId} = String[]) = drop_nulls(lazy(df), subset) |> collect
 function drop_nulls(lf::LazyFrame, subset::Vector{<:ColId} = String[])
@@ -389,3 +393,72 @@ function Base.prod(df::LazyFrame)
     return select(df, exprs...)
 end
 Base.prod(df::DataFrame) = Base.prod(lazy(df)) |> collect
+
+"""
+    limit(df::LazyFrame, n::Integer)::LazyFrame
+    limit(df::DataFrame, n::Integer)::DataFrame
+
+The first `n` rows of `df`. A plain alias for [`head`](@ref), matching upstream polars, which
+defines `limit` as an alias for the same reason.
+"""
+limit(df::LazyFrame, n::Integer) = head(df, n)
+limit(df::DataFrame, n::Integer) = head(df, n)
+
+export limit
+
+"""
+    Base.reverse(df::LazyFrame)::LazyFrame
+    Base.reverse(df::DataFrame)::DataFrame
+
+Reverses the row order of `df`.
+"""
+Base.reverse(df::LazyFrame) = _frame_reverse!(clone(df))
+Base.reverse(df::DataFrame) = _frame_reverse!(lazy(df)) |> collect
+function _frame_reverse!(df::LazyFrame)
+    API.polars_lazy_frame_reverse(df)
+    return df
+end
+
+"""
+    null_count(df::LazyFrame)::LazyFrame
+    null_count(df::DataFrame)::DataFrame
+
+The number of `null` values in every column of `df`, as a single-row frame with the same column
+names. The per-column expression form is [`null_count(::Polars.Expr)`](@ref).
+"""
+null_count(df::LazyFrame) = _frame_null_count!(clone(df))
+null_count(df::DataFrame) = _frame_null_count!(lazy(df)) |> collect
+function _frame_null_count!(df::LazyFrame)
+    API.polars_lazy_frame_null_count(df)
+    return df
+end
+
+"""
+    Base.count(df::LazyFrame)::LazyFrame
+    Base.count(df::DataFrame)::DataFrame
+
+The number of non-`null` values in every column of `df`, as a single-row frame with the same
+column names -- matching the per-column [`Polars.count`](@ref); the complementary
+[`null_count`](@ref) counts the other way. **Not** the row count including nulls, despite the
+name (verified live: a 3-`missing` column reports `count == 0`).
+"""
+Base.count(df::LazyFrame) = _frame_count!(clone(df))
+Base.count(df::DataFrame) = _frame_count!(lazy(df)) |> collect
+function _frame_count!(df::LazyFrame)
+    API.polars_lazy_frame_count(df)
+    return df
+end
+
+"""
+    fill_nan(df::LazyFrame, value)::LazyFrame
+    fill_nan(df::DataFrame, value)::DataFrame
+
+Replaces every `NaN` in every float column of `df` with `value` (an expression or a plain scalar).
+The `null`-replacing counterpart is [`fill_null`](@ref).
+"""
+fill_nan(df::LazyFrame, value) = _frame_fill_nan!(clone(df), convert(Expr, value))
+fill_nan(df::DataFrame, value) = _frame_fill_nan!(lazy(df), convert(Expr, value)) |> collect
+function _frame_fill_nan!(df::LazyFrame, value::Expr)
+    API.polars_lazy_frame_fill_nan(df, value)
+    return df
+end
