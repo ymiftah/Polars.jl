@@ -159,8 +159,9 @@ export floor_div
 """
     col(name::Union{String,Symbol})::Polars.Expr
 
-Returns an expression referencing a column in a dataframe. The special
-column name `"*"` will select all columns in the dataframe.
+Returns an expression referencing a column in a dataframe. The special column name `"*"` selects
+all columns in the dataframe. A name written as a regular expression starting with `^` and ending
+with `\$` selects every column whose name matches it.
 """
 function col(name::AbstractString)
     expr = Ref{Ptr{polars_expr_t}}()
@@ -207,8 +208,9 @@ _null_behavior_enum(null_behavior::Symbol) = _enum_lookup(
     nth(n::Int64)::Polars.Expr
 
 Returns an expression referencing the nth column in a dataframe.
-The `n` argument is *one indexing based*, meaning that columns start at 1.
-Negative numbers reference columns starting from the end.
+
+Note: `n` is 1-based (columns start at 1), unlike upstream's 0-based `nth`. Negative numbers
+reference columns starting from the end.
 """
 function nth(n)
     n_zero = n < 0 ? n : n - 1
@@ -249,8 +251,9 @@ end
 """
     lit(x)::Polars.Expr
 
-Transforms a literal value as an expression which will broadcast when used with other
-expressions.
+Creates a literal expression from `x`. A literal expression behaves like a column that contains a
+single distinct value; the column is automatically broadcast to the "correct" length to make
+operations work, often determined by the length of the `LazyFrame` it is being used with.
 """
 function lit(v)
     return convert(Expr, v)
@@ -366,8 +369,8 @@ cast(dtype; kwargs...) = expr -> cast(expr, dtype; kwargs...)
 Casts `expr` to `Datetime(time_unit, time_zone)`.
 
 Also reachable as `cast(expr, DateTime; time_unit, time_zone)` -- this is the underlying
-implementation. `Datetime` needs its own entry point because `polars_value_type_t` (what the plain
-`cast` dispatches on) can't carry a time unit or time zone.
+implementation. `Datetime` needs its own entry point because the plain-dtype form `cast` dispatches
+on can't carry a time unit or time zone.
 
 - `time_unit`: one of `:ns`, `:us` (default), `:ms`
 - `time_zone`: `nothing` (default, naive) or an IANA time zone name
@@ -611,13 +614,14 @@ end
 
 Reshapes `expr` into an `Array`-dtype column of the given dimensions. A `-1` as the *first*
 dimension is inferred from the length (only that position; a `-1` elsewhere raises a
-`PolarsError`). **Building the plan and `collect`ing it both succeed, but nothing that
-needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a
-collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser,
-which does not yet recognize the fixed-size-list format (`"+w:N"`) -- this is a package
-limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the
-result away from `Array` before inspecting it. Extends `Base.reshape` rather than shadowing it,
-the same way `Base.get`/`Base.sort`/`Base.tail` are extended elsewhere in this file.
+`PolarsError`). Extends `Base.reshape` rather than shadowing it.
+
+!!! warning "Result cannot be inspected yet"
+    Building the plan and `collect`ing it both succeed, but nothing that needs to resolve the
+    `Array` dtype does: `collect_schema`, `schema`, and indexing into a collected `DataFrame`'s
+    `Array` column all raise (see [Limitations](@ref)) -- this is a package limitation, not a
+    query error. Use [`explain`](@ref) to confirm the plan was built, or cast the result away from
+    `Array` before inspecting it.
 """
 function Base.reshape(expr::Expr, dims::Integer...)
     dims_vec = Int64[Int64(d) for d in dims]
@@ -635,9 +639,7 @@ values are automatically collected into a `List` (see [List](@ref expr-list)) so
 still produces one row per group.
 
 `maintain_order` (default `false`) preserves the order values first appear in; the default allows
-more optimization but does not guarantee any particular order. This is a separate, hand-written
-method (not `@generate_expr_fns`-derived like most other `Expr` methods) precisely because it
-needs this extra keyword, dispatching between polars' own `Expr::unique`/`Expr::unique_stable`.
+more optimization but does not guarantee any particular order.
 
 !!! note
     Extends `Base.unique` (which otherwise operates on collections); `unique` collides with an
@@ -1272,7 +1274,7 @@ end
 
 export format
 
-@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenates `exprs` into a single fixed-size `Array` column, one element per input expression -- the `Array`-dtype counterpart of [`concat_list`](@ref). All inputs must share a dtype. **Building the plan and `collect`ing it both succeed, but nothing that needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser, which does not yet recognize the fixed-size-list format -- this is a package limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the result away from `Array` before inspecting it."
+@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenates `exprs` into a single fixed-size `Array` column, one element per input expression -- the `Array`-dtype counterpart of [`concat_list`](@ref). All inputs must share a dtype.\n\n!!! warning \"Result cannot be inspected yet\"\n    Building the plan and `collect`ing it both succeed, but nothing that needs to resolve the `Array` dtype does: `collect_schema`, `schema`, and indexing into a collected `DataFrame`'s `Array` column all raise (see [Limitations](@ref)) -- this is a package limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the result away from `Array` before inspecting it."
 
 export concat_arr
 

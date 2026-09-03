@@ -5,7 +5,8 @@ module Structs
         field_by_name(expr::Polars.Expr, name::String)::Polars.Expr
         field_by_name(name::String)::Base.Fix2{typeof(field_by_name), String}
 
-    Returns a new expression corresponding to values of the selected field.
+    Retrieve one of the fields of the struct as a new Series. Also supports wildcard `"*"` and
+    regex expansion.
     """
     function field_by_name(expr, name)
         out = Ref{Ptr{polars_expr_t}}()
@@ -31,7 +32,7 @@ module Structs
         rename_fields(expr::Polars.Expr, new_names::Vector{String})::Polars.Expr
         rename_fields(new_names::Vector{String})::Base.Fix2{typeof(rename_fields), Vector{String}}
 
-    Renames the fields of the struct series with the provided new names.
+    Rename the fields of the struct with the provided new names.
     """
     function rename_fields(expr, new_names)
         owned, ptrs, lens = _name_ptrs(convert(Vector{String}, new_names))
