@@ -13,13 +13,8 @@ Constructs a `DateTime` column from component expressions (or plain scalars). Di
 parts. `ambiguous` controls how a local time that occurs twice (a DST fall-back) resolves -- same
 values as `Dt.replace_time_zone`'s `ambiguous`.
 
-The output column is always named `"datetime"` for any non-all-literal input (an upstream Rust
-`Expr::Alias(..., "datetime")` this package's binding calls unmodified, see `CLAUDE.md`) -- not the
-first argument's own name (e.g. `"year"`), which a newer upstream py-polars test
-(`test_datetime_name`) expects. That naming ("follow left-hand rule") is marked `// TODO: ... in
-Polars 2.0` in the exact `polars-plan` version this package is pinned to (`0.54.4`) and is not yet
-implemented there; confirmed live, not fixable from this package without bumping the vendored
-crate version (out of scope here, see `plans/parity/tier12-sweep-temporal.md`).
+Note: the output column is always named `"datetime"` for any non-all-literal input, not the first
+argument's own name (e.g. `"year"`).
 """
 function datetime(
         year, month, day; hour = 0, minute = 0, second = 0, microsecond = 0,
@@ -80,12 +75,8 @@ export duration
 """
     date(year, month, day)::Polars.Expr
 
-Constructs a `Date` column from component expressions (or plain scalars). Composes
-[`datetime`](@ref) + `Dt.date` (this package has no separate Rust-side `Date` constructor --
-neither does upstream py-polars, whose own `pl.date` does the same composition in Python), and
-matches upstream's own explicit `.alias("date")` on the result -- `datetime`'s own output name
-(currently always `"datetime"`, see its docstring) would otherwise leak through unchanged, since
-`Dt.date` (a plain namespaced extraction) does not rename its input.
+Constructs a `Date` column from component expressions (or plain scalars). Aliased to `"date"` on
+the result.
 """
 date(year, month, day) = alias(Dt.date(datetime(year, month, day)), "date")
 
@@ -97,16 +88,8 @@ const _TimeComponent = Union{Expr, Real}
     Base.time(hour, minute=0, second=0, microsecond=0)::Polars.Expr
 
 Constructs a `Dates.Time` column from component expressions (or plain scalars). Extends
-`Base.time` (which takes no arguments and returns wall-clock seconds) rather than shadowing it --
-same precedent as this package's `Base.get`/`Base.sort`/`Base.tail` extensions in
-`src/expr/expr.jl`.
-
-Arguments are constrained to `Expr`/`Real` rather than left untyped: `time` is both a `Base`
-function and exported from here, so an `Any`-typed extension would capture *every* two-to-four
-argument `time(...)` call in any downstream session, turning what should be a `MethodError` into a
-confusing failure inside expression construction. Aliased to `"time"` on the result, matching
-upstream's own explicit `.alias("time")` -- see [`date`](@ref)'s docstring for why this is needed
-rather than relying on `datetime`'s output name.
+`Base.time` (which takes no arguments and returns wall-clock seconds) rather than shadowing it.
+Aliased to `"time"` on the result.
 """
 Base.time(
     hour::_TimeComponent, minute::_TimeComponent = 0,
@@ -119,12 +102,11 @@ export time
     from_epoch(expr::Polars.Expr, time_unit::Symbol=:s)::Polars.Expr
 
 Interprets `expr` (a numeric column) as a count of `time_unit`s since the Unix epoch and
-constructs the corresponding `Date`/`DateTime` column -- the inverse of `Dt.epoch`. Mirrors
-upstream `pl.from_epoch`'s own scaling exactly (`py-polars/src/polars/functions/lazy.py`): `:ns`/
-`:us` are a direct physical cast to `Datetime` at that same resolution; `:s`/`:ms` are scaled up
-to *microseconds* first (`:s` x1_000_000, `:ms` x1_000) and always land on `Datetime(:us)` --
-**not** a direct physical cast to `Datetime(:ms)`, which would silently truncate a fractional-
-second/sub-millisecond input; `:d` casts to `Date`, whose physical representation is already
+constructs the corresponding `Date`/`DateTime` column -- the inverse of `Dt.epoch`. `:ns`/`:us`
+are a direct physical cast to `Datetime` at that same resolution; `:s`/`:ms` are scaled up to
+*microseconds* first (`:s` x1_000_000, `:ms` x1_000) and always land on `Datetime(:us)` -- not a
+direct physical cast to `Datetime(:ms)`, which would silently truncate a fractional-second/
+sub-millisecond input; `:d` casts to `Date`, whose physical representation is already
 days-since-epoch.
 """
 function from_epoch(expr::Expr, time_unit::Symbol = :s)

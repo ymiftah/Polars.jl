@@ -137,7 +137,7 @@ module Lists
     @wrap_expr_method sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false) polars_expr_list_sort "Sorts the elements within each list of `expr` independently (list order/row count is unchanged -- compare the top-level `sort` (see [DataFrame](@ref)/[LazyFrame](@ref)), which reorders whole rows instead)."
     @curry sort(; descending::Bool = false, nulls_last::Bool = false)
 
-    @wrap_expr_method join(expr::Expr, separator::Expr; ignore_nulls::Bool = true) polars_expr_list_join "Joins the string elements of each list in `expr` into a single string, separated by `separator`. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, a `null` element makes that list's whole result `null` instead. Distinct from [`Strings.join`](@ref Polars.Strings.join) (an aggregation across *all* rows into one value) -- this joins each row's own list independently."
+    @wrap_expr_method join(expr::Expr, separator::Expr; ignore_nulls::Bool = true) polars_expr_list_join "Joins all string items in a sublist and places `separator` between them. Errors if the inner type of the list of `expr` isn't a string. If `ignore_nulls` is `true` (default), `null` elements are skipped; if `false`, a `null` element makes that list's whole result `null` instead. Distinct from [`Strings.join`](@ref Polars.Strings.join) (an aggregation across *all* rows into one value) -- this joins each row's own list independently."
     @curry join(separator; ignore_nulls::Bool = true)
 
     @wrap_expr_method slice(expr::Expr, offset::Expr, length::Expr) polars_expr_list_slice "Extracts a sublist of each list in `expr`, starting at `offset` (0-indexed; negative indexes from the end of the list) with the given `length` (extends to the end of the list if `length` is `null`). See [`head`](@ref)/[`tail`](@ref) for the fixed-endpoint special cases."
@@ -197,11 +197,10 @@ module Lists
     list must have exactly `width` elements).
 
     !!! warning "Result cannot be materialized into Julia yet"
-        The `Array` dtype this produces cannot currently be read back into a Julia value -- the Arrow
-        schema decoder (`parse_format` in `src/arrow/schema.jl`) recognizes the fixed-size-list format
-        but has no materialization path for it (see [Limitations](@ref)). Selecting/passing the column onward (e.g.
-        `Selectors.array()`, writing straight to parquet) works fine; `collect(df)[:col]`/`getindex` on
-        the result raises.
+        The `Array` dtype this produces cannot currently be read back into a Julia value (see
+        [Limitations](@ref)). Selecting/passing the column onward (e.g. `Selectors.array()`,
+        writing straight to parquet) works fine; `collect(df)[:col]`/`getindex` on the result
+        raises.
     """
     to_array(expr::Expr, width::Integer) = Expr(API.polars_expr_list_to_array(expr, Csize_t(width)))
     export to_array

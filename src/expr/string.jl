@@ -5,8 +5,8 @@ module Strings
     @wrap_simple_ops begin
         gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase, "Converts each string of `expr` to uppercase.")
         gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase, "Converts each string of `expr` to lowercase.")
-        gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes, "Length of each string of `expr`, in bytes. Differs from [`len_chars`](@ref) for non-ASCII text (a multi-byte UTF-8 character counts as more than one byte but one char).")
-        gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars, "Length of each string of `expr`, in Unicode characters. Differs from [`len_bytes`](@ref) for non-ASCII text.")
+        gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes, "Length of each string of `expr`, in bytes. Differs from [`len_chars`](@ref) for non-ASCII text (a multi-byte UTF-8 character counts as more than one byte but one char); `len_bytes` runs in O(1), while `len_chars` runs in O(n), so prefer this one for ASCII text.")
+        gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars, "Length of each string of `expr`, in Unicode characters. Differs from [`len_bytes`](@ref) for non-ASCII text; runs in O(n), unlike `len_bytes`'s O(1).")
         gen_impl_expr_str!(polars_expr_str_escape_regex, StringNameSpace::escape_regex, "Escapes every regex metacharacter in each string, so the result matches itself literally when used as a pattern.")
         # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
