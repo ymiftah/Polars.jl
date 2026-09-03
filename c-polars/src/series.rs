@@ -59,6 +59,40 @@ pub unsafe extern "C" fn polars_series_export_carray(
     })
 }
 
+/// Exports a dictionary-encoded (Categorical/Enum) series' data as a single Arrow C Data
+/// Interface `ArrowArray`, collapsing the series to one chunk first if necessary -- like
+/// `polars_series_export_carray`, but goes through `Series::to_arrow` (which honors the series'
+/// logical dtype) instead of exporting the raw physical chunk directly. For a Categorical/Enum
+/// series, the raw physical chunk is a plain integer index array with no dictionary attached, so
+/// `polars_series_export_carray`'s `ArrowArray.dictionary` field comes back null even though
+/// `polars_series_schema` correctly reports a dictionary-typed schema for the same column; this
+/// function produces a genuine `DictionaryArray` whose `.dictionary` field is populated,
+/// matching the schema. Errors if `series` is not Categorical/Enum-typed -- use
+/// `polars_series_export_carray` for every other dtype.
+#[no_mangle]
+pub unsafe extern "C" fn polars_series_export_carray_dictionary(
+    series: *mut polars_series_t,
+    out: *mut ArrowArray,
+) -> *const polars_error_t {
+    guard_error(|| {
+        match (*series).inner.dtype() {
+            DataType::Categorical(_, _) | DataType::Enum(_, _) => {}
+            other => {
+                return make_error(format!(
+                    "polars_series_export_carray_dictionary expects a Categorical/Enum series, got {other:?}"
+                ));
+            }
+        }
+        let rechunked = (*series).inner.rechunk();
+        if rechunked.chunks().is_empty() {
+            return make_error("series has no chunks to export");
+        }
+        let arr = rechunked.to_arrow(0, CompatLevel::newest());
+        out.write(ffi::export_array_to_c(arr));
+        std::ptr::null()
+    })
+}
+
 /// Returns whether or not the value at index `index` is null, return false if the index is out of
 /// bounds.
 #[no_mangle]

@@ -95,6 +95,17 @@ function _export_carray(series::Series)
     return ExportedArray(out[])
 end
 
+"""Like `_export_carray`, but for a dictionary-encoded (Categorical/Enum) `series` specifically,
+via `polars_series_export_carray_dictionary` -- see that function's Rust docstring
+(`c-polars/src/series.rs`) for why `_export_carray`'s plain physical-chunk export isn't usable
+here (its `ArrowArray.dictionary` field comes back null for a Categorical/Enum series)."""
+function _export_carray_dictionary(series::Series)
+    out = Ref{CArrowArray}()
+    err = polars_series_export_carray_dictionary(series, out)
+    polars_error(err)
+    return ExportedArray(out[])
+end
+
 """
     read_series(series::Series; zerocopy::Bool = false)
 
@@ -516,38 +527,47 @@ end
     _read_categorical(series::Series)
 
 Bulk reader for a dictionary-encoded (Categorical/Enum) `series` (`series.fmt == ""`, the
-sentinel `load_series_schema` caches for this case). Casts `series` to `String` -- a single
-columnar cast on the Rust side, not a per-row FFI round trip -- and bulk-reads the result through
-the ordinary `String` fast path (`_read_view`, via `read_series`), then hands the decoded strings
-to `_categorical_array`, which returns them unchanged by default or converts them into a
-`CategoricalArrays.CategoricalArray` once that package's extension is loaded.
-
-!!! note
-    The raw Arrow export of a Categorical `Series` (`polars_series_export_carray`) does not
-    actually carry the dictionary's category values: confirmed live, `ArrowArray.dictionary` is
-    null on the exported array, because `polars_series_export_carray` exports the column's
-    *physical* chunk (a plain `UInt32` index array) rather than a true Arrow-Dictionary-typed
-    array -- even though `polars_series_schema` (a separate call, over the *logical* field)
-    correctly reports a dictionary-typed schema for the same column. So a genuinely zero-copy
-    "index buffer + shared dictionary values" bulk read is not reachable through the current C
-    ABI without a new `c-polars` entry point; this cast-based route is the best available bulk
-    (as opposed to per-element `getindex`) path today.
-
-!!! warning
-    Must go through a single-column `Expr`-level cast inside `select` (`cast(col(name), String)`),
-    never the whole-frame `cast(df::DataFrame, String)` convenience (`polars_lazy_frame_cast_all`)
-    -- confirmed live that the latter panics *inside upstream polars* (not this package's own code,
-    and not catchable as a `PolarsError`: a bare Rust panic crossing `extern "C"` aborts the whole
-    process, see CLAUDE.md's "C ABI conventions") when cast-alling an empty (0-row) Categorical
-    column's frame: `range start index 1 out of range for slice of length 0` in
-    `polars-plan`'s `aexpr/function_expr/schema.rs`. The single-column `Expr` cast path does not
-    hit this.
+sentinel `load_series_schema` caches for this case). Exports `series` via
+`_export_carray_dictionary` (a genuine Arrow `DictionaryArray`, unlike `_export_carray`'s plain
+physical-chunk export -- see that function's docstring), reads the physical index buffer through
+the ordinary numeric fast path and the shared dictionary values through the ordinary `String` fast
+path (`_read_view_dispatch`, in each case -- no per-row FFI round trip, and no intermediate
+`String`-cast/`collect` of the whole column either), then decodes indices into category strings
+and hands them to `_categorical_array`, which returns them unchanged by default or converts them
+into a `CategoricalArrays.CategoricalArray` once that package's extension is loaded.
 """
 function _read_categorical(series::Series)
-    colname = Symbol(name(series))
-    decoded = collect(select(lazy(DataFrame([series])), cast(col(String(colname)), String)))[colname]
-    strings = read_series(decoded)
-    strings === nothing && return nothing # defensive: the cast result is always "vu"/bulk-readable in practice
+    schema_out = Ref{CArrowSchema}()
+    err = polars_series_schema(series, schema_out)
+    polars_error(err)
+    schema = schema_out[]
+    index_fmt = unsafe_string(schema.format)
+    schema.dictionary == C_NULL && error("expected a dictionary-typed schema for a Categorical/Enum series")
+    dict_fmt = unsafe_string(unsafe_load(schema.dictionary).format)
+    schema_ref = Ref(schema)
+    GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
+
+    h = _export_carray_dictionary(series)
+    ca, bufs = _buffers(h)
+
+    if ca.dictionary == C_NULL # defensive: shouldn't happen given the schema check above
+        release!(h)
+        return nothing
+    end
+    dict_ca, dict_bufs = _buffers(unsafe_load(ca.dictionary))
+    categories = _read_view_dispatch(dict_fmt, dict_ca, dict_bufs, false, nothing)
+    if categories === nothing
+        release!(h)
+        return nothing
+    end
+
+    indices = _read_view_dispatch(index_fmt, ca, bufs, false, nothing)
+    release!(h)
+    indices === nothing && return nothing # defensive: polars' physical index type is always numeric
+
+    strings = map(indices) do idx
+        ismissing(idx) ? missing : categories[Int(idx) + 1]
+    end
     return _categorical_array(strings)
 end
 

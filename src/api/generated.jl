@@ -2392,6 +2392,15 @@ function polars_series_export_carray(series, out)
 end
 
 """
+    polars_series_export_carray_dictionary(series, out)
+
+Exports a dictionary-encoded (Categorical/Enum) series' data as a single Arrow C Data Interface [`ArrowArray`](@ref), collapsing the series to one chunk first if necessary -- like [`polars_series_export_carray`](@ref), but goes through `Series::to\\_arrow` (which honors the series' logical dtype) instead of exporting the raw physical chunk directly. For a Categorical/Enum series, the raw physical chunk is a plain integer index array with no dictionary attached, so [`polars_series_export_carray`](@ref)'s `[`ArrowArray`](@ref).dictionary` field comes back null even though [`polars_series_schema`](@ref) correctly reports a dictionary-typed schema for the same column; this function produces a genuine `DictionaryArray` whose `.dictionary` field is populated, matching the schema. Errors if `series` is not Categorical/Enum-typed -- use [`polars_series_export_carray`](@ref) for every other dtype.
+"""
+function polars_series_export_carray_dictionary(series, out)
+    return @ccall libpolars.polars_series_export_carray_dictionary(series::Ptr{polars_series_t}, out::Ptr{ArrowArray})::Ptr{polars_error_t}
+end
+
+"""
     polars_series_is_null(series, index)
 
 Returns whether or not the value at index `index` is null, return false if the index is out of bounds.
