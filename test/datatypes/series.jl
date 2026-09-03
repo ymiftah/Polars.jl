@@ -322,6 +322,26 @@ end
     @test_throws BoundsError s_str[0]
 end
 
+@testset "Series fancy/range indexing (py-polars series/test_getitem.py)" begin
+    # A `UnitRange` has its own zero-copy `getindex` method (see "Series slicing" below) and
+    # returns a `Series`. An arbitrary index *vector* has no such dedicated method, so it falls
+    # through to Julia's generic `AbstractArray` fallback (built from repeated scalar `getindex`
+    # calls) and returns a plain materialized `Vector`, not a `Series` -- a real, documented
+    # difference in *type* (not value) from range indexing, worth pinning down explicitly.
+    s = Series(:x, ["x", "y", "z"])
+    r = s[[1, 3]]
+    @test r == ["x", "z"]
+    @test r isa Vector{String}
+
+    # py-polars disallows negative/zero indices and boolean-mask indexing outright (raises
+    # `TypeError`); this wrapper instead follows plain Julia array semantics throughout -- no
+    # special-casing, no negative-index wraparound (see the existing "Series getindex with
+    # negative/zero index" testset above), and a `Vector{Bool}` mask is valid, standard Julia
+    # fancy indexing rather than a rejected input.
+    s_bool_mask = Series(:y, [10, 20, 30])
+    @test s_bool_mask[[true, false, true]] == [10, 30]
+end
+
 @testset "Series declares IndexLinear" begin
     # `getindex` takes a single linear index; without this declaration `Series` would inherit
     # `AbstractArray`'s `IndexCartesian` default and generic Base code would take the slow path.

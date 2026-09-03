@@ -244,3 +244,22 @@ end
     # an immutable struct is still mapped to Arrow's Struct layout
     @test Polars.format(ImmutableColumnElement) == "+s"
 end
+
+@testset "shape/null edge cases (py-polars test_shape.py, test_null.py)" begin
+    # a `select` whose expressions produce mismatched row counts is a clean PolarsError, not a
+    # process abort (py-polars test_raise_invalid_shape_19108)
+    df = DataFrame((; foo = [1, 2], bar = [3, 4]))
+    @test_throws PolarsError select(df, head(col("foo"), 0), head(col("bar"), 1))
+
+    # `unique()` on an all-`missing` column collapses to a single `missing` row, not one row per
+    # `missing` value (py-polars test_null_grouping_12950)
+    df_null = DataFrame((; x = Union{Missing, Int}[missing, missing]))
+    r_unique = Base.unique(df_null)
+    @test size(r_unique) == (1, 1)
+    @test ismissing(r_unique[:x][1])
+
+    # `filter(lit(true))` on an already-empty (0-row) frame stays empty, not an error
+    # (py-polars test_null_lit_filter_16664)
+    df_empty = DataFrame((; x = Int[]))
+    @test size(filter(df_empty, lit(true))) == (0, 1)
+end
