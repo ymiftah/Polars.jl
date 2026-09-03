@@ -123,3 +123,26 @@ interprets an integer column as a count of `time_unit`s since the Unix epoch.
 dft = DataFrame((; y = [2024, 2025], m = [1, 6], d = [15, 30]))
 select(dft, datetime(col("y"), col("m"), col("d"); hour = 12) |> alias("dt"))
 ```
+
+## Range functions
+
+```@docs
+int_range
+date_range
+datetime_range
+time_range
+```
+
+`int_range`/`date_range`/`datetime_range`/`time_range` generate a sequence between `start` and
+`stop` -- e.g. `int_range(0, len())` for a synthetic row index, or
+`date_range(start, stop; interval="1d")` for a time-series scaffold. `date_range`/`datetime_range`/
+`time_range` accept a duration-literal string (`"1d"`, `"2h"`, ...) for `interval` and a `closed`
+window (`:left`/`:right`/`:both`/`:none`).
+
+Note: only the singular, row-independent ranges above are wrapped -- the per-row (list-valued)
+`int_ranges`/`date_ranges`/`datetime_ranges`/`time_ranges` variants and `linear_space`/
+`linear_spaces` are not currently exposed by this package.
+
+```@example functions
+select(DataFrame((; x = [1])), int_range(0, len() * 5) |> alias("idx"))
+```

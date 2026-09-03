@@ -999,6 +999,56 @@ const struct polars_error_t *polars_expr_duration(const struct polars_expr_t *we
                                                   const struct polars_expr_t **out);
 
 /**
+ * Generates a sequence of integers from `start` to `end` (exclusive), spaced `step` apart, typed
+ * `dtype`. `pl.int_range`.
+ */
+const struct polars_error_t *polars_expr_int_range(const struct polars_expr_t *start,
+                                                   const struct polars_expr_t *end,
+                                                   int64_t step,
+                                                   enum polars_value_type_t dtype,
+                                                   const struct polars_expr_t **out);
+
+/**
+ * Generates a `Date` column from `start` to `end`, spaced `interval` apart (a duration-literal
+ * string, e.g. `"1d"`). `closed_window` controls which end(s) of the range are inclusive.
+ * `pl.date_range`, scoped to the `start`/`end`/`interval` argument combination (no
+ * `num_samples`).
+ */
+const struct polars_error_t *polars_expr_date_range(const struct polars_expr_t *start,
+                                                    const struct polars_expr_t *end,
+                                                    const uint8_t *interval,
+                                                    uintptr_t interval_len,
+                                                    enum polars_closed_window_t closed_window,
+                                                    const struct polars_expr_t **out);
+
+/**
+ * Generates a `Datetime` column from `start` to `end`, spaced `interval` apart, at resolution
+ * `time_unit` and (optionally) time zone `tz`/`tz_len` (empty = naive). `pl.datetime_range`,
+ * scoped the same way as [`polars_expr_date_range`].
+ */
+const struct polars_error_t *polars_expr_datetime_range(const struct polars_expr_t *start,
+                                                        const struct polars_expr_t *end,
+                                                        const uint8_t *interval,
+                                                        uintptr_t interval_len,
+                                                        enum polars_closed_window_t closed_window,
+                                                        enum polars_time_unit_t time_unit,
+                                                        const uint8_t *tz,
+                                                        uintptr_t tz_len,
+                                                        const struct polars_expr_t **out);
+
+/**
+ * Generates a `Time` column from `start` to `end`, spaced `interval` apart. `pl.time_range`.
+ * Unlike `date_range`/`datetime_range`, upstream's `time_range` takes `start`/`end` directly
+ * (not `Option`) and is infallible once `interval` itself parses.
+ */
+const struct polars_error_t *polars_expr_time_range(const struct polars_expr_t *start,
+                                                    const struct polars_expr_t *end,
+                                                    const uint8_t *interval,
+                                                    uintptr_t interval_len,
+                                                    enum polars_closed_window_t closed_window,
+                                                    const struct polars_expr_t **out);
+
+/**
  * Targeted cast to `Decimal(precision, scale)` (`dtype-decimal` is already enabled). polars'
  * own invariant is `1 <= precision <= 38`; violating it surfaces as a normal cast error rather
  * than a panic (`DataType::Decimal` itself does not validate -- `cast` does, at execution time).

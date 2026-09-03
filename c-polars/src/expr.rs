@@ -11,8 +11,9 @@ use polars_ops::series::InterpolationMethod;
 use polars_plan::dsl::dt::DateLikeNameSpace;
 use polars_plan::dsl::functions::{
     all_horizontal, any_horizontal, as_struct, coalesce, concat_arr, concat_list, concat_str, cov,
-    datetime, duration, format_str, max_horizontal, mean_horizontal, min_horizontal, pearson_corr,
-    spearman_rank_corr, sum_horizontal, DatetimeArgs, DurationArgs,
+    date_range, datetime, datetime_range, duration, format_str, int_range, max_horizontal,
+    mean_horizontal, min_horizontal, pearson_corr, spearman_rank_corr, sum_horizontal, time_range,
+    DatetimeArgs, DurationArgs,
 };
 use polars_plan::dsl::DataTypeExpr;
 use polars_plan::prelude::Literal;
@@ -24,7 +25,7 @@ use crate::{
     },
     guard_error, make_error, polars_error_t,
     types::*,
-    value::{polars_time_unit_t, polars_value_type_t},
+    value::{polars_closed_window_t, polars_time_unit_t, polars_value_type_t},
 };
 
 fn make_expr(expr: Expr) -> *const polars_expr_t {
@@ -548,6 +549,113 @@ pub unsafe extern "C" fn polars_expr_duration(
             time_unit,
         };
         *out = make_expr(duration(args));
+        std::ptr::null()
+    })
+}
+
+/// Generates a sequence of integers from `start` to `end` (exclusive), spaced `step` apart, typed
+/// `dtype`. `pl.int_range`.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_int_range(
+    start: *const polars_expr_t,
+    end: *const polars_expr_t,
+    step: i64,
+    dtype: polars_value_type_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let dtype = tri!(dtype.to_dtype());
+        let e = int_range((*start).inner.clone(), (*end).inner.clone(), step, dtype);
+        *out = make_expr(e);
+        std::ptr::null()
+    })
+}
+
+/// Generates a `Date` column from `start` to `end`, spaced `interval` apart (a duration-literal
+/// string, e.g. `"1d"`). `closed_window` controls which end(s) of the range are inclusive.
+/// `pl.date_range`, scoped to the `start`/`end`/`interval` argument combination (no
+/// `num_samples`).
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_date_range(
+    start: *const polars_expr_t,
+    end: *const polars_expr_t,
+    interval: *const u8,
+    interval_len: usize,
+    closed_window: polars_closed_window_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let interval_str = tri!(read_str(interval, interval_len));
+        let interval = tri!(Duration::try_parse(interval_str));
+        let e = tri!(date_range(
+            Some((*start).inner.clone()),
+            Some((*end).inner.clone()),
+            Some(interval),
+            None,
+            closed_window.to_closed_window(),
+        ));
+        *out = make_expr(e);
+        std::ptr::null()
+    })
+}
+
+/// Generates a `Datetime` column from `start` to `end`, spaced `interval` apart, at resolution
+/// `time_unit` and (optionally) time zone `tz`/`tz_len` (empty = naive). `pl.datetime_range`,
+/// scoped the same way as [`polars_expr_date_range`].
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_datetime_range(
+    start: *const polars_expr_t,
+    end: *const polars_expr_t,
+    interval: *const u8,
+    interval_len: usize,
+    closed_window: polars_closed_window_t,
+    time_unit: polars_time_unit_t,
+    tz: *const u8,
+    tz_len: usize,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let interval_str = tri!(read_str(interval, interval_len));
+        let interval = tri!(Duration::try_parse(interval_str));
+        let unit = tri!(time_unit.to_time_unit());
+        let tz = tri!(read_opt_str(tz, tz_len));
+        let time_zone = tri!(TimeZone::opt_try_new(tz));
+        let e = tri!(datetime_range(
+            Some((*start).inner.clone()),
+            Some((*end).inner.clone()),
+            Some(interval),
+            None,
+            closed_window.to_closed_window(),
+            Some(unit),
+            time_zone,
+        ));
+        *out = make_expr(e);
+        std::ptr::null()
+    })
+}
+
+/// Generates a `Time` column from `start` to `end`, spaced `interval` apart. `pl.time_range`.
+/// Unlike `date_range`/`datetime_range`, upstream's `time_range` takes `start`/`end` directly
+/// (not `Option`) and is infallible once `interval` itself parses.
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_time_range(
+    start: *const polars_expr_t,
+    end: *const polars_expr_t,
+    interval: *const u8,
+    interval_len: usize,
+    closed_window: polars_closed_window_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    guard_error(|| {
+        let interval_str = tri!(read_str(interval, interval_len));
+        let interval = tri!(Duration::try_parse(interval_str));
+        let e = time_range(
+            (*start).inner.clone(),
+            (*end).inner.clone(),
+            interval,
+            closed_window.to_closed_window(),
+        );
+        *out = make_expr(e);
         std::ptr::null()
     })
 }

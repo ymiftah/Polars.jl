@@ -1,7 +1,7 @@
 # Component-wise temporal constructors: `datetime`/`duration`/`date`/`Base.time`/`from_epoch`.
-# Named to match `plans/parity/range_temporal_constructors.md`'s Task 2 expectation, so a future
-# `range` Cargo-feature PR can append `int_range`/`date_range`/`datetime_range`/`time_range` here
-# without moving anything.
+# Sequence-generating range functions: `int_range`/`date_range`/`datetime_range`/`time_range`
+# (the `range` Cargo feature). Out of scope: the per-row `int_ranges`/`date_ranges`/
+# `datetime_ranges`/`time_ranges` (list-valued) variants and `linear_space`/`linear_spaces`.
 
 """
     datetime(year, month, day; hour=0, minute=0, second=0, microsecond=0,
@@ -142,3 +142,104 @@ function from_epoch(expr::Expr, time_unit::Symbol = :s)
 end
 
 export from_epoch
+
+"""
+    int_range(start, stop; step::Integer=1, dtype::Type=Int64)::Polars.Expr
+
+Generate a range of integers. `start`/`stop` may be expressions or plain scalars; `stop` is
+exclusive (named `end` upstream -- `end` is a reserved word in Julia). `dtype` sets the result's
+integer element type.
+
+Note: only the singular, row-independent range is wrapped -- the per-row `int_ranges` (list-valued)
+variant is not exposed by this package.
+"""
+function int_range(start, stop; step::Integer = 1, dtype::Type = Int64)
+    start = convert(Expr, start)
+    stop = convert(Expr, stop)
+    dtype_enum = _plain_value_type_code(dtype)
+    dtype_enum === nothing && error("could not use $dtype as an int_range dtype")
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_int_range(start, stop, Int64(step), dtype_enum, out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+export int_range
+
+"""
+    date_range(start, stop; interval::AbstractString="1d", closed::Symbol=:both)::Polars.Expr
+
+Create a column of type `Date` with a sequential range of dates from `start` to `stop` (inclusive
+or exclusive per `closed`), separated by `interval`. `start`/`stop` may be expressions or plain
+scalars (e.g. `Date`s); `stop` is named `end` upstream -- `end` is a reserved word in Julia.
+
+Note: only the `start`/`stop`/`interval` argument combination is wrapped -- the `num_samples`-driven
+combination (`start` and `num_samples` without `stop`, etc.) and the per-row `date_ranges`
+(list-valued) variant are not exposed by this package.
+"""
+function date_range(start, stop; interval::AbstractString = "1d", closed::Symbol = :both)
+    start = convert(Expr, start)
+    stop = convert(Expr, stop)
+    closed_enum = _closed_window_enum(closed)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_date_range(start, stop, interval, ncodeunits(interval), closed_enum, out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+export date_range
+
+"""
+    datetime_range(start, stop; interval::AbstractString="1d", closed::Symbol=:both,
+                   time_unit::Symbol=:us, time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
+
+Create a column of type `Datetime` with a sequential range of datetimes from `start` to `stop`
+(inclusive or exclusive per `closed`), separated by `interval`, at resolution `time_unit`.
+`start`/`stop` may be expressions or plain scalars (e.g. `DateTime`s); `stop` is named `end`
+upstream -- `end` is a reserved word in Julia.
+
+Note: only the `start`/`stop`/`interval` argument combination is wrapped -- the `num_samples`-driven
+combination and the per-row `datetime_ranges` (list-valued) variant are not exposed by this
+package.
+"""
+function datetime_range(
+        start, stop; interval::AbstractString = "1d", closed::Symbol = :both,
+        time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing,
+    )
+    start = convert(Expr, start)
+    stop = convert(Expr, stop)
+    closed_enum = _closed_window_enum(closed)
+    unit_enum = _time_unit_enum(time_unit)
+    tz = time_zone === nothing ? "" : String(time_zone)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_datetime_range(
+        start, stop, interval, ncodeunits(interval), closed_enum, unit_enum, tz, ncodeunits(tz), out
+    )
+    polars_error(err)
+    return Expr(out[])
+end
+
+export datetime_range
+
+"""
+    time_range(start, stop; interval::AbstractString="1d", closed::Symbol=:both)::Polars.Expr
+
+Create a column of type `Time` with a sequential range of time values from `start` to `stop`
+(inclusive or exclusive per `closed`), separated by `interval`. `start`/`stop` may be expressions or
+plain scalars (e.g. `Dates.Time`s); `stop` is named `end` upstream -- `end` is a reserved word in
+Julia.
+
+Note: only the singular, row-independent range is wrapped -- the per-row `time_ranges`
+(list-valued) variant is not exposed by this package.
+"""
+function time_range(start, stop; interval::AbstractString = "1d", closed::Symbol = :both)
+    start = convert(Expr, start)
+    stop = convert(Expr, stop)
+    closed_enum = _closed_window_enum(closed)
+    out = Ref{Ptr{polars_expr_t}}()
+    err = API.polars_expr_time_range(start, stop, interval, ncodeunits(interval), closed_enum, out)
+    polars_error(err)
+    return Expr(out[])
+end
+
+export time_range

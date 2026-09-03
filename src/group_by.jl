@@ -98,11 +98,7 @@ function group_by_dynamic(
         label === :data_point ? API.PolarsLabelDataPoint :
         error("invalid label $label, expected :left, :right, or :data_point")
 
-    closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
-        closed === :right ? API.PolarsClosedWindowRight :
-        closed === :both ? API.PolarsClosedWindowBoth :
-        closed === :none ? API.PolarsClosedWindowNone :
-        error("invalid closed $closed, expected :left, :right, :both, or :none")
+    closed_cenum = _closed_window_enum(closed)
 
     start_by_cenum = start_by === :window_bound ? API.PolarsStartByWindowBound :
         start_by === :data_point ? API.PolarsStartByDataPoint :
@@ -170,11 +166,7 @@ function rolling(
     index_expr = _as_expr(index_column)
     group_by = _expr_vector(group_by)
 
-    closed_cenum = closed === :left ? API.PolarsClosedWindowLeft :
-        closed === :right ? API.PolarsClosedWindowRight :
-        closed === :both ? API.PolarsClosedWindowBoth :
-        closed === :none ? API.PolarsClosedWindowNone :
-        error("invalid closed $closed, expected :left, :right, :both, or :none")
+    closed_cenum = _closed_window_enum(closed)
 
     # See the matching comment in `group_by_dynamic` above: `period`/`offset` are passed as raw
     # (pointer, len) pairs, so they must be preserved through the ccall explicitly.
