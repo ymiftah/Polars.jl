@@ -623,13 +623,14 @@ end
 
 Reshapes `expr` into an `Array`-dtype column of the given dimensions. A `-1` as the *first*
 dimension is inferred from the length (only that position; a `-1` elsewhere raises a
-`PolarsError`). **Building the plan and `collect`ing it both succeed, but nothing that
-needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a
-collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser,
-which does not yet recognize the fixed-size-list format (`"+w:N"`) -- this is a package
-limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the
-result away from `Array` before inspecting it. Extends `Base.reshape` rather than shadowing it,
-the same way `Base.get`/`Base.sort`/`Base.tail` are extended elsewhere in this file.
+`PolarsError`).
+
+Note: A 2-dimensional reshape materializes as a `Vector{T}` per row, same as a `List` column. A
+higher-dimensional reshape (3+ dims) produces a column nested more than one `Array` level deep;
+`collect_schema`/`schema` resolve it fine, but reading its values back into Julia (indexing into
+the collected column) currently raises -- only a single level of `Array` nesting materializes.
+Extends `Base.reshape` rather than shadowing it, the same way `Base.get`/`Base.sort`/`Base.tail`
+are extended elsewhere in this file.
 """
 function Base.reshape(expr::Expr, dims::Integer...)
     dims_vec = Int64[Int64(d) for d in dims]
@@ -1284,7 +1285,7 @@ end
 
 export format
 
-@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenates `exprs` into a single fixed-size `Array` column, one element per input expression -- the `Array`-dtype counterpart of [`concat_list`](@ref). All inputs must share a dtype. **Building the plan and `collect`ing it both succeed, but nothing that needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser, which does not yet recognize the fixed-size-list format -- this is a package limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the result away from `Array` before inspecting it."
+@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenates `exprs` into a single fixed-size `Array` column, one element per input expression -- the `Array`-dtype counterpart of [`concat_list`](@ref). All inputs must share a dtype. Note: the result materializes as a `Vector{T}` per row, same as a `List` column."
 
 export concat_arr
 
