@@ -134,6 +134,33 @@ end
 
     r_match = innerjoin(a_null, b_null, col("id"); nulls_equal = true)
     @test size(r_match) == (2, 3)
+
+    # joining on the same key expression twice is a Step-5 abort-safety check: a clean
+    # PolarsError ("already joined on"), not a crash (py-polars test_join_raise_on_redundant_keys)
+    left = DataFrame((; a = [1, 2, 3], b = [3, 4, 5], c = [5, 6, 7]))
+    right = DataFrame((; a = [2, 3, 4], c = [4, 5, 6]))
+    @test_throws PolarsError outerjoin(left, right, [col("a"), col("a")]; coalesce = :coalesce_columns)
+end
+
+@testset "rightjoin: coalesce column ordering and differently-named keys" begin
+    # rightjoin's coalesced result keeps the RIGHT table's copy of the key (opposite of
+    # inner/left, which keep the left's) -- column order interleaves left-then-right per side
+    # (py-polars test_right_join_schemas)
+    a = DataFrame((; a = [1, 2, 3], b = [1, 2, 3]))
+    b = DataFrame((; a = [1, 3], b = [1, 3], c = [1, 3]))
+    r_coalesce = rightjoin(a, b, col("a"))
+    @test Tables.columnnames(r_coalesce) == (:b, :a, :b_right, :c)
+    r_keep = rightjoin(a, b, col("a"); coalesce = :keep_columns)
+    @test Tables.columnnames(r_keep) == (:a, :b, :a_right, :b_right, :c)
+
+    # differently-named keys: rightjoin keeps both key columns regardless of coalesce (there's
+    # nothing to coalesce when the names differ), and the right table's rows all survive
+    # (py-polars test_join_right_different_key)
+    df = DataFrame((; foo = [1, 2, 3], ham1 = ["a", "b", "c"]))
+    other = DataFrame((; apple = ["x", "y", "z"], ham2 = ["a", "b", "d"]))
+    r_diffkey = rightjoin(df, other, col("ham1"), col("ham2"))
+    @test Tables.columnnames(r_diffkey) == (:foo, :apple, :ham2)
+    @test isequal(collect(r_diffkey[:foo]), [1, 2, missing])
 end
 
 @testset "crossjoin" begin
