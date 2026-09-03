@@ -589,9 +589,8 @@ option must be exercised live.
 
 ## Group 11 — Test-coverage gaps (adjacent, not API gaps)
 
-Per [`LEDGER.md`](LEDGER.md), **batch 14 of the py-polars parity sweep is the only one still
-unswept** (batches 10-13 are now done, findings below): selectors/meta/horizontal/naming/sample
-(8 upstream files).
+Per [`LEDGER.md`](LEDGER.md), **the full py-polars parity sweep (batches 0-14) is now complete** —
+findings below.
 
 **So this audit is not the final list.** It is the static view — what has no binding at all. The
 unswept batches are the behavioural view: what has a binding that does the wrong thing. Expect the
@@ -704,6 +703,45 @@ tests given the scale — see `plans/parity/batch-13-io-lazyframe.md`): **one re
   `ArgumentError` in both `head` and `tail` (`src/select.jl`); negative-`n` support itself remains
   unimplemented (would need `DataFrame`'s known height, straightforward, vs. `LazyFrame`'s
   unknown height without materializing, not straightforward) and is not attempted here.
+
+**Batch 14 findings** (`expr/selectors.jl`, `meta.jl`, `horizontal.jl`, `naming.jl`, `sample.jl`,
+`curried_forms.jl`, `misc.jl` vs. `operations/test_selectors.py`,
+`operations/namespaces/test_meta.py`, `expr/test_meta.py`, `operations/namespaces/test_name.py`,
+`functions/test_horizontal.py`, `operations/aggregation/test_horizontal.py`,
+`operations/test_random.py`, `functions/test_col.py`, `functions/test_nth.py` — see
+`plans/parity/batch-14-selectors-misc.md`): 2 fixtures ported (a third, initially misdiagnosed as a
+gap, turned out to already work — see the correction below), 2 gaps recorded:
+
+- **`Meta` is missing `is_scalar`, `is_known_length`, `is_row_separable`, `is_length_preserving`,
+  and `eq`** — confirmed absent via `grep` across `src/expr/meta.jl` while porting
+  `expr/test_meta.py`'s `test_meta_properties`/`test_meta_eq_tot_cmp_28469`. Every other `Meta`
+  introspection method this repo already has (`output_name`, `is_column`, `is_literal`,
+  `has_multiple_outputs`, `root_names`, `undo_aliases`, `tree_format`, `show_graph`) has a
+  corresponding upstream `expr.meta.*` counterpart; these five don't yet.
+- **`nth` has no multi-argument or vector form.** Upstream's `pl.nth(2, 1)` and `pl.nth([2, -2,
+  0])` both select several columns in one call; this wrapper's `nth(n)` takes exactly one integer
+  (`src/expr/expr.jl`). A minor but real surface gap — every other multi-column selector
+  (`by_name`, `by_index`) already accepts varargs.
+- **No frame-level `sample`** — only the `Expr`-level `sample_n`/`sample_frac` exist; upstream's
+  `DataFrame.sample()`/`LazyFrame`-adjacent convenience has no counterpart here.
+
+**Correction (found while scoping a follow-up kwarg-gap PR): the "no `shuffle` on `sample_n`/
+`sample_frac`" claim above was wrong.** It was based on `grep`-ing only `src/expr/expr.jl`; the
+functions actually live in `src/expr/statistics.jl`, which already has `shuffle::Bool=false`
+threaded all the way through to `polars_expr_sample_n`/`_sample_frac` (both already take a
+`shuffle: bool` FFI parameter). Live-verified: `sample_n(col("a"), 3; shuffle=false, seed=...)`
+(no `with_replacement`) already preserves row order exactly like upstream, across ten seeds.
+Fixed by porting the actual upstream fixture (`test_sample_no_shuffle_preserves_order_23557`) into
+`test/expr/sample.jl` instead of leaving the false gap claim standing.
+
+That upstream test has a `with_replacement=True` sibling
+(`test_sample_no_shuffle_with_replacement_preserves_order_23557`) which does **not** port cleanly:
+it exercises `DataFrame.sample()` (the gap just added above), not `Expr.sample_n`, and
+live-verified `Expr.sample_n(...; shuffle=false, with_replacement=true)` does not preserve order
+here (arbitrary draw order across ten seeds) — a real behavioral difference between the two
+functions, not a bug in `Expr.sample_n` itself. Documented as a narrow finding in
+`test/expr/sample.jl` rather than conflated with either the fixture above or the missing-`sample`
+gap.
 
 ## Caveats
 
