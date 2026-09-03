@@ -589,10 +589,9 @@ option must be exercised live.
 
 ## Group 11 — Test-coverage gaps (adjacent, not API gaps)
 
-Per [`LEDGER.md`](LEDGER.md), **batches 12 and 14 of the py-polars parity sweep are still
-unswept** (batches 10, 11, and 13 are now done, findings below):
-series/binary/construction/io/describe (9 upstream files), and
-selectors/meta/horizontal/naming/sample (8).
+Per [`LEDGER.md`](LEDGER.md), **batch 14 of the py-polars parity sweep is the only one still
+unswept** (batches 10-13 are now done, findings below): selectors/meta/horizontal/naming/sample
+(8 upstream files).
 
 **So this audit is not the final list.** It is the static view — what has no binding at all. The
 unswept batches are the behavioural view: what has a binding that does the wrong thing. Expect the
@@ -661,6 +660,34 @@ testsets in isolation (bypassing the broken ones) shows 285 passed, 0 failed, 3 
 three divergences above) — so this is a pre-existing, repo-wide infrastructure gap, not something
 introduced by this sweep. Worth a `c-polars/check_header_drift.py --lib PATH` run and a fresh
 artifact release; out of scope for this PR.
+
+**Batch 12 findings** (`datatypes/series.jl`, `binary.jl`, `dataframe/construction.jl`, `io.jl`,
+`describe.jl` vs. `series/test_series.py`, `test_getitem.py`, `test_to_list.py`,
+`dataframe/test_df.py`, `test_shape.py`, `test_describe.py`, `datatypes/test_binary.py`,
+`test_null.py`, `constructors/test_constructors.py` — see
+`plans/parity/batch-12-series-dataframe.md`): **one real bug fixed** and two divergences/gaps
+recorded:
+
+- **`describe`'s fractional-percentile labels were wrong, and are now fixed.** `percentiles=[0.99,
+  0.999, 0.9999]` previously labeled the last two rows both `"100%"` (`round(Int, q*100)` truncates
+  all fractional precision), silently colliding two distinct statistic rows under one ambiguous
+  label. Fixed in `src/describe.jl` to preserve fractional precision (`"99.9%"`, `"99.99%"`) only
+  when the percentage isn't a whole number, matching `test_df_describe_quantile_precision`'s
+  expected labels exactly. This is a Julia-side label-formatting bug, not an FFI gap — confirmed
+  fixed live and covered by a new test in `test/dataframe/describe.jl`.
+- **`describe` on a genuinely columnless (0-row, 0-column) frame doesn't raise here**, where
+  upstream raises `TypeError: cannot describe a DataFrame that has no columns`. This wrapper
+  instead returns a `(9, 1)` frame containing only the `statistic` column. `@test_broken` in
+  `test/dataframe/describe.jl`; not fixed here since it would need `describe` to validate
+  `size(df, 2) == 0` up front and raise something upstream-shaped, which is a small but real
+  behavior change to a widely-used function's error path, better done as its own reviewed change
+  than folded into a test-porting pass.
+- **No `eq_missing`/`ne_missing` `Expr` methods, and no `hash_rows`/`Series`/`Expr` `hash`** —
+  confirmed absent via `grep` (not just untested): upstream's null-aware equality variants
+  (`eq_missing`: `null == null` is `true`, unlike plain `==`'s null-propagating `missing`) and its
+  row/column hashing family have no binding at all here. Feature-gate status not yet checked
+  against the vendored `polars-plan`/`polars-ops` source; flagging for a future no-Cargo-change
+  batch to scope properly rather than guessing here.
 
 **Batch 13 findings** (`lazyframe/scan_*.jl`, `sink_*.jl`, `collect_schema.jl`, `head.jl` vs.
 `io/test_csv.py`, `test_ipc.py`, `test_lazy_csv.py`, `test_lazy_ipc.py`, `test_lazy_parquet.py`,

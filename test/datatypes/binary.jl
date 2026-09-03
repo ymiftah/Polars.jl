@@ -54,6 +54,34 @@ end
     @test data_read[3] == UInt8[0x57, 0x6f, 0x72, 0x6c, 0x64]
 end
 
+@testset "Binary literal comparison and String<->Binary cast (py-polars test_binary_filter, test_string_to_binary)" begin
+    # a bare `Vector{UInt8}` passed to `lit` is ambiguous with a numeric array literal (one row
+    # per byte), so it does NOT produce a single-row Binary scalar -- wrapping it in a one-element
+    # `Series` first is the correct idiom for a Binary literal, matching how a Binary *column* is
+    # itself built from a `Vector{Vector{UInt8}}` (one `Vector{UInt8}` per row)
+    df = DataFrame(
+        (;
+            name = ["a", "b", "c", "d"],
+            content = Vector{UInt8}[
+                UInt8[0x61, 0x61], UInt8[0x61, 0x61, 0x61, 0x62, 0x62, 0x62],
+                UInt8[0x61, 0x61], UInt8[0xc6, 0x69, 0xea],
+            ],
+        )
+    )
+    target = Series(:_, [UInt8[0xc6, 0x69, 0xea]])
+    r = filter(df, col("content") == target)
+    @test collect(r[:name]) == ["d"]
+
+    # String -> Binary -> String round-trips, including an empty string, `missing`, and a
+    # non-ASCII-unsafe multi-byte value
+    s = Union{String, Missing}["", missing, "\x01\x02"]
+    df2 = DataFrame((; data = s))
+    to_binary = select(df2, cast(col("data"), Vector{UInt8}) |> alias("b"))
+    @test isequal(collect(to_binary[:b]), Union{Missing, Vector{UInt8}}[UInt8[], missing, UInt8[0x01, 0x02]])
+    back_to_string = select(to_binary, cast(col("b"), String) |> alias("s"))
+    @test isequal(collect(back_to_string[:s]), s)
+end
+
 @testset "Empty binary Series" begin
     empty_bytes = Vector{UInt8}[]
     s = Series(:empty_binary, empty_bytes)
