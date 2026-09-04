@@ -91,3 +91,28 @@ end
     r3 = select(df, alias(col("x") |> sort_by(:y; rev = true), "sb"))
     @test collect(r3[:sb]) == [3, 2, 1]
 end
+
+@testset "select/with_columns accept a vector of expressions" begin
+    df = DataFrame((; a = [1, 2], b = [3, 4], c = [5, 6]))
+
+    @test Polars.names(select(df, [:a, :b])) == ["a", "b"]
+    @test Polars.names(select(df, ["a", "c"])) == ["a", "c"]
+    @test Polars.names(select(df, [col("a"), col("b") |> alias("bb")])) == ["a", "bb"]
+    @test Polars.names(select(df, :a, [:b, :c])) == ["a", "b", "c"]
+
+    @test collect(with_columns(df, [col("a") * 2 |> alias("a2")])[:a2]) == [2, 4]
+
+    # A horizontal reduction (the @wrap_multi_expr_function family) too.
+    @test collect(select(df, sum_horizontal([col("a"), col("b")]) |> alias("s"))[:s]) == [4, 6]
+end
+
+@testset "lit is not flattened by _expr_vector" begin
+    # A genuine list *value* reaches the plan through `lit`, which returns an `Expr` -- so
+    # `_expr_flatten`'s `AbstractVector` branch never sees the raw `[1, 2, 3]`, only the `Expr`
+    # `lit([1, 2, 3])` wraps it in. `lit` of a Julia vector builds a literal Series (one row per
+    # element, not one list-per-row) -- unchanged from before this flattening rule existed.
+    df = DataFrame((; a = [1, 2]))
+    r = select(df, lit([1, 2, 3]) |> alias("l"))
+    @test size(r) == (3, 1)
+    @test collect(r[:l]) == [1, 2, 3]
+end

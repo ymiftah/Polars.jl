@@ -164,3 +164,23 @@ end
     r_expr = select(df, alias(slice(col("x"), 2, 3), "x"))
     @test collect(r_expr[:x]) == [3, 4, 5]
 end
+
+@testset "sort/top_k/bottom_k accept a vector of columns" begin
+    df = DataFrame((; a = [2, 1, 2, 1], b = [1, 2, 3, 4]))
+
+    # A vector of column ids is equivalent to splatting it.
+    @test collect(sort(df, [:a, :b])[:b]) == collect(sort(df, :a, :b)[:b])
+    @test collect(sort(df, ["a", "b"])[:b]) == [2, 4, 1, 3]
+    @test collect(sort(df, [col("a"), col("b")])[:b]) == [2, 4, 1, 3]
+
+    # The per-expression `rev` must line up with the *flattened* count, not the argument count --
+    # if it didn't, this would sort by :a only and silently ignore :b.
+    @test collect(sort(df, [:a, :b]; rev = [false, true])[:b]) == [4, 2, 3, 1]
+    @test_throws ArgumentError sort(df, [:a, :b]; rev = [true])
+
+    # Mixed splat and vector.
+    @test collect(sort(df, :a, [:b])[:b]) == [2, 4, 1, 3]
+
+    @test collect(top_k(df, 2, [:b])[:b]) == [4, 3]
+    @test collect(bottom_k(df, 2, [:b])[:b]) == [1, 2]
+end
