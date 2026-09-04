@@ -128,6 +128,24 @@ Base.unsafe_convert(::Type{Ptr{polars_dataframe_t}}, df::DataFrame) = df.ptr
 Base.summary(df::DataFrame) = join(size(df), '×') * " DataFrame"
 
 """
+    Base.collect(df::DataFrame)
+
+Always raises: a `DataFrame` is already materialized, so there is nothing to collect. Without
+this method the call falls through to `Base`'s generic iteration path and reports a `MethodError`
+about `length`, which names neither the problem nor the fix.
+
+To get a `Vector` of one column use `collect(df[name])`; to run a query use
+`collect(lazy(df))`; to iterate the columns use `Tables.columns(df)`.
+"""
+Base.collect(df::DataFrame) = throw(
+    ArgumentError(
+        "a DataFrame is already materialized -- there is nothing to collect. Use " *
+            "`collect(df[name])` for one column as a Vector, `Tables.columns(df)` to iterate " *
+            "the columns, or `collect(lazy(df))` to run a query."
+    )
+)
+
+"""
     native_repr(df::DataFrame)::String
 
 Renders `df` using polars' own Rust `Display` formatting (the same text `print(df)` produces in

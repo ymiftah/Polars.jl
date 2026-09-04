@@ -35,3 +35,22 @@ end
     # PolarsError, not a crash (py-polars test_nth_duplicate)
     @test_throws PolarsError select(df, nth(1), nth(1))
 end
+
+@testset "collect(::DataFrame) raises a message that names the right fix" begin
+    df = DataFrame((; a = [1, 2, 3]))
+
+    # Without an explicit method this falls through to Base's generic iteration and reports
+    # `MethodError: no method matching length(::DataFrame)`, which points at the wrong thing.
+    err = try
+        collect(df)
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test contains(err.msg, "already materialized")
+    @test contains(err.msg, "Tables.columns")
+
+    # The paths the message points at must actually work.
+    @test collect(df[:a]) == [1, 2, 3]
+    @test size(collect(lazy(df))) == (3, 1)
+end
