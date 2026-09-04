@@ -221,9 +221,11 @@ end
         # the schema alone (see _read_list's docstring); matches Series{T}'s declared eltype.
         @test bulk isa Vector{Vector{Union{Int64, Missing}}}
         @test bulk == [[1, 2, 3], [4, 5]]
-        @test bulk == [s[i] for i in eachindex(s)] # bulk vs per-element agreement (value-equal
-        # despite differing concrete eltypes -- getindex's single-row path isn't widened)
-        @test s[1] isa Vector{Int64}
+        @test bulk == [s[i] for i in eachindex(s)] # bulk vs per-element agreement
+        # getindex's single-row path is now widened to the declared eltype, same as bulk read --
+        # Series{T} <: AbstractVector{T} promises s[i]::T.
+        @test s[1] isa eltype(s)
+        @test s[1] isa Vector{Union{Int64, Missing}}
     end
 
     @testset "List: per-element fallback for nested/struct/categorical children" begin
