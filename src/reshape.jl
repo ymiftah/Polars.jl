@@ -106,6 +106,10 @@ may each be a single column name or a `Vector` of names.
 
 !!! note
     Eager-only (no `LazyFrame` method): the distinct `on` values must be computed upfront.
+
+    New columns appear in the order their `on` value is first seen in `df`. `maintain_order`
+    controls the order of the `index` rows, not of the columns -- the column order is always
+    deterministic.
 """
 function pivot(
         df::DataFrame, on, index, values; agg::Expr = Base.first(element()),
@@ -116,7 +120,11 @@ function pivot(
     values = values isa AbstractVector ? String.(values) : [String(values)]
 
     lf = lazy(df)
-    on_columns = collect(unique(select(lf, map(col, on)...)))
+    # `maintain_order = true` unconditionally, *not* `pivot`'s own `maintain_order` keyword: these
+    # distinct values become the output's column names, so their order is part of the result
+    # schema. An unordered `unique` makes the schema itself vary run to run. `maintain_order`
+    # controls the index rows' order, which is a separate question.
+    on_columns = collect(Base.unique(select(lf, map(col, on)...); maintain_order = true))
 
     naming_enum = if column_naming == :auto
         API.PolarsPivotColumnNamingAuto

@@ -330,3 +330,41 @@ end
     r_min = sort(pivot(df, "var", "id", "val"; agg = Polars.min(element())), col("id"))
     @test r_min[:a] == [10, 40]
 end
+
+@testset "pivot output column order is deterministic" begin
+    # `pivot` takes its new column names from a `unique` over the `on` columns. That defaulted to
+    # `maintain_order = false`, so the *schema* varied run to run -- 6 distinct orders in 6 runs
+    # at this size. The columns must come out in first-appearance order, every time.
+    n = 60_000
+    k = 30
+    df = DataFrame(
+        (;
+            idx = [i % 40 for i in 1:n],
+            on = ["g$(lpad(i % k, 2, '0'))" for i in 1:n],
+            v = [Float64(i) for i in 1:n],
+        )
+    )
+
+    orders = Set{Vector{String}}()
+    for _ in 1:5
+        push!(orders, Polars.names(pivot(df, "on", "idx", "v"; agg = Base.sum(element()))))
+    end
+    @test length(orders) == 1
+
+    # First-appearance order, not sorted and not arbitrary: the frame is built so that "g01"
+    # appears before "g02" before "g03".
+    got = only(orders)
+    @test got[1] == "idx"
+    @test got[2:4] == ["g01", "g02", "g03"]
+
+    # `maintain_order = false` must still give a *deterministic schema* -- it controls the row
+    # order of the index, not whether the output has a stable set of columns.
+    orders_unordered = Set{Vector{String}}()
+    for _ in 1:5
+        push!(
+            orders_unordered,
+            Polars.names(pivot(df, "on", "idx", "v"; agg = Base.sum(element()), maintain_order = false)),
+        )
+    end
+    @test length(orders_unordered) == 1
+end
