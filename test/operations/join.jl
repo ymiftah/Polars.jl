@@ -287,6 +287,23 @@ end
     @test join_asof(trades, quotes, "time"; maintain_order = :left)[:bid] == r_no_tolerance[:bid]
 end
 
+@testset "join_asof accepts a single `by`" begin
+    a = DataFrame((; t = [1, 2, 3, 4], g = ["x", "x", "y", "y"], va = [10, 20, 30, 40]))
+    b = DataFrame((; t = [1, 3], g = ["x", "y"], vb = [100, 300]))
+
+    both = join_asof(a, b, :t; by_left = ["g"], by_right = ["g"])
+    one = join_asof(a, b, :t; by = ["g"])
+    @test Polars.names(one) == Polars.names(both)
+    @test isequal(collect(one[:vb]), collect(both[:vb]))
+
+    # Symbols too, matching every other column-list keyword in this package.
+    @test isequal(collect(join_asof(a, b, :t; by = [:g])[:vb]), collect(both[:vb]))
+
+    # Giving both spellings is a mistake, not a silent precedence rule.
+    @test_throws ArgumentError join_asof(a, b, :t; by = ["g"], by_left = ["g"])
+    @test_throws ArgumentError join_asof(a, b, :t; by = ["g"], by_right = ["g"])
+end
+
 @testset "maintain_order across join variants" begin
     # crossjoin: :none/:left/:left_right give left-major row order (every b-row for a given
     # a-row before advancing a); :right/:right_left give right-major order -- matches upstream's
