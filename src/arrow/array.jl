@@ -461,14 +461,36 @@ function arrowvector(v::Vector{S}) where {T, S <: MaybeMissing{Vector{T}}}
 end
 
 """
-    arrowvector(v::Vector{<:NamedTuple})::ArrowArray
+    arrowvector(v::Vector{T})::ArrowArray
 
-Builds a `"+s"`-format (struct) `ArrowArray`: no buffers of its own, plus one recursive child
-array per field, built from that field's values across all rows.
+Fallback for any element type no more specific `arrowvector` method claims. In practice that is
+exactly the `"+s"` (struct) layout: a `NamedTuple` or any other immutable struct type, with or
+without `missing` rows. Builds an array with no buffers of its own plus one recursive child array
+per field, taken from that field's values across all rows.
+
+Each child is widened to `MaybeMissing{fieldtype(...)}` so a `missing` *row* has a value to
+occupy the child's slot -- Arrow requires every struct child to have the parent's length, and the
+parent's validity bitmap is what marks the row null, so the value there is never read back. When
+a field has no actual nulls this is free: `ValidityMap`'s null count is then 0 and
+`validitybuffer` returns `C_NULL`, exactly as it would for the un-widened vector.
+
+Any other element type raises here, via `format`, with the same message it would have raised from
+`column_schema`.
 """
-function arrowvector(v::Vector{<:NamedTuple})
-    NT = eltype(v)
-    children = [arrowvector([getfield(row, fname) for row in v]) for fname in fieldnames(NT)]
+function arrowvector(v::Vector{T}) where {T}
+    fmt = format(T) # raises for an element type with no Arrow mapping at all
+    fmt == "+s" || error(
+        "no arrowvector method for column element type $T (arrow format \"$fmt\") -- this is a " *
+            "gap in Polars.jl's Arrow write path, not a problem with your data"
+    )
+    S = nonmissingtype(T)
+    children = [
+        arrowvector(
+                MaybeMissing{fieldtype(S, fname)}[
+                    ismissing(row) ? missing : getfield(row, fname) for row in v
+                ]
+            ) for fname in fieldnames(S)
+    ]
     return ArrowArray(ValidityMap(v), Vector[], children)
 end
 

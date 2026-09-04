@@ -43,3 +43,51 @@ end
     @test fa[:a] == [1, 2, 3]
     @test fb[:b] == ["x", "y", "z"]
 end
+
+# Top level, outside any @testset -- a `struct` cannot be declared inside one.
+struct StructWritePoint
+    x::Int
+    y::String
+end
+
+@testset "struct columns: nullable NamedTuple and plain immutable struct" begin
+    # `format` maps any immutable struct (and strips Missing first) to "+s", but `arrowvector`
+    # used to have only a `Vector{<:NamedTuple}` method -- so both of these raised a bare
+    # MethodError from the array builder after the schema had already been built.
+    df = DataFrame((; n = Union{NamedTuple{(:a,), Tuple{Int}}, Missing}[(a = 1,), missing, (a = 3,)]))
+    @test size(df) == (3, 1)
+    @test df[:n][1] == (a = 1,)
+    @test ismissing(df[:n][2])
+    @test df[:n][3] == (a = 3,)
+
+    # A plain immutable struct column, which `format(ImmutableColumnElement) == "+s"` promises.
+    df2 = DataFrame((; p = [StructWritePoint(1, "a"), StructWritePoint(2, "b")]))
+    @test size(df2) == (2, 1)
+    @test df2[:p][1] == (x = 1, y = "a")
+    @test df2[:p][2] == (x = 2, y = "b")
+
+    # Nullable plain struct.
+    df3 = DataFrame((; p = Union{StructWritePoint, Missing}[StructWritePoint(1, "a"), missing]))
+    @test size(df3) == (2, 1)
+    @test df3[:p][1] == (x = 1, y = "a")
+    @test ismissing(df3[:p][2])
+
+    # The plain (non-nullable) NamedTuple path must be unchanged, including through parquet.
+    df4 = DataFrame((; n = [(a = 1, b = "x"), (a = 2, b = "y")]))
+    r4 = read_parquet(write_temp_parquet(df4))
+    @test r4[:n][1] == (a = 1, b = "x")
+    @test r4[:n][2] == (a = 2, b = "y")
+
+    # A nested struct field still recurses.
+    df5 = DataFrame((; n = [(a = (b = 1,),), (a = (b = 2,),)]))
+    @test df5[:n][1] == (a = (b = 1,),)
+
+    # A mutable struct is still rejected, by `format`, before reaching `arrowvector`.
+    @test_throws ErrorException DataFrame((; x = [MutableColumnElement(1)]))
+
+    # Regression guard for the Task 9 interaction: a Period is an immutable struct, so without
+    # Task 9's dedicated Duration mapping this generic method would silently turn it into a
+    # `(value = Int64,)` struct column. It must stay a Duration.
+    df6 = DataFrame((; d = [Millisecond(5), Millisecond(7)]))
+    @test collect(df6[:d]) == [Millisecond(5), Millisecond(7)]
+end
