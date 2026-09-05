@@ -20,7 +20,10 @@ Polars.Lists.unique_stable
 Polars.Lists.arg_max
 Polars.Lists.arg_min
 Polars.Lists.head
+Polars.Lists.tail
 Polars.Lists.get
+Polars.Lists.gather
+Polars.Lists.slice
 Polars.Lists.contains
 Polars.Lists.join
 ```

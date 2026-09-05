@@ -78,8 +78,8 @@ module Lists
         gather(expr::Polars.Expr, index::Polars.Expr; null_on_oob::Bool=false)::Polars.Expr
 
     Gathers each list's elements at the (per-list) positions in `index`. Distinct from the top-level
-    [`gather`](@ref) (row-level gather across the whole column) -- this indexes *within* each row's
-    own list.
+    [`Polars.gather`](@ref) (row-level gather across the whole column) -- this indexes *within*
+    each row's own list.
 
     `index` should be a genuinely List-typed expression (e.g. `implode(lit([...]))`, or another
     `Lists`-namespace result) -- passing a bare, non-list literal like `lit([0, -1])` still works but
