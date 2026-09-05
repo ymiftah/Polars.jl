@@ -486,10 +486,10 @@ function arrowvector(v::Vector{T}) where {T}
     S = nonmissingtype(T)
     children = [
         arrowvector(
-                MaybeMissing{fieldtype(S, fname)}[
-                    ismissing(row) ? missing : getfield(row, fname) for row in v
-                ]
-            ) for fname in fieldnames(S)
+            MaybeMissing{fieldtype(S, fname)}[
+                ismissing(row) ? missing : getfield(row, fname) for row in v
+            ]
+        ) for fname in fieldnames(S)
     ]
     return ArrowArray(ValidityMap(v), Vector[], children)
 end
