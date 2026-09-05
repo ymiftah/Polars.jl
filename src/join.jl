@@ -139,16 +139,18 @@ crossjoin(
 ) = _join(a, b, Expr[], Expr[], API.PolarsJoinTypeCross; suffix, maintain_order)
 
 """
-    join_asof(a, b, on; by_left=String[], by_right=String[], strategy::Symbol=:backward,
+    join_asof(a, b, on; by=String[], by_left=String[], by_right=String[], strategy::Symbol=:backward,
               tolerance=nothing, allow_eq::Bool=true, check_sortedness::Bool=true,
               suffix=nothing, nulls_equal::Bool=false)
 
 Joins `a` (left) and `b` (right) on the nearest key in `on` (columns/expressions, typically
 sorted numeric or temporal), matching each left row to the nearest right row according to
 `strategy`: `:backward` (default, the last right row `<=` the left key), `:forward` (the first
-right row `>=` the left key), or `:nearest`. `by_left`/`by_right` are optional equality
-group-by column names applied before the asof match.
+right row `>=` the left key), or `:nearest`.
 
+- `by`: grouping column names applied before the asof match, the same on both sides. Use
+  `by_left`/`by_right` instead when the grouping column is named differently in each frame;
+  polars requires both to be set together, so setting only one is an error.
 - `tolerance`: a duration string (e.g. `"1d"`, `"5m"`) capping how far the matched right key may
   be from the left key; unmatched rows beyond the tolerance get `missing`. Only the string form is
   supported (a numeric tolerance for non-temporal `on` columns is not exposed).
@@ -160,6 +162,7 @@ group-by column names applied before the asof match.
 """
 function join_asof(
         a, b, on;
+        by::Vector{<:ColId} = String[],
         by_left::Vector{<:ColId} = String[], by_right::Vector{<:ColId} = String[],
         strategy::Symbol = :backward,
         tolerance::Union{Nothing, AbstractString} = nothing,
@@ -170,12 +173,13 @@ function join_asof(
         maintain_order::Symbol = :none
     )
     return join_asof(
-        a, b, on, on; by_left, by_right, strategy, tolerance, allow_eq, check_sortedness, suffix,
-        nulls_equal, maintain_order
+        a, b, on, on; by, by_left, by_right, strategy, tolerance, allow_eq, check_sortedness,
+        suffix, nulls_equal, maintain_order
     )
 end
 function join_asof(
         a::DataFrame, b::DataFrame, on_a, on_b;
+        by::Vector{<:ColId} = String[],
         by_left::Vector{<:ColId} = String[], by_right::Vector{<:ColId} = String[],
         strategy::Symbol = :backward,
         tolerance::Union{Nothing, AbstractString} = nothing,
@@ -186,12 +190,13 @@ function join_asof(
         maintain_order::Symbol = :none
     )
     return join_asof(
-        lazy(a), lazy(b), on_a, on_b; by_left, by_right, strategy, tolerance, allow_eq,
+        lazy(a), lazy(b), on_a, on_b; by, by_left, by_right, strategy, tolerance, allow_eq,
         check_sortedness, suffix, nulls_equal, maintain_order
     ) |> collect
 end
 function join_asof(
         a::LazyFrame, b::LazyFrame, on_a, on_b;
+        by::Vector{<:ColId} = String[],
         by_left::Vector{<:ColId} = String[], by_right::Vector{<:ColId} = String[],
         strategy::Symbol = :backward,
         tolerance::Union{Nothing, AbstractString} = nothing,
@@ -201,6 +206,16 @@ function join_asof(
         nulls_equal::Bool = false,
         maintain_order::Symbol = :none
     )
+    if !isempty(by)
+        (isempty(by_left) && isempty(by_right)) || throw(
+            ArgumentError(
+                "give either `by` (the same grouping columns on both sides) or " *
+                    "`by_left`/`by_right` (different names per side), not both"
+            )
+        )
+        by_left = by
+        by_right = by
+    end
     on_a = _as_expr(on_a)
     on_b = _as_expr(on_b)
     strategy_enum = if strategy == :backward

@@ -414,3 +414,24 @@ end
         Set([missing, false, true]),
     ]
 end
+
+@testset "nested list Series honours its own declared eltype" begin
+    # `Series{T} <: AbstractVector{T}` promises `s[i]::T`. For a List-of-List column the
+    # per-element path returned a narrower Vector type than `parse_format` declared, and Julia's
+    # Vector is invariant -- so neither `s[1] isa eltype(s)` nor
+    # `eltype(collect(s)) <: eltype(s)` held.
+    s = DataFrame((; x = [[[1, 2]], [[3]], [[4, 5]]]))[:x]
+    @test s[1] isa eltype(s)
+    @test eltype(collect(s)) <: eltype(s)
+    @test collect(s) == [[[1, 2]], [[3]], [[4, 5]]]
+
+    # With an actual null in the inner list, so the declared MaybeMissing is not merely academic.
+    s2 = DataFrame((; x = [Union{Vector{Int}, Missing}[[1, 2], missing], Union{Vector{Int}, Missing}[[3]]]))[:x]
+    @test s2[1] isa eltype(s2)
+    @test eltype(collect(s2)) <: eltype(s2)
+
+    # A single-level list column already satisfied this; it must keep doing so.
+    s3 = DataFrame((; x = [["a"], ["b"]]))[:x]
+    @test s3[1] isa eltype(s3)
+    @test eltype(collect(s3)) <: eltype(s3)
+end

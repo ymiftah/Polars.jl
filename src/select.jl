@@ -14,6 +14,9 @@ end
 
 Select (and optionally rename, with [`alias`](@ref)) columns from the query. Columns can be
 selected with [`col`](@ref); to select all columns use `col("*")`.
+
+`exprs` may also be given as a single vector -- `select(df, [:a, :b])` is the same as
+`select(df, :a, :b)`.
 """
 select(df::LazyFrame, exprs...) = _select!(clone(df), exprs...)
 select(df::DataFrame, exprs...) = _select!(lazy(df), exprs...) |> collect
@@ -43,6 +46,9 @@ julia> with_columns(df, col("x") * 2 |> alias("2x"))
       2       4
       3       6
 ```
+
+`exprs` may also be given as a single vector -- `with_columns(df, [a, b])` is the same as
+`with_columns(df, a, b)`.
 """
 with_columns(df::LazyFrame, exprs...) = _with_columns!(clone(df), collect(exprs)::Vector)
 with_columns(df::DataFrame, exprs...) = _with_columns!(lazy(df), collect(exprs)::Vector) |> collect

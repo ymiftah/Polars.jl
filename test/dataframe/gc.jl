@@ -32,8 +32,12 @@ end
     # ever release -- such an entry would leak permanently, since nothing else references it.
     # Exercise several
     # distinct failure shapes: an out-of-range `DateTime` (ms->ns `InexactError` in `arrowvector`),
-    # a bare-`Any` column (the deliberate `format(::Type{Any})` error), and a column type with no
-    # `arrowvector` method at all.
+    # a bare-`Any` column (the deliberate `format(::Type{Any})` error), and a mutable struct column
+    # (the deliberate `format` rejection, which fails before any buffer is built). A nullable
+    # `NamedTuple` column used to be a fourth shape here -- a bare `MethodError` from the array
+    # builder, since `arrowvector` had no method for it -- but the generic struct fallback added
+    # for that column shape means every immutable struct type now either builds or raises a
+    # specific error from `format`, so a bare `MethodError` is no longer reachable at all.
     for _ in 1:5
         @test_throws InexactError DataFrame((; a = Int64[1], b = [DateTime(1600, 1, 1)]))
     end
@@ -41,10 +45,10 @@ end
         @test_throws ErrorException DataFrame((; a = Int64[1], b = Any[1, "two"]))
     end
     for _ in 1:5
-        @test_throws MethodError DataFrame(
+        @test_throws ErrorException DataFrame(
             (;
                 a = Int64[1],
-                b = Union{NamedTuple{(:q,), Tuple{Int}}, Missing}[(q = 1,)],
+                b = [MutableColumnElement(1)],
             )
         )
     end

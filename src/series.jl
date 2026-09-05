@@ -154,7 +154,12 @@ function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{Ma
     polars_error(err)
     value_at_index = Value{T}(out[], series)
 
-    return load_value(value_at_index)
+    # `parse_format` wraps every nesting level in `MaybeMissing` (it cannot know a child's real
+    # null count from the schema alone), while `load_value` builds the row from the *child
+    # series'* own null-count-narrowed type. `Vector` is invariant, so the narrower result is not
+    # a subtype of the declared `T` -- convert so `Series{T} <: AbstractVector{T}`'s `s[i]::T`
+    # promise actually holds. A no-op whenever the two already agree.
+    return convert(T, load_value(value_at_index))
 end
 
 # The Null dtype (produced by e.g. `lit(missing)`/`cast(expr, Missing)`) has no data/validity

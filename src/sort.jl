@@ -12,6 +12,9 @@ are still in the same order after sorting the dataframe.
  - The `nulls_last` keyword argument indicates whether the null values in the dataframe should be
 placed last or first in the resulting sorted dataframe.
 
+`exprs` may also be given as a single vector -- `sort(df, [:a, :b])` is the same as
+`sort(df, :a, :b)`.
+
 ```julia
 julia> df = DataFrame((; letters=rand(["a", "b", "c", missing], 4)));
 
@@ -56,6 +59,10 @@ Base.sort(df::DataFrame, exprs...; rev = false, stable = true, nulls_last = true
     _sort!(lazy(df), collect(exprs)::Vector, rev, stable, nulls_last) |> collect
 
 function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
+    # `_expr_vector` flattens a vector argument, so the key count is only known after it runs --
+    # `nexprs` is also the array length handed to the ccall, and a stale one would silently sort
+    # by a prefix of the keys.
+    exprs = _expr_vector(exprs)
     nexprs = length(exprs)
     descending = rev isa Bool ? fill(rev, nexprs) : rev
     # A real exception, not an `@assert`: this validates a user-supplied argument, which the Julia
@@ -70,7 +77,6 @@ function _sort!(df::LazyFrame, exprs::Vector, rev, stable, nulls_last)
 
     maintain_order = stable
 
-    exprs = Expr[_as_expr(e) for e in exprs]
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
         API.polars_lazy_frame_sort(
@@ -94,6 +100,9 @@ rows). `rev`/`stable` mean the same as in [`Base.sort`](@ref); unlike `sort`, th
 `nulls_last` here -- upstream's own `top_k`/`bottom_k` always treat nulls as sorting last,
 regardless of what's requested, so this package doesn't expose a parameter that upstream itself
 ignores.
+
+`exprs` may also be given as a single vector -- `top_k(df, k, [:a, :b])` is the same as
+`top_k(df, k, :a, :b)`.
 """
 top_k(df::LazyFrame, k::Integer, exprs...; rev = false, stable = true) =
     _top_or_bottom_k!(clone(df), k, collect(exprs)::Vector, rev, stable, false)
@@ -113,6 +122,9 @@ bottom_k(df::DataFrame, k::Integer, exprs...; rev = false, stable = true) =
     _top_or_bottom_k!(lazy(df), k, collect(exprs)::Vector, rev, stable, true) |> collect
 
 function _top_or_bottom_k!(df::LazyFrame, k::Integer, exprs::Vector, rev, stable, bottom::Bool)
+    # See the identical comment in `_sort!`: the key count must come from the flattened list, not
+    # the pre-flattening argument count, since it is also the ccall's array length.
+    exprs = _expr_vector(exprs)
     nexprs = length(exprs)
     descending = rev isa Bool ? fill(rev, nexprs) : rev
     length(descending) == nexprs || throw(
@@ -124,7 +136,6 @@ function _top_or_bottom_k!(df::LazyFrame, k::Integer, exprs::Vector, rev, stable
 
     maintain_order = stable
 
-    exprs = Expr[_as_expr(e) for e in exprs]
     GC.@preserve exprs begin
         exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
         f = bottom ? API.polars_lazy_frame_bottom_k : API.polars_lazy_frame_top_k

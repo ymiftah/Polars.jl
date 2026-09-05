@@ -1200,12 +1200,18 @@ export bottom_k_by
 @wrap_expr_method item(expr::Expr; allow_empty::Bool = false) polars_expr_item "The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a `DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation)."
 
 
-"""Coerces an iterable of column references (names, `Expr`s, `Selector`s) into a `Vector{Expr}`
-ready to have its pointers marshalled. A typed comprehension rather than
-`convert(Vector{Expr}, collect(map(_as_expr, args)))`: same result, one allocation instead of
-three, and it lands on `Vector{Expr}` directly even when `args` is empty (where `collect` would
-otherwise produce a `Vector{Union{}}`)."""
-_expr_vector(args) = Expr[_as_expr(arg) for arg in args]
+"""One argument's contribution to an expression list: an `AbstractVector` argument is flattened
+one level (so `sort(df, [:a, :b])` means the same as `sort(df, :a, :b)`, matching the `Vector`
+form `drop`/`unique`/`drop_nulls` already accept), anything else contributes itself. Only one
+level: a genuine list *value* reaches the plan through `lit`, which returns an `Expr` and so is
+never a `Vector` here."""
+_expr_flatten(x) = (_as_expr(x),)
+_expr_flatten(xs::AbstractVector) = (_as_expr(x) for x in xs)
+
+"""Coerces an iterable of column references (names, `Expr`s, `Selector`s, or `Vector`s of any of
+those, flattened one level via [`_expr_flatten`](@ref)) into a `Vector{Expr}` ready to have its
+pointers marshalled."""
+_expr_vector(args) = Expr[e for arg in args for e in _expr_flatten(arg)]
 
 """
     coalesce(exprs::Expr...)::Polars.Expr
