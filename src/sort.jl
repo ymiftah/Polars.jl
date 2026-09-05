@@ -157,6 +157,10 @@ from the end. If `offset` and `length` are such that the slice extends beyond th
 frame, the portion between `offset` and the end is returned, so the result has fewer than `length`
 rows.
 
+!!! note "Indices are 0-based"
+    `offset` is 0-based: `slice(df, 0, 3)` gets the first three rows. This differs from
+    [`Polars.nth`](@ref) and `Selectors.by_index`, which are 1-based.
+
 Note: distinct from the `Expr`-level [`slice`](@ref), which slices one expression's own result,
 not the whole frame's rows.
 """

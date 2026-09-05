@@ -105,7 +105,7 @@ _series_getter(::Type{Float64}) = API.polars_series_get_f64
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Integer}, MaybeMissing{AbstractFloat}}}
     checkbounds(series, index)
-    index = index - 1
+    index = index - 1 # `index` is 1-based (Julia convention); every FFI call below is 0-based
 
     if series.null_count > 0 && polars_series_is_null(series, index)
         return missing
@@ -122,7 +122,7 @@ end
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Dates.TimeType}, Dates.TimeType, MaybeMissing{Dates.Period}, Dates.Period}}
     checkbounds(series, index)
-    index = index - 1
+    index = index - 1 # `index` is 1-based (Julia convention); every FFI call below is 0-based
 
     if series.null_count > 0 && polars_series_is_null(series, index)
         return missing
@@ -141,7 +141,7 @@ end
 
 function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{MaybeMissing{Vector}, MaybeMissing{String}, MaybeMissing{NamedTuple}}}
     checkbounds(series, index)
-    index = index - 1
+    index = index - 1 # `index` is 1-based (Julia convention); every FFI call below is 0-based
 
     if series.null_count > 0 && polars_series_is_null(series, index)
         return missing
@@ -173,7 +173,7 @@ end
 # Arc-refcount clone under the hood -- no data copy).
 function Base.getindex(series::Series, r::UnitRange)
     checkbounds(series, r)
-    offset = first(r) - 1
+    offset = first(r) - 1 # `r` is 1-based (Julia convention); `polars_series_slice`'s offset is 0-based
     len = length(r)
     return Series(polars_series_slice(series, offset, len))
 end

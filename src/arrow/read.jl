@@ -396,10 +396,12 @@ function _read_offset(::Type{T}, ::Type{OffT}, ca::CArrowArray, bufs::Vector) wh
 
     if ca.null_count == 0
         out = Vector{T}(undef, n)
-        for i in 1:n
-            lo = unsafe_load(offsets_ptr, i)
-            hi = unsafe_load(offsets_ptr, i + 1)
-            out[i] = _materialize(T, data_ptr + lo, Int(hi - lo))
+        # 0-based loop, matching the has-null branch below and this file's other offset-buffer
+        # readers (e.g. `_read_list`) -- `offsets_ptr` is a 0-based Arrow buffer either way.
+        for i in 0:(n - 1)
+            lo = unsafe_load(offsets_ptr, i + 1)
+            hi = unsafe_load(offsets_ptr, i + 2)
+            out[i + 1] = _materialize(T, data_ptr + lo, Int(hi - lo))
         end
         return out
     end
