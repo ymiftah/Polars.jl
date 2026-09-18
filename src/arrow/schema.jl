@@ -39,12 +39,47 @@ end
 """Zero-method extension point -- see `_tz_aware_datetime_type`'s docstring."""
 function _resolve_tz_aware_datetime_type end
 
+"""
+    _categorical_column_type()
+
+Extension hook: determines the Julia element type for a dictionary-encoded (Categorical/Enum)
+column. Returns `String` by default (today's behavior -- reading such a column back materializes
+it as a plain `String`/`missing`, no extra step required). Loading `CategoricalArrays.jl`
+(`using CategoricalArrays`) activates this package's `PolarsCategoricalArraysExt` extension,
+which adds the first-ever method for `_resolve_categorical_column_type` and makes this function
+return `CategoricalArrays.CategoricalValue{String, UInt32}` instead.
+
+!!! note
+    Delegates to `_resolve_categorical_column_type` (declared with zero methods, just below) for
+    the same precompilation-restriction reason as `_tz_aware_datetime_type` -- see that
+    function's docstring just above in this file.
+"""
+function _categorical_column_type()
+    try
+        return _resolve_categorical_column_type()
+    catch e
+        e isa MethodError && e.f === _resolve_categorical_column_type && return String
+        rethrow()
+    end
+end
+
+"""Zero-method extension point -- see `_categorical_column_type`'s docstring."""
+function _resolve_categorical_column_type end
+
 function parse_format(schema)
     # Dictionary-encoded fields (e.g. low-cardinality strings) carry their
     # logical type in the referenced dictionary schema, not in `format`
-    # (which only describes the physical index type).
+    # (which only describes the physical index type). The dictionary's own value format is
+    # validated defensively rather than trusted blindly: every case polars actually produces is
+    # string-shaped ("vu", confirmed live), but a non-string dictionary value type is not a
+    # contract this package should silently assume holds forever.
     if schema.dictionary != C_NULL
-        return parse_format(unsafe_load(schema.dictionary))
+        dict_fmt = unsafe_string(unsafe_load(schema.dictionary).format)
+        dict_fmt in ("u", "U", "vu") || error(
+            "Categorical/Enum column has a non-string dictionary value format \"$dict_fmt\" -- " *
+                "Polars.jl only supports string-valued Categorical/Enum columns"
+        )
+        return MaybeMissing{_categorical_column_type()}
     end
 
     fmt = unsafe_string(schema.format)
