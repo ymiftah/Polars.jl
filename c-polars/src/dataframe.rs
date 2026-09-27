@@ -684,14 +684,8 @@ pub unsafe extern "C" fn polars_lazy_frame_slice(
     *df = std::mem::take(df).slice(offset, len.min(IdxSize::MAX as usize) as IdxSize);
 }
 
-/// `top_k`/`bottom_k` share this shape with `polars_lazy_frame_sort`, plus the row-count `k` --
-/// both are `sort_by_exprs` + `slice(0, k)` under the hood
-/// (`polars-lazy-0.54.4/src/frame/mod.rs`), so the sort options mean the same thing here as they
-/// do there, with one exception: upstream's own `top_k`/`bottom_k` unconditionally call
-/// `.with_nulls_last(true)` on the options we pass, overriding whatever `nulls_last` we'd thread
-/// through -- so there is no such parameter here (mirroring upstream's own public API, which
-/// doesn't expose one for `top_k`/`bottom_k` either); `maintain_order` is untouched by that override and
-/// is real.
+/// `top_k`/`bottom_k` take the same sort options as `polars_lazy_frame_sort`, except `nulls_last`:
+/// upstream always sorts nulls last for these.
 unsafe fn top_or_bottom_k(
     df: *mut polars_lazy_frame_t,
     k: usize,
@@ -744,15 +738,9 @@ pub unsafe extern "C" fn polars_lazy_frame_bottom_k(
     top_or_bottom_k(df, k, exprs, nexprs, descending, maintain_order, true);
 }
 
-/// Whole-frame reductions -- `LazyFrame::sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile`
-/// (`polars-lazy-0.54.4/src/frame/mod.rs`) are genuine methods on the Rust `LazyFrame` itself, not
-/// something this crate composes from `with_columns` + a wildcard selector: unlike the naive
-/// `select(lf, wildcard.sum())` composition, they are null-tolerant per column rather than
-/// erroring the whole frame on the first unsupported dtype (e.g. a `String` column sums to `None`,
-/// per each method's own doc comment) -- verified live before choosing this shape over the
-/// wildcard one. Aggregated columns keep their original names. All eight are infallible plan-build
-/// operations (validated at `collect`, not here), so -- like `polars_lazy_frame_sort`/`slice`
-/// above -- they mutate through `mem::take` and return void rather than threading an error out.
+/// Whole-frame reductions, using the `LazyFrame` methods of the same name. Unlike a wildcard
+/// `select`, these give null for a column of an unsupported dtype instead of failing. Aggregated
+/// columns keep their names. Infallible at plan-build time, so they mutate in place.
 #[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_sum(df: *mut polars_lazy_frame_t) {
     let df = &mut (*df).inner;

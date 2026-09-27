@@ -5,7 +5,8 @@ module Structs
         field_by_name(expr::Polars.Expr, name::String)::Polars.Expr
         field_by_name(name::String)::Base.Fix2{typeof(field_by_name), String}
 
-    Returns a new expression corresponding to values of the selected field.
+    Retrieve one of the fields of this struct as a new Series. This expression also supports
+    wildcard "*" and regex expansion.
     """
     function field_by_name(expr, name)
         out = Ref{Ptr{polars_expr_t}}()
@@ -19,7 +20,9 @@ module Structs
         field_by_index(expr::Polars.Expr, index::Integer)::Polars.Expr
         field_by_index(index::Integer)::Base.Fix2{typeof(field_by_index), Integer}
 
-    Returns a new expression corresponding to values of the selected field.
+    Retrieve one of the fields of this struct as a new Series.
+
+    Note: `index` is 0-based; negative values count from the end.
     """
     function field_by_index(expr, fieldidx)
         field = API.polars_expr_struct_field_by_index(expr, fieldidx)
@@ -31,7 +34,7 @@ module Structs
         rename_fields(expr::Polars.Expr, new_names::Vector{String})::Polars.Expr
         rename_fields(new_names::Vector{String})::Base.Fix2{typeof(rename_fields), Vector{String}}
 
-    Renames the fields of the struct series with the provided new names.
+    Rename the fields of the struct.
     """
     function rename_fields(expr, new_names)
         owned, ptrs, lens = _name_ptrs(convert(Vector{String}, new_names))
@@ -47,11 +50,8 @@ module Structs
     """
         with_fields(expr::Polars.Expr, fields::Polars.Expr...)::Polars.Expr
 
-    Adds or overwrites fields of the struct in `expr` with each (aliased) expression in `fields`
-    (referencing existing fields via `field_by_name`/`field_by_index` on the struct itself), leaving
-    any other fields untouched. If an entry's alias matches an existing field name, that field is
-    overwritten in place (count/order unchanged); an alias with no matching field is appended as a
-    new field instead.
+    Add or overwrite fields of the struct. A field whose name matches an existing field replaces it;
+    others are appended.
     """
     function with_fields(expr::Expr, fields::Expr...)
         fields = collect(Expr, fields)
@@ -65,7 +65,7 @@ module Structs
     """
         json_encode(expr::Polars.Expr)::Polars.Expr
 
-    Encodes each struct value of `expr` as a JSON string.
+    Convert this struct to a JSON string.
     """
     json_encode(expr::Expr) = Expr(API.polars_expr_struct_json_encode(expr))
 

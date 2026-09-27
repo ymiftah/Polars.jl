@@ -1,11 +1,8 @@
 """
     read_json(path::String)::DataFrame
 
-Reads a JSON file containing a single top-level array of objects into a `DataFrame`. Unlike
-[`read_parquet`](@ref)/[`read_csv`](@ref)/[`read_ipc`](@ref), this has no lazy `scan_json`
-counterpart -- plain JSON has no polars streaming reader upstream either, since the whole array
-must be parsed before its shape is known. For a streamable, one-object-per-line format, see
-[`read_ndjson`](@ref)/[`scan_ndjson`](@ref).
+Read a JSON file containing a top-level array of objects into a `DataFrame`. There is no lazy
+`scan_json`; see [`scan_ndjson`](@ref) for newline-delimited JSON.
 """
 function read_json(path::String)
     out = Ref{Ptr{polars_dataframe_t}}()
@@ -26,8 +23,8 @@ end
                 include_file_paths::Union{Nothing,AbstractString}=nothing,
                 storage_options::Union{Nothing,AbstractDict{<:AbstractString,<:AbstractString}}=nothing)::LazyFrame
 
-Lazily scans a newline-delimited JSON (NDJSON/JSON Lines) file, glob pattern, or directory, without
-reading it into memory.
+Create a LazyFrame directly from a newline-delimited JSON scan. `path` may be a file, a glob
+pattern, or a directory.
 
 - `n_rows`: only scan the first `n_rows` rows.
 - `row_index_name`/`row_index_offset`: if `row_index_name` is given, adds a row-index column with
@@ -38,10 +35,9 @@ reading it into memory.
 - `low_memory`: reduce memory usage at the expense of performance.
 - `rechunk`: rechunk each file's columns into contiguous memory after reading.
 - `include_file_paths`: if given, adds a column with this name containing each row's source path.
-- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
-  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
-  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
+- `storage_options`: cloud storage configuration (e.g. `"aws_region" => "us-east-1"`) for
+  `s3://`, `gs://`, `az://` paths. By default the provider's environment variables and config
+  files are used.
 """
 function scan_ndjson(
         path;
@@ -80,8 +76,8 @@ end
 """
     read_ndjson(path::String; kwargs...)::DataFrame
 
-Reads a newline-delimited JSON (NDJSON/JSON Lines) file into a `DataFrame`. Accepts the same
-keyword options as [`scan_ndjson`](@ref).
+Read a newline-delimited JSON file into a `DataFrame`. Accepts the keywords of
+[`scan_ndjson`](@ref).
 """
 read_ndjson(path; kwargs...) = collect(scan_ndjson(path; kwargs...))
 
@@ -89,11 +85,7 @@ read_ndjson(path; kwargs...) = collect(scan_ndjson(path; kwargs...))
     write_json(io::IO, df::DataFrame)
     write_json(path::String, df::DataFrame)
 
-Writes `df` as a single top-level JSON array of objects.
-
-For the `path::String` method, a path containing `"://"` (e.g. `"s3://bucket/out.json"`) is
-rejected with an error -- there is no cloud-sink counterpart for plain JSON (matching upstream:
-only NDJSON has a streaming sink, see [`sink_ndjson`](@ref)).
+Write `df` as a JSON array of objects. A `path` containing `"://"` is an error.
 """
 function write_json(io::IO, df::DataFrame)
     callback = _io_callback()
@@ -111,10 +103,8 @@ end
     write_ndjson(io::IO, df::DataFrame)
     write_ndjson(path::String, df::DataFrame)
 
-Writes `df` as newline-delimited JSON (NDJSON/JSON Lines).
-
-For the `path::String` method, a path containing `"://"` (e.g. `"s3://bucket/out.jsonl"`) is
-rejected with an error pointing at [`sink_ndjson`](@ref) instead of silently writing a local file.
+Write `df` as newline-delimited JSON. A `path` containing `"://"` is an error; use
+[`sink_ndjson`](@ref) for cloud storage.
 """
 function write_ndjson(io::IO, df::DataFrame)
     callback = _io_callback()
@@ -132,15 +122,14 @@ end
     sink_ndjson(lf::LazyFrame, path::String; kwargs...)
     sink_ndjson(df::DataFrame, path::String; kwargs...)
 
-Executes the query and writes the result directly to a newline-delimited JSON (NDJSON) file via
-the streaming engine, without materializing the full result in memory.
+Stream the results of the query to a newline-delimited JSON file, without materializing the full
+result in memory.
 
 - `mkdir`: create missing parent directories (default `false`).
 - `maintain_order`: preserve row order through the streaming pipeline (default `true`).
-- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
-  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
-  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
+- `storage_options`: cloud storage configuration (e.g. `"aws_region" => "us-east-1"`) for
+  `s3://`, `gs://`, `az://` paths. By default the provider's environment variables and config
+  files are used.
 """
 sink_ndjson(df::DataFrame, path::String; kwargs...) = sink_ndjson(lazy(df), path; kwargs...)
 function sink_ndjson(

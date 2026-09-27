@@ -100,15 +100,12 @@ end
 @testset "qcut: NaN dropped from breakpoint computation, propagates as missing (py-polars test_qcut_nan_input_values)" begin
     df = DataFrame((; a = [1.0, 2.0, 3.0, 4.0, NaN]))
 
-    # polars-ops 0.55.2 fixed the panic from the previous divergence noted here (a None-unwrap in
-    # cut.rs on NaN input, polars-ops-0.54.4 src/series/ops/cut.rs:206): NaN is now dropped before
-    # computing breakpoints and the NaN row comes back null, matching upstream's documented
-    # behavior.
+    # NaN is dropped before computing breakpoints and the NaN row comes back null, as upstream.
     r = select(df, alias(qcut(col("a"), [0.5, 1.0]), "a"))
     @test isequal(collect(r[:a]), ["(-inf, 2.5]", "(-inf, 2.5]", "(2.5, 4]", "(2.5, 4]", missing])
 end
 
-@testset "qcut: all-NaN input does not abort the process, regression (py-polars test_qcut_full_nan)" begin
+@testset "qcut: all-NaN input does not abort the process" begin
     df = DataFrame((; a = [NaN, NaN]))
 
     # same fix as the NaN-mixed case above: now returns all-null rather than raising.
@@ -122,9 +119,7 @@ end
 end
 
 @testset "qcut: NaN with infinities raises (py-polars test_qcut_inf_breakpoint_raises)" begin
-    # polars-ops 0.55.2 also fixed the previous divergence here: this used to silently produce a
-    # single (-inf, inf] bucket with the NaN row null; it now raises on the NaN breakpoint like the
-    # infinite-input case above, matching upstream.
+    # a NaN breakpoint raises, like the infinite-input case above, as upstream.
     df = DataFrame((; a = [NaN, Inf, -Inf]))
     @test_throws PolarsError collect(select(df, alias(qcut(col("a"), [0.5]), "a")))
 end

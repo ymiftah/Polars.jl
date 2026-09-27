@@ -1,9 +1,5 @@
-# `Polars.Meta` (`Expr.meta()` introspection namespace) -- see
-# `plans/definitive_guide_gap_closure.md`'s Phase 3. Unlike `Lists`/`Strings`/`Dt`/`Structs`/
-# `Selectors`, `Meta` is NOT exported from `Polars` (it would collide with `Base.Meta`, itself an
-# *exported* Base submodule -- `using Polars` would otherwise ambiguous-error on the bare name).
-# Always reached fully qualified, `Polars.Meta.output_name(...)` etc. -- `M` is a local alias for
-# brevity, matching `Selectors.jl`'s own `S` alias convention.
+# `Polars.Meta` (`Expr.meta()`). Not exported (it would collide with `Base.Meta`); `M` is a local
+# alias.
 const M = Polars.Meta
 
 @testset "Meta.output_name: plain/aliased/arithmetic/error paths" begin

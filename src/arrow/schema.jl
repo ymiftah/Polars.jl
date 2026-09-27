@@ -8,19 +8,11 @@ using .API:
 """
     _tz_aware_datetime_type(tz::AbstractString)
 
-Extension hook: determines the Julia element type for a timezone-aware `Datetime` column.
-Errors by default, since materializing a genuinely timezone-aware value needs
-`TimeZones.ZonedDateTime`, which this package does not depend on directly. Loading `TimeZones.jl`
-(`using TimeZones`) activates this package's `PolarsTimeZonesExt` extension, which adds the
-first-ever method for `_resolve_tz_aware_datetime_type` and makes this function return
-`TimeZones.ZonedDateTime` instead of erroring.
+The Julia element type for a timezone-aware `Datetime` column: `TimeZones.ZonedDateTime` when
+TimeZones.jl is loaded, an error otherwise.
 
-!!! note
-    This delegates to `_resolve_tz_aware_datetime_type` (declared with zero methods, just below)
-    rather than being overridden directly, because Julia forbids an extension from *redefining*
-    an existing same-signature method during precompilation ("Method overwriting is not permitted
-    during Module precompilation") -- only adding a genuinely new method is allowed there. Leaving
-    the extension point as a zero-method stub sidesteps that restriction entirely.
+The extension adds a method to the zero-method `_resolve_tz_aware_datetime_type`, since an
+extension may not redefine an existing method during precompilation.
 """
 function _tz_aware_datetime_type(tz::AbstractString)
     try
@@ -36,13 +28,12 @@ function _tz_aware_datetime_type(tz::AbstractString)
     end
 end
 
-"""Zero-method extension point -- see `_tz_aware_datetime_type`'s docstring."""
+"""Zero-method extension point for `PolarsTimeZonesExt`; see `_tz_aware_datetime_type`."""
 function _resolve_tz_aware_datetime_type end
 
 function parse_format(schema)
-    # Dictionary-encoded fields (e.g. low-cardinality strings) carry their
-    # logical type in the referenced dictionary schema, not in `format`
-    # (which only describes the physical index type).
+    # A dictionary-encoded field's logical type is in its dictionary schema; `format` is the
+    # index type.
     if schema.dictionary != C_NULL
         return parse_format(unsafe_load(schema.dictionary))
     end
@@ -69,14 +60,8 @@ function parse_format(schema)
     fmt == "Z" && return MaybeMissing{Vector{UInt8}}
     fmt == "vz" && return MaybeMissing{Vector{UInt8}}
 
-    # All three resolutions collapse to the same real `Dates.DateTime` -- there's no
-    # resolution-tagged DateTime type in the stdlib, and the actual resolution is re-derived at
-    # runtime from the live polars value in `load_value` regardless (see series.jl/value.jl).
-    #
-    # The Arrow C Data Interface timestamp format is "tsX:tz" -- an empty suffix means naive, a
-    # non-empty suffix is an IANA time zone name. A naive suffix maps straight to `DateTime`; a
-    # non-empty one routes through `_tz_aware_datetime_type`, which errors by default (see above)
-    # and is overridden by the TimeZones.jl package extension to return `ZonedDateTime`.
+    # "tsX:tz": every time unit maps to `DateTime` (the unit is read from each value). A
+    # non-empty `tz` is timezone-aware.
     for prefix in ("tsn:", "tsu:", "tsm:")
         if startswith(fmt, prefix)
             tz = fmt[(length(prefix) + 1):end]
@@ -87,13 +72,11 @@ function parse_format(schema)
 
     fmt == "tdD" && return MaybeMissing{Date}
 
-    # Arrow spells time-of-day as time32 ("tts"/"ttm") or time64 ("ttu"/"ttn"). All four collapse
-    # to `Dates.Time`, which is itself nanosecond-resolution; polars only ever produces "ttn"
-    # (its `Time` is always nanoseconds since midnight), but accept the narrower encodings too.
+    # time32 ("tts"/"ttm") and time64 ("ttu"/"ttn") all map to `Dates.Time`; polars produces
+    # "ttn".
     fmt in ("tts", "ttm", "ttu", "ttn") && return MaybeMissing{Dates.Time}
 
-    # Unlike Datetime, the stdlib's Period subtypes are themselves genuinely resolution-specific
-    # real types, so these use them directly instead of a custom wrapper.
+    # Durations map to the `Period` type of their unit.
     fmt == "tDm" && return MaybeMissing{Dates.Millisecond}
     fmt == "tDu" && return MaybeMissing{Dates.Microsecond}
     fmt == "tDn" && return MaybeMissing{Dates.Nanosecond}
@@ -116,9 +99,7 @@ function parse_format(schema)
         return MaybeMissing{NamedTuple{names, types}}
     end
 
-    # List columns materialize as plain nested `Vector`s (not `Series`) -- see `_read_list` in
-    # arrow/read.jl for the bulk reader and its docstring for why this is the right contract
-    # (consistent with Struct materializing as a plain `NamedTuple` just above, not a `Series`).
+    # List columns materialize as nested `Vector`s (see `_read_list` in arrow/read.jl).
     if fmt in ("+l", "+L")
         schema.n_children == 1 || error(
             "malformed Arrow List schema: expected exactly 1 child, got $(schema.n_children)"
@@ -129,10 +110,7 @@ function parse_format(schema)
     end
 
     if startswith(fmt, "+w") # Fixed size list (polars' Array dtype)
-        # `Series`/`getindex`/`load_value` have no materialization path for a fixed-size-list
-        # element type (unlike the `+l`/`+L` List case just above) -- raise here with a clear
-        # explanation rather than returning an `NTuple` type that then fails opaquely (a bare
-        # `MethodError` from `getindex`) the moment anyone actually reads the column.
+        # Array columns have no read path; raise a clear error here.
         error(
             "Array dtype (fixed-size list, arrow format \"$fmt\") is not supported -- " *
                 "Polars.jl cannot materialize it into a Julia value yet. Cast to a List " *
@@ -146,12 +124,9 @@ end
 """
     Internal API
 
-Returns `(name, T, fmt)`: `T` is the same fully-resolved Julia element type `parse_format` always
-computed; `fmt` is the raw top-level Arrow format string (`""` for a dictionary-encoded column --
-`read.jl`'s `_dispatch_read` treats this as its "unsupported, fall back" sentinel) -- cheap to
-carry alongside `T` since `schema.format` is already being read here, and lets `Series` cache it
-at construction time so `read_series` doesn't need to re-fetch and re-parse the schema on every
-`collect`.
+Returns `(name, T, fmt)`: the Julia element type `T` from `parse_format`, and the top-level Arrow
+format string `fmt` (`""` for a dictionary-encoded column), which `Series` caches for
+`read_series`.
 
 !!! warning
     The schema should not be used afterwards.
@@ -174,9 +149,7 @@ end
     the function
 """
 function load_dataframe_schema(schema::CArrowSchema)
-    # Real errors rather than `@assert`s: these validate data that just crossed the FFI boundary
-    # (the one place a silently-disabled check would turn a malformed schema into a segfault),
-    # not an invariant this package establishes itself.
+    # Errors, not `@assert`s: this validates data from across the FFI boundary.
     fmt = unsafe_string(schema.format)
     fmt == "+s" || error("invalid polars schema: expected a struct format \"+s\", got \"$fmt\"")
 
@@ -189,7 +162,7 @@ function load_dataframe_schema(schema::CArrowSchema)
     NT <: NamedTuple || error("invalid polars schema: expected a NamedTuple type, got $NT")
     names, types = NT.parameters
 
-    # Explicitely release after reading the schema names and types
+    # Release after reading the names and types.
     schema_ref = Ref(schema)
     GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
 
@@ -204,9 +177,7 @@ A Julia managed ArrowSchema valid according to the arrow C data interface.
 mutable struct ArrowSchema
     format::String
     name::String
-    # Holds the already-*encoded* metadata bytes (see `_encode_metadata`), not the raw input --
-    # this is what the `Cstring`-typed C field's pointer aliases, so it must stay alive exactly
-    # like `format`/`name` do for their own C string pointers.
+    # Encoded metadata bytes (see `_encode_metadata`); the C `metadata` pointer aliases them.
     metadata::Union{Nothing, Vector{UInt8}}
     flags::Int64
     children::Vector{ArrowSchema}
@@ -219,10 +190,9 @@ end
 """
     _encode_metadata(pairs)::Vector{UInt8}
 
-Encodes an ordered collection of `key => value` string pairs (e.g. a `Vector{Pair}` or `Dict`)
-into the Arrow C Data Interface's binary `metadata` format: an `Int32` pair count, then per pair
-an `Int32` key byte-length + key bytes + `Int32` value byte-length + value bytes, all in native
-endianness -- *not* NUL-terminated, unlike a plain C string.
+Encodes `key => value` string pairs into the Arrow C Data Interface `metadata` format: an `Int32`
+pair count, then per pair an `Int32` key length, the key bytes, an `Int32` value length and the
+value bytes, in native endianness.
 """
 function _encode_metadata(pairs)
     io = IOBuffer()
@@ -241,11 +211,8 @@ end
 """
     _mark_released!(ptr::Ptr{T}) where {T}
 
-Writes `C_NULL` into the `release` field of the `CArrowSchema`/`CArrowArray` pointed to by `ptr`,
-in place. The Arrow C Data Interface requires a producer's release callback to mark the structure
-released this way (so a later consumer can detect it rather than blindly re-invoking a dangling
-callback); shared between `base_release_schema` (here) and `base_release_array`
-(arrow/array.jl) since both C structs share the same trailing `(release, private_data)` layout.
+Marks the `CArrowSchema`/`CArrowArray` at `ptr` as released by setting its `release` field to
+`C_NULL`, as the Arrow C Data Interface requires.
 """
 function _mark_released!(ptr::Ptr{T}) where {T}
     offset = fieldoffset(T, Base.fieldindex(T, :release))
@@ -256,10 +223,8 @@ end
 """
     _release_or_throw(release::Ptr{Cvoid}, structptr::Ptr)
 
-Calls the Arrow C Data Interface release callback `release` on `structptr`, or throws if
-`release` is already `C_NULL`. Per the spec, consumers SHOULD check for a released structure
-before touching it; without this, a structure released twice would invoke a dangling function
-pointer -- a segfault, not a catchable Julia error.
+Calls the release callback `release` on `structptr`, or throws if the structure is already
+released (`release == C_NULL`).
 """
 function _release_or_throw(release::Ptr{Cvoid}, structptr::Ptr)
     release == C_NULL && error("Arrow C Data Interface structure was already released")
@@ -270,10 +235,8 @@ end
 """
     release_schema!(schema::ArrowSchema)
 
-Unroots `schema` from `LIVE_SCHEMAS` (a no-op if `schema` was never rooted -- i.e. it is a child,
-kept alive only transitively through its parent's `children` field; see `root!`). Guarded by
-`LIVE_SCHEMAS_LOCK` since `release_schema!` can run from `base_release_schema`, invoked by Rust's
-own release callback on whatever thread drops the schema, racing a concurrent Julia-side release.
+Unroots `schema` from `LIVE_SCHEMAS` (a no-op for a child schema, which is never rooted). Takes
+`LIVE_SCHEMAS_LOCK`, since Rust may call the release callback from any thread.
 """
 function release_schema!(schema)
     lock(LIVE_SCHEMAS_LOCK) do
@@ -285,13 +248,8 @@ end
 """
     base_release_schema(schema_ptr::Ptr{CArrowSchema})
 
-The producer-side release callback installed on every `ArrowSchema` (see `set_private_data!`). Per
-the Arrow C Data Interface, a producer's release callback MUST walk all children structures and
-call their own release callbacks, MUST free any data area it owns directly, and MUST mark the
-structure released (`release = NULL`). Recursion through the whole tree falls out for free here:
-every `ArrowSchema` this package builds shares this same callback, so invoking a child's callback
-walks *its* children in turn, all the way down to the leaves -- no explicit recursion needed on
-the Julia side.
+The release callback installed on every `ArrowSchema`: releases the children, unroots the schema
+and marks it released, as the Arrow C Data Interface requires.
 """
 function base_release_schema(schema_ptr::Ptr{CArrowSchema})
     cschema = unsafe_load(schema_ptr)
@@ -313,10 +271,8 @@ end
 """
     set_private_data!(schema::ArrowSchema)
 
-Installs the release callback and `private_data` pointer on `schema`'s C struct -- required at
-every nesting level, since `base_release_schema` may end up invoking any schema's callback while
-walking down from an ancestor (see its docstring). Does **not** root `schema` in `LIVE_SCHEMAS`;
-see `root!` for that.
+Installs the release callback and `private_data` pointer on `schema`'s C struct, at every nesting
+level. Does not root `schema`; see `root!`.
 """
 function set_private_data!(schema::ArrowSchema)
     base_release_ptr = @cfunction base_release_schema Cvoid (Ptr{CArrowSchema},)
@@ -337,11 +293,8 @@ end
 """
     root!(schema::ArrowSchema)
 
-Registers `schema` in `LIVE_SCHEMAS`, keeping it (and everything reachable through its `children`
-field) alive from the Julia GC's perspective until Rust invokes its release callback. Only ever
-needed for the top-level schema handed across the FFI boundary (see `arrowtable`) -- children are
-kept alive transitively through their parent's `children::Vector{ArrowSchema}` field, so rooting
-every nesting level independently would be redundant.
+Registers the top-level `schema` in `LIVE_SCHEMAS`, keeping it and its children alive until Rust
+calls its release callback.
 """
 function root!(schema::ArrowSchema)
     lock(LIVE_SCHEMAS_LOCK) do
@@ -389,8 +342,7 @@ function ArrowSchema(; format, name, metadata = nothing, flags = 0, children = A
 end
 
 function Base.unsafe_convert(::Type{Ptr{CArrowSchema}}, schema::ArrowSchema)
-    # See the matching comment on `unsafe_convert(::Type{Ptr{CArrowArray}}, ...)` in arrow/array.jl
-    # for why this is `Base.fieldindex` rather than a runtime `findfirst`.
+    # `Base.fieldindex` constant-folds; see the `CArrowArray` method in arrow/array.jl.
     return Ptr{CArrowSchema}(
         Ptr{UInt8}(Base.pointer_from_objref(schema)) +
             fieldoffset(ArrowSchema, Base.fieldindex(ArrowSchema, :carrow_schema))
@@ -399,6 +351,5 @@ end
 
 "Holds references to the live schemas whose ownership has been given through ffi."
 const LIVE_SCHEMAS = IdDict{ArrowSchema, Nothing}()
-"""Guards `LIVE_SCHEMAS`: the release callback (`base_release_schema`) can be invoked by Rust on
-whatever thread drops the schema, racing a concurrent Julia-side insert/release."""
+"""Guards `LIVE_SCHEMAS`; Rust may call the release callback from any thread."""
 const LIVE_SCHEMAS_LOCK = ReentrantLock()

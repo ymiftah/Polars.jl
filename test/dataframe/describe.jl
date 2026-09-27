@@ -46,9 +46,8 @@
     r3 = describe(df; percentiles = Float64[])
     @test r3[:statistic] == ["count", "null_count", "mean", "std", "min", "max"]
 
-    # fractional percentiles must keep their distinguishing precision in the label -- 99.9% and
-    # 99.99% previously both rounded to the same "100%" (a real bug, fixed alongside this test;
-    # py-polars test_df_describe_quantile_precision)
+    # fractional percentiles keep their precision in the label: 99.9% and 99.99% must not both
+    # become "100%" (py-polars test_df_describe_quantile_precision)
     r4 = describe(df; percentiles = [0.99, 0.999, 0.9999])
     @test all(in(collect(r4[:statistic])), ["99%", "99.9%", "99.99%"])
     @test length(unique(collect(r4[:statistic]))) == length(r4[:statistic])  # no more label collisions
@@ -63,10 +62,8 @@ end
     @test r[:a][1] == "0" && r[:a][2] == "0"  # count, null_count
     @test all(ismissing, collect(r[:a])[3:end])
 
-    # a genuinely columnless (0-row, 0-column) frame has nothing to describe -- upstream raises
-    # `TypeError: cannot describe a DataFrame that has no columns`; confirmed live divergence here
-    # (this wrapper currently returns a (9, 1) frame with just the `statistic` column instead of
-    # raising) -- see plans/parity/api_gap_audit.md Group 11's Batch 12 entry.
+    # a 0x0 frame: py-polars raises `TypeError: cannot describe a DataFrame that has no columns`;
+    # this package returns a (9, 1) frame with only the `statistic` column.
     @test_broken (
         try
             describe(DataFrame(NamedTuple()))

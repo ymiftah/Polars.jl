@@ -12,11 +12,11 @@ end
     select(lf::LazyFrame, exprs...)::LazyFrame
     select(df::DataFrame, exprs...)::DataFrame
 
-Select (and optionally rename, with [`alias`](@ref)) columns from the query. Columns can be
-selected with [`col`](@ref); to select all columns use `col("*")`.
+Select (and optionally rename, with [`alias`](@ref)) columns from the query.
 
-`exprs` may also be given as a single vector -- `select(df, [:a, :b])` is the same as
-`select(df, :a, :b)`.
+Columns can be selected with [`col`](@ref); if you want to select all columns use `col("*")`.
+
+`exprs` may also be a vector: `select(df, [:a, :b])` is `select(df, :a, :b)`.
 """
 select(df::LazyFrame, exprs...) = _select!(clone(df), exprs...)
 select(df::DataFrame, exprs...) = _select!(lazy(df), exprs...) |> collect
@@ -25,7 +25,7 @@ select(df::DataFrame, exprs...) = _select!(lazy(df), exprs...) |> collect
     with_columns(lf::LazyFrame, exprs...)::LazyFrame
     with_columns(df::DataFrame, exprs...)::DataFrame
 
-Add or replace multiple columns, given as expressions, to `df`.
+Add or replace multiple columns, given as expressions, to a DataFrame.
 
 ```julia-repl
 julia> df = DataFrame((; x=[1,2,3]))
@@ -47,8 +47,7 @@ julia> with_columns(df, col("x") * 2 |> alias("2x"))
       3       6
 ```
 
-`exprs` may also be given as a single vector -- `with_columns(df, [a, b])` is the same as
-`with_columns(df, a, b)`.
+`exprs` may also be a vector: `with_columns(df, [a, b])` is `with_columns(df, a, b)`.
 """
 with_columns(df::LazyFrame, exprs...) = _with_columns!(clone(df), collect(exprs)::Vector)
 with_columns(df::DataFrame, exprs...) = _with_columns!(lazy(df), collect(exprs)::Vector) |> collect
@@ -66,7 +65,7 @@ end
     head(lf::LazyFrame, n)::LazyFrame
     head(df::DataFrame, n)::DataFrame
 
-Limit the frame to the first `n` rows. `n` must be non-negative.
+Limit the DataFrame to the first `n` rows (default 5).
 """
 head(df::LazyFrame, n = 5) = _head!(clone(df), n)
 head(df::DataFrame, n = 5) = _head!(lazy(df), n) |> collect
@@ -84,11 +83,11 @@ import Base: tail
     tail(lf::LazyFrame, n)::LazyFrame
     tail(df::DataFrame, n)::DataFrame
 
-Get the last `n` rows. `n` must be non-negative. Equivalent to `slice(df, -n, n)`.
+Get the last `n` rows (default 5).
 
-!!! note
-    Extends `Base.tail` (which otherwise operates on `Tuple`/`NamedTuple`); `Base` does not
-    export this name, so `import Base: tail` is required for it to work unqualified.
+Equivalent to `slice(df, -n, n)`.
+
+Note: this extends the unexported `Base.tail`; call it as `Base.tail` or `import Base: tail`.
 """
 Base.tail(df::LazyFrame, n = 5) = _tail!(clone(df), n)
 Base.tail(df::DataFrame, n = 5) = _tail!(lazy(df), n) |> collect
@@ -108,19 +107,14 @@ end
     filter(lf::LazyFrame, expr)
     filter(df::DataFrame, expr)
 
-Filter the rows of the frame based on `expr`: a `String`/`Symbol` column name, an `Expr`, or a
-`Selector` (each treated as a boolean-dtype column reference). `expr` must yield boolean values;
-rows where it resolves to `missing` are not included in the result.
+Filter frame rows that match a predicate expression.
+
+The expression must yield boolean values (note that rows where the predicate resolves to `null`
+are *not* included in the resulting frame). `expr` may also be a column name or a `Selector`.
 """
 Base.filter(df::LazyFrame, expr) = _filter!(clone(df), expr)
 Base.filter(df::DataFrame, expr) = _filter!(lazy(df), expr) |> collect
 
-# `Base.filter(f, s::Union{SubString{String},String})` (character-filtering a string) is also a
-# valid dispatch target for a bare `String` second argument, since the generic `expr` parameter
-# above matches anything -- genuinely ambiguous for the exact combination `(LazyFrame/DataFrame,
-# String)` (neither method's signature is a subtype of the other's). Disambiguate with an
-# exact-signature overload matching Julia's own suggested fix for this shape of ambiguity, rather
-# than widening/narrowing the generic method above (which would still leave the ambiguity for the
-# `SubString{String}` half of Base's `Union`).
+# Resolves ambiguity with `Base.filter(f, ::Union{SubString{String},String})`.
 Base.filter(df::LazyFrame, expr::Union{SubString{String}, String}) = _filter!(clone(df), expr)
 Base.filter(df::DataFrame, expr::Union{SubString{String}, String}) = _filter!(lazy(df), expr) |> collect

@@ -36,11 +36,8 @@ function _join(
         nulls_equal::Bool = false,
         maintain_order::Symbol = :none
     )
-    # No `slice` keyword: `JoinArgs.slice` panics unconditionally in this polars version
-    # ("impl error: slice is not handled", verified live against both the in-memory and
-    # `:streaming` engines) -- caught by `guard_error`'s `catch_unwind` rather than aborting the
-    # process, but there is no working codepath behind it to expose. The FFI parameter stays
-    # (always null here) so a future polars upgrade that fixes this needs only a Julia-side change.
+    # No `slice` keyword: polars panics on `JoinArgs.slice` ("impl error: slice is not handled").
+    # The FFI parameter is always null.
     exprs_a = _expr_vector(exprs_a)
     exprs_b = _expr_vector(exprs_b)
     coalesce_enum = _join_coalesce_enum(coalesce)
@@ -66,49 +63,28 @@ function _join(
 end
 
 for (jl_name, how, description) in (
-        (:innerjoin, :PolarsJoinTypeInner, "keeping only rows with a matching key in both frames"),
-        (
-            :leftjoin, :PolarsJoinTypeLeft,
-            "keeping every row of `a`, with `missing` in `b`'s columns where there's no match",
-        ),
-        (
-            :rightjoin, :PolarsJoinTypeRight,
-            "keeping every row of `b`, with `missing` in `a`'s columns where there's no match",
-        ),
-        (
-            :outerjoin, :PolarsJoinTypeFull,
-            "keeping every row of both `a` and `b`, with `missing` filled in on whichever side has no match",
-        ),
-        (
-            :semijoin, :PolarsJoinTypeSemi,
-            "keeping only `a`'s rows that have a matching key in `b` (no columns from `b` are added)",
-        ),
-        (
-            :antijoin, :PolarsJoinTypeAnti,
-            "keeping only `a`'s rows that have *no* matching key in `b` (no columns from `b` are added)",
-        ),
+        (:innerjoin, :PolarsJoinTypeInner, "Inner join"),
+        (:leftjoin, :PolarsJoinTypeLeft, "Left outer join"),
+        (:rightjoin, :PolarsJoinTypeRight, "Right outer join"),
+        (:outerjoin, :PolarsJoinTypeFull, "Full outer join"),
+        (:semijoin, :PolarsJoinTypeSemi, "Left semi join"),
+        (:antijoin, :PolarsJoinTypeAnti, "Left anti join"),
     )
     doc = """
         $jl_name(a, b, on; suffix=nothing, coalesce=:join_specific, validate=:many_to_many, nulls_equal=false)
         $jl_name(a, b, on_a, on_b; kwargs...)
 
-    Joins `a` (left) and `b` (right), $description. `on` (or `on_a`/`on_b`, when the join key is
-    named differently in each frame) is a column name/expression, or a `Vector` of them for a
-    multi-column join. `a`/`b` can each be a `DataFrame` or a `LazyFrame` (mixing the two is not
-    supported -- both must be the same kind).
+    $description `a` with `b`.
 
-    - `suffix`: appended to a right-side column name that collides with a left-side one (upstream
-      default: `"_right"`, applied when `suffix` is left `nothing`).
-    - `coalesce`: how to handle same-named join-key columns in the output -- `:join_specific`
-      (default; coalesces for inner/left/right, keeps both for outer/cross/semi/anti),
-      `:coalesce_columns` (always coalesce into one column), or `:keep_columns` (always keep both).
-    - `validate`: raises a `PolarsError` if the key-uniqueness assumption doesn't hold --
-      `:many_to_many` (default, no check), `:many_to_one`/`:one_to_many`/`:one_to_one`.
-    - `nulls_equal`: whether a `null` key on one side matches a `null` key on the other (default
-      `false`, matching upstream).
-    - `maintain_order`: which side's row order to preserve in the output -- `:none` (default, no
-      guarantee), `:left`, `:right`, `:left_right` (left order first, right as the tiebreak), or
-      `:right_left`.
+    Matches on the values of the expressions `on_a` and `on_b` (or `on` for both): a column name,
+    an expression, or a `Vector` of them. `a` and `b` are both `DataFrame`s or both `LazyFrame`s.
+
+    - `suffix`: appended to right-side column names that collide (`"_right"` if `nothing`).
+    - `coalesce`: `:join_specific` (default), `:coalesce_columns` or `:keep_columns`.
+    - `validate`: check the join keys are `:many_to_many` (default, no check), `:many_to_one`,
+      `:one_to_many` or `:one_to_one`.
+    - `nulls_equal`: whether null keys match each other.
+    - `maintain_order`: `:none` (default), `:left`, `:right`, `:left_right` or `:right_left`.
     """
     @eval begin
         $jl_name(a, b, expr; kwargs...) = $jl_name(a, b, expr, expr; kwargs...)
@@ -126,11 +102,8 @@ end
     crossjoin(a::LazyFrame, b::LazyFrame; suffix=nothing, maintain_order=:none)::LazyFrame
     crossjoin(a::DataFrame, b::DataFrame; suffix=nothing, maintain_order=:none)::DataFrame
 
-Returns the Cartesian product of the rows of `a` and `b` (`nrow(a) * nrow(b)` rows, no join
-keys involved). `suffix` is appended to a right-side column name that collides with a left-side
-one (upstream default: `"_right"`, applied when `suffix` is left `nothing`). `maintain_order`
-selects which side's row order to preserve -- `:none` (default), `:left`, `:right`,
-`:left_right`, or `:right_left` -- see [`innerjoin`](@ref).
+Creates the Cartesian product from both frames. `suffix` and `maintain_order` are as in
+[`innerjoin`](@ref).
 """
 crossjoin(a::DataFrame, b::DataFrame; kwargs...) = crossjoin(lazy(a), lazy(b); kwargs...) |> collect
 crossjoin(
@@ -143,22 +116,16 @@ crossjoin(
               tolerance=nothing, allow_eq::Bool=true, check_sortedness::Bool=true,
               suffix=nothing, nulls_equal::Bool=false)
 
-Joins `a` (left) and `b` (right) on the nearest key in `on` (columns/expressions, typically
-sorted numeric or temporal), matching each left row to the nearest right row according to
-`strategy`: `:backward` (default, the last right row `<=` the left key), `:forward` (the first
-right row `>=` the left key), or `:nearest`.
+Asof join: match each row of `a` to the nearest key in `b`, on sorted `on` columns.
 
-- `by`: grouping column names applied before the asof match, the same on both sides. Use
-  `by_left`/`by_right` instead when the grouping column is named differently in each frame;
-  polars requires both to be set together, so setting only one is an error.
-- `tolerance`: a duration string (e.g. `"1d"`, `"5m"`) capping how far the matched right key may
-  be from the left key; unmatched rows beyond the tolerance get `missing`. Only the string form is
-  supported (a numeric tolerance for non-temporal `on` columns is not exposed).
-- `allow_eq`: whether an exactly-equal key counts as a match (default `true`).
-- `check_sortedness`: validate that `on` is sorted within each `by` group before joining (default
-  `true`); upstream requires `on` to be sorted regardless, this only controls whether a violation
-  is caught with a clear error or produces silently wrong results.
-- `suffix`/`nulls_equal`/`maintain_order`: same as the other join verbs, see [`innerjoin`](@ref).
+- `strategy`: `:backward` (default), `:forward` or `:nearest`.
+- `by`, or `by_left` and `by_right`: match only within these groups.
+- `tolerance`: a duration string such as `"5m"`; matches further away give nulls.
+- `allow_eq`: whether equal keys match.
+- `check_sortedness`: check that `on` is sorted.
+- `suffix`, `nulls_equal`, `maintain_order`: as in [`innerjoin`](@ref).
+
+Note: only a duration-string `tolerance` is supported.
 """
 function join_asof(
         a, b, on;

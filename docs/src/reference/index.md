@@ -1,38 +1,31 @@
 # Reference
 
-A complete manual covering every public function in Polars.jl, organized by type — mirroring the
-structure of the [py-polars API reference](https://docs.pola.rs/api/python/stable/reference/index.html).
-Use this once you know roughly what you're looking for; for a guided introduction, start with the
-tutorials instead.
+Every public function in Polars.jl, organized like the
+[py-polars API reference](https://docs.pola.rs/api/python/stable/reference/index.html).
 
 ## Core types
 
-- [DataFrame](@ref) — the eager, columnar table type, and every verb that operates on it (`select`,
-  `filter`, `sort`, `group_by`/`agg`, joins, reshaping, ...) — shared with `LazyFrame`.
-- [LazyFrame](@ref) — the lazy, query-plan type: `lazy`, `collect`, `collect_schema`, and
-  `LazyGroupBy`.
-- [Series](@ref) — a single named column.
-- [Expressions](@ref) — `Expr`, the building block of every query: aggregation, boolean, math,
-  manipulation, naming, and casting functions.
+- [DataFrame](@ref): the eager table type and the verbs shared with `LazyFrame`.
+- [LazyFrame](@ref): `lazy`, `collect`, `collect_schema` and `LazyGroupBy`.
+- [Series](@ref): a single named column.
+- [Expressions](@ref): methods on `Expr`.
 
 ## Functions & selection
 
-- [Functions](@ref) — top-level expression constructors: `col`, `lit`, `when`, and horizontal
-  (row-wise) reductions.
-- [Selectors](@ref) — select columns by dtype, name, position, or pattern instead of one `col(...)`
-  at a time.
+- [Functions](@ref): `col`, `lit`, `when`, horizontal reductions and other constructors.
+- [Selectors](@ref): select columns by dtype, name, position or pattern.
 
 ## Expression namespaces
 
-- [List](@ref expr-list) — the `Lists` namespace, for list-typed columns.
-- [String](@ref expr-string) — the `Strings` namespace, for `String`-typed columns.
-- [Datetime](@ref expr-datetime) — the `Dt` namespace, for `Date`/`Datetime`/`Duration` columns.
-- [Struct](@ref expr-struct) — the `Structs` namespace, for struct-typed columns.
-- [Meta](@ref expr-meta) — the `Polars.Meta` namespace, for inspecting an expression tree itself.
+- [List](@ref expr-list): `Lists`, for List columns.
+- [String](@ref expr-string): `Strings`, for String columns.
+- [Datetime](@ref expr-datetime): `Dt`, for Date, Datetime and Duration columns.
+- [Struct](@ref expr-struct): `Structs`, for Struct columns.
+- [Meta](@ref expr-meta): `Polars.Meta`, for inspecting expressions.
 
 ## I/O, types & misc
 
-- [Input/output](@ref) — reading, writing, and streaming parquet/CSV/IPC files.
-- [Data types](@ref) — the Julia↔polars dtype mapping and nullability convention.
-- [Metadata](@ref) — `Polars.version()`.
-- [Exceptions](@ref) — `PolarsError`, the single exception type every fallible operation raises.
+- [Input/output](@ref): reading, writing and streaming parquet, CSV, IPC and JSON.
+- [Data types](@ref): how Julia and polars types map to each other.
+- [Metadata](@ref): `Polars.version()`.
+- [Exceptions](@ref): `PolarsError`.

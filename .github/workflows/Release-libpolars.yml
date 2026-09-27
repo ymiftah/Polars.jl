@@ -83,14 +83,9 @@ jobs:
           fi
 
       - name: Symbol parity check
-        # The dynamic symbol table IS the product: `strip = "symbols"` must drop only debug and
-        # local symbols, and `#[no_mangle] extern "C"` must survive thin LTO. A silent shortfall
-        # here is the failure that made the stale registered libpolars_jll useless.
-        #
-        # Delegates to check_header_drift.py rather than counting symbols inline -- it derives the
-        # expected set from include/polars.h, handles the macOS underscore prefix, and exempts
-        # #[cfg]-gated symbols. An inline count has to be edited every time the ABI grows, and
-        # silently blocks a release when it isn't.
+        # `strip = "symbols"` must drop only debug and local symbols, and `#[no_mangle] extern "C"`
+        # must survive thin LTO. check_header_drift.py derives the expected set from
+        # include/polars.h, handles the macOS underscore prefix, and exempts #[cfg]-gated symbols.
         run: python3 c-polars/check_header_drift.py --lib "$(ls staging/lib/libpolars.*)"
 
       - name: Package
@@ -101,8 +96,6 @@ jobs:
           tar -czf "libpolars.v${version}.${{ matrix.target }}.tar.gz" -C staging .
 
       - name: Report artifact sizes
-        # Phase 1 exists partly to replace guesswork here: every size figure in the plan so far is
-        # extrapolated from the 240 MB *debug* build.
         run: |
           set -euo pipefail
           echo "--- stripped library ---"

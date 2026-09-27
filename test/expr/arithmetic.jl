@@ -20,7 +20,7 @@
     @test r2[:scalaradd] == [2, 3, 4]
 end
 
-@testset "unary negation (-expr) (see plans/parity/gap_closure_scope.md)" begin
+@testset "unary negation (-expr)" begin
     df = DataFrame((; a = Union{Missing, Int}[1, -2, 3, missing]))
     r = select(df, alias(-col("a"), "n"))
     @test isequal(collect(r[:n]), [-1, 2, -3, missing])
@@ -77,17 +77,13 @@ end
     @test isequal(collect(r[:broadcast_left]), [missing, 3, 2])
     @test isequal(collect(r[:broadcast_right]), [2, missing, 3])
 
-    # an entirely-null column: every row of the result is missing, not an error. Uses an
-    # explicitly-typed `Union{Missing,Int}` fixture rather than the bare `[missing, missing]`
-    # literal -- the latter constructs as a plain `Vector{Missing}`, which currently crashes
-    # DataFrame construction with an UndefVarError (see plans/parity/batch-1-math-arithmetic.md;
-    # genuine Julia-side gap, deferred to the dataframe/construction.jl batch, not this one).
+    # an entirely-null Int column: every row of the result is missing, not an error.
     df_null = DataFrame((; a = Union{Missing, Int}[missing, missing], b = Union{Missing, Int}[missing, missing]))
     r_null = select(df_null, alias(col("a") + col("b"), "add"))
     @test isequal(collect(r_null[:add]), [missing, missing])
 end
 
-@testset "pow: null exponent raises cleanly (py-polars test_power_series, Step 5 process-abort check)" begin
+@testset "pow: null exponent raises cleanly" begin
     df = DataFrame((; a = [1, 2]))
     @test_throws PolarsError select(df, alias(col("a")^lit(missing), "a"))
 end
@@ -193,7 +189,7 @@ end
     @test isequal(collect(r[:ne]), [true, false, true, missing])
 end
 
-@testset "arccos / degrees / radians (API gap batch four, Phase 1; fixture mirrors py-polars' test_trigonometric)" begin
+@testset "arccos / degrees / radians" begin
     # Upstream's exact fixture (`test_trigonometric` in series_test.py, parametrized over `arccos`
     # among others): null propagates as null, NaN propagates as NaN, and `arccos(π)` is NaN because
     # π > 1 is out of arccos's [-1, 1] domain -- the edge a happy-path-only fixture would miss.
@@ -216,10 +212,8 @@ end
     @test ismissing(deg[3]) && ismissing(rad[3])
     @test isnan(deg[4]) && isnan(rad[4])
 
-    # test_trigonometric_invalid_input: a String column must raise a catchable PolarsError, not
-    # abort the process -- CLAUDE.md documents two real incidents of exactly this failure mode for
-    # other functions, so this matters more here than it does upstream. Message text is
-    # deliberately not asserted on, only that it raises cleanly.
+    # test_trigonometric_invalid_input: a String column raises a PolarsError rather than aborting
+    # the process. The message is not checked.
     dfstr = DataFrame((; s = ["1", "2", "3"]))
     @test_throws PolarsError select(dfstr, arccos(col("s")))
 end
@@ -249,7 +243,7 @@ end
     @test_throws PolarsError select(dfstr, arctan(col("s")))
 end
 
-@testset "arccosh / arcsinh / arctanh / cot / cbrt (API gap audit quick-win batch)" begin
+@testset "arccosh / arcsinh / arctanh / cot / cbrt" begin
     # arccosh: domain [1, ∞) -- 0.5 is out of domain (NaN, not an error), matching the
     # arccos/arcsin out-of-domain convention above. Julia's own `acosh` throws a `DomainError`
     # for out-of-domain input rather than returning NaN, so out-of-domain is asserted directly
@@ -332,22 +326,16 @@ end
     @test_throws PolarsError select(dfstr, arctanh(col("s")))
     @test_throws PolarsError select(dfstr, Base.cot(col("s")))
 
-    # cbrt is the one outlier here: unlike every other function in this testset (and unlike
-    # `abs`/`arccos`/`arcsin`/`arctan` above), it shares polars' `PowFunction` family with `sqrt`,
-    # which implicitly casts a String column to Float64 rather than raising -- a non-numeric
-    # string becomes `missing`, not a `PolarsError`. Verified live before writing this assertion;
-    # do not "fix" it to `@test_throws` without re-checking against upstream, since `sqrt` itself
-    # has never been asserted either way in this suite (see `test/expr/math.jl`).
+    # cbrt, like `sqrt` (polars' `PowFunction` family), casts a String column to Float64 instead of
+    # raising: a non-numeric string becomes `missing`.
     r6 = select(dfstr, alias(Base.cbrt(col("s")), "cbrt"))
     @test collect(r6[:cbrt]) ≈ Base.cbrt.([1.0, 2.0, 3.0])
     dfstr_nonnumeric = DataFrame((; s = ["abc", "def"]))
     r7 = select(dfstr_nonnumeric, alias(Base.cbrt(col("s")), "cbrt"))
     @test all(ismissing, collect(r7[:cbrt]))
 
-    # py-polars' own test_trigonometric_invalid_input also checks a Date column (via `cosh`, as
-    # one representative function), not just String -- ported here across every function closed
-    # in this batch, since a wrapped operation panicking or aborting on an untested dtype is
-    # exactly the failure mode `guard_error` exists to catch (see CLAUDE.md).
+    # py-polars' test_trigonometric_invalid_input also checks a Date column; checked here for every
+    # function in this testset.
     dfdate = DataFrame((; s = [Date(1990, 2, 28), Date(2022, 7, 26)]))
     @test_throws PolarsError select(dfdate, arccosh(col("s")))
     @test_throws PolarsError select(dfdate, arcsinh(col("s")))
@@ -360,7 +348,7 @@ end
     @test !any(ismissing, collect(r8[:cbrt]))
 end
 
-@testset "log1p / log10 (API gap batch four, Phase 1; domain edges per py-polars' test_exp_log1p)" begin
+@testset "log1p / log10" begin
     dflog = DataFrame((; x = [0.0, -1.0, -2.0, 1.0, 9.0]))
     r = select(dflog, alias(Base.log1p(col("x")), "log1p"))
     out = collect(r[:log1p])

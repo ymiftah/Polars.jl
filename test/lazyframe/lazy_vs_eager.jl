@@ -35,7 +35,7 @@ end
     @test collect(lf_clone)[:x] == collect(lf)[:x]
 end
 
-@testset "LazyFrame/LazyGroupBy show (P2.5)" begin
+@testset "LazyFrame/LazyGroupBy show" begin
     # `LazyFrame` shows its column names via the cheap, non-executing `collect_schema`, rather
     # than the default dump of the raw `mutable struct` with its `Ptr` field (e.g.
     # `Polars.LazyFrame(Ptr{...}(0x...))`) -- meaningless to a user and non-reproducible between

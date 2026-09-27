@@ -11,7 +11,7 @@
     @test r[:x][3] == [4, 5, 6]
     @test collect(r[:x]) == [[1, 2], [3], [4, 5, 6]] # bulk path agrees
 
-    # verify via flatten (Milestone A), independent of direct row indexing
+    # verify via flatten, independent of direct row indexing
     @test collect(select(r, flatten(col("x")))[:x]) == [1, 2, 3, 4, 5, 6]
 
     # String element type
@@ -37,7 +37,7 @@ end
 
     @test size(r) == (3, 1)
 
-    # verify via Structs.field_by_name (Milestone A)
+    # verify via Structs.field_by_name
     fa = select(r, Structs.field_by_name(col("s"), "a"))
     fb = select(r, Structs.field_by_name(col("s"), "b"))
     @test fa[:a] == [1, 2, 3]
@@ -51,9 +51,8 @@ struct StructWritePoint
 end
 
 @testset "struct columns: nullable NamedTuple and plain immutable struct" begin
-    # `format` maps any immutable struct (and strips Missing first) to "+s", but `arrowvector`
-    # used to have only a `Vector{<:NamedTuple}` method -- so both of these raised a bare
-    # MethodError from the array builder after the schema had already been built.
+    # `format` maps any immutable struct (after stripping Missing) to "+s"; `arrowvector` must
+    # build both of these, not only `Vector{<:NamedTuple}`.
     df = DataFrame((; n = Union{NamedTuple{(:a,), Tuple{Int}}, Missing}[(a = 1,), missing, (a = 3,)]))
     @test size(df) == (3, 1)
     @test df[:n][1] == (a = 1,)
@@ -85,9 +84,8 @@ end
     # A mutable struct is still rejected, by `format`, before reaching `arrowvector`.
     @test_throws ErrorException DataFrame((; x = [MutableColumnElement(1)]))
 
-    # Regression guard for the Task 9 interaction: a Period is an immutable struct, so without
-    # Task 9's dedicated Duration mapping this generic method would silently turn it into a
-    # `(value = Int64,)` struct column. It must stay a Duration.
+    # A Period is an immutable struct, but must become a Duration column, not a
+    # `(value = Int64,)` struct column.
     df6 = DataFrame((; d = [Millisecond(5), Millisecond(7)]))
     @test collect(df6[:d]) == [Millisecond(5), Millisecond(7)]
 end

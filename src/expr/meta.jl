@@ -1,11 +1,8 @@
 """
     Meta
 
-Introspection over `Polars.Expr` values. Every function here
-accepts anything `_as_expr` accepts (an `Expr`, a [`Polars.Selector`](@ref),
-or a column-name `String`/`Symbol`) and inspects the expression *tree itself* -- not any
-DataFrame/LazyFrame it might later be applied to, so no schema is consulted (e.g.
-[`tree_format`](@ref)/[`show_graph`](@ref) render unresolved column types as untyped).
+Inspect the expression tree. Every function accepts an `Expr`, a [`Polars.Selector`](@ref), or
+a column name.
 """
 module Meta
 using ..Polars: API, Expr, polars_error, _io_callback, _as_expr
@@ -13,10 +10,7 @@ using ..Polars: API, Expr, polars_error, _io_callback, _as_expr
 """
     output_name(expr)::String
 
-Returns the single output column name `expr` would produce, e.g. `col("x")` -> `"x"`,
-`col("x") |> alias("y")` -> `"y"`, `col("x") + col("y")` -> `"x"` (the left/first root column).
-Raises a `PolarsError` if `expr` has no single well-defined output name -- e.g. a wildcard or a
-selector-expanded expression that can match more than one column.
+Get the output name of this expression.
 """
 function output_name(expr)
     expr = _as_expr(expr)
@@ -30,9 +24,7 @@ end
 """
     is_column(expr)::Bool
 
-Returns `true` if `expr` is a plain (non-regex) column reference, e.g. `col("x")`. Returns
-`false` for anything else, including an aliased column (`col("x") |> alias("y")`) or a
-[`Selectors`](@ref) expression.
+Indicate if this expression is a basic (non-regex) column.
 """
 function is_column(expr)
     expr = _as_expr(expr)
@@ -42,8 +34,9 @@ end
 """
     is_literal(expr; allow_aliasing::Bool=false)::Bool
 
-Returns `true` if `expr` is a literal value, e.g. `lit(1)`. If `allow_aliasing`, an aliased
-literal (`lit(1) |> alias("x")`) also counts as one; otherwise it does not.
+Indicate if this expression represents a literal value (optionally aliased).
+
+Note: `Date`/`Time`/`DateTime` literals are built as a cast and return `false`.
 """
 function is_literal(expr; allow_aliasing::Bool = false)
     expr = _as_expr(expr)
@@ -53,9 +46,7 @@ end
 """
     has_multiple_outputs(expr)::Bool
 
-Returns `true` if `expr` can expand to more than one output column -- e.g. a [`Selectors`](@ref)
-expression like `Selectors.numeric()`. Returns `false` for a plain single-column expression like
-`col("x")`.
+Indicate if this expression expands to multiple expressions.
 """
 function has_multiple_outputs(expr)
     expr = _as_expr(expr)
@@ -65,8 +56,7 @@ end
 """
     undo_aliases(expr)::Polars.Expr
 
-Strips any renaming (`alias`/`keep_name`) applied anywhere in `expr`, returning the same
-expression with those renames removed.
+Undo any renaming operation like `alias`, `keep_name`.
 """
 function undo_aliases(expr)
     expr = _as_expr(expr)
@@ -77,15 +67,11 @@ end
 """
     root_names(expr)::Vector{String}
 
-Returns the names of the root (leaf) columns `expr` reads from, e.g. `col("x") + col("y")` ->
-`["x", "y"]`. Empty for an expression with no column reference at all, e.g. a bare literal
-`lit(1)`.
+Get the root column names.
 """
 function root_names(expr)
     expr = _as_expr(expr)
-    # `n` is `Csize_t` (unsigned): `n - 1` at `n == 0` (a real case -- e.g. a bare literal) would
-    # wrap around instead of underflowing to a negative, turning `0:(n - 1)` into a giant nonempty
-    # range instead of the intended empty one. Convert to a signed `Int` first.
+    # Signed, so `0:(n - 1)` is empty when `n == 0`.
     n = Int(API.polars_expr_meta_root_names_len(expr))
     callback = _io_callback()
     names = Vector{String}(undef, n)
@@ -110,17 +96,14 @@ end
 """
     tree_format(expr)::String
 
-Renders `expr` as a human-readable tree. No frame schema is consulted, so unresolved column
-types show as untyped. See also [`show_graph`](@ref) for a Graphviz rendering of the same tree.
+Format the expression as a tree.
 """
 tree_format(expr) = _tree_format(expr, false)
 
 """
     show_graph(expr)::String
 
-Renders `expr` as a Graphviz (`.dot`) graph description -- write the result to a `.dot` file (or
-pass it to a Graphviz renderer) to visualize. See also [`tree_format`](@ref) for a plain-text
-rendering of the same tree.
+Format the expression as a Graphviz `dot` graph.
 """
 show_graph(expr) = _tree_format(expr, true)
 

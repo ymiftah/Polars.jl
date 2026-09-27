@@ -1,14 +1,9 @@
 """
     describe(df::DataFrame; percentiles::AbstractVector{<:Real}=[0.25, 0.5, 0.75])::DataFrame
 
-Computes summary statistics for each column of `df`, returning one row per statistic
-(`"count"`, `"null_count"`, `"mean"`, `"std"`, `"min"`, one row per value in `percentiles`
-(named e.g. `"25%"`), `"max"`) and one column per column of `df`, plus a leading `"statistic"`
-column.
-
-Every value is returned as a string. `mean`/`std`/percentile rows are `missing` for non-numeric
-columns (only `count`/`null_count`/`min`/`max` apply there); `min`/`max` are themselves `missing`
-for columns whose dtype has no natural ordering (e.g. `List`/`Struct`).
+Summary statistics for a DataFrame: `count`, `null_count`, `mean`, `std`, `min`, the
+`percentiles`, and `max`, one row each. Values are strings; a statistic that doesn't apply to a
+column's dtype is `missing`.
 """
 function describe(df::DataFrame; percentiles::AbstractVector{<:Real} = [0.25, 0.5, 0.75])
     sch = schema(df)

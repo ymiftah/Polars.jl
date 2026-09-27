@@ -13,15 +13,15 @@ Regenerate after any change to `c-polars/src/*.rs`:
 
 ## Prerequisites
 
-- **Rust**: stable toolchain only (see `c-polars/rust-toolchain`). Do NOT use `cargo +nightly` — polars-ops has nightly feature detection that breaks on stable-impersonating nightly, and the `RUSTC_BOOTSTRAP=1` used by the regen script is deliberately narrow.
-- **cbindgen**: used to generate the C header from Rust (installed as a dev dependency in `c-polars/Cargo.toml`).
+- **Rust**: stable toolchain only (see `c-polars/rust-toolchain`). Do not use `cargo +nightly`: polars-ops detects a nightly rustc and switches to unstable stdlib internals.
+- **cbindgen**: generates the C header from Rust (`cargo install cbindgen --version 0.29.0 --locked`).
 - **Julia**: for binding generation (see `gen/` directory).
 - **Python 3**: for pre-checks (`check_header_drift.py`, `check_panic_guards.py`).
-- **rustup**: `rustup update stable` if you haven't updated in a while. Some operations (`std::hint::cold_path`, `AtomicU64::try_update` in `polars-ooc`) require a recent-enough stable (≥ 1.95); an old stable fails with cryptic `E0658 use of unstable library feature` errors with no toolchain hint.
+- **Rust ≥ 1.95**: `polars-ooc` uses `std::hint::cold_path` and `AtomicU64::try_update`; an older stable fails with `E0658 use of unstable library feature`. Run `rustup update stable`.
 
 ## Regeneration workflow
 
-**1. Edit Rust code** in `c-polars/src/*.rs`, following FFI conventions in the project's [CLAUDE.md](../CLAUDE.md) (outparam + error-pointer for fallible functions, `guard_error` on every fallible entry point that returns `*const polars_error_t`, no `.unwrap()` on reachable-from-input operations).
+**1. Edit Rust code** in `c-polars/src/*.rs`, following the FFI conventions in [CLAUDE.md](../CLAUDE.md) (outparam + error-pointer for fallible functions, `guard_error` on every fallible entry point that returns `*const polars_error_t`, no `.unwrap()` on reachable-from-input operations).
 
 **2. Regenerate the header and bindings:**
 
@@ -61,17 +61,11 @@ cd c-polars
 cargo build
 ```
 
-**⚠️ Memory warning:** For any full dependency rebuild (fresh clone, `Cargo.toml` change, toolchain update), use:
-
-```bash
-cargo build -j 1
-```
-
-A 16-way or even 4-way parallel build of deps will OOM-kill this machine, taking the VS Code host with it. Single-threaded is slow (~5-8 min on first build) but stable. Once deps are cached, `-j 4` is safe for incremental builds.
+For a full dependency rebuild (fresh clone, `Cargo.toml` change, toolchain update), use `cargo build -j 1`: dependencies build at opt-level 3 and a parallel build can run out of memory. Once dependencies are cached, `-j 4` is fine for incremental builds.
 
 **7. Restart the Julia REPL:**
 
-The `.so` is memory-mapped; a running Julia session won't pick up the new binary. You must restart the REPL (in Kaimon: `manage_repl command="restart"`; in a plain session: close and reopen).
+The `.so` is memory-mapped; a running Julia session won't pick up the new binary.
 
 **8. Verify:**
 
@@ -110,9 +104,6 @@ This checks that every fallible entry point (returning `*const polars_error_t`) 
 **"E0658 use of unstable library feature" in polars-ooc**
   - Your stable toolchain is too old. Run `rustup update stable && cargo clean && cargo build -j 1`.
 
-## Deep dive
+## Further reading
 
-- FFI conventions, error handling, ownership, memory safety, and Cargo-feature hazards: see [CLAUDE.md](../CLAUDE.md), section "C ABI conventions" and "Build environment".
-- Panic-safety incidents and `guard_error` design: [plans/ffi_panic_safety.md](../plans/ffi_panic_safety.md).
-- C ABI review checklist: use the `reviewing-rust-julia-abi` skill.
-- Generated-file guarantees: [plans/cbindgen_header_generation.md](../plans/cbindgen_header_generation.md).
+FFI conventions, error handling, ownership, and Cargo-feature hazards: [CLAUDE.md](../CLAUDE.md), sections "C ABI conventions" and "Build environment".

@@ -144,7 +144,7 @@ end
 
 @testset "shuffle: random permutation, reproducible with a seed" begin
     # operations/test_random.py::test_shuffle_series -- an exact upstream-pinned permutation for a
-    # given seed, live-verified to match bit-for-bit (same underlying Rust RNG/seeding scheme)
+    # given seed (same Rust RNG and seeding)
     df = DataFrame((; a = [1, 2, 3]))
     r = select(df, alias(shuffle(col("a"); seed = 1), "s"))
     @test r[:s] == [2, 3, 1]
@@ -212,9 +212,8 @@ end
     @test_throws PolarsError collect(select(lazy(df), alias(Base.reshape(col("x"), 2, -1), "r")))
 
     # operations/test_reshape.py -- further upstream error-path fixtures, all raise cleanly here
-    # rather than aborting the process (Step 5): empty dims panics deep in polars-plan's own schema
-    # resolution (`range start index 1 out of range for slice of length 0`, live-observed), but
-    # `guard_error` catches it before it crosses the FFI boundary and surfaces a clean PolarsError
+    # rather than aborting the process: empty dims panics in polars-plan's schema resolution, and
+    # `guard_error` turns that into a PolarsError
     @test_throws PolarsError collect(select(lazy(df), alias(Base.reshape(col("x")), "r")))
     @test_throws PolarsError collect(select(lazy(df), alias(Base.reshape(col("x"), -1, -1), "r"))) # multiple inferred dims
     @test_throws PolarsError collect(select(lazy(df), alias(Base.reshape(col("x"), 5, 1), "r"))) # size doesn't fit

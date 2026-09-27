@@ -1,24 +1,20 @@
 """
     Series(name::String, values::Vector{T})::Series{T}
 
-A series is a collection of values used as columns inside a [`DataFrame`](@ref).
+The columnar data type for a [`DataFrame`](@ref).
 """
 mutable struct Series{T} <: AbstractVector{T}
     ptr::Ptr{polars_series_t}
     null_count::Int
     length::Int
-    # Raw top-level Arrow format string captured once at construction (`""` for a
-    # dictionary-encoded column) -- lets `read_series` dispatch directly instead of re-fetching
-    # and re-parsing the schema via `polars_series_schema` on every `collect`/`copy`.
+    # Top-level Arrow format string (`""` for a dictionary-encoded column), cached for
+    # `read_series`.
     fmt::String
 
     function Series(ptr)
         ptr == C_NULL && error("cannot build a Series from a null pointer")
 
-        # No finalizer is registered yet at this point, so an error anywhere below (e.g.
-        # `load_series_schema`/`parse_format` throwing on an unsupported dtype such as a
-        # fixed-size list, see `src/arrow/schema.jl`) would otherwise leak `ptr` -- catch, destroy
-        # the still-owned pointer, and rethrow the original error.
+        # No finalizer yet: destroy `ptr` if reading the schema fails.
         try
             schema_out = Ref{CArrowSchema}()
             err = polars_series_schema(ptr, schema_out)
@@ -51,45 +47,28 @@ Base.unsafe_convert(::Type{Ptr{polars_series_t}}, series::Series) = series.ptr
 
 Base.size(series::Series) = (series.length,)
 
-# `getindex` below takes a single linear index, which is what `IndexLinear` declares -- without it
-# `Series` inherits `AbstractArray`'s `IndexCartesian` default and generic Base code goes through
-# the (slower, and for a vector entirely pointless) cartesian machinery.
 Base.IndexStyle(::Type{<:Series}) = IndexLinear()
 
 """
     Polars.item(series::Series)
 
-Returns the sole value of a length-1 `series`, and errors for any other length.
+Return the sole value of a length-1 `series`; errors for any other length.
 """
 function item(series::Series)
     length(series) == 1 || error("item() requires a Series of length 1, got length $(length(series))")
     return series[1]
 end
-# No `Base.eltype(::Series{T}) where {T} = T` method is needed: `Series{T} <: AbstractVector{T}`
-# gets it for free from `AbstractArray`'s own default (`eltype(::Type{<:AbstractArray{T}}) where
-# T = T`), which folds to the same `Core.Const` field-type extraction.
-
-# Defined explicitly so generic code calling `copy` (rather than `collect`) on an
-# `AbstractVector` still hits the bulk `read_series` path, instead of falling back to the default
-# `AbstractArray` `copy`, which loops over `getindex` one element at a time.
-#
-# The comment sits above the docstring, not between it and the definition, to ensure Documenter
-# can locate the docstring.
 """
     Base.copy(series::Series)
 
-Materializes `series` into a native Julia `Vector`, same as [`collect`](@ref).
+Materialize `series` into a `Vector`, same as `collect`.
 """
 Base.copy(series::Series) = collect(series)
 
 """
     _series_getter(::Type{T})
 
-Compile-time dispatch table from a physical dtype `T` to its `polars_series_get_*` ccall
-wrapper, one method per type. `T` is known at compile time inside each `getindex` specialization
-(see below), so this call constant-folds to a direct, inlinable reference to the right ccall
-wrapper -- unlike a name-based `getproperty(API, name)` lookup, which is a runtime global
-resolution returning an un-inferred `Function` that can be neither inlined nor specialized.
+The `polars_series_get_*` binding for physical type `T`, resolved at compile time.
 """
 _series_getter(::Type{Bool}) = API.polars_series_get_bool
 _series_getter(::Type{Int8}) = API.polars_series_get_i8
@@ -154,23 +133,18 @@ function Base.getindex(series::Series{MT}, index::Integer) where {MT <: Union{Ma
     polars_error(err)
     value_at_index = Value{T}(out[], series)
 
-    # `parse_format` wraps every nesting level in `MaybeMissing` (it cannot know a child's real
-    # null count from the schema alone), while `load_value` builds the row from the *child
-    # series'* own null-count-narrowed type. `Vector` is invariant, so the narrower result is not
-    # a subtype of the declared `T` -- convert so `Series{T} <: AbstractVector{T}`'s `s[i]::T`
-    # promise actually holds. A no-op whenever the two already agree.
+    # `load_value` may return a narrower element type than `T` (it knows the child's null
+    # count); convert so `s[i]::T` holds.
     return convert(T, load_value(value_at_index))
 end
 
-# The Null dtype (produced by e.g. `lit(missing)`/`cast(expr, Missing)`) has no data/validity
-# buffers at all -- every element is unconditionally null, so there's nothing to fetch from Rust.
+# The Null dtype has no buffers; every element is null.
 function Base.getindex(series::Series{Union{Missing, Nothing}}, index::Integer)
     checkbounds(series, index)
     return missing
 end
 
-# Zero-copy row-range slicing, backed by polars_series_slice (Rust's Series::slice, an
-# Arc-refcount clone under the hood -- no data copy).
+# Zero-copy slicing via `Series::slice`.
 function Base.getindex(series::Series, r::UnitRange)
     checkbounds(series, r)
     offset = first(r) - 1
@@ -181,12 +155,7 @@ end
 """
     dtype(series::Series)::API.polars_value_type_t
 
-Returns the raw polars dtype code of `series`, as one of the `API.PolarsValueType*` enum values
-(e.g. `API.PolarsValueTypeInt64`). This is the low-level dtype code, not a Julia `Type` -- for
-plain dtypes it agrees with `eltype(series)` (modulo `missing`-wrapping), but it also distinguishes
-cases the `Series{T}` type parameter can't represent on its own, e.g. Datetime (no time
-unit/timezone) or Categorical (no `T` at all, since categorical columns don't materialize to
-Julia -- see `docs/src/limitations.md`).
+Get datatype of series, as a `API.PolarsValueType*` enum value.
 """
 function dtype(series)
     return API.polars_series_type(series)
@@ -195,7 +164,7 @@ end
 """
     name(series::Series)::String
 
-Returns the name of this polars series.
+Name of series.
 """
 function name(series)
     ptr = Ref{Ptr{UInt8}}()

@@ -37,16 +37,14 @@ the downloaded artifact, so contributors get their own build automatically.
 
 ## See Also
 
-Julia already has a very good dataframe story with [DataFrames.jl](https://github.com/JuliaData/DataFrames.jl), which provides a more Julian experience since any types of collections can be used as a column.
-On the other hand, Polars works through the Arrow data format and therefore only supports certain physical vectors (materialized in memory) such as `Vector{Int}`.
-Polars.jl focuses on wrapping operations on lazy frames since it is one of the main differentiating factor with DataFrames. Consider trying DataFrames.jl
-if your problem involves a lot of Julia "interopability" where Polars would not offer the same level of interopability.
-
+[DataFrames.jl](https://github.com/JuliaData/DataFrames.jl) accepts any Julia collection as a
+column. Polars works through the Arrow format and supports a fixed set of column types. Polars.jl
+focuses on lazy queries, its main difference from DataFrames.jl; for close interoperability with
+other Julia packages, DataFrames.jl is the better fit.
 
 ## Example
 
-This walkthrough is illustrative -- the referenced parquet files aren't shipped with this
-repository; substitute your own data to follow along.
+The parquet files below are not included in the repository; substitute your own data.
 
 ```julia
 julia> using Polars
@@ -97,5 +95,5 @@ cd c-polars
 cargo build # --release
 ```
 
-This is mostly helpful for development to test C-API changes with the Julia version.
-[A header file]() is also included if one wants to use the API from C directly.
+A local build takes precedence over the downloaded artifact. The C header is
+[`c-polars/include/polars.h`](c-polars/include/polars.h).

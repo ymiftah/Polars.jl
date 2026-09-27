@@ -1,8 +1,7 @@
 # DataFrame
 
-An eager, columnar table: every operation on a `DataFrame` runs immediately. Every verb below also
-has a `LazyFrame` method (see [LazyFrame](@ref)) that always gives identical results, so each verb
-is documented here exactly once for both.
+Operations on a `DataFrame` run immediately. Most verbs below also have a `LazyFrame` method (see
+[LazyFrame](@ref)) with the same behavior, documented here once for both.
 
 ```@setup dataframe
 using Polars, Chain, Dates
@@ -17,34 +16,31 @@ stores = DataFrame((; store = ["a", "b"], city = ["Springfield", "Shelbyville"])
 DataFrame
 ```
 
-Construct a `DataFrame` from anything implementing the [Tables.jl](https://github.com/JuliaData/Tables.jl)
-interface — most commonly a `NamedTuple` of vectors (column-oriented):
+A `DataFrame` can be built from any [Tables.jl](https://github.com/JuliaData/Tables.jl) table, such
+as a `NamedTuple` of vectors:
 
 ```@example dataframe
 df = DataFrame((; x = [1, 2, missing, 4], y = ["a", "b", "c", "d"]))
 ```
 
-A `Vector` of `NamedTuple`s (row-oriented) works too, via Tables.jl's own row-to-column conversion:
+or a `Vector` of `NamedTuple`s:
 
 ```@example dataframe
 DataFrame([(; x = 1, y = "a"), (; x = 2, y = "b")])
 ```
 
-Columns can hold scalar/fixed-width types (`Int`, `String`, `Date`, `DateTime`, ...), `List`s
-(`Vector{<:Vector{T}}`) and `Struct`s (`Vector{<:NamedTuple}` as a *column*, not the whole table —
-see [Struct](@ref expr-struct)), and raw bytes as a `Binary` column via `Vector{UInt8}`. See
-[Data types](@ref) for the full Julia↔polars dtype mapping.
+A column of vectors becomes a List column, and a column of `NamedTuple`s a Struct column. See
+[Data types](@ref) for the full mapping.
 
 ## Attributes
 
-`size(df)` returns `(nrows, ncols)`; columns are retrieved with `getindex`, by `Symbol` or `String`
-name, returning a [`Series`](@ref):
+`size(df)` is `(nrows, ncols)`. Indexing by name returns a [`Series`](@ref):
 
 ```@example dataframe
 df[:x], size(df)
 ```
 
-A single cell is `df[row, col]`:
+and `df[row, col]` a single value:
 
 ```@example dataframe
 df[2, :x]
@@ -55,10 +51,6 @@ Base.names
 get_column
 Polars.item
 ```
-
-`get_column(df, name)` is a named alias for `df[name]`, for callers who prefer the py-polars-shaped
-method name over indexing syntax. `Polars.item` extracts the sole value of a 1×1 frame (or, with a
-`row`/`col` pair, is a thin renamed wrapper around `df[row, col]`)
 
 ```@example dataframe
 Polars.item(DataFrame((; x = [42])))
@@ -74,11 +66,8 @@ describe
 describe(orders)
 ```
 
-`Base.:(==)(a::DataFrame, b::DataFrame)` is structural equality: same column names in the same
-order, with pairwise-equal column data (`missing == missing` is treated as `true`, so the result
-is always a concrete `Bool`). `Base.summary(df::DataFrame)` returns a one-line summary (e.g.
-`"3×2 DataFrame"`); `Base.show` renders the full table with PrettyTables formatting. Both are
-automatic in the REPL/Pluto.jl.
+`a == b` compares column names and data, treating missing values as equal. `summary(df)` returns
+e.g. `"3×2 DataFrame"`.
 
 ```@docs
 Polars.native_repr
@@ -88,15 +77,9 @@ Polars.native_repr
 print(Polars.native_repr(orders))
 ```
 
-`Polars.native_repr` renders `df` using polars' own Rust `Display` formatting -- the same text
-`print(df)` produces in py-polars -- as an alternative to the `PrettyTables.jl`-based default
-render above.
-
 ## Manipulation/selection
 
-`select` keeps only the given expressions; `with_columns` keeps the existing columns and adds the
-given expressions alongside them. Every function below accepts either `Expr`s or plain column-name
-`String`s wherever an expression is expected.
+Wherever an expression is expected, a column name (`String` or `Symbol`) also works.
 
 ```@docs
 select
@@ -127,10 +110,6 @@ Base.sort
 sort(orders, col("qty"); rev = true)
 ```
 
-`rev` also accepts a `Bool` vector (one entry per sort expression) for mixed ascending/descending
-multi-column sorts. `stable` (default `true`) preserves the relative order of ties; `nulls_last`
-(default `true`) controls where `missing` values land.
-
 ```@docs
 head
 tail
@@ -144,12 +123,8 @@ head(orders, 2)
 tail(orders, 2)
 ```
 
-`limit` (see [Expressions](@ref)) is a plain alias for `head`, matching upstream polars; it has
-both a `DataFrame`/`LazyFrame` method (documented here via the same generic function) and an
-`Expr` one.
-
-`reverse(df)` (see [Expressions](@ref) for the docstring, shared with the `Expr` method) reverses
-`df`'s row order:
+`limit` is an alias for `head`. `reverse` reverses the row order (see [Expressions](@ref) for both
+docstrings):
 
 ```@example dataframe
 reverse(orders)
@@ -164,9 +139,6 @@ dup = DataFrame((; store = ["a", "a", "b"], product = ["x", "x", "x"]))
 unique(dup; keep = :first)
 ```
 
-`maintain_order = true` preserves the original row order among the kept rows (the default,
-`false`, allows more optimization but gives no order guarantee).
-
 ```@docs
 drop
 Base.rename
@@ -178,9 +150,8 @@ with_row_index
 rename(drop(orders, ["price"]), ["qty"], ["quantity"])
 ```
 
-`drop_nulls(df, subset=String[])` drops whole **rows** containing a `null` in any of the `subset`
-columns — don't confuse this frame-level verb with the expression-level `drop_nulls`/`drop_nans`
-(see [Expressions](@ref)), which operate within a single column's values, not across rows.
+`drop_nulls` on a frame drops rows; the `Expr` method (see [Expressions](@ref)) drops values
+within one column.
 
 ```@example dataframe
 with_columns(orders, (col("qty") * col("price")) |> alias("revenue")) |> x -> drop_nulls(x, ["revenue"])
@@ -188,10 +159,8 @@ with_columns(orders, (col("qty") * col("price")) |> alias("revenue")) |> x -> dr
 
 ## Whole-frame computation
 
-`null_count`/`count` (docstrings in [Expressions](@ref), shared with the `Expr` methods) return a
-single-row frame counting, per column, the number of `null` values and the number of non-`null`
-values respectively. `fill_nan` (same page) replaces every `NaN` (not `missing`) in every float
-column; see `fill_null` for the `missing`-replacing counterpart.
+`null_count`, `count`, `fill_null` and `fill_nan` also apply to a whole frame (docstrings in
+[Expressions](@ref)):
 
 ```@example dataframe
 null_count(orders)
@@ -199,8 +168,7 @@ null_count(orders)
 
 ## Aggregation & group-by
 
-`group_by` alone returns a `LazyGroupBy` (see [LazyFrame](@ref)) — not useful until passed to
-`agg`, which evaluates the aggregation expressions per group:
+`group_by` returns a `LazyGroupBy` (see [LazyFrame](@ref)), aggregated with `agg`:
 
 ```@docs
 group_by
@@ -216,24 +184,17 @@ agg
 end
 ```
 
-`group_by(...; maintain_order = true)` preserves each group's row order, and the order groups
-first appear in, through `agg`'s output (the default, `false`, allows more optimization but gives
-no order guarantee).
-
 ### Time-window variants
 
-Both bucket rows by a time-indexed column instead of by equality, and both return a `LazyGroupBy`
-for `agg` just like `group_by`:
+Both group rows by windows over a time column and return a `LazyGroupBy`:
 
 ```@docs
 group_by_dynamic
 rolling
 ```
 
-`group_by_dynamic` buckets rows into fixed, non-overlapping (by default) windows — e.g. "daily
-total per store". `rolling` computes a sliding window *per row* instead — e.g. "trailing 7-day
-total as of each row's own timestamp". Both window sizes are duration strings (`"1d"`, `"4h"`,
-`"30m"`, ...). The [Time-Series Analytics](@ref) tutorial covers this pair in depth.
+`group_by_dynamic` uses regular windows (e.g. daily); `rolling` uses one window ending at each row
+(e.g. the trailing 7 days). See the [Time-Series Analytics](@ref) tutorial.
 
 ### Gap-filling to a regular grid
 
@@ -241,15 +202,12 @@ total as of each row's own timestamp". Both window sizes are duration strings (`
 upsample
 ```
 
-The opposite problem from `group_by_dynamic`/`rolling`: instead of bucketing existing rows, it
-fills in the gaps between them.
-
 ```@example dataframe
 gaps = DataFrame((; time = DateTime(2024, 1, 1, 0) .+ Hour.([0, 2, 3]), v = [1, 2, 3]))
 upsample(gaps, "time"; every = "1h")
 ```
 
-Pair with `interpolate` (see [Expressions](@ref)) to fill the resulting `missing` values.
+`interpolate` (see [Expressions](@ref)) can fill the new missing values.
 
 ## Joins
 
@@ -261,7 +219,7 @@ Pair with `interpolate` (see [Expressions](@ref)) to fill the resulting `missing
 | `outerjoin` | all rows from both sides |
 | `semijoin` | left rows *that have* a match (right columns dropped) |
 | `antijoin` | left rows *without* a match (right columns dropped) |
-| `crossjoin` | Cartesian product — every left row × every right row |
+| `crossjoin` | every left row with every right row |
 
 ```@docs
 innerjoin
@@ -274,29 +232,19 @@ crossjoin
 join_asof
 ```
 
-All but `crossjoin` take a key expression (or one `String` column name) shared by both sides, or a
-separate expression per side when the join columns are named differently:
+The join key is one expression (or column name) for both sides, or one per side:
 
 ```@example dataframe
 innerjoin(orders, stores, col("store"))
 ```
 
-`join_asof` is the workhorse for aligning time series that don't share tick timestamps — see the
-[Time-Series Analytics](@ref) tutorial for a full example.
-
-Every join verb accepts `suffix`, `coalesce`, `validate`, and `nulls_equal` (see each function's
-own docstring above for the exact semantics); `join_asof` additionally accepts `tolerance`,
-`allow_eq`, and `check_sortedness`. None currently accepts `slice` -- see
-[Limitations](@ref) for why.
+See the [Time-Series Analytics](@ref) tutorial for `join_asof`.
 
 ## Combining frames
 
 ```@docs
 concat
 ```
-
-Stacks frames vertically (rows), matching columns by position — all frames need the same number of
-columns with compatible types:
 
 ```@example dataframe
 concat([orders, orders])
@@ -307,8 +255,7 @@ hstack
 vstack
 ```
 
-Unlike `concat`, `hstack`/`vstack` are **eager-only** (no `LazyFrame` method) and take their second
-argument in a different shape:
+`hstack` and `vstack` take a `DataFrame` only:
 
 ```@example dataframe
 hstack(orders, [Series("note", ["rush", "-", "-"])])
@@ -319,10 +266,6 @@ vstack(orders, orders)
 ```
 
 ## Reshaping
-
-`explode(df, columns::Vector{String})` turns each element of a list-typed column into its own row
-(other columns are repeated to match) — the natural inverse of `implode` inside a `group_by` +
-`agg`:
 
 ```@docs
 explode
@@ -343,10 +286,6 @@ unpivot
 pivot
 ```
 
-`unpivot` melts wide columns into long format; `pivot` is its inverse (long to wide). `pivot` is
-**eager-only** (no `LazyFrame` method) — the distinct `on` values must be computed upfront before
-the plan can be built.
-
 ```@example dataframe
 wide = DataFrame((; id = [1, 2], a = [10, 20], b = [100, 200]))
 unpivot(wide, ["id"])
@@ -356,17 +295,11 @@ unpivot(wide, ["id"])
 pivot(orders, "product", "store", "qty"; agg = Base.sum(element()))
 ```
 
-Without an explicit `agg`, duplicate `(on, index)` pairs collapse to the *first* matching value
-rather than erroring — pass `agg` explicitly whenever more than one row can share the same
-`on`/`index` combination.
+The default `agg` takes the first value of each group.
 
 ```@docs
 unnest
 ```
-
-The row-preserving counterpart to `explode`: it replaces each struct-typed column with one new
-column per struct field, in place of the original column — the read-side inverse of `as_struct`
-(see [Struct](@ref expr-struct)).
 
 ```@example dataframe
 people = DataFrame((; id = [1, 2], info = [(name = "Alice", age = 30), (name = "Bob", age = 25)]))
@@ -377,9 +310,6 @@ unnest(people, ["info"])
 Base.transpose
 ```
 
-Turns each row into a new column (casting across the original column dtypes to a common supertype
-first) — same idea as a matrix transpose. **Eager-only**, like `pivot`.
-
 ```@example dataframe
 numbers = DataFrame((; a = [1, 2, 3], b = [10, 20, 30]))
 transpose(numbers)
@@ -387,18 +317,12 @@ transpose(numbers)
 
 ## Tables.jl integration
 
-`DataFrame` implements the [Tables.jl](https://github.com/JuliaData/Tables.jl) column-access
-interface (`Tables.istable`, `Tables.columns`, `Tables.schema`, ...), so it interoperates with any
-package that consumes Tables.jl sources (CSV.jl writers, DataFrames.jl's `DataFrame(polars_df)`,
-Pluto.jl's table viewer, etc.).
+`DataFrame` implements the [Tables.jl](https://github.com/JuliaData/Tables.jl) interface, so it
+works with packages that consume tables (DataFrames.jl, CSV.jl, ...).
 
 ```@docs
 Polars.schema
 ```
-
-`Tables.schema(df)` refines each column's `eltype` using its actual null count — unlike
-`collect_schema` on a `LazyFrame` (see [LazyFrame](@ref)), which hasn't executed the query yet and
-so must conservatively report every column as nullable.
 
 ```@example dataframe
 import Tables

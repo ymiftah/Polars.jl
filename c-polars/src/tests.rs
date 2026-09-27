@@ -292,12 +292,8 @@ fn export_carray_and_schema_handle_a_multi_chunk_series() {
 
 #[test]
 fn scanning_and_collecting_a_malformed_file_returns_an_error_not_a_crash() {
-    // `scan_parquet` itself only builds a lazy DSL scan node: it returns `Ok` for any path, valid
-    // or not (verified empirically -- hence the first assertion below, which pins that down rather
-    // than the more obvious "scanning garbage errors"). The actual file read/validation is deferred
-    // to schema resolution inside `collect`. This test exercises the real user-facing property: the
-    // full scan-then-collect pipeline on a malformed file surfaces a clean `PolarsError`, not a
-    // crash.
+    // `scan_parquet` only builds a lazy scan node and returns `Ok` for any path; the file is read
+    // during `collect`. Scanning then collecting a malformed file must return an error, not crash.
     unsafe {
         let mut path = std::env::temp_dir();
         path.push(format!(

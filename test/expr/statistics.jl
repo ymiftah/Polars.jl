@@ -33,8 +33,7 @@ end
 end
 
 @testset "std / var / max / min / median / quantile against fruits_cars_df (py-polars test_std/test_var/test_max/test_min/test_median/test_quantile)" begin
-    # upstream's own fixture is literally `fruits_cars_df()`'s `A` column ([1,2,3,4,5]) -- reused
-    # rather than reinvented, pinning upstream's exact numeric answers as a regression floor.
+    # upstream's fixture: `fruits_cars_df()`'s `A` column ([1,2,3,4,5]), with its expected values.
     df = fruits_cars_df()
 
     @test only(select(df, alias(Polars.std(col("A")), "s"))[:s]) ≈ 1.5811388300841898

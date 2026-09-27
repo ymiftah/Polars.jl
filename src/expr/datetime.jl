@@ -2,43 +2,42 @@ module Dt
     using ..Polars: @wrap_simple_ops, @wrap_expr_method, @curry, API, polars_expr_t, Expr, polars_error, cast, floor_div, _time_unit_enum
 
     @wrap_simple_ops begin
-        gen_impl_expr_dt!(polars_expr_dt_year, DateLikeNameSpace::year, "Extracts the year component of each Date/Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_month, DateLikeNameSpace::month, "Extracts the month component (1-12) of each Date/Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_day, DateLikeNameSpace::day, "Extracts the day-of-month component (1-31) of each Date/Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_hour, DateLikeNameSpace::hour, "Extracts the hour component (0-23) of each Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_minute, DateLikeNameSpace::minute, "Extracts the minute component (0-59) of each Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second, "Extracts the second component (0-59) of each Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday, "Day of the week for each Date/Datetime value in `expr`: `1` (Monday) through `7` (Sunday), ISO 8601 numbering.")
-        gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day, "Day of the year (1-366) for each Date/Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_week, DateLikeNameSpace::week, "ISO week number (1-53) for each Date/Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_quarter, DateLikeNameSpace::quarter, "Quarter of the year (1-4) for each Date/Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_millisecond, DateLikeNameSpace::millisecond, "Extracts the millisecond component (0-999, the sub-second part) of each Datetime/Time value in `expr`. See [`total_milliseconds`](@ref) for the Duration-typed equivalent.")
-        gen_impl_expr_dt!(polars_expr_dt_microsecond, DateLikeNameSpace::microsecond, "Extracts the microsecond component (0-999999, the sub-second part) of each Datetime/Time value in `expr`. See [`total_microseconds`](@ref) for the Duration-typed equivalent.")
-        gen_impl_expr_dt!(polars_expr_dt_nanosecond, DateLikeNameSpace::nanosecond, "Extracts the nanosecond component (0-999999999, the sub-second part) of each Datetime/Time value in `expr`. See [`total_nanoseconds`](@ref) for the Duration-typed equivalent.")
-        gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date, "Extracts the `Date` component of each Datetime value in `expr` (drops the time-of-day).")
-        gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time, "Extracts the `Dates.Time` component of each Datetime value in `expr` (drops the date).")
-        gen_impl_expr_dt!(polars_expr_dt_datetime, DateLikeNameSpace::datetime, "Returns the local (wall-clock) `DateTime` value of each value in `expr`, stripping any time zone label without changing the wall-clock value -- identical to `Dt.replace_time_zone(expr, nothing)`, which is the preferred spelling.")
-        gen_impl_expr_dt!(polars_expr_dt_iso_year, DateLikeNameSpace::iso_year, "ISO 8601 year of each Date/Datetime value in `expr` -- may differ from the calendar year for dates near a year boundary.")
-        gen_impl_expr_dt!(polars_expr_dt_is_leap_year, DateLikeNameSpace::is_leap_year, "Whether the calendar year of each Date/Datetime value in `expr` is a leap year.")
-        gen_impl_expr_dt!(polars_expr_dt_century, DateLikeNameSpace::century, "Century (e.g. `21` for years 2001-2100) of each Date/Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_millennium, DateLikeNameSpace::millennium, "Millennium (e.g. `3` for years 2001-3000) of each Date/Datetime value in `expr`.")
-        gen_impl_expr_dt!(polars_expr_dt_base_utc_offset, DateLikeNameSpace::base_utc_offset, "The base (non-DST) UTC offset of each Datetime value in `expr`, as a `Dates.Millisecond`-valued Duration. Requires a time-zone-aware Datetime; see [`replace_time_zone`](@ref).")
-        gen_impl_expr_dt!(polars_expr_dt_dst_offset, DateLikeNameSpace::dst_offset, "The additional daylight-saving-time UTC offset of each Datetime value in `expr` (zero outside DST), as a `Dates.Millisecond`-valued Duration. Requires a time-zone-aware Datetime; see [`replace_time_zone`](@ref).")
+        gen_impl_expr_dt!(polars_expr_dt_year, DateLikeNameSpace::year, "Get the year of a Date/Datetime.")
+        gen_impl_expr_dt!(polars_expr_dt_month, DateLikeNameSpace::month, "Get the month of a Date/Datetime.")
+        gen_impl_expr_dt!(polars_expr_dt_day, DateLikeNameSpace::day, "Get the day of a Date/Datetime.")
+        gen_impl_expr_dt!(polars_expr_dt_hour, DateLikeNameSpace::hour, "Get the hour of a Datetime/Time64.")
+        gen_impl_expr_dt!(polars_expr_dt_minute, DateLikeNameSpace::minute, "Get the minute of a Datetime/Time64.")
+        gen_impl_expr_dt!(polars_expr_dt_second, DateLikeNameSpace::second, "Get the second of a Datetime/Time64.")
+        gen_impl_expr_dt!(polars_expr_dt_weekday, DateLikeNameSpace::weekday, "Extract the ISO week day from the underlying Date representation. Can be performed on Date and Datetime.\n\nReturns the weekday number where monday = 1 and sunday = 7.")
+        gen_impl_expr_dt!(polars_expr_dt_ordinal_day, DateLikeNameSpace::ordinal_day, "Get the ordinal_day of a Date/Datetime.")
+        gen_impl_expr_dt!(polars_expr_dt_week, DateLikeNameSpace::week, "Extract the week from the underlying Date representation. Can be performed on Date and Datetime.\n\nReturns the ISO week number starting from 1. The return value ranges from 1 to 53. (The last week of year differs by years.)")
+        gen_impl_expr_dt!(polars_expr_dt_quarter, DateLikeNameSpace::quarter, "Extract quarter from underlying NaiveDateTime representation. Quarters range from 1 to 4.")
+        gen_impl_expr_dt!(polars_expr_dt_millisecond, DateLikeNameSpace::millisecond, "Get the millisecond of a Time64 (scaled from nanosecs).")
+        gen_impl_expr_dt!(polars_expr_dt_microsecond, DateLikeNameSpace::microsecond, "Get the microsecond of a Time64 (scaled from nanosecs).")
+        gen_impl_expr_dt!(polars_expr_dt_nanosecond, DateLikeNameSpace::nanosecond, "Get the nanosecond part of a Time64.")
+        gen_impl_expr_dt!(polars_expr_dt_date, DateLikeNameSpace::date, "Get the (local) date of a Date/Datetime.")
+        gen_impl_expr_dt!(polars_expr_dt_time, DateLikeNameSpace::time, "Get the (local) time of a Date/Datetime/Time.")
+        gen_impl_expr_dt!(polars_expr_dt_datetime, DateLikeNameSpace::datetime, "Get the (local) datetime of a Datetime.")
+        gen_impl_expr_dt!(polars_expr_dt_iso_year, DateLikeNameSpace::iso_year, "Get the iso-year of a Date/Datetime. This may not correspond with a calendar year.")
+        gen_impl_expr_dt!(polars_expr_dt_is_leap_year, DateLikeNameSpace::is_leap_year, "Determine whether the year of a Date/Datetime is a leap year.")
+        gen_impl_expr_dt!(polars_expr_dt_century, DateLikeNameSpace::century, "Get the century of a Date/Datetime.")
+        gen_impl_expr_dt!(polars_expr_dt_millennium, DateLikeNameSpace::millennium, "Get the millennium of a Date/Datetime.")
+        gen_impl_expr_dt!(polars_expr_dt_base_utc_offset, DateLikeNameSpace::base_utc_offset, "Get the base offset from UTC.")
+        gen_impl_expr_dt!(polars_expr_dt_dst_offset, DateLikeNameSpace::dst_offset, "Get the additional offset from UTC currently in effect (usually due to daylight saving time).")
 
-        gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate, "Truncates each Date/Datetime value of `a` down to the start of the enclosing interval named by the duration string `b` (e.g. `\"1h\"` zeroes out minutes/seconds)."; curried = true)
-        gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round, "Rounds each Date/Datetime value of `a` to the nearest interval named by the duration string `b`, rather than always truncating down like [`truncate`](@ref)."; curried = true)
-        gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by, "Shifts each Date/Datetime value of `a` by the (possibly signed) duration string `b` (e.g. `\"+1d\"`, `\"-2h\"`)."; curried = true)
+        gen_impl_expr_binary_dt!(polars_expr_dt_truncate, DateLikeNameSpace::truncate, "Truncate the Datetime/Date range into buckets. `b` is a duration string such as `\"1h\"`.\n\n!!! note \"Has a curried form\"\n    `truncate(every)`, for `|>` pipelines."; curried = true)
+        gen_impl_expr_binary_dt!(polars_expr_dt_round, DateLikeNameSpace::round, "Round the Datetime/Date range into buckets. `b` is a duration string such as `\"1h\"`.\n\n!!! note \"Has a curried form\"\n    `round(every)`, for `|>` pipelines."; curried = true)
+        gen_impl_expr_binary_dt!(polars_expr_dt_offset_by, DateLikeNameSpace::offset_by, "Offset this `Date/Datetime` by a given offset `Duration`, such as `\"-2h\"`. This will take leap years/ months into account.\n\n!!! note \"Has a curried form\"\n    `offset_by(by)`, for `|>` pipelines."; curried = true)
     end
 
-    # The `Fix2`-style curries for the binary namespace ops above (e.g. `col("d") |>
-    # Dt.truncate("1mo")`) are generated by `@wrap_simple_ops`'s `curried` variant, right next to
-    # each primal in the block above.
 
     """
         strftime(expr::Polars.Expr, format::String)::Polars.Expr
 
-    Formats a Date/Datetime/Duration/Time expression using a `chrono`-style format string
-    (e.g. `"%Y-%m-%d"`).
+    Convert from Date/Time/Datetime into String with the given format. See
+    [chrono strftime/strptime](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
+
+    Alias for [`to_string`](@ref).
     """
     function strftime(expr::Expr, format::AbstractString)
         out = Ref{Ptr{polars_expr_t}}()
@@ -59,11 +58,8 @@ module Dt
     """
         to_string(expr::Polars.Expr, format::String)::Polars.Expr
 
-    Formats a Date/Datetime/Duration/Time expression using a `chrono`-style format string
-    (e.g. `"%Y-%m-%d"`). Upstream's current name for [`strftime`](@ref), which the underlying
-    polars method is itself defined in terms of (`DateLikeNameSpace::strftime` just calls
-    `to_string`) -- a plain alias sharing the same `polars_expr_dt_strftime` C binding rather than
-    a second identical shim.
+    Convert from Date/Time/Datetime into String with the given format. See
+    [chrono strftime/strptime](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
     """
     to_string(expr::Expr, format::AbstractString) = strftime(expr, format)
 
@@ -79,8 +75,7 @@ module Dt
     """
         timestamp(expr::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr
 
-    Number of `time_unit`s (one of `:ns`, `:us` (default), `:ms`) since the Unix epoch
-    (1970-01-01) for each Date/Datetime value in `expr`.
+    Return the timestamp (UNIX epoch) of a Datetime/Date, in `time_unit` (`:ns`, `:us`, `:ms`).
     """
     function timestamp(expr::Expr; time_unit::Symbol = :us)
         time_unit_enum = _time_unit_enum(time_unit)
@@ -102,9 +97,7 @@ module Dt
     """
         cast_time_unit(expr::Polars.Expr; time_unit::Symbol)::Polars.Expr
 
-    Changes the underlying `time_unit` (one of `:ns`, `:us`, `:ms`) of `expr` and **rescales the
-    data** accordingly (e.g. casting `:ms` to `:ns` multiplies each value by `1_000_000`). Compare
-    [`with_time_unit`](@ref), which relabels without rescaling.
+    Change the underlying time unit (`:ns`, `:us`, `:ms`). And update the data accordingly.
     """
     function cast_time_unit(expr::Expr; time_unit::Symbol)
         time_unit_enum = _time_unit_enum(time_unit)
@@ -126,9 +119,8 @@ module Dt
     """
         with_time_unit(expr::Polars.Expr; time_unit::Symbol)::Polars.Expr
 
-    Relabels the underlying `time_unit` (one of `:ns`, `:us`, `:ms`) of `expr` **without touching the
-    data** -- e.g. reinterpreting values already at `:ms` as if they were `:ns`, changing what they
-    mean rather than converting them. Compare [`cast_time_unit`](@ref), which rescales.
+    Change the underlying time unit (`:ns`, `:us`, `:ms`) of the Series. This does not modify the
+    data.
     """
     function with_time_unit(expr::Expr; time_unit::Symbol)
         time_unit_enum = _time_unit_enum(time_unit)
@@ -150,8 +142,7 @@ module Dt
     """
         combine(expr::Polars.Expr, time::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr
 
-    Combines a Date/Datetime `expr` with a Time `time`, producing a new Datetime at the given
-    `time_unit` (one of `:ns`, `:us` (default), `:ms`).
+    Combine an existing Date/Datetime with a Time, creating a new Datetime value.
     """
     function combine(expr::Expr, time::Expr; time_unit::Symbol = :us)
         time_unit_enum = _time_unit_enum(time_unit)
@@ -173,12 +164,7 @@ module Dt
     """
         epoch(expr::Polars.Expr, time_unit::Symbol=:us)::Polars.Expr
 
-    Number of `time_unit`s since the Unix epoch (1970-01-01) for each Date/Datetime value in
-    `expr`. `time_unit` is one of `:ns`, `:us` (default), `:ms`, `:s`, or `:d` (whole days).
-
-    For `:ns`/`:us`/`:ms` this is exactly [`timestamp`](@ref); `:s` and `:d` are derived from the
-    millisecond timestamp by (floored) integer division, matching whole seconds/days since the
-    epoch.
+    Return the time passed since the UNIX epoch in `time_unit`: `:ns`, `:us`, `:ms`, `:s` or `:d`.
     """
     function epoch(expr::Expr, time_unit::Symbol = :us)
         if time_unit in (:ns, :us, :ms)
@@ -198,8 +184,9 @@ module Dt
     """
         month_start(expr::Polars.Expr)::Polars.Expr
 
-    !!! warning "Unavailable in this build"
-        See [Developer](@ref) for why, and how to enable it.
+    Roll backward to the first day of the month.
+
+    Note: unavailable in this build; see [Limitations](@ref).
     """
     function month_start(::Expr)
         return error(
@@ -212,8 +199,9 @@ module Dt
     """
         month_end(expr::Polars.Expr)::Polars.Expr
 
-    !!! warning "Unavailable in this build"
-        See [Developer](@ref) for why, and how to enable it.
+    Roll forward to the last day of the month.
+
+    Note: unavailable in this build; see [Limitations](@ref).
     """
     function month_end(::Expr)
         return error(
@@ -223,45 +211,40 @@ module Dt
         )
     end
 
-    @wrap_expr_method total_days(expr::Expr; fractional::Bool = false) polars_expr_dt_total_days "Total number of whole days represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+    @wrap_expr_method total_days(expr::Expr; fractional::Bool = false) polars_expr_dt_total_days "Express a Duration in terms of its total number of integer days.\n\nWith `fractional=true`, returns the exact value as a `Float64`."
     @curry total_days(; fractional::Bool = false)
     export total_days
 
-    @wrap_expr_method total_hours(expr::Expr; fractional::Bool = false) polars_expr_dt_total_hours "Total number of whole hours represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+    @wrap_expr_method total_hours(expr::Expr; fractional::Bool = false) polars_expr_dt_total_hours "Express a Duration in terms of its total number of integer hours.\n\nWith `fractional=true`, returns the exact value as a `Float64`."
     @curry total_hours(; fractional::Bool = false)
     export total_hours
 
-    @wrap_expr_method total_minutes(expr::Expr; fractional::Bool = false) polars_expr_dt_total_minutes "Total number of whole minutes represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+    @wrap_expr_method total_minutes(expr::Expr; fractional::Bool = false) polars_expr_dt_total_minutes "Express a Duration in terms of its total number of integer minutes.\n\nWith `fractional=true`, returns the exact value as a `Float64`."
     @curry total_minutes(; fractional::Bool = false)
     export total_minutes
 
-    @wrap_expr_method total_seconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_seconds "Total number of whole seconds represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+    @wrap_expr_method total_seconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_seconds "Express a Duration in terms of its total number of integer seconds.\n\nWith `fractional=true`, returns the exact value as a `Float64`."
     @curry total_seconds(; fractional::Bool = false)
     export total_seconds
 
-    @wrap_expr_method total_milliseconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_milliseconds "Total number of whole milliseconds represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+    @wrap_expr_method total_milliseconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_milliseconds "Express a Duration in terms of its total number of milliseconds.\n\nWith `fractional=true`, returns the exact value as a `Float64`."
     @curry total_milliseconds(; fractional::Bool = false)
     export total_milliseconds
 
-    @wrap_expr_method total_microseconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_microseconds "Total number of whole microseconds represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+    @wrap_expr_method total_microseconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_microseconds "Express a Duration in terms of its total number of microseconds.\n\nWith `fractional=true`, returns the exact value as a `Float64`."
     @curry total_microseconds(; fractional::Bool = false)
     export total_microseconds
 
-    @wrap_expr_method total_nanoseconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_nanoseconds "Total number of whole nanoseconds represented by each Duration value in `expr` (truncated toward zero). Pass `fractional=true` for the exact value as a `Float64` instead."
+    @wrap_expr_method total_nanoseconds(expr::Expr; fractional::Bool = false) polars_expr_dt_total_nanoseconds "Express a Duration in terms of its total number of nanoseconds.\n\nWith `fractional=true`, returns the exact value as a `Float64`."
     @curry total_nanoseconds(; fractional::Bool = false)
     export total_nanoseconds
 
     """
         convert_time_zone(expr::Polars.Expr, tz::String)::Polars.Expr
 
-    Re-labels a Datetime expression's instant into a different IANA time zone `tz` (e.g.
-    `"America/New_York"`) -- the underlying instant is unchanged, only the display/interpretation
-    changes. Compare [`replace_time_zone`](@ref), which does the opposite (preserves the
-    wall-clock value, changes the instant).
+    Change the underlying time zone of the Series. This does not modify the data.
 
-    !!! note
-        Reading the *result* back into Julia (e.g. via `df[:col]`) needs `TimeZones.jl` loaded
-        (`using TimeZones`) -- a naive read otherwise errors with an explanatory message.
+    Note: reading a time-zone-aware result into Julia requires TimeZones.jl.
     """
     function convert_time_zone(expr::Expr, tz::AbstractString)
         out = Ref{Ptr{polars_expr_t}}()
@@ -283,13 +266,11 @@ module Dt
         replace_time_zone(expr::Polars.Expr, tz::Union{Nothing,String} = nothing;
                            ambiguous::String = "raise", non_existent::Symbol = :raise)::Polars.Expr
 
-    Attaches, strips (`tz = nothing`), or re-attaches a time zone label to the expression's
-    *local wall-clock* values -- unlike [`convert_time_zone`](@ref), which preserves the instant
-    and only changes the label.
+    Replace the time zone of a Datetime, keeping the local time. `tz = nothing` removes it.
 
-    `ambiguous` controls how a local time that occurs twice (e.g. a DST fall-back) is resolved:
-    one of `"raise"`, `"earliest"`, `"latest"`, `"null"`. `non_existent` controls how a local time
-    that never occurs (e.g. a DST spring-forward gap) is resolved: `:raise` or `:null`.
+    - `ambiguous`: how to handle an ambiguous local time: `"raise"`, `"earliest"`, `"latest"`,
+      `"null"`.
+    - `non_existent`: how to handle a non-existent local time: `:raise` or `:null`.
     """
     function replace_time_zone(
             expr::Expr, tz::Union{Nothing, AbstractString} = nothing;
@@ -333,7 +314,7 @@ module Dt
         day::Expr = convert(Expr, missing), hour::Expr = convert(Expr, missing),
         minute::Expr = convert(Expr, missing), second::Expr = convert(Expr, missing),
         microsecond::Expr = convert(Expr, missing), ambiguous::Expr = convert(Expr, "raise")
-    ) polars_expr_dt_replace "Replaces the given date/time components of each value in `expr` with new ones. Each of `year`/`month`/`day`/`hour`/`minute`/`second`/`microsecond` may be a plain integer or a full column expression; the default `missing` keeps that component's existing value unchanged. `ambiguous` controls how a resulting local time that occurs twice (e.g. a DST fall-back) is resolved, same values as [`replace_time_zone`](@ref)'s `ambiguous`."
+    ) polars_expr_dt_replace "Replace the time units of a value. Components left as `missing` are kept. `ambiguous` is as in [`replace_time_zone`](@ref)."
     @curry replace(;
         year::Expr = convert(Expr, missing), month::Expr = convert(Expr, missing),
         day::Expr = convert(Expr, missing), hour::Expr = convert(Expr, missing),

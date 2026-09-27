@@ -74,7 +74,7 @@ end
     @test_throws ErrorException over(col("x"); mapping_strategy = :bogus)
 end
 
-@testset "over() with zero partition_by, whole frame as one group (see plans/parity/gap_closure_scope.md A1)" begin
+@testset "over() with zero partition_by, whole frame as one group" begin
     # An empty partition list is substituted with `lit(1)` before it reaches polars, mirroring
     # upstream's own whole-frame sentinel. That sentinel (`vec![lit(1)]`) only fires on
     # `over_with_options`'s `None` branch, not on `Some(vec![])`, so passing the empty list through

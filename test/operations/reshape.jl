@@ -1,6 +1,5 @@
 @testset "explode" begin
-    # build a list-typed column via group_by + implode (no direct Vector{Vector} construction
-    # path from Julia yet, see CLAUDE.md's known sharp edges), then explode it back
+    # build a list-typed column via group_by + implode, then explode it back
     df = DataFrame((; g = ["a", "a", "b", "b", "b"], x = [1, 2, 10, 20, 30]))
     listed = agg(group_by(lazy(df), "g"), Polars.implode(col("x"))) |> collect
 
@@ -37,7 +36,7 @@ end
     @test_throws PolarsError explode(mismatched, ["col1", "col2"])
 end
 
-@testset "explode: empty_as_null / keep_nulls kwargs (see plans/parity/gap_closure_scope.md)" begin
+@testset "explode: empty_as_null / keep_nulls kwargs" begin
     df = DataFrame((; a = Union{Missing, Vector{Int}}[[1, 2, 3], missing, [4, 5, 6], Int[]], b = [1, 2, 3, 4]))
 
     # empty_as_null=false: an empty list row disappears entirely instead of becoming one
@@ -271,9 +270,7 @@ end
     @test Tables.columnnames(t_both) == (:orig, :r1, :r2, :r3)
 
     # new_col_names of the WRONG length (relative to numeric's row count, 3) -- a clean
-    # PolarsError (ShapeMismatch from transpose_impl's own polars_ensure!), not an
-    # index-out-of-bounds panic (live-verified; flagged as a real panic-risk candidate in
-    # plans/definitive_guide_gap_closure.md)
+    # PolarsError (ShapeMismatch), not an index-out-of-bounds panic
     @test_throws PolarsError transpose(numeric; new_col_names = ["only_one", "two"])
     @test_throws PolarsError transpose(numeric; new_col_names = ["a", "b", "c", "d", "e"])
 

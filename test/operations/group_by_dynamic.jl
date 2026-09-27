@@ -122,8 +122,8 @@ end
 
     # a parsed-integer duration ("Ni") against a temporal column, and a calendar duration ("Nd")
     # against a plain integer column, are each the wrong convention for that column's kind --
-    # both raise cleanly (the same domain-mismatch class `upsample` hits, see batch 10's
-    # test/operations/frame_verbs.jl upsample testset) (py-polars test_group_by_dynamic_invalid)
+    # both raise cleanly, as in the `upsample` testset in test/operations/frame_verbs.jl
+    # (py-polars test_group_by_dynamic_invalid)
     df_temporal = DataFrame((; values = [1, 4], times = [DateTime(2020, 1, 3), DateTime(2020, 1, 1)]))
     df_temporal_sorted = sort(df_temporal, col("times"))
     @test_throws PolarsError agg(

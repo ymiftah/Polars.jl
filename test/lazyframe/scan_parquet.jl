@@ -95,7 +95,7 @@ end
         @test isequal(sort(df, col("x"))[:y], [3, 4, missing, missing])
     end
 
-    @testset "allow_missing_columns doesn't also cover extra columns; allow_extra_columns does (Group 1 gap closure)" begin
+    @testset "allow_missing_columns doesn't also cover extra columns; allow_extra_columns does" begin
         # allow_missing_columns only covers files *missing* a column present in the reference
         # schema (whichever file is scanned first) -- it does not cover files with an *extra*
         # column beyond the reference schema, which is the separate `allow_extra_columns` policy
@@ -114,15 +114,10 @@ end
     end
 end
 
-@testset "cloud IO (Phase 1: aws/gcp/azure Cargo features enabled)" begin
+@testset "cloud IO" begin
     @testset "s3:// scheme is recognized, no 'aws' feature must be enabled error" begin
-        # Guards c-polars/Cargo.toml's `polars` dependency feature list: without the
-        # "aws"/"gcp"/"azure" features, any s3:// path fails with the clean
-        # `PolarsError: feature 'aws' must be enabled in order to use 'Aws' cloud urls` message
-        # (cloud/async/http are transitively on regardless, so this is never a process abort -- see
-        # CLAUDE.md/plans/cloud_io.md). This attempts a real connection and can be run with or
-        # without network access -- the assertion is only about the error message, not a
-        # successful round-trip, so it stays hermetic either way.
+        # Without the "aws"/"gcp"/"azure" Cargo features, an s3:// path fails with "feature 'aws'
+        # must be enabled". Only the error message is checked, so this works without network access.
         err_message = _capture_error_message() do
             collect(scan_parquet("s3://some-bucket/some.parquet"))
         end
@@ -138,24 +133,12 @@ end
     end
 end
 
-@testset "cloud IO (Phase 2: storage_options)" begin
-    # Task 2 (already merged) threads a `cloud_options: *const polars_cloud_options_t` handle
-    # through all six scan/sink C functions; `_with_cloud_options` (src/io/parquet.jl) builds one
-    # from a `storage_options::Dict` for the duration of a single ccall and always destroys it
-    # afterward. These tests are hermetic (no real endpoint) -- the FFI-safety property under test
-    # is "does a garbage/non-ASCII storage_options value crash the process or corrupt the string",
-    # not "does the request succeed".
+@testset "cloud IO" begin
+    # No real endpoint: these check that bad or non-ASCII `storage_options` values raise cleanly and
+    # cross the FFI intact, not that the request succeeds.
     @testset "unknown option key does not crash the process" begin
-        # NOTE: contrary to the cloud_io.md plan's finding #7 ("upstream polars already rejects
-        # unknown option keys with a clean error"), the actual upstream behavior in
-        # polars-io-0.54.4's `parse_untyped_config` (cloud/options.rs) is to *silently filter out*
-        # any key that doesn't parse as a known `AmazonS3ConfigKey` -- its own source comment reads
-        # "Silently ignores custom upstream storage_options" -- rather than erroring. So this key
-        # is dropped, not rejected: the scan proceeds with no explicit credentials and fails
-        # downstream with a connection/credentials error instead of an "unknown key" error. What
-        # this test still proves: passing a bogus key through the FFI boundary is safe (a clean
-        # `Exception`, not a process abort) and reaches real `CloudOptions` construction rather
-        # than being blocked by a missing Cargo feature (see the Phase 1 testset above).
+        # polars silently drops unknown keys (`parse_untyped_config`), so the scan fails later with a
+        # connection/credentials error. The point is that it raises rather than aborting.
         err_message = _capture_error_message() do
             collect(
                 scan_parquet(
@@ -169,16 +152,10 @@ end
         @test err_message !== nothing && !occursin("activate", err_message)
     end
 
-    @testset "non-ASCII storage_options value survives the FFI round trip (ncodeunits regression guard)" begin
-        # Regression guard for the `length` vs `ncodeunits` bug class documented in CLAUDE.md (24
-        # sites truncated multi-byte UTF-8 mid-codepoint by passing a *character* count instead of
-        # a *byte* count across the FFI boundary). `_with_cloud_options` builds its key/value
-        # pointer arrays via `_name_ptrs` (src/verbs.jl), which is already correct (uses
-        # `ncodeunits`) -- this proves it end-to-end: if the byte length were wrong, the value
-        # would be truncated mid-codepoint and Rust's UTF-8 validation in
-        # `polars_cloud_options_new` would reject it with an "incomplete utf-8 byte sequence"
-        # error *before* any network attempt. There's no real endpoint at café.example.com, so
-        # this is expected to fail either way -- the point is *how* it fails.
+    @testset "non-ASCII storage_options value survives the FFI round trip" begin
+        # A wrong byte length would cut the value mid-codepoint and fail with "incomplete utf-8 byte
+        # sequence" before any network attempt. There is no endpoint at café.example.com, so the
+        # scan fails either way; the check is how it fails.
         err_message = _capture_error_message() do
             collect(
                 scan_parquet(

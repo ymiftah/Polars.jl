@@ -41,7 +41,7 @@ end
     @test all(ismissing, collect(r_missing[:k]))
 
     # AbstractVector -> a Series-backed literal (distinct code path: builds a throwaway
-    # DataFrame internally via polars_expr_lit_series) -- zero coverage before this
+    # DataFrame internally via polars_expr_lit_series)
     r_vec = select(df, (col("a") + lit([10, 20, 30])) |> alias("k"))
     @test collect(r_vec[:k]) == [11, 22, 33]
 
@@ -96,9 +96,7 @@ end
     # Nanosecond conversion throws InexactError), not silently produce a wrong value
     @test_throws InexactError lit(DateTime(2300, 1, 1))
 
-    # Meta.is_literal (Task 3) reports false for these -- a Cast(Literal(...)) tree, not a
-    # genuine Literal node -- diverging from py-polars, but cosmetic only (see
-    # docs/src/limitations.md)
+    # Meta.is_literal reports false for these (a Cast(Literal(...)) tree), unlike py-polars
     @test Polars.Meta.is_literal(lit(Date(2024, 3, 15))) == false
     @test Polars.Meta.is_literal(lit(1)) == true
 end
@@ -133,7 +131,7 @@ end
     @test out[2] == 0x05
 end
 
-@testset "cast: strict=true raises on overflow instead of returning missing (see plans/parity/gap_closure_scope.md)" begin
+@testset "cast: strict=true raises on overflow instead of returning missing" begin
     # the `strict` kwarg dispatches to `Expr::strict_cast` rather than `Expr::cast` -- the same
     # overflow that silently becomes `missing` above must instead raise a catchable PolarsError
     # (the whole select raises, since strict casting fails the column as a whole).
@@ -212,8 +210,7 @@ end
 end
 
 @testset "Null-dtype DataFrame show/print" begin
-    # The full PrettyTables render (MIME"text/plain" -- see P2.5) routes through the same scalar
-    # Series getindex as collect() -- a regression guard beyond the collect()-only cases above.
+    # The full PrettyTables render (MIME"text/plain") goes through the scalar Series getindex.
     df = DataFrame((; a = [1, 2, 3]))
     r = select(df, col("a"), lit(missing) |> alias("k"))
     show_str = repr("text/plain", r)

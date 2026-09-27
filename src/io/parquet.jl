@@ -1,9 +1,6 @@
 """
-Builds a temporary `polars_cloud_options_t` handle from `storage_options` (`nothing` becomes a
-null pointer), invokes `f` with the raw handle, and always destroys the handle afterward -- unlike
-every other opaque handle in this package (`DataFrame`/`LazyFrame`/`Series`/`Expr`/`Value`), this
-one is never exposed to the caller, so its whole lifetime is scoped to one ccall and no persistent
-Julia wrapper struct with a finalizer is needed.
+Calls `f` with a temporary `polars_cloud_options_t` handle built from `storage_options` (a null
+pointer for `nothing`), destroying it afterwards.
 """
 function _with_cloud_options(f, storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}})
     if storage_options === nothing
@@ -48,8 +45,8 @@ end
                  cast_policy::Union{Nothing,CastPolicy,AbstractDict}=nothing,
                  storage_options::Union{Nothing,AbstractDict{<:AbstractString,<:AbstractString}}=nothing)::LazyFrame
 
-Lazily scans a parquet file, glob pattern, or directory of (optionally Hive-partitioned) parquet
-files, without reading it into memory.
+Create a LazyFrame directly from a parquet scan. `path` may be a file, a glob pattern, or a
+directory of (optionally Hive-partitioned) files.
 
 - `n_rows`: only scan the first `n_rows` rows.
 - `row_index_name`/`row_index_offset`: if `row_index_name` is given, adds a row-index column with
@@ -61,20 +58,16 @@ files, without reading it into memory.
 - `glob`: expand `path` as a glob pattern.
 - `use_statistics`: use row-group statistics to skip reading unneeded row groups.
 - `allow_missing_columns`: allow columns present in some files but not others (filled with nulls).
-- `allow_extra_columns`: allow columns present in a scanned file but absent from the reference
-  schema (the first file scanned) to be silently dropped, rather than raising. The converse of
-  `allow_missing_columns`. Only available here — `scan_csv`/`scan_ipc` have no equivalent, see
-  [Limitations](@ref).
+- `allow_extra_columns`: drop columns that are absent from the first file scanned, instead of
+  raising.
 - `include_file_paths`: if given, adds a column with this name containing each row's source path.
 - `hive_partitioning`: force Hive-style partition-column detection on (`true`) or off (`false`);
   `nothing` (default) auto-detects.
-- `cast_policy`: a [`CastPolicy`](@ref) (or `Dict{Symbol,Bool}` with the same field names) controlling
-  how type mismatches during the scan are handled. `nothing` (default) uses polars' strict
-  `ERROR_ON_MISMATCH` behavior — see [`CastPolicy`](@ref) for the available relaxations.
-- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
-  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
-  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
+- `cast_policy`: a [`CastPolicy`](@ref) (or a `Dict{Symbol,Bool}` of its fields) for type
+  mismatches between files. `nothing` (default) raises on any mismatch.
+- `storage_options`: cloud storage configuration (e.g. `"aws_region" => "us-east-1"`) for
+  `s3://`, `gs://`, `az://` paths. By default the provider's environment variables and config
+  files are used.
 
 # Examples
 ```julia
@@ -147,8 +140,8 @@ end
 """
     read_parquet(path::String; kwargs...)::DataFrame
 
-Reads a dataframe stored in a parquet file, or a directory/glob of parquet files. Accepts the same
-keyword options as [`scan_parquet`](@ref) (`n_rows`, `row_index_name`, `hive_partitioning`, etc).
+Read a parquet file (or a directory or glob of them) into a `DataFrame`. Accepts the keywords of
+[`scan_parquet`](@ref).
 """
 read_parquet(path; kwargs...) = collect(scan_parquet(path; kwargs...))
 
@@ -173,19 +166,17 @@ end
                   data_page_size::Union{Nothing,Integer}=nothing)
     write_parquet(path::String, df::DataFrame; kwargs...)
 
-Writes a dataframe to a parquet file provided as an `IO`.
+Write a DataFrame to parquet.
 
 - `compression`: one of `:zstd` (default), `:snappy`, `:gzip`, `:brotli`, `:lz4_raw`,
   `:uncompressed`.
-- `compression_level`: tunes the chosen algorithm's compression level. Only valid for
-  `:gzip`/`:brotli`/`:zstd` — an error for the others.
+- `compression_level`: for `:gzip`, `:brotli` and `:zstd` only.
 - `statistics`: whether to compute and write column statistics (default `true`).
 - `row_group_size`: maximum rows per row group (default: a single row group).
 - `data_page_size`: maximum bytes per data page (default: polars' own default, ~1 MiB).
 
-For the `path::String` method, a path containing `"://"` (e.g. `"s3://bucket/out.parquet"`) is
-routed to [`sink_parquet`](@ref) instead of local file IO, accepting `sink_parquet`'s full keyword
-set (including `storage_options`, `mkdir`, `maintain_order`) for such paths.
+A `path` containing `"://"` (e.g. `"s3://bucket/out.parquet"`) is written with
+[`sink_parquet`](@ref), and accepts its keywords.
 """
 function write_parquet(
         io::IO, df::DataFrame;
@@ -227,18 +218,16 @@ end
                  maintain_order::Bool=true)
     sink_parquet(df::DataFrame, path::String; kwargs...)
 
-Executes the query and writes the result directly to a parquet file via the streaming engine,
-without materializing the full result in memory — suitable for out-of-core processing of
-datasets larger than RAM.
+Stream the results of the query to a parquet file, without materializing the full result in
+memory.
 
 Accepts the same `compression`/`compression_level`/`statistics`/`row_group_size`/`data_page_size`
 keywords as [`write_parquet`](@ref), plus:
 - `mkdir`: create missing parent directories (default `false`).
 - `maintain_order`: preserve row order through the streaming pipeline (default `true`).
-- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
-  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
-  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
+- `storage_options`: cloud storage configuration (e.g. `"aws_region" => "us-east-1"`) for
+  `s3://`, `gs://`, `az://` paths. By default the provider's environment variables and config
+  files are used.
 """
 sink_parquet(df::DataFrame, path::String; kwargs...) = sink_parquet(lazy(df), path; kwargs...)
 function sink_parquet(
@@ -283,16 +272,9 @@ end
                  maintain_order::Bool=true)
     sink_parquet(df::DataFrame, target::PartitionByKey; kwargs...)
 
-Executes the query and writes the result as a Hive-partitioned directory of parquet files (see
-[`PartitionByKey`](@ref)), via the streaming engine.
-
-Accepts the same `compression`/`compression_level`/`statistics`/`row_group_size`/`data_page_size`/
-`storage_options` keywords as the single-file [`sink_parquet`](@ref) method, plus `maintain_order`
-(default `true`).
-
-!!! note
-    There is no `mkdir` keyword here: each partition's parent directory is always created
-    automatically.
+Stream the results of the query to a Hive-partitioned directory of parquet files (see
+[`PartitionByKey`](@ref)). Accepts the keywords of the single-file method except `mkdir`
+(directories are always created).
 """
 sink_parquet(df::DataFrame, target::PartitionByKey; kwargs...) = sink_parquet(lazy(df), target; kwargs...)
 function sink_parquet(

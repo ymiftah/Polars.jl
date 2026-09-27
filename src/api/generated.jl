@@ -8,13 +8,11 @@ using Artifacts
 # prebuilt artifact published as a GitHub Release asset on this repo and pinned by the root
 # `Artifacts.toml`.
 #
-# The registered `libpolars_jll` is deliberately NOT used. It is built from the original upstream
-# repo (`Pangoraw/Polars.jl`) and exports ~153 symbols against the 298 this fork needs, so it fails
-# at `ccall` time rather than at load time -- a late, confusing failure that only ever reached
-# outside users, since every checkout and CI job here has a local build that shadowed it.
+# The registered `libpolars_jll` is not used: it is built from the original upstream repo
+# (`Pangoraw/Polars.jl`) and exports only part of the C ABI this package needs.
 #
 # Self-hosted artifacts work for an unregistered package because Pkg fetches artifacts by URL with
-# no registry lookup; a package *dependency* could only ever be resolved through a registry.
+# no registry lookup.
 const libpolars_artifacts_toml = joinpath(@__DIR__, "..", "..", "Artifacts.toml")
 const libpolars_file_name = "libpolars" * (Sys.iswindows() ? ".dll" : Sys.isapple() ? ".dylib" : ".so")
 const libpolars_local_release_path = joinpath(@__DIR__, "..", "..", "c-polars", "target", "release", libpolars_file_name)
@@ -25,9 +23,8 @@ const libpolars_local_debug_path = joinpath(@__DIR__, "..", "..", "c-polars", "t
 elseif isfile(libpolars_local_debug_path)
     const libpolars = libpolars_local_debug_path
 elseif artifact_meta("libpolars", libpolars_artifacts_toml) !== nothing
-    # This guard is load-bearing. Pkg silently skips a non-lazy artifact when no entry matches the
-    # host platform, so without it an unsupported platform hits a bare `@artifact_str` failure
-    # instead of the actionable message below.
+    # Pkg silently skips a non-lazy artifact when no entry matches the host platform; this guard
+    # gives an unsupported platform the error below instead of a bare `@artifact_str` failure.
     const libpolars = joinpath(artifact"libpolars", Sys.iswindows() ? "bin" : "lib", libpolars_file_name)
 else
     error(
@@ -557,7 +554,7 @@ end
 """
     polars_lazy_frame_sum(df)
 
-Whole-frame reductions -- `LazyFrame::sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile` (`polars-lazy-0.54.4/src/frame/mod.rs`) are genuine methods on the Rust `LazyFrame` itself, not something this crate composes from `with_columns` + a wildcard selector: unlike the naive `select(lf, wildcard.sum())` composition, they are null-tolerant per column rather than erroring the whole frame on the first unsupported dtype (e.g. a `String` column sums to `None`, per each method's own doc comment) -- verified live before choosing this shape over the wildcard one. Aggregated columns keep their original names. All eight are infallible plan-build operations (validated at `collect`, not here), so -- like [`polars_lazy_frame_sort`](@ref)/`slice` above -- they mutate through `mem::take` and return void rather than threading an error out.
+Whole-frame reductions, using the `LazyFrame` methods of the same name. Unlike a wildcard `select`, these give null for a column of an unsupported dtype instead of failing. Aggregated columns keep their names. Infallible at plan-build time, so they mutate in place.
 """
 function polars_lazy_frame_sum(df)
     return @ccall libpolars.polars_lazy_frame_sum(df::Ptr{polars_lazy_frame_t})::Cvoid
@@ -755,7 +752,7 @@ end
 """
     polars_expr_element()
 
-A placeholder for "the values in this group", used to build the `agg` expression passed to `pivot` (e.g. `element().sum()`) -- substituted in-place with the actual value column filtered to the current group at plan-build time.
+`pl.element()`: the current element, e.g. the values of a group in the `agg` expression passed to `pivot`.
 """
 function polars_expr_element()
     return @ccall libpolars.polars_expr_element()::Ptr{polars_expr_t}
@@ -764,7 +761,7 @@ end
 """
     polars_expr_len()
 
-`pl.len()`: the number of rows in the current context (a whole frame, or the current group inside `agg`) -- infallible, just `Expr::Len` (`polars-plan-0.54.4/src/dsl/functions/mod.rs`), ungated by any Cargo feature.
+`pl.len()`: the number of rows in the current context (a whole frame, or the current group inside `agg`).
 """
 function polars_expr_len()
     return @ccall libpolars.polars_expr_len()::Ptr{polars_expr_t}
@@ -809,7 +806,7 @@ end
 """
     polars_expr_concat_str(exprs, n, separator, separator_len, ignore_nulls, out)
 
-`pl.concat\\_str`: row-wise (horizontal) string concatenation across `exprs`, joined by `separator`. Unlike the `_horizontal` reductions above, upstream's `concat_str` is infallible (it just builds a `Function` plan node -- see `polars-plan-0.54.4/src/dsl/functions/concat.rs`, no `polars\\_ensure!` anywhere in it), but we keep the same fallible ABI shape as its siblings for uniformity rather than special-casing the one exception.
+`pl.concat\\_str`: row-wise (horizontal) string concatenation across `exprs`, joined by `separator`. Fallible only because `separator` must be valid UTF-8.
 """
 function polars_expr_concat_str(exprs, n, separator, separator_len, ignore_nulls, out)
     return @ccall libpolars.polars_expr_concat_str(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, separator::Ptr{UInt8}, separator_len::Csize_t, ignore_nulls::Bool, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
@@ -818,7 +815,7 @@ end
 """
     polars_expr_format(fmt, fmt_len, exprs, n, out)
 
-`pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order. Fallible: a mismatched placeholder/argument count raises rather than panicking (see `polars-plan-0.54.4/src/dsl/functions/concat.rs::format\\_str`).
+`pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order. Fallible: a mismatched placeholder/argument count raises an error.
 """
 function polars_expr_format(fmt, fmt_len, exprs, n, out)
     return @ccall libpolars.polars_expr_format(fmt::Ptr{UInt8}, fmt_len::Csize_t, exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
@@ -827,7 +824,7 @@ end
 """
     polars_expr_concat_arr(exprs, n, out)
 
-`pl.concat\\_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column. Gated on `dtype-array` inside `concat_arr` itself (`feature\\_gated!`), already enabled for `Expr::reshape` (Task 2 of this same plan).
+`pl.concat\\_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column. Requires the `dtype-array` feature.
 """
 function polars_expr_concat_arr(exprs, n, out)
     return @ccall libpolars.polars_expr_concat_arr(exprs::Ptr{Ptr{polars_expr_t}}, n::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
@@ -1333,7 +1330,7 @@ end
 """
     polars_expr_item(expr, allow_empty)
 
-The aggregation form of `item()`: errors if the expression evaluates to `!= 1` values, unless `allow_empty` is set, in which case zero values also succeeds (producing `null`). Distinct from `DataFrame`/`Series` `item()`, which is a `(1,1)`-shape accessor, not an aggregation -- the two share a name upstream but are different functions (see `plans/parity/batch-2-aggregation- statistics.md`'s Step-9 finding).
+The aggregation form of `item()`: errors if the expression evaluates to `!= 1` values, unless `allow_empty` is set, in which case zero values also succeeds (producing `null`). Distinct from `DataFrame`/`Series` `item()`, which is a `(1,1)`-shape accessor, not an aggregation.
 """
 function polars_expr_item(expr, allow_empty)
     return @ccall libpolars.polars_expr_item(expr::Ptr{polars_expr_t}, allow_empty::Bool)::Ptr{polars_expr_t}
@@ -1750,7 +1747,7 @@ end
 """
     polars_expr_list_eval(a, evaluation)
 
-`Lists.eval`: runs `evaluation` once per row, with `element()` bound to that row's list values -- the same primitive the crate already uses internally for `reverse`/`unique`/`unique_stable` above, exposed directly. This is the multiplier for the "most of the list namespace is missing" finding (`plans/parity/batch-9-lists-structs.md`): `all`/`any` have no dedicated `ListNameSpace` method in this polars version at all and are *only* reachable this way (`eval(element().all(ignore\\_nulls))`), and `n_unique`/`filter` compose the same way.
+`Lists.eval`: runs `evaluation` once per row, with `element()` bound to that row's list values. `all`/`any` have no `ListNameSpace` method and are built this way (`eval(element().all(ignore\\_nulls))`), as are `n_unique`/`filter`.
 """
 function polars_expr_list_eval(a, evaluation)
     return @ccall libpolars.polars_expr_list_eval(a::Ptr{polars_expr_t}, evaluation::Ptr{polars_expr_t})::Ptr{polars_expr_t}

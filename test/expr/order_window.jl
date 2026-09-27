@@ -6,7 +6,7 @@
     @test isequal(r[:pc], [missing, 1.0, 1.0, 1.5, 1.0])
 end
 
-@testset "shift_and_fill: like shift, but vacated positions get a value instead of missing (see plans/parity/gap_closure_scope.md)" begin
+@testset "shift_and_fill: like shift, but vacated positions get a value instead of missing" begin
     df = DataFrame((; x = [1, 2, 3]))
 
     r = select(df, alias(shift_and_fill(col("x"), 1, 99), "sh"))
@@ -91,7 +91,7 @@ end
     @test r[:cs] == [1, 3, 7, 10, 30]
 end
 
-@testset "rle / rle_id (API gap batch four, Phase 1; fixture mirrors py-polars' test_rle.py)" begin
+@testset "rle / rle_id" begin
     # Upstream's exact fixture (`test_rle`/`test_rle_id` in py-polars' test_rle.py): the value `1`
     # appears on *both sides* of a `null`, proving a null breaks a run rather than merging the two
     # separate runs of `1` into one.

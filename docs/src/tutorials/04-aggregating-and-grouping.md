@@ -24,10 +24,8 @@ end
 ```
 
 !!! details "Extending Base"
-    `sum`/`count` here are the same names as `Base.sum`/`Base.count` — Polars.jl extends them with
-    methods for `Expr`, so they work unqualified. The product aggregation (`prod`) works unqualified
-    too, for the same reason. One name in the API *does* need explicit `Base.` qualification —
-    `Base.lt` (for `<`) — see the [Limitations](@ref) page.
+    `sum`, `count` and `prod` extend the `Base` functions for `Expr`. A few names must be called
+    qualified; see [Limitations](@ref).
 
 ## Multiple aggregations, multiple group keys
 

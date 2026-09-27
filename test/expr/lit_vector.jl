@@ -1,5 +1,5 @@
 @testset "lit(::Vector)" begin
-    # scalar lit still works (regression check)
+    # scalar lit
     df = DataFrame((; x = [1, 2, 3, 4]))
     @test collect(select(df, alias(col("x") .> lit(2), "gt2"))[:gt2]) == [false, false, true, true]
 

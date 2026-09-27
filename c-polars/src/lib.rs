@@ -51,8 +51,7 @@
 //! optional, it must be non-null.
 #![allow(non_camel_case_types)]
 #![allow(clippy::missing_safety_doc)]
-// The hand-written `#[repr(C)]` enum mirrors (see CLAUDE.md's "Rust enums crossing the
-// boundary" convention) all share one prefix per type by design, and their `to_*` conversion
+// The hand-written `#[repr(C)]` enum mirrors all share one prefix per type by design, and their `to_*` conversion
 // methods take `self` by value since these are small Copy-able marker types -- both trip
 // idioms clippy expects from ordinary Rust enums.
 #![allow(clippy::enum_variant_names)]
@@ -111,14 +110,12 @@ fn make_error<E: ToString>(err: E) -> *const polars_error_t {
 
 /// Runs `f`, converting a Rust panic into a `polars_error_t` instead of letting it unwind across
 /// the `extern "C"` boundary (which aborts the whole host process). Upstream polars still
-/// `panic!`s for some feature-gated / codec paths (see CLAUDE.md), and this turns those into a
-/// catchable error on the Julia side rather than a hard crash.
+/// `panic!`s for some feature-gated / codec paths, and this turns those into a catchable error on
+/// the Julia side rather than a hard crash.
 ///
 /// **Every entry point returning `*const polars_error_t` is wrapped in this** -- the rule is the
-/// signature, not a per-function judgement about which upstream calls look risky. `catch_unwind`
-/// costs nothing when nothing panics, so there is no reason to spend judgement here, and a rule
-/// stated as "wherever a panic seems likely" is not one anybody can check. `check_panic_guards.py`
-/// enforces the signature rule in CI.
+/// signature. `catch_unwind` costs nothing when nothing panics. `check_panic_guards.py` enforces
+/// this in CI.
 ///
 /// What this *cannot* cover is the entry points with no error channel: those returning a handle,
 /// `usize`, `bool`, or a `#[repr(C)]` enum by value, plus the void in-place mutators. A panic in

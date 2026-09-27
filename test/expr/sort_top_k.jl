@@ -84,7 +84,7 @@ end
     @test sort(filter(!ismissing, full)) == [1, 2, 3, 4]
 end
 
-@testset "bottom_k: the complement of top_k (see plans/parity/gap_closure_scope.md)" begin
+@testset "bottom_k: the complement of top_k" begin
     df = DataFrame((; x = [3, 1, 4, 1, 5]))
 
     r = select(df, alias(bottom_k(col("x"), lit(2)), "b"))
@@ -116,8 +116,7 @@ end
     r_null = select(df, gather(col("a"), lit([0, 99]); null_on_oob = true) |> alias("g"))
     @test isequal(collect(r_null[:g]), [1, missing])
 
-    # null_on_oob = false (default) -> a catchable PolarsError, not a process abort -- the
-    # highest-value check in this testset (see CLAUDE.md's `polars_series_get` history)
+    # null_on_oob = false (default) -> a PolarsError, not a process abort
     @test_throws PolarsError collect(select(lazy(df), gather(col("a"), lit([99])) |> alias("g")))
 end
 
@@ -154,7 +153,7 @@ end
 @testset "value_counts: name collision raises cleanly, and exact sort tie-break order (py-polars test_value_counts_duplicate_name / test_value_counts_expr)" begin
     # counting a column literally named "count" without overriding `name` would produce a
     # duplicate field name in the output Struct -- must raise a clean PolarsError, not corrupt
-    # the result or abort the process (Step 5 -- process-abort check, see CLAUDE.md)
+    # the result or abort the process
     df_collide = DataFrame((; count = [1, 0, 1]))
     @test_throws PolarsError select(df_collide, alias(value_counts(col("count")), "vc"))
 

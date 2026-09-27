@@ -1,7 +1,5 @@
 # Time-Series Analytics
 
-Polars provides useful methods to work with timeseries data.
-
 ```@setup time-series
 using Polars
 using Chain
@@ -57,11 +55,7 @@ head(rolling_orders, 5)
 
 ## Gap-filling with `upsample`
 
-`upsample` fills missing timestamps in a time series to create a regular grid. This is useful when
-data is sparse or irregularly sampled — a common scenario in sensor data, financial ticks, or event
-logs.
-
-The simplest case: upsampling to fill hourly gaps:
+`upsample` inserts rows for missing timestamps, giving a regular grid. Filling hourly gaps:
 
 ```@example time-series
 sparse_data = DataFrame((;
@@ -71,8 +65,7 @@ sparse_data = DataFrame((;
 upsampled = upsample(sparse_data, "timestamp"; every = "1h")
 ```
 
-Notice that `value` becomes `missing` for the new rows. Pair `upsample` with `interpolate` (see
-[Expressions](@ref)) to fill those gaps with interpolated values:
+The new rows have `missing` values, which `interpolate` (see [Expressions](@ref)) can fill:
 
 ```@example time-series
 @chain sparse_data begin

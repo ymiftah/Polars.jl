@@ -1,8 +1,4 @@
-# `Polars.Selectors` (py-polars' `cs.*` / `polars.selectors`) -- see
-# `plans/definitive_guide_gap_closure.md`'s Phase 2. `S` is a local alias for brevity, matching
-# how `Lists`/`Strings`/`Structs` are used unqualified elsewhere via their top-level export --
-# `Selectors` itself is exported, so `Selectors.numeric()` also works directly; `S` just saves
-# typing in this file.
+# `Polars.Selectors` (py-polars' `polars.selectors`). `S` is a local alias for brevity.
 const S = Selectors
 
 @testset "Selectors.by_name: strict vs non-strict, empty" begin
@@ -28,7 +24,7 @@ const S = Selectors
     @test names(select(df, S.by_name("c", "a"))) == ["c", "a"]
 end
 
-@testset "exclude: inverse of by_name, always non-strict (API gap audit quick-win batch; py-polars test_exprs.py::test_exclude / test_expansion.py::test_exclude_selection)" begin
+@testset "exclude: inverse of by_name, always non-strict" begin
     df = DataFrame((; a = [1, 2, 3], b = [4, 5, 6], c = [7, 8, 9]))
 
     @test sort(names(select(df, exclude("a")))) == ["b", "c"]
@@ -68,18 +64,14 @@ end
 @testset "Selectors.by_index: 1-based, negative, cross-checked against nth" begin
     df = DataFrame((; a = [1, 2, 3], b = [4, 5, 6], c = [7, 8, 9]))
 
-    # `0` is included deliberately: `by_index` mirrors `nth`'s exact conversion formula
-    # (`n < 0 ? n : n - 1`), including its edge-case quirk that `0` silently converts to `-1`
-    # (the *last* column) rather than erroring -- verified live against `nth` itself below, not
-    # assumed, since this is exactly the kind of off-by-one corner a hand rederivation could get
-    # wrong in only one of the two places.
+    # `by_index` converts indices like `nth` (`n < 0 ? n : n - 1`), so `0` selects the last column;
+    # checked against `nth` below.
     for i in (1, 2, 3, 0, -1, -2, -3)
         @test names(select(df, S.by_index(i))) == names(select(df, nth(i)))
     end
 
     @test names(select(df, S.by_index(1, 3))) == ["a", "c"]
-    # `ByIndex` (like `ByName`) returns columns in call order, not schema order -- verified live,
-    # not assumed (it would be an easy, wrong guess that these come back schema-sorted instead).
+    # `ByIndex` (like `ByName`) returns columns in call order, not schema order.
     @test names(select(df, S.by_index(3, 1))) == ["c", "a"]
     @test names(select(df, S.by_index(-1, 1))) == ["c", "a"]
 
@@ -134,8 +126,7 @@ end
     @test_throws ArgumentError S.ends_with()
     @test_throws ArgumentError S.contains()
 
-    # non-ASCII column names (this repo's string-marshaling history -- CLAUDE.md's `ncodeunits`
-    # note -- makes this an important case to exercise, not a nice-to-have)
+    # non-ASCII column names (string arguments are passed as byte ranges)
     dfu = DataFrame(
         (;
             Symbol("café") => [1, 2],
@@ -271,22 +262,17 @@ end
     @test names(only_flag) == ["flag"]
 
     # inside filter: `_as_expr` composes a `Selector` there too, so a boolean-dtype selector can be
-    # passed directly as the row predicate (regression test for the `filter` docs' claim that it
-    # supports `Selector` like `select`/`with_columns`/`sort` do)
+    # passed directly as the row predicate
     r3 = filter(dfb, S.boolean())
     @test collect(r3[:a]) == [1, 3]
     @test collect(r3[:flag]) == [true, true]
 
-    # regression: filter still works normally with a plain Expr/String/Symbol predicate (all three
-    # go through the same `_as_expr` coercion the `Selector` case above just started using)
+    # filter with a plain Expr/String/Symbol predicate (the same `_as_expr` coercion)
     @test collect(filter(dfb, col(:a) .> 1)[:a]) == [2, 3]
     @test collect(filter(dfb, "flag")[:a]) == [1, 3]
     @test collect(filter(dfb, :flag)[:a]) == [1, 3]
 
-    # Mixing a plain Expr with a Selector via |/&/-/xor is a decided, deliberate `MethodError` in
-    # both operand orders -- not a silent (and possibly wrong) promotion of `col("x")` to a
-    # selector. Verified live, not assumed: this exercises the actual dispatch, not just a read
-    # of the source.
+    # Mixing a plain Expr with a Selector via |/&/-/xor is a `MethodError` in both operand orders.
     @test_throws MethodError S.numeric() | col("x")
     @test_throws MethodError col("x") | S.numeric()
     @test_throws MethodError S.numeric() & col("x")

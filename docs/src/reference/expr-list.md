@@ -1,6 +1,6 @@
 # [List](@id expr-list)
 
-The `Lists` namespace provides operations on list-typed columns (arise from `implode` within `group_by` + `agg`, or from anywhere a collection of per-row values is formed).
+The `Lists` namespace operates on List columns, such as those produced by `implode`.
 
 ```@setup lists
 using Polars, Chain
@@ -25,7 +25,7 @@ Polars.Lists.contains
 Polars.Lists.join
 ```
 
-Each per-list aggregation reduces a `List` column to one scalar per row:
+Aggregations return one value per list:
 
 ```@example lists
 lf = DataFrame((; xs = [[3, 1, 4], [1, 5, 9, 2]]))
@@ -39,10 +39,6 @@ select(
 )
 ```
 
-`Lists.reverse` reverses the element order *within* each list (row order is unchanged); `unique`
-and `unique_stable` both return the distinct elements of each list, differing only in whether
-first-occurrence order is preserved (more expensive) or not:
-
 ```@example lists
 select(lf, Lists.reverse(col("xs")) |> alias("reversed"))
 ```
@@ -52,7 +48,7 @@ dfdup = DataFrame((; xs = [[3, 1, 3, 2]]))
 select(dfdup, Lists.unique(col("xs")) |> alias("unique"), Lists.unique_stable(col("xs")) |> alias("unique_stable"))
 ```
 
-Example: distinct product IDs per store, collected via `implode` in a `group_by`:
+Distinct products per store:
 
 ```@example lists
 df = DataFrame((; store = ["a", "a", "b", "b"], product = [1, 2, 1, 3]))
@@ -67,8 +63,8 @@ end
 
 ## Curried forms
 
-`Lists.head(n)`, `Lists.get(index; null_on_oob=false)`, and `Lists.contains(value; nulls_equal=true)`
-have curried forms for `|>` pipelines — see [Curried forms for pipe-based composition](@ref):
+`Lists.head(n)`, `Lists.get(index)` and `Lists.contains(value)` have curried forms (see
+[Curried forms for pipe-based composition](@ref)):
 
 ```@example lists
 with_columns(result, col("unique_products") |> Lists.head(1) |> alias("first_product"))

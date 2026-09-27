@@ -10,7 +10,7 @@
     @test dup_rows[:x] == [2, 2, 3, 3, 3]
 end
 
-@testset "is_first_distinct / is_last_distinct (see plans/parity/gap_closure_scope.md)" begin
+@testset "is_first_distinct / is_last_distinct" begin
     df = DataFrame((; x = [1, 1, 2, 2, 3]))
 
     r = select(df, alias(is_first_distinct(col("x")), "first"), alias(is_last_distinct(col("x")), "last"))

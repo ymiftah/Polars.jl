@@ -61,7 +61,7 @@ end
     @test only(collect(select(lazy(df), len()) |> collect |> x -> x[:len])) == 4
 end
 
-@testset "Polars.item: aggregation form, raises unless exactly one value (see plans/parity/gap_closure_scope.md)" begin
+@testset "Polars.item: aggregation form, raises unless exactly one value" begin
     # not exported -- collides with the (1,1)-shape DataFrame/Series accessor of the same name
     df = DataFrame((; a = [42]))
     r = select(df, alias(Polars.item(col("a")), "n"))
@@ -79,7 +79,7 @@ end
     @test ismissing(only(collect(r_empty[:n])))
 end
 
-@testset "Base.all / Base.any on Expr: whole-column aggregation with Kleene logic (distinct from Lists.all/any, see plans/parity/gap_closure_scope.md)" begin
+@testset "Base.all / Base.any on Expr: whole-column aggregation with Kleene logic" begin
     df_all = DataFrame((; a = Union{Missing, Bool}[true, true, missing]))
     # ignore_nulls=true (default): nulls skipped, remaining values are all true
     @test only(collect(select(df_all, alias(all(col("a")), "n"))[:n])) == true
@@ -277,7 +277,7 @@ end
     @test collect(rev[:x]) == [3, 2, 1]
 end
 
-@testset "flatten: empty_as_null / keep_nulls kwargs (see plans/parity/gap_closure_scope.md)" begin
+@testset "flatten: empty_as_null / keep_nulls kwargs" begin
     df = DataFrame((; a = Union{Missing, Vector{Int}}[[1, 2], missing, Int[]]))
 
     # defaults (both true): both a whole-row-null list and an empty list produce one `missing`
