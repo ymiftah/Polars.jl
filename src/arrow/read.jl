@@ -1,8 +1,5 @@
-# Bulk / zero-copy Rust -> Julia materialization via the Arrow C Data Interface.
-#
-# Mirror image of arrow/array.jl (Julia -> Rust write path). Ownership flips here: Rust/Arrow
-# owns the exported buffers, so `ExportedArray` defers/guards the `release` callback instead of
-# eagerly building one. See plans/zero_copy_rust_to_julia.md for the full design rationale.
+# Bulk and zero-copy Rust -> Julia reads via the Arrow C Data Interface (the reverse of
+# arrow/array.jl). Rust owns the exported buffers; `ExportedArray` calls their `release` callback.
 
 using .API:
     ArrowArray as CArrowArray,
@@ -11,14 +8,9 @@ using .API:
 """
     ExportedArray
 
-Wraps a Rust-owned `ArrowArray` obtained from `polars_series_export_carray`. The wrapped struct's
-`release` callback is invoked at most once via `release!` -- either eagerly, once the caller has
-copied the data out, or from this object's finalizer if the caller keeps borrowing the raw buffers
-(the true zero-copy path, `borrowed = true`). `released` makes `release!` idempotent so eager
-release followed by a GC-triggered finalizer call never double-frees. `borrowed` tells
-`_dispatch_read` not to eagerly release a handle whose buffers a returned `Vector` still aliases
-(see `_read_numeric`'s zero-copy branch) -- releasing eagerly there would free the buffers out from
-under the very array being returned.
+Wraps a Rust-owned `ArrowArray` from `polars_series_export_carray`. `release!` calls its release
+callback at most once (`released`): eagerly after copying, or from the finalizer. `borrowed` marks
+a handle whose buffers a returned `Vector` still aliases, so it must not be released eagerly.
 """
 mutable struct ExportedArray
     carray::CArrowArray
@@ -41,14 +33,8 @@ function release!(h::ExportedArray)
 end
 
 """
-Roots a zero-copy-borrowed `ExportedArray` (see `_read_numeric`'s zero-copy branch) for as long as
-the `Vector` returned to the caller still aliases its buffers. A finalizer closure that merely
-*references* `h` without otherwise using it is not a reliable keepalive: an unused capture has no
-observable effect on the closure's behavior, so the compiler is free to (and in practice does)
-elide it, letting `h` -- and the buffers it owns -- be collected and released while the returned
-`Vector` is still alive and aliasing them. An explicit strong-reference table sidesteps this
-entirely; it's the same pattern already used for `LIVE_ARRAYS`/`LIVE_SCHEMAS` in
-`arrow/array.jl`/`arrow/schema.jl`.
+Roots each zero-copy-borrowed `ExportedArray` while a returned `Vector` aliases its buffers. (A
+closure capture alone is not a reliable keepalive: the compiler may elide it.)
 """
 const LIVE_BORROWED_ARRAYS = IdDict{ExportedArray, Nothing}()
 "Guards `LIVE_BORROWED_ARRAYS` against concurrent root/unroot from separate Julia tasks."
@@ -58,9 +44,7 @@ function _buffers(h::ExportedArray)
     return _buffers(h.carray)
 end
 
-"""Same as `_buffers(::ExportedArray)`, for a raw child `CArrowArray` value that isn't (and must
-not be) wrapped in its own `ExportedArray` -- per the Arrow C Data Interface, only the top-level
-array's `release` is ever called by the consumer; releasing it recursively frees every child."""
+"""`_buffers` for a child `CArrowArray`, which is released with its parent."""
 function _buffers(ca::CArrowArray)
     bufs = unsafe_wrap(Array, ca.buffers, Int(ca.n_buffers))
     return ca, bufs
@@ -69,8 +53,7 @@ end
 """
     isvalid(ptr::Ptr{UInt8}, i::Integer)::Bool
 
-Bit-tests an Arrow validity/boolean bitmap (1 bit per value, 8 values per byte) at the *0-based*
-logical position `i` -- the inverse of `boolbitmap`/`ValidityMap`'s packing in `arrow/array.jl`.
+Bit-tests an Arrow validity or boolean bitmap at the 0-based position `i`.
 """
 @inline function isvalid(ptr::Ptr{UInt8}, i::Integer)
     byte = unsafe_load(ptr, 1 + (i ÷ 8))
@@ -85,9 +68,7 @@ const _NUMERIC_FORMATS = Dict{String, DataType}(
     "e" => Float16, "f" => Float32, "g" => Float64,
 )
 
-"""Exports `series`' data via `polars_series_export_carray` and wraps the result as an
-`ExportedArray`, hoisting the out-param `Ref` + error-check dance shared by every
-`read_series` branch below."""
+"""Exports `series` via `polars_series_export_carray` as an `ExportedArray`."""
 function _export_carray(series::Series)
     out = Ref{CArrowArray}()
     err = polars_series_export_carray(series, out)
@@ -98,30 +79,19 @@ end
 """
     read_series(series::Series; zerocopy::Bool = false)
 
-Bulk-materializes `series` into a native Julia `Vector` via the Arrow C Data Interface, or returns
-`nothing` if `series`'s type isn't (yet) supported by this path -- callers should fall back to
-per-element `getindex` in that case.
+Read `series` into a `Vector` in bulk, or return `nothing` if its dtype isn't supported (use
+`getindex` per element instead).
 
-By default this *copies* the underlying buffer once (still zero ccalls, just one Julia-side pass)
-into a freshly Julia-owned, freely mutable `Vector`. Passing `zerocopy = true` additionally allows,
-for fixed-width numeric columns with no nulls, returning a `Vector` that directly aliases the
-polars `Series`' own memory with no copy at all -- the returned array **must then be treated as
-read-only**: it borrows live polars data and mutating it corrupts the source `Series`. `zerocopy`
-is silently not honored (falls back to the safe copy) whenever the true zero-copy precondition
-(no nulls, fixed-width numeric) doesn't hold.
+The data is copied. With `zerocopy = true`, a fixed-width numeric column without nulls is returned
+as a `Vector` that aliases the series' memory; it must not be mutated. Otherwise `zerocopy` has no
+effect.
 """
 function read_series(series::Series; zerocopy::Bool = false)
     return _dispatch_read(series.fmt, series, zerocopy)
 end
 
-"""Dispatches on a raw Arrow format string (`series.fmt`, cached at `Series` construction time --
-see `load_series_schema`) to the matching bulk reader, or `nothing` if unsupported. Exports the
-carray once (except for List, which does its own export -- see `_read_list`) and releases it
-exactly once after the leaf reader (`_read_view_dispatch`) returns -- *unless* that reader handed
-back a `Vector` that still aliases `h`'s buffers (`h.borrowed`, set by `_read_numeric`'s zero-copy
-branch), in which case releasing here would free the buffers out from under the very array being
-returned; release is deferred to `h`'s own finalizer instead, once the returned array is no longer
-reachable."""
+"""Dispatches on the Arrow format string `fmt` to a bulk reader (`nothing` if unsupported). Exports
+the array once and releases it afterwards, unless the result borrows its buffers (`h.borrowed`)."""
 function _dispatch_read(fmt::String, series::Series, zerocopy::Bool)
     isempty(fmt) && return nothing # dictionary-encoded -- see `load_series_schema`'s sentinel
     fmt in ("+l", "+L") && return _read_list(series, fmt)
@@ -133,18 +103,9 @@ function _dispatch_read(fmt::String, series::Series, zerocopy::Bool)
     return out
 end
 
-"""Format-string branch dispatch shared by the top-level `_dispatch_read` and `_read_list`'s
-child materialization: reads a bulk value straight from an already-exported `(ca, bufs)` view, or
-returns `nothing` if `fmt` isn't (yet) bulk-readable. Never called with a List/Struct/dictionary
-`fmt` -- callers screen those out first (`_dispatch_read` handles List separately; `_read_list`
-pre-checks its child's format before ever reaching this function). A function barrier: `fmt` is
-dynamic (a runtime `String`), so keeping the big format-string comparison chain in its own small
-function lets each branch's body still compile fully type-stable once inlined. `keepalive` is only
-consulted by the zerocopy numeric fast path, which roots it in `LIVE_BORROWED_ARRAYS` for as long
-as the returned array aliases its buffers (a finalizer on that array does the *unrooting*; the
-table, not the closure, is what keeps it alive -- see `LIVE_BORROWED_ARRAYS`'s docstring). Pass
-`nothing` for any call that never requests `zerocopy=true` (every `_read_list` child read) -- with
-no owner to root, `zerocopy` is simply not honored and the safe copy is returned instead."""
+"""Reads a leaf (non-List/Struct/dictionary) column from an exported `(ca, bufs)` by format
+string, or returns `nothing`. A function barrier over the runtime `fmt`. `keepalive` is the
+`ExportedArray` to root for a zero-copy result; with `nothing`, the data is always copied."""
 function _read_view_dispatch(
         fmt::String, ca::CArrowArray, bufs::Vector, zerocopy::Bool,
         keepalive::Union{ExportedArray, Nothing}
@@ -154,21 +115,18 @@ function _read_view_dispatch(
         return _read_numeric(T, ca, bufs, zerocopy, keepalive)
     elseif fmt == "b"
         return _read_bool(ca, bufs)
-    elseif fmt == "vu" # Utf8View -- what polars actually produces for every String series
+    elseif fmt == "vu" # Utf8View, what polars exports for String
         return _read_view(String, ca, bufs)
-    elseif fmt == "vz" # BinaryView -- what polars actually produces for every Binary series
+    elseif fmt == "vz" # BinaryView, what polars exports for Binary
         return _read_view(Vector{UInt8}, ca, bufs)
-    elseif fmt in ("u", "U") # classic Utf8/LargeUtf8 (Int32/Int64 offsets) -- not produced by
-        # polars itself (it always exports "vu"), but a defensive fallback for any other Arrow
-        # producer this path might see in the future.
+    elseif fmt in ("u", "U") # Utf8/LargeUtf8 (Int32/Int64 offsets)
         return _read_offset(String, fmt == "u" ? Int32 : Int64, ca, bufs)
-    elseif fmt in ("z", "Z") # classic Binary/LargeBinary -- see the "u"/"U" note above.
+    elseif fmt in ("z", "Z") # Binary/LargeBinary
         return _read_offset(Vector{UInt8}, fmt == "z" ? Int32 : Int64, ca, bufs)
     elseif fmt == "tdD"
         return _read_transformed(Date, Int32, ca, bufs, v -> Date(1970, 1, 1) + Dates.Day(v))
     elseif fmt in ("ttu", "ttn")
-        # time64: nanoseconds ("ttn", what polars produces) or microseconds ("ttu"). The time32
-        # encodings ("tts"/"ttm") are Int32-backed and fall through to the generic path below.
+        # time64 in nanoseconds or microseconds; time32 ("tts"/"ttm") is not handled here.
         NsPer = fmt == "ttn" ? 1 : 1000
         return _read_transformed(Dates.Time, Int64, ca, bufs, v -> Dates.Time(Dates.Nanosecond(v * NsPer)))
     elseif fmt in ("tDn", "tDu", "tDm")
@@ -197,26 +155,16 @@ function _read_numeric(
     data_ptr = Ptr{T}(bufs[2]) + Int(ca.offset) * sizeof(T)
 
     if ca.null_count == 0
-        # `keepalive === nothing` means nobody owns the exported buffers on this path (the
-        # `_read_list` child read), so there is nothing to root and no way to defer the release --
-        # treat it like any other unmet zero-copy precondition and fall through to the copy below,
-        # rather than borrowing buffers that would be freed out from under the result.
+        # Without a `keepalive` to root, copy.
         if zerocopy && keepalive !== nothing
             keepalive.borrowed = true # tells `_dispatch_read` not to eagerly release `keepalive`
             arr = unsafe_wrap(Array, data_ptr, n; own = false)
-            # Root only once `arr` -- the object whose finalizer is the *sole* thing that ever
-            # unroots `keepalive` again -- actually exists. Rooting before this point would leave
-            # `keepalive` permanently rooted if anything in between threw.
+            # Root only once `arr`, whose finalizer unroots it, exists.
             lock(LIVE_BORROWED_ARRAYS_LOCK) do
                 LIVE_BORROWED_ARRAYS[keepalive] = nothing
             end
-            # Unroots (see `LIVE_BORROWED_ARRAYS`'s docstring for why a plain closure capture isn't
-            # a reliable keepalive on its own) and releases `keepalive` once `arr` itself is
-            # collected -- not before, since `arr` aliases `keepalive`'s buffers until then.
-            # NB this takes a lock from a finalizer, which Julia runs at arbitrary safepoints: safe
-            # here only because the critical section is a single `delete!` that never yields and
-            # never calls back into anything that could re-enter the GC. Keep it that way -- the
-            # `release!` ccall deliberately sits *outside* the lock.
+            # Unroot and release `keepalive` once `arr` is collected. The lock taken in this
+            # finalizer guards only a non-yielding `delete!`; keep `release!` outside it.
             finalizer(arr) do _
                 lock(LIVE_BORROWED_ARRAYS_LOCK) do
                     delete!(LIVE_BORROWED_ARRAYS, keepalive)
@@ -266,10 +214,8 @@ end
 """
     _read_transformed(::Type{OutT}, ::Type{RawT}, ca, bufs, transform)
 
-Shared bulk-copy loop for columns whose physical (`RawT`) representation needs an elementwise
-transform into the logical Julia type `OutT` -- e.g. Arrow's "days/ns since epoch" ints into
-`Date`/`DateTime`/`Period`. Always copies (no zero-copy variant: the logical and physical
-representations differ in width/shape).
+Bulk copy of a column whose physical values (`RawT`) are transformed elementwise into `OutT`, e.g.
+days since epoch into `Date`.
 """
 function _read_transformed(::Type{OutT}, ::Type{RawT}, ca::CArrowArray, bufs::Vector, transform) where {OutT, RawT}
     n = Int(ca.length)
@@ -299,8 +245,7 @@ end
     _materialize(::Type{String}, ptr::Ptr{UInt8}, len::Integer)
     _materialize(::Type{Vector{UInt8}}, ptr::Ptr{UInt8}, len::Integer)
 
-Copies `len` raw bytes starting at `ptr` into an owned Julia `String`/`Vector{UInt8}`. Shared by
-both the view-array (`_read_view`) and classic offset-array (`_read_offset`) bulk readers below.
+Copies `len` bytes at `ptr` into a `String` or `Vector{UInt8}`.
 """
 _materialize(::Type{String}, ptr::Ptr{UInt8}, len::Integer) = unsafe_string(ptr, len)
 function _materialize(::Type{Vector{UInt8}}, ptr::Ptr{UInt8}, len::Integer)
@@ -312,12 +257,9 @@ end
 """
     _view_bytes(views_ptr::Ptr{UInt8}, i::Integer, data_ptrs::Vector{Ptr{UInt8}})
 
-Decodes the 16-byte Arrow "view" struct at 0-based logical position `i`: an `Int32` length,
-followed either by 12 bytes of inline data (`length <= 12`) or by a 4-byte prefix (ignored here
--- the real bytes are read from the referenced data buffer instead), an `Int32` buffer index, and
-an `Int32` offset (`length > 12`). Returns `(len, ptr)`, where `ptr` points at the actual byte
-data -- either into the view struct itself (inline case) or into
-`data_ptrs[buffer_index + 1]` (out-of-line case).
+Decodes the 16-byte Arrow view struct at 0-based position `i`: an `Int32` length, then either 12
+bytes of inline data (`length <= 12`) or a 4-byte prefix, an `Int32` buffer index and an `Int32`
+offset. Returns `(len, ptr)` with `ptr` pointing at the bytes.
 """
 @inline function _view_bytes(views_ptr::Ptr{UInt8}, i::Integer, data_ptrs::Vector{Ptr{UInt8}})
     base = views_ptr + 16 * i
@@ -331,19 +273,10 @@ end
 """
     _read_view(::Type{T}, ca, bufs) where {T <: Union{String, Vector{UInt8}}}
 
-Bulk reader for Arrow's view-array formats ("vu" Utf8View / "vz" BinaryView) -- what polars
-actually exports for every String/Binary series (confirmed live: `polars_series_schema` reports
-"vu"/"vz" even for a `Series` built from this package's own classic-offset ("U"/"Z") write path,
-since polars re-encodes to its native view representation on import). Replaces materializing
-string/binary columns one element at a time through `polars_series_get` + `polars_value_*_get` +
-an `IOBuffer` -- 2 ccalls and an allocation per row -- with a single bulk pass directly over the
-exported Arrow buffers.
+Bulk reader for the Arrow view formats "vu" (Utf8View) and "vz" (BinaryView), which polars
+exports for String and Binary.
 
-The C Data Interface's convention for a variadic buffer count: `buffers[0]` = validity,
-`buffers[1]` = views, `buffers[2..end-1]` = the data buffers (zero or more, each up to ~2 GiB),
-`buffers[end]` = a required trailing sizes buffer (one `Int64` per data buffer) that this reader
-doesn't need to consult -- each view's `(buffer_index, offset, length)` is self-contained and
-never crosses a buffer boundary.
+Buffers: validity, views, the data buffers, then a trailing sizes buffer (not needed here).
 """
 function _read_view(::Type{T}, ca::CArrowArray, bufs::Vector) where {T <: Union{String, Vector{UInt8}}}
     n = Int(ca.length)
@@ -380,11 +313,8 @@ end
 """
     _read_offset(::Type{T}, ::Type{OffT}, ca, bufs) where {T <: Union{String, Vector{UInt8}}, OffT <: Union{Int32, Int64}}
 
-Bulk reader for Arrow's classic offset-array formats (Utf8/LargeUtf8/Binary/LargeBinary):
-`buffers[0]` = validity, `buffers[1]` = `length(v)+1` cumulative `OffT` offsets, `buffers[2]` =
-the single concatenated data buffer. Not reachable from polars itself (it always exports the view
-formats `_read_view` handles -- see that docstring), but kept for robustness against any other
-Arrow C Data Interface producer this path might one day see.
+Bulk reader for the Arrow offset formats (Utf8/LargeUtf8/Binary/LargeBinary). Buffers: validity,
+`length + 1` offsets of type `OffT`, and the data.
 """
 function _read_offset(::Type{T}, ::Type{OffT}, ca::CArrowArray, bufs::Vector) where {T <: Union{String, Vector{UInt8}}, OffT}
     n = Int(ca.length)
@@ -422,31 +352,14 @@ end
 """
     _read_list(series::Series, fmt::String)
 
-Bulk reader for Arrow's List/LargeList formats (`"+l"` Int32 offsets / `"+L"` Int64 offsets).
-`buffers[0]` = validity, `buffers[1]` = `length+1` cumulative offsets into the single child array
-at `ca.children[1]`. Materializes the *entire* child column once via `_read_view_dispatch`, then
-slices per-row sub-vectors out of it by copying -- each row must be its own independently-owned
-`Vector` (never a `SubArray`/view), so this is never truly zero-copy even when the child
-materialization itself is (zerocopy is never requested here).
+Bulk reader for the Arrow List formats (`"+l"` Int32 / `"+L"` Int64 offsets). Reads the whole
+child column once, then copies out one `Vector` per row.
 
-Deliberately scoped to a *leaf* child format (numeric/bool/string/binary/temporal): a nested
-List-of-List, List-of-Struct, or a dictionary-encoded (Categorical) child falls back to `nothing`
-(the caller's per-element `getindex` path) rather than attempting a recursive dual-tree (schema +
-array) walk -- a real capability gap, not an oversight, and one that a rarer nested-list case
-doesn't currently justify the added complexity/risk for.
+Only leaf child types are supported; nested lists, structs and dictionary-encoded children return
+`nothing` (per-element fallback).
 
-Row element type: `parse_format` (the schema-only, no-actual-data-read source of truth behind
-`Series{T}`'s own declared type) always wraps a leaf child in `MaybeMissing`, since it cannot know
-the child's *actual* null count from the schema alone -- only `Series`'s own null_count-based
-narrowing (which only ever looks at the outermost/row-level null count) is safe to do without
-reading data. So `ElemT` is taken from `parse_format(child_schema)` (called while the schema is
-still alive, before release) rather than from the materialized child data's own `eltype`, and the
-materialized child is widened to match if the child *happens* to have zero actual nulls (`convert`
-Vector{ChildT} -> `Vector{Union{ChildT,Missing}}` is a real copy, not a reinterpret -- paid once
-per column, not per row) -- otherwise a column whose child happens to have no nulls would return
-`Vector{Vector{ChildT}}` at runtime while `Series{T}` declared `Vector{Union{ChildT,Missing}}`,
-violating `AbstractArray`'s `eltype`/`collect` contract (Julia `Vector` is invariant: `Vector{ChildT}`
-is not a subtype of `Vector{Union{ChildT,Missing}}`).
+The row element type comes from `parse_format(child_schema)`, which is always `MaybeMissing`; the
+child data is widened to match so the result has the declared `eltype`.
 """
 function _read_list(series::Series, fmt::String)
     schema_out = Ref{CArrowSchema}()
@@ -457,9 +370,8 @@ function _read_list(series::Series, fmt::String)
     is_dict_child = child_schema.dictionary != C_NULL
     child_fmt = is_dict_child ? "" : unsafe_string(child_schema.format)
     unsupported = is_dict_child || startswith(child_fmt, "+l") || startswith(child_fmt, "+L") || child_fmt == "+s"
-    # `parse_format` only touches `child_schema.format`/`.dictionary` for a leaf format (no
-    # recursion into `.children`), so calling it here is safe even though the parent `schema`
-    # (and thus `child_schema`, which borrows from it) is released right after.
+    # For a leaf format `parse_format` only reads `format`/`dictionary`, before `schema` is
+    # released.
     ElemT = unsupported ? Missing : parse_format(child_schema)
     schema_ref = Ref(schema)
     GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))

@@ -28,15 +28,9 @@
         @test v == sort(v)
     end
 
-    # NOTE: py-polars' `test_sample_no_shuffle_with_replacement_preserves_order_23557` asserts the
-    # same order-preservation additionally holds under `with_replacement=true`, but that test
-    # exercises `DataFrame.sample()` (which this wrapper doesn't have at all -- a separate,
-    # already-recorded gap), not `Expr.sample_n`. Live-verified this does NOT hold for
-    # `Expr.sample_n(...; shuffle=false, with_replacement=true)`: draws come back in arbitrary
-    # order (e.g. `[2, 2, 2]`, `[4, 3, 1]`, `[3, 3, 2]` across ten seeds), never sorted. Whether
-    # that is `DataFrame.sample()` applying extra ordering beyond what `Expr.sample_n` itself
-    # does, or a version-specific difference, wasn't investigated further -- recorded as its own
-    # narrow finding rather than asserted either way.
+    # py-polars' `test_sample_no_shuffle_with_replacement_preserves_order_23557` covers
+    # `DataFrame.sample()` (not wrapped). `Expr.sample_n(...; shuffle=false, with_replacement=true)`
+    # does not preserve order, so that case is not tested.
 end
 
 @testset "sample_frac" begin

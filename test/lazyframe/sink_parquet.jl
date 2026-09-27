@@ -182,10 +182,8 @@ end
 end
 
 @testset "large all-true Boolean column round-trips without panicking (py-polars test_sink_boolean_panic_25806)" begin
-    # upstream's regression is specifically about a boolean-encoding panic at a large
-    # (>morsel-size) row count in the streaming sink engine; this wrapper doesn't expose that
-    # engine's internals directly, so this is a black-box round-trip smoke test at a comparable
-    # scale rather than a reproduction of the exact original crash path.
+    # upstream's test covers a boolean-encoding panic at a large (>morsel-size) row count in the
+    # streaming sink; this is a round-trip at a comparable size.
     df = DataFrame((; bool = fill(true, 300_000)))
     path = mktempdir() * "/large_bool.parquet"
     write_parquet(path, df)

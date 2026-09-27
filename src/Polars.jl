@@ -12,7 +12,7 @@ const ColId = Union{String, Symbol}
 nomissing(::Type{MaybeMissing{T}}) where {T} = T
 nomissing(::Type{T}) where {T} = T
 
-"Internal function to write back to an IO from rustland"
+"Writes `len` bytes at `data` into `user` (an `IO` or a `Ref` to one); returns -1 on failure."
 function _write_callback(user, data, len)
     return try
         n = unsafe_write(user isa IO ? user : user[], data, len)
@@ -25,10 +25,8 @@ end
 """
     _io_callback()
 
-Builds the `@cfunction` pointer for `_write_callback`, shared by every FFI site that
-streams bytes back into a Julia `IO` (parquet/CSV/IPC writers, `Value` string/binary getters).
-Defined once here, rather than re-typed at each call site, so the argument types can't drift
-from the C `IOCallback`.
+The `@cfunction` pointer for `_write_callback`, matching the C `IOCallback` signature. Used by
+every FFI call that streams bytes into a Julia `IO`.
 """
 _io_callback() = @cfunction(_write_callback, Cssize_t, (Any, Ptr{Cchar}, Csize_t))
 
@@ -39,17 +37,11 @@ using .API
 using Dates
 using Statistics
 
-# The wrapper-generating macros, and the argument-marshalling rules they share. Included before
-# anything that wraps a `polars_*` symbol, since Julia resolves a macro at parse time and every
-# later file expands these. See the file header for which shape each macro covers, and prefer
-# extending one over hand-writing a wrapper -- the marshalling it encodes (`ncodeunits` not
-# `length` for a `(ptr, len)` pair, `polars_error` after every fallible call) is the part that
-# goes wrong silently.
+# Wrapper-generating macros; included before any file that expands them.
 include("./macros.jl")
 
-# Arrow interface
-# TODO Monitor progress of https://github.com/apache/arrow-julia/issues/184
-# which should be considered the "Official" julia arrow implementation
+# Arrow C Data Interface. See https://github.com/apache/arrow-julia/issues/184 for C Data
+# Interface support in Arrow.jl.
 include("./arrow/schema.jl")
 include("./arrow/array.jl")
 include("./series.jl")
@@ -71,9 +63,7 @@ end
 """
     PolarsError <: Exception
 
-Raised when the underlying Rust polars library reports a failure -- an unexecutable query, a
-malformed argument to a fallible operation (e.g. an invalid duration string), and the like.
-`message` is polars' own (Rust-side) error text, unmodified.
+Raised when polars reports an error. `message` is polars' error text.
 """
 struct PolarsError <: Exception
     message::String
@@ -90,15 +80,11 @@ function polars_error(err::Ptr{polars_error_t})
     throw(PolarsError(message))
 end
 
-# `dataframe.jl`/`lazyframe.jl` must precede every other file below: they define `DataFrame`
-# and `LazyFrame`, which appear as eager type annotations (`df::DataFrame`, `lf::LazyFrame`) in
-# nearly every verb's method signature -- unlike a plain call inside a function body, a type
-# annotation in a signature is resolved the moment that method is defined, not lazily.
+# Include order: `DataFrame`/`LazyFrame` and `Expr` appear in method signatures below, and
+# `struct.jl`/`selectors.jl` import `_name_ptrs` from `verbs.jl`.
 include("./dataframe.jl")
 include("./lazyframe.jl")
 
-# `expr/*.jl` must precede `reshape.jl`: `pivot`'s `agg::Expr` keyword argument is itself an
-# eager type annotation needing `Expr` already defined.
 include("./expr/expr.jl")
 include("./expr/ranges.jl")
 include("./expr/statistics.jl")
@@ -110,24 +96,8 @@ include("./group_by.jl")
 include("./select.jl")
 include("./verbs.jl")
 
-# `expr/struct.jl` must follow `verbs.jl`: `Structs.rename_fields` does `using ..Polars:
-# _name_ptrs`, and `using`-ing a name before its defining `include` has run produces an
-# "Imported binding was undeclared at import time" warning (harmless at runtime -- Julia resolves
-# it once `Polars` finishes loading -- but avoidable by just respecting the real dependency order).
 include("./expr/struct.jl")
-
-# `expr/selectors.jl` must likewise follow `verbs.jl` (its `module Selectors` also does `using
-# ..Polars: _name_ptrs`, for `by_name` -- same reasoning as `struct.jl` just above). Its top-level
-# section (before its own `module Selectors`) separately requires `expr/expr.jl` to already be
-# loaded: it adds a new `_as_expr` method for the `Selector` type it defines, extending the
-# function `expr/expr.jl` first declares -- see that file's own header comment for why the method
-# lives in a different file from `_as_expr`'s others. Both orderings hold simultaneously since
-# `expr/expr.jl` loads well before `verbs.jl` already.
 include("./expr/selectors.jl")
-
-# `expr/meta.jl` (`module Meta`) has no `_name_ptrs`-style ordering dependency of its own (unlike
-# `struct.jl`/`selectors.jl` just above), but lives in this same family -- grouped here rather
-# than immediately after `expr/expr.jl` purely for stylistic proximity to its siblings.
 include("./expr/meta.jl")
 
 include("./join.jl")
@@ -141,11 +111,7 @@ include("./io/csv.jl")
 include("./io/ipc.jl")
 include("./io/json.jl")
 
-# `Expr` methods (both the `@wrap_simple_ops`-generated ones and the hand-written ones needing
-# extra args the macro's plain shape can't express, e.g. `mean`/`median`/`std`/`var`/`quantile`)
-# export themselves inline in src/expr/expr.jl, next to their definitions, rather than here --
-# see that file for the full list. The `Lists`/`Strings`/`Dt`/`Structs` namespace submodules
-# likewise export their own members from their own files, for qualified use (`Lists.get`, etc.).
+# `Expr` functions and the namespace submodules export their own names next to their definitions.
 export Series, DataFrame, PolarsError, PartitionByKey, CastPolicy,
     read_series, names, dtype, native_repr,
     select, with_columns, head, tail, collect_schema,

@@ -1,9 +1,10 @@
 """
     Expr
 
-Internal structure representing a value in a Polars expression.
-This should not be constructed directly but rather use helper functions
-such as [`col`](@ref).
+Expressions that can be used in various contexts.
+
+Don't construct an `Expr` directly; create one with functions such as [`col`](@ref) and
+[`lit`](@ref).
 """
 mutable struct Expr
     ptr::Ptr{polars_expr_t}
@@ -13,12 +14,7 @@ end
 
 Base.unsafe_convert(::Type{Ptr{polars_expr_t}}, expr::Expr) = expr.ptr
 
-# `Expr` has no iteration protocol, so without this method it would hit Base's generic
-# `broadcastable(x) = collect(x)` fallback and fail with a confusing `MethodError: no method
-# matching length(::Expr)` inside a dot-broadcast expression like `col("x") .> 1`. Wrapping in
-# `Ref` marks `Expr` as a scalar for broadcasting purposes -- the same idiom
-# `AbstractString`/`Symbol`/`Missing` use -- so it participates as-is instead of being iterated.
-# Refer to https://docs.julialang.org/en/v1/manual/interfaces/#man-interfaces-broadcasting
+# Treat `Expr` as a scalar under broadcasting, so `col("x") .> 1` works.
 Base.Broadcast.broadcastable(expr::Expr) = Ref(expr)
 
 Base.convert(::Type{Expr}, ::Colon) = col("*")
@@ -67,53 +63,33 @@ function Base.convert(::Type{Expr}, v::AbstractVector)
     return Expr(out)
 end
 
-# Date/Time/DateTime literals: there is no dedicated `polars_expr_literal_date`/etc. FFI
-# primitive, so these compose the existing integer-literal + cast primitives instead, reusing the
-# exact epoch-math formulas `arrowvector` (src/arrow/array.jl) already uses to encode these types
-# for the Arrow C Data Interface -- same reference points, same signed-ness, same units.
-#
-# One consequence of building these as `cast(lit(integer), dtype)` rather than a genuine literal
-# node: `Polars.Meta.is_literal` reports `false` for them (a `Cast(Literal(...))` tree, not a
-# `Literal` node) -- cosmetic only, since polars' constant-folding optimizer collapses
-# `Cast(Literal(...))` before execution regardless. See docs/src/limitations.md.
+# Date/Time/DateTime literals are an integer literal cast to the temporal dtype, using the same
+# epoch encoding as `arrowvector` (src/arrow/array.jl). `Meta.is_literal` is therefore `false` for
+# them.
 function Base.convert(::Type{Expr}, d::Date)
-    # days since 1970-01-01, matching arrowvector(::Vector{Date})'s Int32 conversion exactly.
+    # days since 1970-01-01
     days = Int32(Dates.value(d - Date(1970, 01, 01)))
     return cast(convert(Expr, days), Date)
 end
 function Base.convert(::Type{Expr}, t::Dates.Time)
-    # nanoseconds since midnight, matching arrowvector(::Vector{Dates.Time})'s Int64 conversion.
+    # nanoseconds since midnight
     ns = Int64(Dates.value(t))
     return cast(convert(Expr, ns), Dates.Time)
 end
 function Base.convert(::Type{Expr}, dt::DateTime)
-    # nanoseconds since 1970-01-01, matching arrowvector(::Vector{DateTime})'s Int64 conversion --
-    # built at :ns, so this inherits that path's ~1678-2262 range limit (Int64 nanoseconds
-    # overflows outside that range). See docs/src/limitations.md.
+    # nanoseconds since 1970-01-01; Int64 nanoseconds limit the range to ~1678-2262.
     ns = Dates.Nanosecond(dt - DateTime(1970, 01, 01)).value
     return cast_datetime(convert(Expr, ns); time_unit = :ns, time_zone = nothing)
 end
 
-# Derived comparison DSL primitives -- polars' C ABI only wraps `eq`/`lt`/`gt` directly (see
-# `@wrap_simple_ops` below); `<=`/`>=`/`!=` compose them with `not`, which preserves polars' null
-# propagation correctly (`not` of a null is null, matching what `<=`/`>=`/`!=` must do when an
-# operand is incomparable). Not exported -- these are an internal implementation detail of the
-# operators below, unlike `eq`/`gt`/`lt`, which mirror real `polars::Expr` methods 1:1.
+# `<=`/`>=`/`!=` are composed from `eq`/`lt`/`gt` with `not`, which propagates nulls.
 _le(a::Expr, b::Expr) = not(gt(a, b))
 _ge(a::Expr, b::Expr) = not(Base.lt(a, b))
 _neq(a::Expr, b::Expr) = not(eq(a, b))
 
-# For each `op`, this generates:
-#   - `(Expr, Expr)`      -- the plain case, dispatches straight to `dsl`
-#   - `(Expr, Any)` / `(Any, Expr)`  -- `convert`s the literal side to an `Expr` first
-#   - `(Expr, Missing)` / `(Missing, Expr)`  -- strictly more specific than Base's own
-#     `missing.jl` fallbacks (e.g. `==(::Any, ::Missing) = missing`), which would otherwise tie
-#     with the `(Expr, Any)` method above and make `col("x") == missing` raise a `MethodError:
-#     ambiguous`. These route `missing` through `convert(Expr, missing)` -- a real DSL null
-#     literal -- so it participates in the DSL's own null-propagation instead of Julia's.
-# `dsl` is looked up unqualified except `Base.lt`, which collides with an unexported internal
-# `Base.lt` binding and must stay qualified (same class of gotcha as `Expr::product`/
-# `Base.product`).
+# Operator overloads. The `Missing` methods resolve ambiguity with Base's `missing` fallbacks and
+# turn `missing` into a null literal. `Base.lt` must stay qualified (it collides with an
+# unexported Base binding).
 for (op, dsl) in (
         (:(==), :eq), (:!=, :_neq),
         (:<, :(Base.lt)), (:<=, :_le),
@@ -133,34 +109,26 @@ end
 """
     -(expr::Polars.Expr)::Polars.Expr
 
-Unary negation.
+Negate `Expr`.
 """
 Base.:-(expr::Expr) = Expr(API.polars_expr_neg(expr))
-# Not equivalent to `0 - expr`: on an unsigned-integer column, `0 - expr` silently
-# wraps (e.g. `UInt8` `0-1` gives `0xff`) where this raises instead, matching upstream's own
-# per-dtype overflow validation.
 
 """
     floor_div(a::Polars.Expr, b::Polars.Expr)::Polars.Expr
     floor_div(a, b::Polars.Expr)::Polars.Expr
     floor_div(a::Polars.Expr, b)::Polars.Expr
 
-Elementwise floor division (`a` divided by `b`, rounded down).
+Floor divide `a` by `b`.
 """
 floor_div(a::Expr, b::Expr) = Expr(API.polars_expr_floor_div(a, b))
 floor_div(a, b::Expr) = floor_div(convert(Expr, a), b)
 floor_div(a::Expr, b) = floor_div(a, convert(Expr, b))
-# the named-function form of
-# upstream's `//` operator (not spelled as a Julia operator here to avoid claiming `÷`/`div` for
-# types this package doesn't own -- see the curried-forms note near `is_in`/`fill_null` above for
-# the same piracy concern applied to operators)
 export floor_div
 
 """
     col(name::Union{String,Symbol})::Polars.Expr
 
-Returns an expression referencing a column in a dataframe. The special
-column name `"*"` will select all columns in the dataframe.
+Create a Column Expression based on a column name. `"*"` selects all columns.
 """
 function col(name::AbstractString)
     expr = Ref{Ptr{polars_expr_t}}()
@@ -173,22 +141,16 @@ col(name::Symbol) = col(String(name))
 """
     _as_expr(x)::Expr
 
-Coerces a column reference to an `Expr`: a `String`/`Symbol` becomes `col(x)`; an existing `Expr`
-passes through unchanged. Shared by every verb that accepts either a column name or a full
-expression (`select`, `filter`, `group_by`, `sort`, `join`, `over`, ...), in place of each one
-repeating its own `ex -> ex isa String ? col(ex) : ex` inline.
-
-Exhaustive over the three accepted input shapes (no generic fallback method): passing anything
-else raises a clear `MethodError` right at the coercion site rather than deferring to a more
-confusing failure further downstream (e.g. inside a later `convert(Vector{Expr}, ...)`).
+Coerces a column reference to an `Expr`: a `String`/`Symbol` becomes `col(x)`; an `Expr` passes
+through. Any other type is a `MethodError`.
 """
 _as_expr(x::AbstractString) = col(String(x))
 _as_expr(x::Symbol) = col(String(x))
 _as_expr(x::Expr) = x
 
-"""Shared `time_unit` resolver (`:ns`/`:us`/`:ms`) for every function accepting one -- `cast`,
-[`cast_datetime`](@ref), [`cast_duration`](@ref) here, plus `Dt.timestamp` and
-`Strings.to_datetime`."""
+"""
+`time_unit` (`:ns`/`:us`/`:ms`) to its C enum.
+"""
 _time_unit_enum(time_unit::Symbol) = _enum_lookup(
     time_unit, "time_unit",
     :ns => API.PolarsTimeUnitNanosecond,
@@ -196,17 +158,19 @@ _time_unit_enum(time_unit::Symbol) = _enum_lookup(
     :ms => API.PolarsTimeUnitMillisecond,
 )
 
-"""Shared `null_behavior` resolver (`:ignore`/`:drop`) for [`diff`](@ref) here and `Lists.diff`."""
+"""
+`null_behavior` (`:ignore`/`:drop`) to its C enum.
+"""
 _null_behavior_enum(null_behavior::Symbol) = _enum_lookup(
     null_behavior, "null_behavior",
     :ignore => API.PolarsNullBehaviorIgnore,
     :drop => API.PolarsNullBehaviorDrop,
 )
 
-"""Shared `closed` window resolver (`:left`/`:right`/`:both`/`:none`, `polars_closed_window_t`)
-for `group_by_dynamic`/`rolling` (`src/group_by.jl`) and [`date_range`](@ref)/
-[`datetime_range`](@ref)/[`time_range`](@ref) here. Distinct from `is_between`'s own
-`polars_closed_interval_t` above -- a different C enum, not interchangeable."""
+"""
+`closed` window (`:left`/`:right`/`:both`/`:none`) to `polars_closed_window_t`. Not the same
+enum as `is_between`'s `polars_closed_interval_t`.
+"""
 _closed_window_enum(closed::Symbol) = _enum_lookup(
     closed, "closed",
     :left => API.PolarsClosedWindowLeft,
@@ -218,9 +182,9 @@ _closed_window_enum(closed::Symbol) = _enum_lookup(
 """
     nth(n::Int64)::Polars.Expr
 
-Returns an expression referencing the nth column in a dataframe.
-The `n` argument is *one indexing based*, meaning that columns start at 1.
-Negative numbers reference columns starting from the end.
+Nth column in a DataFrame.
+
+Note: `n` is 1-based; negative values count from the end.
 """
 function nth(n)
     n_zero = n < 0 ? n : n - 1
@@ -233,8 +197,8 @@ end
 """
     element()::Polars.Expr
 
-A placeholder for "the values in this group", used to build the `agg` expression passed to
-[`pivot`](@ref) -- e.g. `Base.sum(element())`, `Base.first(element())` (the default).
+The current element, e.g. the values of the group in [`pivot`](@ref)'s `agg` argument
+(`sum(element())`, `first(element())`).
 """
 function element()
     return Expr(API.polars_expr_element())
@@ -243,41 +207,33 @@ end
 """
     len()::Polars.Expr
 
-The number of rows in the current context: a whole frame in [`select`](@ref)/[`with_columns`](@ref),
-or the current group inside [`agg`](@ref) (e.g. `agg(df, group, alias(len(), "n"))` for a group-size
-count). Includes `null`s, unlike [`Polars.count`](@ref) (which only counts non-null values of a
-specific expression).
+Return the number of rows in the context.
 """
 function len()
     return Expr(API.polars_expr_len())
 end
 
-@wrap_rename_method alias polars_expr_alias "Renames the result of this expression to a new name."
-@wrap_rename_method prefix polars_expr_prefix "Adds a prefix to the name of the resulting expression."
-@wrap_rename_method suffix polars_expr_suffix "Adds a suffix to the name of the resulting expression."
-@wrap_rename_method prefix_fields polars_expr_prefix_fields "Adds a prefix to every *field name* of a Struct-typed expression (contrast [`prefix`](@ref), which renames the expression's own output name, not its fields)."
-@wrap_rename_method suffix_fields polars_expr_suffix_fields "Adds a suffix to every *field name* of a Struct-typed expression (contrast [`suffix`](@ref), which renames the expression's own output name, not its fields)."
+@wrap_rename_method alias polars_expr_alias "Rename Column."
+@wrap_rename_method prefix polars_expr_prefix "Add a prefix to the root column name."
+@wrap_rename_method suffix polars_expr_suffix "Add a suffix to the root column name."
+@wrap_rename_method prefix_fields polars_expr_prefix_fields "Add a prefix to the field names of a Struct-typed expression."
+@wrap_rename_method suffix_fields polars_expr_suffix_fields "Add a suffix to the field names of a Struct-typed expression."
 
 """
     lit(x)::Polars.Expr
 
-Transforms a literal value as an expression which will broadcast when used with other
-expressions.
+Create a Literal Expression from `x`. A literal expression behaves like a column that contains a
+single distinct value.
+
+The column is automatically of the "correct" length to make the operations work.
 """
 function lit(v)
     return convert(Expr, v)
 end
 
 """
-Maps a Julia type to its `polars_value_type_t` C enum code for a *plain, parameter-free* dtype
-match -- returns `nothing` if `dtype` isn't one of these.
-
-Deliberately excludes `DateTime` and the duration `Period` subtypes even though polars has dtypes
-for them: those need a time unit (and `DateTime` a time zone) that a bare `polars_value_type_t`
-code can't carry, so `cast` and [`Selectors.by_dtype`](@ref) each handle them separately
-(before/after calling this, respectively) rather than through this shared table.
-
-Single source of truth for the plain-dtype mapping, used by both.
+Maps a Julia type to its parameter-free `polars_value_type_t`, or `nothing`. `DateTime` and
+`Period` types need a time unit and are handled by the callers.
 """
 function _plain_value_type_code(dtype)
     return if dtype == Missing
@@ -319,28 +275,19 @@ end
 
 """
     cast(expr::Polars.Expr, dtype::Type; time_unit::Symbol=:us,
-         time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
+         time_zone::Union{Nothing,AbstractString}=nothing, strict::Bool=false)::Polars.Expr
     cast(dtype::Type; kwargs...)::Base.Callable
 
-Casts the series represented by the expression to the provided `dtype`.
+Cast expression to another data type.
 
-Supported targets: `Missing`, the physical numeric types, `Bool`, `String`, `Vector{UInt8}`
-(Binary), `Date`, `Dates.Time`, `DateTime` (naive or timezone-aware -- see `time_unit`/`time_zone`
-below), and `Dates.Nanosecond`/`Dates.Microsecond`/`Dates.Millisecond` (Duration, resolution
-implied by the chosen `Period` subtype). Any other target raises an error.
+With `strict=true`: throws an error if conversion had overflows.
 
-`Categorical`, `Decimal`, `List`, and `Struct` need parameters this single-type-argument form
-can't carry -- see [`cast_categorical`](@ref)/[`cast_decimal`](@ref) for those.
+Supported `dtype`s: `Missing`, the numeric types, `Bool`, `String`, `Vector{UInt8}` (Binary),
+`Date`, `Dates.Time`, `DateTime`, and `Dates.Nanosecond`/`Microsecond`/`Millisecond` (Duration).
+`time_unit` (`:ns`, `:us`, `:ms`) and `time_zone` apply to a `DateTime` target only.
 
-`time_unit`/`time_zone` only apply to a `DateTime` target (ignored otherwise):
-- `time_unit`: one of `:ns`, `:us` (default), `:ms`
-- `time_zone`: `nothing` (default, naive) or an IANA time zone name
-
-`strict`: if `false` (default), a value that doesn't fit the target type becomes `missing`
-(e.g. an out-of-range integer overflow, or an out-of-range `Time` cast) rather than raising.
-If `true`, such a value raises a `PolarsError` instead. Only applies to the plain-value-type path
-below (not the `DateTime`/`Nanosecond`/`Microsecond`/`Millisecond` special cases above, which have
-their own dedicated entry points and always cast non-strictly).
+Note: `strict` has no effect for `DateTime` and Duration targets. Use [`cast_categorical`](@ref)
+and [`cast_decimal`](@ref) for those dtypes.
 """
 function cast(
         expr, dtype;
@@ -375,14 +322,8 @@ cast(dtype; kwargs...) = expr -> cast(expr, dtype; kwargs...)
     cast_datetime(expr::Polars.Expr; time_unit::Symbol=:us,
                   time_zone::Union{Nothing,AbstractString}=nothing)::Polars.Expr
 
-Casts `expr` to `Datetime(time_unit, time_zone)`.
-
-Also reachable as `cast(expr, DateTime; time_unit, time_zone)` -- this is the underlying
-implementation. `Datetime` needs its own entry point because `polars_value_type_t` (what the plain
-`cast` dispatches on) can't carry a time unit or time zone.
-
-- `time_unit`: one of `:ns`, `:us` (default), `:ms`
-- `time_zone`: `nothing` (default, naive) or an IANA time zone name
+Cast expression to `Datetime(time_unit, time_zone)`. Equivalent to
+`cast(expr, DateTime; time_unit, time_zone)`.
 """
 function cast_datetime(
         expr::Expr; time_unit::Symbol = :us, time_zone::Union{Nothing, AbstractString} = nothing
@@ -398,13 +339,7 @@ end
 """
     cast_duration(expr::Polars.Expr; time_unit::Symbol=:us)::Polars.Expr
 
-Casts `expr` to `Duration(time_unit)`.
-
-Also reachable via `cast(expr, Dates.Nanosecond|Microsecond|Millisecond)`, which just calls this
-with the unit implied by the chosen `Period` subtype -- this named form is for when you'd rather
-pass `time_unit` as a keyword.
-
-- `time_unit`: one of `:ns`, `:us` (default), `:ms`
+Cast expression to `Duration(time_unit)`. Equivalent to `cast(expr, Dates.Nanosecond)` etc.
 """
 function cast_duration(expr::Expr; time_unit::Symbol = :us)
     unit_enum = _time_unit_enum(time_unit)
@@ -419,12 +354,9 @@ end
     cast_decimal(expr::Polars.Expr, precision::Integer, scale::Integer)::Polars.Expr
     cast_decimal(precision::Integer, scale::Integer)::Base.Callable
 
-Casts `expr` to `Decimal(precision, scale)` (`1 <= precision <= 38`; `scale` is the number of
-digits after the decimal point).
+Cast expression to `Decimal(precision, scale)`.
 
-Decimal columns have no dedicated Julia read path yet -- materializing one via `collect`/`getindex`
-is not supported -- so this is mainly useful for writing out decimal-typed columns (e.g. to
-parquet) rather than reading them back in Julia.
+Note: Decimal columns cannot be read back into Julia; cast them to another type first.
 """
 function cast_decimal(expr::Expr, precision::Integer, scale::Integer)
     out = API.polars_expr_cast_decimal(expr, Csize_t(precision), Csize_t(scale))
@@ -435,9 +367,8 @@ end
 """
     cast_categorical(expr::Polars.Expr)::Polars.Expr
 
-Casts `expr` to `Categorical`, using the global category registry shared by every Categorical
-column in the session; there is no per-column category set. Reading a Categorical column back already materializes
-it as `String` with no extra step (see the `Strings` namespace for string operations on it).
+Cast expression to `Categorical`, using the global categories. A Categorical column is read back
+into Julia as `String`.
 """
 function cast_categorical(expr::Expr)
     out = API.polars_expr_cast_categorical(expr)
@@ -447,9 +378,7 @@ end
 """
     when(cond::Polars.Expr, then, otherwise)::Polars.Expr
 
-Ternary conditional expression: evaluates to `then` for rows where `cond` is `true`, and to
-`otherwise` otherwise. `then`/`otherwise` may be `Polars.Expr`s or literal scalars (promoted
-via [`lit`](@ref)).
+Start a `when-then-otherwise` expression. `then`/`otherwise` may be expressions or literals.
 """
 function when(cond::Expr, then, otherwise)
     then = convert(Expr, then)
@@ -461,9 +390,8 @@ end
 """
     when(pairs::Pair...; otherwise)::Polars.Expr
 
-Chained conditional expression. Evaluates each `cond => value` pair in order and takes the first
-`value` whose `cond` is `true`, falling back to `otherwise` if none match. `cond`s must be `Polars.Expr`s; `value`s and `otherwise` may be `Polars.Expr`s or
-literal scalars (promoted via [`lit`](@ref)).
+A chained `when-then-otherwise` expression: the first `cond => value` pair whose condition holds
+is taken, otherwise `otherwise`. Values may be expressions or literals.
 
 ```julia
 when(col("x") == 1 => "one", col("x") == 2 => "two"; otherwise = "other")
@@ -481,110 +409,105 @@ function when(pairs::Pair...; otherwise)
     return Expr(out)
 end
 
-# We just copy the rust code here and generate functions on the fly.
 @wrap_simple_ops begin
-    gen_impl_expr!(polars_expr_keep_name, Expr::keep_name, "Keeps `expr`'s original column name, overriding any rename that would otherwise result from the operation it's applied to (e.g. after an arithmetic operator or a namespaced function call).")
-    gen_impl_expr!(polars_expr_to_lowercase, Expr::to_lowercase, "Lowercases the name of the resulting expression.")
-    gen_impl_expr!(polars_expr_to_uppercase, Expr::to_uppercase, "Uppercases the name of the resulting expression.")
+    gen_impl_expr!(polars_expr_keep_name, Expr::keep_name, "Keep the original root name.")
+    gen_impl_expr!(polars_expr_to_lowercase, Expr::to_lowercase, "Update the root column name to use lowercase characters.")
+    gen_impl_expr!(polars_expr_to_uppercase, Expr::to_uppercase, "Update the root column name to use uppercase characters.")
 
-    gen_impl_expr!(polars_expr_sum, Expr::sum, "Sums the non-null values of `expr`, one result per group (or a single overall value outside a `group_by`).")
-    gen_impl_expr!(polars_expr_min, Expr::min, "Returns the minimum non-null value of `expr`, one result per group (or a single overall value outside a `group_by`). Like other aggregations, `NaN` values are ignored -- see [`nan_min`](@ref) to propagate `NaN` into the result instead.")
-    gen_impl_expr!(polars_expr_max, Expr::max, "Returns the maximum non-null value of `expr`, one result per group (or a single overall value outside a `group_by`). Like other aggregations, `NaN` values are ignored -- see [`nan_max`](@ref) to propagate `NaN` into the result instead.")
-    gen_impl_expr!(polars_expr_arg_min, Expr::arg_min, "Returns the (0-indexed) row position of the minimum value of `expr` within its group.")
-    gen_impl_expr!(polars_expr_arg_max, Expr::arg_max, "Returns the (0-indexed) row position of the maximum value of `expr` within its group.")
-    gen_impl_expr!(polars_expr_nan_min, Expr::nan_min, "Like [`min`](@ref), but propagates `NaN`: if any value in the group is `NaN`, the result is `NaN` instead of the ordinary minimum.")
-    gen_impl_expr!(polars_expr_nan_max, Expr::nan_max, "Like [`max`](@ref), but propagates `NaN`: if any value in the group is `NaN`, the result is `NaN` instead of the ordinary maximum.")
+    gen_impl_expr!(polars_expr_sum, Expr::sum, "Reduce groups to the sum of all the values.")
+    gen_impl_expr!(polars_expr_min, Expr::min, "Reduce groups to minimal value.")
+    gen_impl_expr!(polars_expr_max, Expr::max, "Reduce groups to maximum value.")
+    gen_impl_expr!(polars_expr_arg_min, Expr::arg_min, "Get the index value that has the minimum value.\n\nNote: the index is 0-based.")
+    gen_impl_expr!(polars_expr_arg_max, Expr::arg_max, "Get the index value that has the maximum value.\n\nNote: the index is 0-based.")
+    gen_impl_expr!(polars_expr_nan_min, Expr::nan_min, "Reduce groups to minimal value, propagating `NaN`.")
+    gen_impl_expr!(polars_expr_nan_max, Expr::nan_max, "Reduce groups to maximum value, propagating `NaN`.")
 
-    gen_impl_expr!(polars_expr_floor, Expr::floor, "Rounds each value of `expr` down to the nearest integer.")
-    gen_impl_expr!(polars_expr_ceil, Expr::ceil, "Rounds each value of `expr` up to the nearest integer.")
-    gen_impl_expr!(polars_expr_abs, Expr::abs, "Absolute value of each value of `expr`.")
-    gen_impl_expr!(polars_expr_cos, Expr::cos, "Cosine of each value of `expr`, in radians.")
-    gen_impl_expr!(polars_expr_sin, Expr::sin, "Sine of each value of `expr`, in radians.")
-    gen_impl_expr!(polars_expr_tan, Expr::tan, "Tangent of each value of `expr`, in radians.")
-    gen_impl_expr!(polars_expr_cosh, Expr::cosh, "Hyperbolic cosine of each value of `expr`.")
-    gen_impl_expr!(polars_expr_sinh, Expr::sinh, "Hyperbolic sine of each value of `expr`.")
-    gen_impl_expr!(polars_expr_tanh, Expr::tanh, "Hyperbolic tangent of each value of `expr`.")
-    gen_impl_expr!(polars_expr_arccos, Expr::arccos, "Inverse cosine of each value of `expr`, in radians.")
-    gen_impl_expr!(polars_expr_arcsin, Expr::arcsin, "Inverse sine of each value of `expr`, in radians.")
-    gen_impl_expr!(polars_expr_arctan, Expr::arctan, "Inverse tangent of each value of `expr`, in radians.")
-    gen_impl_expr!(polars_expr_arccosh, Expr::arccosh, "Inverse hyperbolic cosine of each value of `expr`.")
-    gen_impl_expr!(polars_expr_arcsinh, Expr::arcsinh, "Inverse hyperbolic sine of each value of `expr`.")
-    gen_impl_expr!(polars_expr_arctanh, Expr::arctanh, "Inverse hyperbolic tangent of each value of `expr`.")
-    gen_impl_expr!(polars_expr_cot, Expr::cot, "Cotangent of each value of `expr`, in radians.")
-    gen_impl_expr!(polars_expr_degrees, Expr::degrees, "Converts each value of `expr` from radians to degrees.")
-    gen_impl_expr!(polars_expr_radians, Expr::radians, "Converts each value of `expr` from degrees to radians.")
+    gen_impl_expr!(polars_expr_floor, Expr::floor, "Floor underlying floating point array to the lowest integers smaller or equal to the float value.")
+    gen_impl_expr!(polars_expr_ceil, Expr::ceil, "Ceil underlying floating point array to the highest integers smaller or equal to the float value.")
+    gen_impl_expr!(polars_expr_abs, Expr::abs, "Convert all values to their absolute/positive value.")
+    gen_impl_expr!(polars_expr_cos, Expr::cos, "Compute the cosine of the given expression.")
+    gen_impl_expr!(polars_expr_sin, Expr::sin, "Compute the sine of the given expression.")
+    gen_impl_expr!(polars_expr_tan, Expr::tan, "Compute the tangent of the given expression.")
+    gen_impl_expr!(polars_expr_cosh, Expr::cosh, "Compute the hyperbolic cosine of the given expression.")
+    gen_impl_expr!(polars_expr_sinh, Expr::sinh, "Compute the hyperbolic sine of the given expression.")
+    gen_impl_expr!(polars_expr_tanh, Expr::tanh, "Compute the hyperbolic tangent of the given expression.")
+    gen_impl_expr!(polars_expr_arccos, Expr::arccos, "Compute the inverse cosine of the given expression.")
+    gen_impl_expr!(polars_expr_arcsin, Expr::arcsin, "Compute the inverse sine of the given expression.")
+    gen_impl_expr!(polars_expr_arctan, Expr::arctan, "Compute the inverse tangent of the given expression.")
+    gen_impl_expr!(polars_expr_arccosh, Expr::arccosh, "Compute the inverse hyperbolic cosine of the given expression.")
+    gen_impl_expr!(polars_expr_arcsinh, Expr::arcsinh, "Compute the inverse hyperbolic sine of the given expression.")
+    gen_impl_expr!(polars_expr_arctanh, Expr::arctanh, "Compute the inverse hyperbolic tangent of the given expression.")
+    gen_impl_expr!(polars_expr_cot, Expr::cot, "Compute the cotangent of the given expression.")
+    gen_impl_expr!(polars_expr_degrees, Expr::degrees, "Convert from radians to degrees.")
+    gen_impl_expr!(polars_expr_radians, Expr::radians, "Convert from degrees to radians.")
 
-    gen_impl_expr!(polars_expr_sqrt, Expr::sqrt, "Square root of each value of `expr`.")
-    gen_impl_expr!(polars_expr_cbrt, Expr::cbrt, "Cube root of each value of `expr`.")
-    gen_impl_expr!(polars_expr_sign, Expr::sign, "Sign of each value of `expr`: `-1`, `0`, or `1` (float dtypes only; `NaN` maps to `NaN`).")
-    gen_impl_expr!(polars_expr_exp, Expr::exp, "`e` raised to each value of `expr`.")
-    gen_impl_expr!(polars_expr_log1p, Expr::log1p, "Natural logarithm of `1 + expr`, elementwise -- more accurate than `log(lit(ℯ), expr + 1)` for values near zero.")
+    gen_impl_expr!(polars_expr_sqrt, Expr::sqrt, "Compute the square root of the given expression.")
+    gen_impl_expr!(polars_expr_cbrt, Expr::cbrt, "Compute the cube root of the given expression.")
+    gen_impl_expr!(polars_expr_sign, Expr::sign, "Compute the sign of the given expression.")
+    gen_impl_expr!(polars_expr_exp, Expr::exp, "Calculate the exponential of all elements in the input array.")
+    gen_impl_expr!(polars_expr_log1p, Expr::log1p, "Compute the natural logarithm of all elements plus one in the input array.")
 
-    gen_impl_expr!(polars_expr_rle, Expr::rle, "Run-length-encodes `expr`: collapses each run of consecutive identical values into one row, a `Struct{len, value}` (see [Struct](@ref expr-struct)) holding the run's length and the repeated value. Consecutive `null`s form a run like any other value.")
-    gen_impl_expr!(polars_expr_rle_id, Expr::rle_id, "Maps each value of `expr` to a 0-indexed run ID: rows in the same run of consecutive identical values share an ID, which increments at each run boundary. Unlike [`rle`](@ref), the column keeps its length -- one output row per input row.")
+    gen_impl_expr!(polars_expr_rle, Expr::rle, "Get the lengths of runs of identical values, as a `Struct{len, value}` column.")
+    gen_impl_expr!(polars_expr_rle_id, Expr::rle_id, "Similar to [`rle`](@ref), but maps values to run IDs.")
 
-    gen_impl_expr!(polars_expr_n_unique, Expr::n_unique, "Counts the number of distinct values in `expr` (`null` counts as one distinct value), one result per group (or a single overall count outside a `group_by`).")
-    gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated, "Row-wise boolean flag: `true` for every occurrence of a value that appears more than once in `expr`. See [`is_unique`](@ref) for the complementary flag.")
-    gen_impl_expr!(polars_expr_is_unique, Expr::is_unique, "Row-wise boolean flag: `true` for every value that appears exactly once in `expr`. See [`is_duplicated`](@ref) for the complementary flag.")
-    gen_impl_expr!(polars_expr_is_first_distinct, Expr::is_first_distinct, "Row-wise boolean flag: `true` only for the first occurrence of each distinct value in `expr`. See [`is_last_distinct`](@ref) for the complementary flag.")
-    gen_impl_expr!(polars_expr_is_last_distinct, Expr::is_last_distinct, "Row-wise boolean flag: `true` only for the last occurrence of each distinct value in `expr`. See [`is_first_distinct`](@ref) for the complementary flag.")
-    gen_impl_expr!(polars_expr_count, Expr::count, "Counts the number of non-null values in `expr`, one result per group (or a single overall count outside a `group_by`). See [`null_count`](@ref) for the complementary count.")
-    gen_impl_expr!(polars_expr_first, Expr::first, "Returns the first value of `expr` within its group, by row order (not sorted order).")
-    gen_impl_expr!(polars_expr_last, Expr::last, "Returns the last value of `expr` within its group, by row order (not sorted order).")
+    gen_impl_expr!(polars_expr_n_unique, Expr::n_unique, "Get the number of unique values in the groups.")
+    gen_impl_expr!(polars_expr_is_duplicated, Expr::is_duplicated, "Get a mask of duplicated values.")
+    gen_impl_expr!(polars_expr_is_unique, Expr::is_unique, "Get a mask of unique values.")
+    gen_impl_expr!(polars_expr_is_first_distinct, Expr::is_first_distinct, "Get a mask of the first unique value.")
+    gen_impl_expr!(polars_expr_is_last_distinct, Expr::is_last_distinct, "Get a mask of the last unique value.")
+    gen_impl_expr!(polars_expr_count, Expr::count, "Count the values of the Series or get counts of the group by operation. Null values are not counted.")
+    gen_impl_expr!(polars_expr_first, Expr::first, "Get the first value in the group.")
+    gen_impl_expr!(polars_expr_last, Expr::last, "Get the last value in the group.")
 
-    gen_impl_expr!(polars_expr_not, Expr::not, "Logical negation of a boolean expression: `true`↔`false`, and `null` stays `null` (matches polars' three-valued logic). There is no unary operator form -- `not` must be called directly.")
-    gen_impl_expr!(polars_expr_is_finite, Expr::is_finite, "Row-wise boolean flag: `true` where the (float) value is finite (neither `±Inf` nor `NaN`); `null` stays `null`.")
-    gen_impl_expr!(polars_expr_is_infinite, Expr::is_infinite, "Row-wise boolean flag: `true` where the (float) value is `Inf` or `-Inf`; `null` stays `null`.")
-    gen_impl_expr!(polars_expr_is_nan, Expr::is_nan, "Row-wise boolean flag: `true` where the (float) value is `NaN`; `null` stays `null` (a `null` is not `NaN`).")
-    gen_impl_expr!(polars_expr_is_null, Expr::is_null, "Row-wise boolean flag: `true` where the value is `null`.")
-    gen_impl_expr!(polars_expr_is_not_null, Expr::is_not_null, "Row-wise boolean flag: `true` where the value is not `null`.")
-    gen_impl_expr!(polars_expr_null_count, Expr::null_count, "Counts the number of `null` values in `expr`, one result per group (or a single overall count outside a `group_by`). See [`count`](@ref) for the complementary count.")
-    gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans, "Removes `NaN` values from `expr`, shortening the column. Compare the frame-level `drop_nulls` (see [DataFrame](@ref)), which drops whole rows instead of individual values.")
-    gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls, "Removes `null` values from `expr`, shortening the column -- the expression-level counterpart to the frame-level `drop_nulls` (see [DataFrame](@ref)), which drops whole rows instead of individual values.")
+    gen_impl_expr!(polars_expr_not, Expr::not, "Negate `Expr`.")
+    gen_impl_expr!(polars_expr_is_finite, Expr::is_finite, "Get mask of finite values if dtype is Float.")
+    gen_impl_expr!(polars_expr_is_infinite, Expr::is_infinite, "Get mask of infinite values if dtype is Float.")
+    gen_impl_expr!(polars_expr_is_nan, Expr::is_nan, "Get mask of NaN values if dtype is Float.")
+    gen_impl_expr!(polars_expr_is_null, Expr::is_null, "Run is_null operation on `Expr`.")
+    gen_impl_expr!(polars_expr_is_not_null, Expr::is_not_null, "Run is_not_null operation on `Expr`.")
+    gen_impl_expr!(polars_expr_null_count, Expr::null_count, "Get the null count of the column/group.")
+    gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans, "Drop NaN values.")
+    gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls, "Drop null values.")
 
-    gen_impl_expr!(polars_expr_implode, Expr::implode, "Collects every value of `expr` in the current context (or per group, inside `agg`) into a single `List` value (see [List](@ref expr-list)).")
-    gen_impl_expr!(polars_expr_reverse, Expr::reverse, "Reverses the row order of `expr`'s values.")
+    gen_impl_expr!(polars_expr_implode, Expr::implode, "Implode into a list scalar.")
+    gen_impl_expr!(polars_expr_reverse, Expr::reverse, "Reverse column.")
 
-    gen_impl_expr!(polars_expr_arg_unique, Expr::arg_unique, "The row indices of the first occurrence of each distinct value of `expr`, in order of first appearance.")
-    gen_impl_expr!(polars_expr_to_physical, Expr::to_physical, "The physical (storage) representation of `expr` -- e.g. a `Date` becomes its `Int32` days-since-epoch, a `Categorical` its `UInt32` index. Leaves already-physical dtypes unchanged.")
-    gen_impl_expr!(polars_expr_lower_bound, Expr::lower_bound, "A single-row column holding the smallest value `expr`'s dtype can represent.")
-    gen_impl_expr!(polars_expr_upper_bound, Expr::upper_bound, "A single-row column holding the largest value `expr`'s dtype can represent.")
+    gen_impl_expr!(polars_expr_arg_unique, Expr::arg_unique, "Get the first index of unique values of this expression.\n\nNote: indices are 0-based.")
+    gen_impl_expr!(polars_expr_to_physical, Expr::to_physical, "Cast to the physical representation of the dtype (e.g. `Date` to `Int32`).")
+    gen_impl_expr!(polars_expr_lower_bound, Expr::lower_bound, "Get minimal value that could be hold by this dtype.")
+    gen_impl_expr!(polars_expr_upper_bound, Expr::upper_bound, "Get maximal value that could be hold by this dtype.")
 
-    gen_impl_expr_binary!(polars_expr_eq, Expr::eq, "Elementwise equality between `a` and `b` -- the named-function form of `a .== b` (see [Named binary functions](@ref)). Comparing against `null` gives `null`, not `false` (three-valued logic).")
-    gen_impl_expr_binary!(polars_expr_lt, Expr::lt, "Elementwise `a < b` -- the named-function form of the `<` operator. Call it qualified as `Base.lt(a, b)`, or use `.>` with the arguments flipped.")
-    gen_impl_expr_binary!(polars_expr_gt, Expr::gt, "Elementwise `a > b` -- the named-function form of `a .> b`.")
-    gen_impl_expr_binary!(polars_expr_or, Expr::or, "Elementwise logical OR between two boolean expressions -- the named-function form of `a .| b`.")
-    gen_impl_expr_binary!(polars_expr_xor, Expr::xor, "Elementwise logical XOR between two boolean expressions. Has no operator equivalent in this package -- must be called by name.")
-    gen_impl_expr_binary!(polars_expr_and, Expr::and, "Elementwise logical AND between two boolean expressions -- the named-function form of `a .& b`.")
+    gen_impl_expr_binary!(polars_expr_eq, Expr::eq, "Compare `Expr` with other `Expr` on equality. Same as `a .== b`.")
+    gen_impl_expr_binary!(polars_expr_lt, Expr::lt, "Check if `Expr` < `Expr`. Same as `a .< b`.\n\nNote: not exported; call it as `Base.lt(a, b)`.")
+    gen_impl_expr_binary!(polars_expr_gt, Expr::gt, "Check if `Expr` > `Expr`. Same as `a .> b`.")
+    gen_impl_expr_binary!(polars_expr_or, Expr::or, "Bitwise \"or\" operation. Same as `a .| b`.")
+    gen_impl_expr_binary!(polars_expr_xor, Expr::xor, "Bitwise \"xor\" operation.")
+    gen_impl_expr_binary!(polars_expr_and, Expr::and, "Bitwise \"and\" operation. Same as `a .& b`.")
 
-    gen_impl_expr_binary!(polars_expr_pow, Expr::pow, "Elementwise `a ^ b` -- the named-function form of the `^` operator.")
-    gen_impl_expr_binary!(polars_expr_add, Expr::add, "Elementwise `a + b` -- the named-function form of the `+` operator.")
-    gen_impl_expr_binary!(polars_expr_sub, Expr::sub, "Elementwise `a - b` -- the named-function form of the `-` operator.")
-    gen_impl_expr_binary!(polars_expr_mul, Expr::mul, "Elementwise `a * b` -- the named-function form of the `*` operator.")
-    gen_impl_expr_binary!(polars_expr_div, Expr::div, "Elementwise `a / b` -- the named-function form of the `/` operator.")
-    # `floor_div` is hand-written below (near the operator overload loop), not generated here --
-    # it needs literal-argument `convert` overloads the macro's plain `(Expr, Expr)` shape can't
-    # express (mirroring `is_in`/`fill_null`'s own curried forms further down).
+    gen_impl_expr_binary!(polars_expr_pow, Expr::pow, "Raise expression to the power `b`. Same as `a ^ b`.")
+    gen_impl_expr_binary!(polars_expr_add, Expr::add, "Add `b` to `a`. Same as `a + b`.")
+    gen_impl_expr_binary!(polars_expr_sub, Expr::sub, "Subtract `b` from `a`. Same as `a - b`.")
+    gen_impl_expr_binary!(polars_expr_mul, Expr::mul, "Multiply `a` by `b`. Same as `a * b`.")
+    gen_impl_expr_binary!(polars_expr_div, Expr::div, "Divide `a` by `b`. Same as `a / b`.")
 
-    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replaces every `null` value in `a` with the corresponding value of `b` (a literal via `lit`, or another expression).\n\n!!! note \"Has a curried form\"\n    `fill_null(value)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
-    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replaces every `NaN` value in `a` with the corresponding value of `b`.\n\n!!! note \"Has a curried form\"\n    `fill_nan(value)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
-    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in, "Row-wise boolean flag: `true` where the value of `a` appears in `b` (typically `implode(lit(values))`, or another column); see the `lit(::Vector)` section below for how to build `b`.\n\n!!! note \"Has a curried form\"\n    `is_in(values)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null, "Replace the null values by a value.\n\n!!! note \"Has a curried form\"\n    `fill_null(value)`, for `|>` pipelines."; curried = true)
+    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan, "Replace the floating point `NaN` values by a value.\n\n!!! note \"Has a curried form\"\n    `fill_nan(value)`, for `|>` pipelines."; curried = true)
+    gen_impl_expr_binary!(polars_expr_is_in, Expr::is_in, "Check if the values of the left expression are in the lists of the right expr.\n\n!!! note \"Has a curried form\"\n    `is_in(values)`, for `|>` pipelines. A `Vector` of values is imploded into a list."; curried = true)
 
-    gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shifts `a`'s values down by `b` rows (negative `b` shifts up), filling the vacated positions with `null`.\n\n!!! note \"Has a curried form\"\n    `shift(n)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
-    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Percent change between each value of `a` and the value `b` rows earlier: `(a[i] - a[i-b]) / a[i-b]`.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)` -- see [Curried forms for pipe-based composition](@ref)."; curried = true)
+    gen_impl_expr_binary!(polars_expr_shift, Expr::shift, "Shift the values in the array by some period.\n\n!!! note \"Has a curried form\"\n    `shift(n)`, for `|>` pipelines."; curried = true)
+    gen_impl_expr_binary!(polars_expr_pct_change, Expr::pct_change, "Computes percentage change between values.\n\n!!! note \"Has a curried form\"\n    `pct_change(n)`, for `|>` pipelines."; curried = true)
 
-    gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a / b` (elementwise), matching the sign of `a` -- the named-function form of `Base.rem` extended to `Expr` arguments.")
+    gen_impl_expr_binary!(polars_expr_rem, Expr::rem, "Remainder of `a` divided by `b`. Same as `a % b`.")
 
-    gen_impl_expr_binary!(polars_expr_arctan2, Expr::arctan2, "Two-argument inverse tangent: `arctan2(y, x)` is the angle in radians between the positive x-axis and the point `(x, y)`, using both signs to pick the correct quadrant. Note the `y`-then-`x` argument order, matching upstream polars and C's `atan2`.")
-    gen_impl_expr_binary!(polars_expr_dot, Expr::dot, "The dot product of two columns: the sum of their elementwise product, as a single row.")
+    gen_impl_expr_binary!(polars_expr_arctan2, Expr::arctan2, "Compute the inverse tangent of the given expression, with the angle expressed as the argument of a complex number.\n\n`arctan2(y, x)`, in radians.")
+    gen_impl_expr_binary!(polars_expr_dot, Expr::dot, "Compute the dot/inner product between two expressions.")
 end
 
 """
     entropy(expr::Polars.Expr; base::Real=ℯ, normalize::Bool=true)::Polars.Expr
     entropy(; base::Real=ℯ, normalize::Bool=true)
 
-The Shannon entropy of `expr`'s value distribution, as a single row. `base` is the logarithm base
-(`ℯ` for nats, `2` for bits); `normalize=true` normalizes the counts into probabilities first.
+Compute the entropy as `-sum(pk * log(pk))` where `pk` are discrete probabilities.
 
 !!! note "Has a curried form"
     The keyword-only method above, for `|>` pipelines.
@@ -597,8 +520,7 @@ end
 """
     extend_constant(expr::Polars.Expr, value, n)::Polars.Expr
 
-Appends `n` copies of `value` to the end of `expr`. `value` and `n` may be expressions or plain
-scalars; `value` may be `missing`, which appends nulls.
+Extend the column with `n` copies of `value`. `value` may be `missing`.
 """
 function extend_constant(expr::Expr, value, n)
     return Expr(
@@ -609,8 +531,7 @@ end
 """
     shuffle(expr::Polars.Expr; seed::Union{Nothing,Integer}=nothing)::Polars.Expr
 
-Randomly permutes `expr`'s values. `seed` makes the permutation reproducible; `nothing` (the
-default) draws a fresh seed from the OS each call.
+Shuffle the values. `seed = nothing` uses a random seed.
 """
 function shuffle(expr::Expr; seed::Union{Nothing, Integer} = nothing)
     seed_ref = seed === nothing ? Ptr{UInt64}(C_NULL) : Ref(UInt64(seed))
@@ -619,17 +540,13 @@ function shuffle(expr::Expr; seed::Union{Nothing, Integer} = nothing)
 end
 
 """
-    Base.reshape(expr::Polars.Expr, dims::Integer...)::Polars.Expr
+    reshape(expr::Polars.Expr, dims::Integer...)::Polars.Expr
 
-Reshapes `expr` into an `Array`-dtype column of the given dimensions. A `-1` as the *first*
-dimension is inferred from the length (only that position; a `-1` elsewhere raises a
-`PolarsError`). **Building the plan and `collect`ing it both succeed, but nothing that
-needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a
-collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser,
-which does not yet recognize the fixed-size-list format (`"+w:N"`) -- this is a package
-limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the
-result away from `Array` before inspecting it. Extends `Base.reshape` rather than shadowing it,
-the same way `Base.get`/`Base.sort`/`Base.tail` are extended elsewhere in this file.
+Reshape the column into an `Array` column of the given dimensions. Only the first dimension may
+be `-1` (inferred).
+
+Note: `Array` columns cannot be read back into Julia, and `collect_schema` fails on a frame that
+contains one. Cast the result to another type before reading it.
 """
 function Base.reshape(expr::Expr, dims::Integer...)
     dims_vec = Int64[Int64(d) for d in dims]
@@ -642,57 +559,43 @@ export entropy, extend_constant, shuffle
 """
     unique(expr::Polars.Expr; maintain_order::Bool=false)::Polars.Expr
 
-Returns the distinct values of `expr`, shortening the column. Inside `agg`, per-group distinct
-values are automatically collected into a `List` (see [List](@ref expr-list)) so the aggregation
-still produces one row per group.
-
-`maintain_order` (default `false`) preserves the order values first appear in; the default allows
-more optimization but does not guarantee any particular order. This is a separate, hand-written
-method (not `@generate_expr_fns`-derived like most other `Expr` methods) precisely because it
-needs this extra keyword, dispatching between polars' own `Expr::unique`/`Expr::unique_stable`.
-
-!!! note
-    Extends `Base.unique` (which otherwise operates on collections); `unique` collides with an
-    exported `Base` name, so this is `Base.unique(...)`, not a plain `function unique(...)` -- see
-    the matching note on [`tail`](@ref)'s definition for why that distinction matters.
+Get unique values of this expression. With `maintain_order=true`, the order of first appearance
+is kept (this requires more work).
 """
 Base.unique(expr::Expr; maintain_order::Bool = false) =
     Expr(maintain_order ? API.polars_expr_unique_stable(expr) : API.polars_expr_unique(expr))
 
-@wrap_expr_method flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true) polars_expr_flatten "Explodes a `List`-typed `expr` back into one row per element -- the expression-level inverse of [`implode`](@ref). `empty_as_null`: an empty list produces one `null` row when `true` (default), rather than disappearing. `keep_nulls`: a `null` list entry produces one `null` row when `true` (default), rather than disappearing."
+@wrap_expr_method flatten(expr::Expr; empty_as_null::Bool = true, keep_nulls::Bool = true) polars_expr_flatten "Explode the List column. `empty_as_null`: an empty list produces a null row. `keep_nulls`: a null list produces a null row."
 export flatten
 
 """
     all(expr::Polars.Expr; ignore_nulls::Bool=true)::Polars.Expr
 
-Whether every value of `expr` is `true`, one result per group (or a single overall value outside
-a `group_by`). If `ignore_nulls` is `false`, three-valued (Kleene) logic applies: a `null` present
-with no `false` value makes the result `null`. Extends `Base.all` (a Base-exported name) rather
-than being a plain function, so it's reachable unqualified -- see [`any`](@ref) for the
-complementary reduction, and the top-level [`all_horizontal`](@ref)/[`any_horizontal`](@ref) for
-the row-wise (not per-column) versions across multiple expressions.
+Returns whether all values in the column are `true`.
+
+If `ignore_nulls` is `false`, [Kleene logic](https://en.wikipedia.org/wiki/Three-valued_logic) is
+used to deal with nulls: if the column contains any null values and no `false` values, the output
+is null.
 """
 Base.all(expr::Expr; ignore_nulls::Bool = true) = Expr(API.polars_expr_all(expr, ignore_nulls))
 
 """
     any(expr::Polars.Expr; ignore_nulls::Bool=true)::Polars.Expr
 
-Whether any value of `expr` is `true`, one result per group (or a single overall value outside
-a `group_by`). If `ignore_nulls` is `false`, three-valued (Kleene) logic applies: a `null` present
-with no `true` value makes the result `null`. See [`all`](@ref) for the complementary reduction.
+Returns whether any of the values in the column are `true`.
+
+If `ignore_nulls` is `false`, [Kleene logic](https://en.wikipedia.org/wiki/Three-valued_logic) is
+used to deal with nulls: if the column contains any null values and no `true` values, the output
+is null.
 """
 Base.any(expr::Expr; ignore_nulls::Bool = true) = Expr(API.polars_expr_any(expr, ignore_nulls))
 
 """
     log(base::Polars.Expr, x::Polars.Expr)::Polars.Expr
 
-Logarithm of `x` in base `base` -- e.g. `log(lit(2), col("x"))` for log base 2. For the natural
-logarithm, use `lit(ℯ)`.
+Compute the logarithm to a given base.
 
-!!! note "The base comes first"
-    Argument order matches `Base.log(b, x)`, where the base is the first argument
-    (`log(2, 8) == 3`). Both arguments are expressions, so writing them the other way round
-    produces a different number rather than an error.
+Note: the base is the first argument, as in `Base.log(b, x)`.
 """
 function Base.log(base::Expr, x::Expr)
     out = API.polars_expr_log(x, base)
@@ -702,55 +605,32 @@ end
 """
     log10(expr::Polars.Expr)::Polars.Expr
 
-Base-10 logarithm of each value of `expr`.
+Compute the logarithm to base 10.
 """
 Base.log10(expr::Expr) = log(convert(Expr, 10), expr)
 
 """
     has_nulls(expr::Polars.Expr)::Polars.Expr
 
-Whether `expr` contains any `null` value, one result per group (or a single overall value outside
-a `group_by`).
+Whether the column/group contains any null value.
 """
 has_nulls(expr::Expr) = null_count(expr) > 0
 export has_nulls
 
-# The plain `Fix2`-style curries for `is_in`/`fill_null`/`fill_nan`/`shift`/`pct_change` are
-# generated by `@wrap_simple_ops` from each primal's own `curried = true` option, right next to it
-# in the block above. This is the one exception -- `is_in` also needs an `AbstractVector`-specific
-# overload (more specific than the macro-generated `is_in(b) = Base.Fix2(is_in, convert(Expr,
-# b))`, so it dispatches ahead of it) that `implode`s the vector into a single list-typed `Expr`
-# first: the plain `convert(Expr, ::AbstractVector)` above builds a per-row *Series* literal
-# instead, the wrong shape for `is_in`'s membership check against `b`.
+# `is_in(values::AbstractVector)` implodes the values into one list literal; `convert` alone would
+# build a per-row Series literal.
 is_in(other::AbstractVector) = Base.Fix2(is_in, implode(convert(Expr, other)))
 
-# `log`/`rem` (and, elsewhere, `replace`/`diff`/`round`) deliberately get no curry at all. It isn't
-# a dispatch-ambiguity concern, Julia always prefers Base's own concrete-type methods (e.g.
-# `log(::Float64)`) over anything added here, so no ambiguity would occur. It's type piracy: a
-# curry that's actually useful for plain numeric literals needs an untyped or broadly-typed second
-# argument, which means claiming argument-type combinations Base currently leaves undefined (e.g.
-# `log(1, 2)` on two bare `Int`s is a `MethodError` today). That silently changes global Base
-# behavior for types this package doesn't own -- Aqua's piracy check flags it, and it's fragile
-# against future Base/other-package additions for the same combination.
-#
-# A curry typed narrowly to `Expr` would avoid the piracy, but would then only accept
-# already-constructed `Expr`s, not bare literals -- defeating the ergonomic point of currying at
-# all, so it isn't worth doing either.
+# `log`/`rem`/`replace`/`diff`/`round` have no curried form: one accepting bare literals would be
+# type piracy on Base.
 
 """
     fill_null(expr::Polars.Expr; strategy::Symbol, limit::Union{Nothing,Integer}=nothing)::Polars.Expr
     fill_null(; strategy::Symbol, limit::Union{Nothing,Integer}=nothing)
 
-Replaces every `null` value in `expr` using a fill *strategy* instead of a fixed value (see the
-2-arg `fill_null(expr, value)` above for that form).
-
-`strategy` is one of:
-- `:forward`/`:backward` -- propagate the nearest non-null value in that direction; `limit` caps
-  how many consecutive nulls a single value may fill (`nothing` for unlimited)
-- `:mean`/`:min`/`:max` -- the column's own aggregate
-- `:zero`/`:one` -- a fixed numeric fill, dtype-appropriate
-
-`limit` only applies to `:forward`/`:backward` and is ignored otherwise.
+Replace the null values using a fill strategy: `:forward`, `:backward`, `:mean`, `:min`, `:max`,
+`:zero` or `:one`. `limit` is the maximum number of consecutive nulls to fill, for `:forward` and
+`:backward` only.
 
 !!! note "Has a curried form"
     The keyword-only method above, for `|>` pipelines.
@@ -776,9 +656,7 @@ end
     forward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
     forward_fill(; limit::Union{Nothing,Integer}=nothing)
 
-Fills every `null` value in `expr` with the last non-null value seen before it. `limit` caps
-how many consecutive nulls a single value may fill (`nothing` for unlimited). Shorthand for
-`fill_null(expr; strategy=:forward, limit)`.
+Fill null values with the last non-null value. Same as `fill_null(expr; strategy=:forward, limit)`.
 
 !!! note "Has a curried form"
     The keyword-only method above, for `|>` pipelines.
@@ -790,9 +668,7 @@ forward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(e
     backward_fill(expr::Polars.Expr; limit::Union{Nothing,Integer}=nothing)::Polars.Expr
     backward_fill(; limit::Union{Nothing,Integer}=nothing)
 
-Fills every `null` value in `expr` with the next non-null value found after it. `limit` caps
-how many consecutive nulls a single value may fill (`nothing` for unlimited). Shorthand for
-`fill_null(expr; strategy=:backward, limit)`.
+Fill null values with the next non-null value. Same as `fill_null(expr; strategy=:backward, limit)`.
 
 !!! note "Has a curried form"
     The keyword-only method above, for `|>` pipelines.
@@ -802,14 +678,14 @@ backward_fill(expr::Expr; limit::Union{Nothing, Integer} = nothing) = fill_null(
 
 export forward_fill, backward_fill
 
-@wrap_expr_method shift_and_fill(expr::Expr, n::Expr, fill_value::Expr) polars_expr_shift_and_fill "Like [`shift`](@ref), but the positions vacated by the shift are filled with `fill_value` instead of `missing`."
+@wrap_expr_method shift_and_fill(expr::Expr, n::Expr, fill_value::Expr) polars_expr_shift_and_fill "Shift the values in the array by some period and fill the resulting empty values."
 export shift_and_fill
 
 """
     round(expr::Polars.Expr, decimals::Integer=0; mode::Symbol=:half_to_even)::Polars.Expr
 
-Rounds to `decimals` decimal places, breaking ties according to `mode`: one of
-`:half_to_even` (default, banker's rounding), `:half_away_from_zero`, `:to_zero`.
+Round underlying floating point array to given decimal numbers. `mode` is one of
+`:half_to_even` (default), `:half_away_from_zero`, `:to_zero`.
 """
 function Base.round(expr::Expr, decimals::Integer = 0; mode::Symbol = :half_to_even)
     mode_enum = _enum_lookup(
@@ -822,14 +698,14 @@ function Base.round(expr::Expr, decimals::Integer = 0; mode::Symbol = :half_to_e
     return Expr(out)
 end
 
-@wrap_expr_method clip(expr::Expr, min::Expr, max::Expr) polars_expr_clip "Clips the values to the `[min, max]` range (values outside are set to the nearest bound)."
+@wrap_expr_method clip(expr::Expr, min::Expr, max::Expr) polars_expr_clip "Clip underlying values to a set boundary."
 @curry clip(min, max)
 export clip
 
-@wrap_expr_method clip_min(expr::Expr, min::Expr) polars_expr_clip_min "Clips values below `min` up to `min` (values `>= min`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_max`](@ref) for the upper-bound-only form."
+@wrap_expr_method clip_min(expr::Expr, min::Expr) polars_expr_clip_min "Clip underlying values to a lower boundary."
 @curry clip_min(min)
 
-@wrap_expr_method clip_max(expr::Expr, max::Expr) polars_expr_clip_max "Clips values above `max` down to `max` (values `<= max`, and any `missing`, pass through unchanged). The single-sided counterpart to [`clip`](@ref); see [`clip_min`](@ref) for the lower-bound-only form."
+@wrap_expr_method clip_max(expr::Expr, max::Expr) polars_expr_clip_max "Clip underlying values to an upper boundary."
 @curry clip_max(max)
 
 export clip_min, clip_max
@@ -837,14 +713,8 @@ export clip_min, clip_max
 """
     is_between(expr::Polars.Expr, lower_bound, upper_bound; closed::Symbol=:both)::Polars.Expr
 
-Check if the values are between `lower_bound` and `upper_bound` (accepted as expressions or
-literals). Returns a `Boolean` expression.
-
-`closed` controls which sides of the interval are inclusive: `:both` (default), `:left`, `:right`,
-or `:none`.
-
-If `lower_bound` is greater than `upper_bound`, the result is `false` everywhere, since no value
-can satisfy the condition.
+Check if the values are between `lower_bound` and `upper_bound`. `closed` (`:both`, `:left`,
+`:right`, `:none`) sets which bounds are inclusive.
 """
 function is_between(expr::Expr, lower_bound, upper_bound; closed::Symbol = :both)
     lower_bound = convert(Expr, lower_bound)
@@ -867,10 +737,7 @@ export is_between
 """
     replace(expr::Polars.Expr, old, new)::Polars.Expr
 
-Replaces values equal to `old` with the corresponding `new` value (`old`/`new` are typically
-list-typed expressions built via [`implode`](@ref) for multi-value mappings). Values not found in
-`old` are left unchanged.
-
+Replace the given values with other values.
 """
 function Base.replace(expr::Expr, old, new)
     old = convert(Expr, old)
@@ -882,8 +749,8 @@ end
 """
     replace_strict(expr::Polars.Expr, old, new; default=nothing)::Polars.Expr
 
-Like [`replace`](@ref), but values not found in `old` become `null` unless `default` is given,
-in which case they take that value instead.
+Replace the given values with other values. Values not in `old` are replaced by `default`, or
+null if `default` is `nothing`.
 """
 function replace_strict(expr::Expr, old, new; default = nothing)
     old = convert(Expr, old)
@@ -901,8 +768,7 @@ export replace_strict
 """
     prod(expr::Polars.Expr)::Polars.Expr
 
-Product of the values.
-
+Get the product aggregation of an expression.
 """
 Base.prod(expr::Expr) = Expr(API.polars_expr_product(expr))
 
@@ -911,18 +777,11 @@ Base.prod(expr::Expr) = Expr(API.polars_expr_product(expr))
     over(expr::Polars.Expr, partition_by...; mapping_strategy::Symbol=:group_to_rows,
          order_by=nothing, descending::Bool=false, nulls_last::Bool=false)::Polars.Expr
 
-Applies `expr` within groups defined by `partition_by` (columns or expressions), broadcasting
-the per-group result back over every row of that group — e.g. `sum(col("x")) |> over("g")`
-returns, per row, the sum of `x` within that row's `g` group.
+Apply window function over a subgroup. This is similar to a group_by + aggregation + self join.
 
-- `mapping_strategy`: how the per-group result maps back onto rows -- `:group_to_rows` (default,
-  one output value per input row, in the original row order), `:explode` (concatenate each
-  group's result in group order -- only sensible when the frame is already sorted by
-  `partition_by`), or `:join` (collect each group's result into a list, joined back onto every
-  row of that group).
-- `order_by`: an optional column/expression (string/symbol/`Expr`) to sort by *within* each
-  group before evaluating `expr`, without affecting the frame's own row order. At least one of
-  `partition_by`/`order_by` must be given. `descending`/`nulls_last` control that ordering.
+- `mapping_strategy`: `:group_to_rows` (default), `:explode` or `:join`.
+- `order_by`: sort each group by this column or expression before evaluating `expr`;
+  `descending`/`nulls_last` control that ordering.
 """
 function over(
         expr::Expr, partition_by...;
@@ -955,11 +814,9 @@ end
 """
     over(partition_by::Union{String,Symbol}...; kwargs...)::Base.Callable
 
-Curried form of [`over`](@ref) for use with `|>`, mirroring Python polars' `.over("g")` — e.g.
-`sum(col("x")) |> over("g")`. Only accepts column-name strings/symbols, not `Expr` partition keys
-(an `Expr` argument is ambiguous with `over`'s own `expr` argument and always resolves to that
-instead); for expression-valued partition keys, call `over(expr, partition_by...)` directly.
-`kwargs` (`mapping_strategy`/`order_by`/`descending`/`nulls_last`) forward to `over` unchanged.
+Curried form of [`over`](@ref) for use with `|>`, e.g. `sum(col("x")) |> over("g")`.
+
+Note: accepts column names only; call `over(expr, partition_by...)` for expressions.
 """
 over(partition_by::Vararg{ColId}; kwargs...) =
     expr -> over(expr, partition_by...; kwargs...)
@@ -969,16 +826,13 @@ export over
 """
     sort_by(expr::Polars.Expr, by...; rev=false, nulls_last::Bool=false, maintain_order::Bool=false)::Polars.Expr
 
-Sorts the values of `expr` according to `by` (columns or expressions), rather than by `expr`'s
-own values -- typically used inside [`over`](@ref)/[`agg`](@ref) for "most recent row per group",
-"top N per group", etc. `rev` is either a single `Bool` (applied to every `by` expression) or a
-`Vector{Bool}` the same length as `by`.
+Sort this column by the ordering of another column evaluated from given expr. Can also be used
+in a group_by context to sort the groups. `rev` is a `Bool` or one `Bool` per `by`.
 """
 function sort_by(expr::Expr, by...; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
     by = _expr_vector(by)
     n_by = length(by)
     descending = rev isa Bool ? fill(rev, n_by) : rev
-    # See `_sort!` in sort.jl: user-argument validation gets a real exception, not an `@assert`.
     length(descending) == n_by || throw(
         ArgumentError(
             "rev must have one entry per by expression (got $n_by by expressions and " *
@@ -995,10 +849,9 @@ end
 """
     sort_by(by::Union{String,Symbol}...; rev=false, nulls_last::Bool=false, maintain_order::Bool=false)::Base.Callable
 
-Curried form of [`sort_by`](@ref) for use with `|>` — e.g. `col("x") |> sort_by("y"; rev=true)`.
-Only accepts column-name strings/symbols, not `Expr` by-keys (an `Expr` argument is ambiguous
-with `sort_by`'s own `expr` argument and always resolves to that instead); for expression-valued
-by-keys, call `sort_by(expr, by...; kwargs...)` directly.
+Curried form of [`sort_by`](@ref) for use with `|>`, e.g. `col("x") |> sort_by("y"; rev=true)`.
+
+Note: accepts column names only; call `sort_by(expr, by...)` for expressions.
 """
 function sort_by(by::Vararg{ColId}; rev = false, nulls_last::Bool = false, maintain_order::Bool = false)
     return expr -> sort_by(expr, by...; rev, nulls_last, maintain_order)
@@ -1009,7 +862,9 @@ export sort_by
 """
     arg_sort(expr::Polars.Expr; descending::Bool=false, nulls_last::Bool=false)::Polars.Expr
 
-Returns the index values that would sort `expr`.
+Get the index values that would sort this expression.
+
+Note: the indices are 0-based.
 """
 function arg_sort(expr::Expr; descending::Bool = false, nulls_last::Bool = false)
     out = API.polars_expr_arg_sort(expr, descending, nulls_last)
@@ -1020,42 +875,33 @@ end
 
 export arg_sort
 
-@wrap_expr_method gather(expr::Expr, idx::Expr; null_on_oob::Bool = false) polars_expr_gather "Take values by index. `idx` is an expression, or an integer vector promoted via [`lit`](@ref).\n\n`null_on_oob` sets the behaviour when an index is out of bounds: `true` gives `missing`, `false` (the default) raises a [`PolarsError`](@ref) when the result is collected.\n\n!!! note \"Indices are 0-based\"\n    `idx` is 0-based, and negative indices count from the end. This differs from [`Polars.nth`](@ref) and `Selectors.by_index`, which are 1-based: those select a column from a position the caller writes literally, whereas `idx` here is data, and usually comes from [`arg_sort`](@ref), `arg_min` or `arg_max`, which return 0-based positions. Sharing one convention lets `gather(x, arg_sort(y))` compose without an offset."
+@wrap_expr_method gather(expr::Expr, idx::Expr; null_on_oob::Bool = false) polars_expr_gather "Take values by index.\n\n`null_on_oob`: return a null when an index is out of bounds, instead of an error.\n\nNote: `idx` is 0-based (negative indices count from the end), matching the output of [`arg_sort`](@ref), `arg_min` and `arg_max`."
 
 export gather
 
-@wrap_expr_method gather_every(expr::Expr, n::Integer; offset::Integer = 0) polars_expr_gather_every "Take every `n`th value. `offset` is the starting index, 0-based."
+@wrap_expr_method gather_every(expr::Expr, n::Integer; offset::Integer = 0) polars_expr_gather_every "Take every `n`th value, starting at `offset`.\n\nNote: `offset` is 0-based."
 
 export gather_every
 
 """
     filter(expr::Polars.Expr, predicate)::Polars.Expr
 
-Filters `expr`'s own values by `predicate`, both evaluated in the same context -- typically inside
-[`agg`](@ref)/[`over`](@ref), e.g. `Polars.sum(filter(col("x"), col("x") .> 0))`. `predicate`
-accepts anything `_as_expr` does (an `Expr`, a [`Selector`](@ref), or a column-name
-`String`/`Symbol`).
+Filter a single column.
 
-Distinct from `filter` on a `LazyFrame`/`DataFrame`, which filters a whole frame's rows -- this
-filters one expression's values without touching the rest of the row.
+Should be used in aggregation context. To filter a frame, use `filter` on the frame.
 """
 function Base.filter(expr::Expr, predicate)
     predicate = _as_expr(predicate)
     return Expr(API.polars_expr_filter(expr, predicate))
 end
-# A separate, more specific method for `String`/`SubString{String}` predicates: without it,
-# `filter(expr::Expr, ::String)` is ambiguous with `Base.filter(f, s::Union{SubString{String},
-# String})` (character-filtering a string) -- both match equally well, since the generic method
-# above accepts `predicate::Any`. Mirrors `Base.filter(df::LazyFrame,
-# ::Union{SubString{String},String})` in src/select.jl, same reasoning.
+# Resolves ambiguity with `Base.filter(f, ::String)`.
 Base.filter(expr::Expr, predicate::Union{SubString{String}, String}) =
     Expr(API.polars_expr_filter(expr, _as_expr(predicate)))
 
 """
     sort(expr::Polars.Expr; rev::Bool=false, nulls_last::Bool=false, multithreaded::Bool=true, maintain_order::Bool=false)::Polars.Expr
 
-Sorts `expr`'s own values, as opposed to [`sort_by`](@ref) (sorts by a different key) or `sort` on
-a `LazyFrame`/`DataFrame` (sorts whole rows).
+Sort with given options.
 """
 function Base.sort(
         expr::Expr;
@@ -1069,8 +915,7 @@ end
 """
     head(expr::Polars.Expr, n::Union{Nothing,Integer}=nothing)::Polars.Expr
 
-Returns the first `n` values of `expr`'s result (default: polars' own default of 10). Distinct
-from `head` on a `LazyFrame`/`DataFrame`, which takes the first `n` whole rows.
+Get the first `n` elements of the Expr result (10 if `n` is `nothing`).
 """
 function head(expr::Expr, n::Union{Nothing, Integer} = nothing)
     n_ref = n === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n))
@@ -1081,14 +926,7 @@ end
 """
     tail(expr::Polars.Expr, n::Union{Nothing,Integer}=nothing)::Polars.Expr
 
-Returns the last `n` values of `expr`'s result (default: polars' own default of 10). Distinct from
-`tail` on a `LazyFrame`/`DataFrame`, which takes the last `n` whole rows.
-
-!!! note
-    Extends `Base.tail` (which otherwise operates on `Tuple`/`NamedTuple`), matching the
-    `LazyFrame`/`DataFrame` method in `src/select.jl` -- a plain (non-`Base.`-qualified)
-    `function tail(...)` here would instead create a *new*, separate binding that shadows
-    `Base.tail` for the rest of the module, breaking `import Base: tail` wherever it runs next.
+Get the last `n` elements of the Expr result (10 if `n` is `nothing`).
 """
 function Base.tail(expr::Expr, n::Union{Nothing, Integer} = nothing)
     n_ref = n === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n))
@@ -1099,21 +937,18 @@ end
 """
     limit(expr::Polars.Expr, n::Union{Nothing,Integer}=nothing)::Polars.Expr
 
-Alias for [`head`](@ref) (matching upstream, where `Expr.limit` is itself just an alias for
-`Expr.head`).
+Alias for [`head`](@ref).
 """
 limit(expr::Expr, n::Union{Nothing, Integer} = nothing) = head(expr, n)
 
 export limit
-# `head`/`tail` are already exported centrally in src/Polars.jl (shared with the
-# LazyFrame/DataFrame methods in src/select.jl) -- no separate export needed here.
 
 """
     slice(expr::Polars.Expr, offset, length)::Polars.Expr
 
-Slices `expr`'s own result: `length` values starting at `offset` (0-based; `offset` may be
-negative, counting from the end). `offset`/`length` accept anything `lit` does (an `Expr`, or a
-literal value promoted via `convert(Expr, ...)`).
+Slice the Series.
+
+Note: `offset` is 0-based; a negative `offset` counts from the end.
 """
 function slice(expr::Expr, offset, length)
     offset = convert(Expr, offset)
@@ -1127,15 +962,10 @@ export slice
 """
     get(expr::Polars.Expr, index; null_on_oob::Bool=false)::Polars.Expr
 
-The scalar counterpart to [`gather`](@ref) (which takes a vector of indices): returns the single
-value of `expr` at `index` (0-based; negative counts from the end). `null_on_oob` sets the
-behaviour when `index` is out of bounds: `true` gives `missing`, `false` (the default) raises a
-[`PolarsError`](@ref) when the result is collected.
+Take the values by a single index. `null_on_oob`: return a null when the index is out of bounds,
+instead of an error.
 
-!!! note
-    Extends `Base.get` -- already exported by `Base` itself, so no separate `export` is needed
-    (or possible) here; see the matching note on [`tail`](@ref) above for why this must be
-    `Base.get(...)`, not a plain `function get(...)`.
+Note: `index` is 0-based; negative values count from the end.
 """
 function Base.get(expr::Expr, index; null_on_oob::Bool = false)
     index = convert(Expr, index)
@@ -1146,10 +976,9 @@ end
 """
     top_k_by(expr::Polars.Expr, k, by...; rev=false)::Polars.Expr
 
-Returns the `k` rows of `expr` with the largest values of `by` (columns or expressions) -- the
-`by`-key counterpart to [`top_k`](@ref), analogous to how [`sort_by`](@ref) relates to `sort`.
-`rev` is either a single `Bool` (applied to every `by` expression) or a `Vector{Bool}` the same
-length as `by`.
+Returns the `k` largest rows by given column. For single column, use [`top_k`](@ref).
+
+`rev` is a `Bool` or one `Bool` per `by`.
 """
 function top_k_by(expr::Expr, k, by...; rev = false)
     k = convert(Expr, k)
@@ -1174,8 +1003,9 @@ export top_k_by
 """
     bottom_k_by(expr::Polars.Expr, k, by...; rev=false)::Polars.Expr
 
-Returns the `k` rows of `expr` with the smallest values of `by` (columns or expressions) -- the
-complement of [`top_k_by`](@ref).
+Returns the `k` smallest rows by given column. For single column, use `bottom_k`.
+
+`rev` is a `Bool` or one `Bool` per `by`.
 """
 function bottom_k_by(expr::Expr, k, by...; rev = false)
     k = convert(Expr, k)
@@ -1197,26 +1027,26 @@ end
 
 export bottom_k_by
 
-@wrap_expr_method item(expr::Expr; allow_empty::Bool = false) polars_expr_item "The aggregation form of `item`: raises unless `expr` evaluates to exactly one value (per group, or overall). If `allow_empty` is `true`, zero values is also accepted and produces `missing` instead of raising -- more than one value always raises regardless. Distinct from `Polars.item` on a `DataFrame`/`Series` (a `(1,1)`-shape accessor, not an aggregation)."
+@wrap_expr_method item(expr::Expr; allow_empty::Bool = false) polars_expr_item "Get the single value in the group. If there are multiple values, an error is returned. With `allow_empty=true`, an empty group gives null."
 
 
-"""One argument's contribution to an expression list: an `AbstractVector` argument is flattened
-one level (so `sort(df, [:a, :b])` means the same as `sort(df, :a, :b)`, matching the `Vector`
-form `drop`/`unique`/`drop_nulls` already accept), anything else contributes itself. Only one
-level: a genuine list *value* reaches the plan through `lit`, which returns an `Expr` and so is
-never a `Vector` here."""
+"""
+One argument's contribution to an expression list. A `Vector` argument is flattened one level,
+so `sort(df, [:a, :b])` is `sort(df, :a, :b)`.
+"""
 _expr_flatten(x) = (_as_expr(x),)
 _expr_flatten(xs::AbstractVector) = (_as_expr(x) for x in xs)
 
-"""Coerces an iterable of column references (names, `Expr`s, `Selector`s, or `Vector`s of any of
-those, flattened one level via [`_expr_flatten`](@ref)) into a `Vector{Expr}` ready to have its
-pointers marshalled."""
+"""
+Coerces column references (names, `Expr`s, `Selector`s, or `Vector`s of those) into a
+`Vector{Expr}`.
+"""
 _expr_vector(args) = Expr[e for arg in args for e in _expr_flatten(arg)]
 
 """
     coalesce(exprs::Expr...)::Polars.Expr
 
-Returns the first non-null value among `exprs`, evaluated left to right.
+Folds the expressions from left to right keeping the first non-null values.
 """
 function Base.coalesce(first::Expr, rest::Expr...)
     exprs = _expr_vector((first, rest...))
@@ -1229,23 +1059,20 @@ function Base.coalesce(first::Expr, rest::Expr...)
     return Expr(out[])
 end
 
-@wrap_multi_expr_function as_struct polars_expr_as_struct false "Collects `exprs` (columns or expressions) into a single `Struct`-typed expression, one field per input (named after each input's own output name). The write-side counterpart to [`Structs.field_by_name`](@ref)/[`Structs.field_by_index`](@ref)."
+@wrap_multi_expr_function as_struct polars_expr_as_struct false "Take several expressions and collect them into a Struct column."
 
 export as_struct
 
-@wrap_multi_expr_function concat_list polars_expr_concat_list false "Horizontally concatenates the `List`-typed `exprs` into a single `List` per row (row `i`'s output is every input's row-`i` list, in order, flattened one level). Distinct from [`Lists.join`](@ref Polars.Lists.join) (string-joins one row's own list into a scalar) and [`concat`](@ref) (stacks whole frames, not per-row lists). Errors if `exprs` is empty."
+@wrap_multi_expr_function concat_list polars_expr_concat_list false "Concat lists entries."
 
 export concat_list
 
 """
     concat_str(exprs...; separator::AbstractString="", ignore_nulls::Bool=false)::Polars.Expr
 
-Row-wise (horizontal) string concatenation across `exprs` (columns or expressions -- non-string
-dtypes are cast to string first), joined by `separator`. If `ignore_nulls` is `false` (default),
-any `null` in a row makes that row's whole result `null`; if `true`, `null`s are skipped (treated
-as empty) instead. Distinct from [`Strings.join`](@ref Polars.Strings.join) (an aggregation across *all* rows into one
-value) and [`Lists.join`](@ref Polars.Lists.join) (joins each row's own list independently) -- this concatenates
-sibling columns within each row.
+Horizontally concat string columns in linear time.
+
+With `ignore_nulls=false`, a null in any input gives a null result.
 """
 function concat_str(exprs...; separator::AbstractString = "", ignore_nulls::Bool = false)
     exprs = _expr_vector(exprs)
@@ -1266,15 +1093,8 @@ export concat_str
 """
     format(fmt::AbstractString, args...)::Polars.Expr
 
-Formats `args` into `fmt`, where each `{}` placeholder consumes one argument in order. Each
-argument is an `Expr`, or a `String`/`Symbol` naming a column (as in [`col`](@ref)) -- a bare
-numeric literal is **not** accepted here, unlike some other functions in this package; wrap it in
-[`lit`](@ref) first. The number of `{}` placeholders must equal the number of `args`, or a
-`PolarsError` is raised. `fmt` also accepts upstream's `{0}`/`{name}` forms (positional/named
-placeholders, matching `args` by index or resolving `name` directly as a column reference) --
-but not mixed with bare `{}` in the same call. The row-wise counterpart of `Base.string` over
-several columns; see also [`concat_str`](@ref), which joins with a fixed separator instead of a
-template.
+Format the expressions into `fmt`, with a `{}` placeholder per argument. `args` are expressions
+or column names.
 """
 function format(fmt::AbstractString, args...)
     exprs = _expr_vector(args)
@@ -1290,25 +1110,24 @@ end
 
 export format
 
-@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenates `exprs` into a single fixed-size `Array` column, one element per input expression -- the `Array`-dtype counterpart of [`concat_list`](@ref). All inputs must share a dtype. **Building the plan and `collect`ing it both succeed, but nothing that needs to resolve the `Array` dtype does**: `collect_schema`, `schema`, and indexing into a collected `DataFrame`'s `Array` column all raise an `ErrorException` from the Arrow schema parser, which does not yet recognize the fixed-size-list format -- this is a package limitation, not a query error. Use [`explain`](@ref) to confirm the plan was built, or cast the result away from `Array` before inspecting it."
+@wrap_multi_expr_function concat_arr polars_expr_concat_arr false "Horizontally concatenate columns into a single array-type column.\n\nNote: `Array` columns cannot be read back into Julia, and `collect_schema` fails on a frame that contains one."
 
 export concat_arr
 
-@wrap_multi_expr_function all_horizontal polars_expr_all_horizontal false "Row-wise (horizontal) boolean AND across `exprs`. The output column is named `\"all\"` unless [`alias`](@ref)ed."
-@wrap_multi_expr_function any_horizontal polars_expr_any_horizontal false "Row-wise (horizontal) boolean OR across `exprs`. The output column is named `\"any\"` unless [`alias`](@ref)ed."
-@wrap_multi_expr_function min_horizontal polars_expr_min_horizontal false "Row-wise (horizontal) minimum across `exprs`. The output column is named `\"min\"` unless [`alias`](@ref)ed."
-@wrap_multi_expr_function max_horizontal polars_expr_max_horizontal false "Row-wise (horizontal) maximum across `exprs`. The output column is named `\"max\"` unless [`alias`](@ref)ed."
-@wrap_multi_expr_function sum_horizontal polars_expr_sum_horizontal true "Row-wise (horizontal) sum across `exprs`. If `ignore_nulls` is `true` (default), nulls are treated as `0`; if `false`, any null in a row makes that row's sum `null`."
-@wrap_multi_expr_function mean_horizontal polars_expr_mean_horizontal true "Row-wise (horizontal) mean across `exprs`. If `ignore_nulls` is `true` (default), nulls are excluded from the average; if `false`, any null in a row makes that row's mean `null`."
+@wrap_multi_expr_function all_horizontal polars_expr_all_horizontal false "Create a new column with the bitwise-and of the elements in each row.\n\nThe name of the resulting column will be \"all\"; use [`alias`](@ref) to choose a different name."
+@wrap_multi_expr_function any_horizontal polars_expr_any_horizontal false "Create a new column with the bitwise-or of the elements in each row.\n\nThe name of the resulting column will be \"any\"; use [`alias`](@ref) to choose a different name."
+@wrap_multi_expr_function min_horizontal polars_expr_min_horizontal false "Create a new column with the minimum value per row.\n\nThe name of the resulting column will be \"min\"; use [`alias`](@ref) to choose a different name."
+@wrap_multi_expr_function max_horizontal polars_expr_max_horizontal false "Create a new column with the maximum value per row.\n\nThe name of the resulting column will be \"max\"; use [`alias`](@ref) to choose a different name."
+@wrap_multi_expr_function sum_horizontal polars_expr_sum_horizontal true "Sum all values horizontally across columns."
+@wrap_multi_expr_function mean_horizontal polars_expr_mean_horizontal true "Compute the mean of all values horizontally across columns."
 
 export all_horizontal, any_horizontal, min_horizontal, max_horizontal, sum_horizontal, mean_horizontal
 
 """
     interpolate(expr::Polars.Expr; method::Symbol=:linear)::Polars.Expr
 
-Fills `null`s by interpolating between the surrounding non-null values, using `method`: `:linear`
-(default) or `:nearest`. Leading/trailing `null`s (with no non-null value on one side) remain
-`null`.
+Interpolate intermediate values. `method` is `:linear` or `:nearest`. Nulls at the beginning and
+end of the series remain null.
 """
 function interpolate(expr::Expr; method::Symbol = :linear)
     method_enum = _enum_lookup(
@@ -1327,9 +1146,7 @@ export interpolate
 """
     diff(expr::Polars.Expr, n=1; null_behavior::Symbol=:ignore)::Polars.Expr
 
-Computes the first discrete difference between shifted items (`expr[i] - expr[i - n]`).
-`null_behavior` is one of `:ignore` (default, pads the first `n` values with `null`) or `:drop`
-(drops the first `n` values instead).
+Calculate the n-th discrete difference between values. `null_behavior` is `:ignore` or `:drop`.
 """
 function Base.diff(expr::Expr, n = 1; null_behavior::Symbol = :ignore)
     n = convert(Expr, n)
@@ -1338,7 +1155,5 @@ function Base.diff(expr::Expr, n = 1; null_behavior::Symbol = :ignore)
     return Expr(out)
 end
 
-# `to_lowercase`/`to_uppercase` are exported by `@wrap_simple_ops` itself (they're generated in
-# this file's block alongside `keep_name`), so they are deliberately absent here.
 export col, alias, prefix, suffix, prefix_fields, suffix_fields, lit, cast, when, element, len,
     cast_datetime, cast_duration, cast_decimal, cast_categorical

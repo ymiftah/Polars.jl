@@ -83,7 +83,7 @@ end
     r_var = select(df, alias(ewm_var(col("a"); alpha = 0.5, ignore_nulls = false), "v"))
     r_std = select(df, alias(ewm_std(col("a"); alpha = 0.5, ignore_nulls = false), "s"))
     # first element is null, not 0.0 -- the unbiased (sample) variance of one observation is
-    # undefined (polars-compute 0.55: cov.rs no longer special-cases non_null_count == 1 to 0.0)
+    # undefined
     @test approx_or_missing(r_var[:v], [missing, 4.5, 1.9285714285714284])
     @test approx_or_missing(r_std[:s] .^ 2, r_var[:v])
 end

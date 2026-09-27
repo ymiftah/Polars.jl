@@ -1,31 +1,14 @@
-# This file has two parts, in this order (the ordering is load-bearing -- see below):
-#
-#   1. Top-level code (this section, directly in `module Polars`, mirroring how `Expr` itself is
-#      defined top-level in `expr/expr.jl`): the `Selector` type, its `_as_expr` method (easy to
-#      miss since `_as_expr`'s other methods live in `expr/expr.jl`, a different file -- this is
-#      the one that lets a bare `Selector` flow straight into `select`/`with_columns`/`filter`/...
-#      exactly like an `Expr`), and the `|`/`&`/`-`/`xor` combinator operators.
-#   2. `module Selectors` (below): the namespace of constructor functions (`all`, `numeric`,
-#      `by_name`, ...) that build `Selector` values, mirroring the `Structs`/`Dt`/`Lists`/`Strings`
-#      namespace-submodule pattern -- qualified-use only (`Selectors.numeric()`), matching
-#      py-polars' own `import polars.selectors as cs` convention and avoiding clashes with
-#      `string`/`float`/`all`/`time`/`contains` (all real `Base` exports).
-#
-# `Selector` must be defined before `module Selectors` opens (part 2 does `using ..Polars:
-# Selector`, which resolves against the enclosing `Polars` module's namespace *as built so far* --
-# same file, sequential top-to-bottom evaluation, same trick `Structs`'s `using ..Polars:
-# _name_ptrs` already relies on for a name defined in a different, earlier-included file).
+# The `Selector` type and its set operators, then the `Selectors` module of constructors (which
+# imports `Selector`, so it must come second).
 
 """
     Selector
 
-A column selector.
+A column selector. Can be used anywhere an `Expr` is accepted, and combined with `|`, `&`, `-`
+and `xor`.
 
-!!! note "Mixing a `Selector` with a plain `Expr` via `|`/`&`/`-`/`xor` is a `MethodError`, not a promotion"
-    `numeric() | col("x")` has genuinely ambiguous intent (does `col("x")` mean "the column named
-    x" or "select by name x"?), so no method exists for it in either argument order -- this is
-    deliberate, not an oversight. Combine two `Selector`s, or convert one side to a `Selector`
-    yourself first (e.g. `Selectors.by_name("x")` instead of `col("x")`).
+Note: combining a `Selector` with an `Expr` is a `MethodError`; convert the `Expr` side first
+(e.g. `Selectors.by_name("x")` instead of `col("x")`).
 """
 struct Selector
     expr::Expr
@@ -33,13 +16,9 @@ end
 
 _as_expr(s::Selector) = s.expr
 
-"""Builds the `Selector` produced by combining `a`/`b` through the raw `f`
-(`polars_expr_selector_union`/`_intersect`/`_difference`/`_exclusive_or`), which fail with a
-`PolarsError` (not a crash) if either side is not actually a `Selector`-backed `Expr` -- see
-`expect_selector` on the Rust side. That path is normally unreachable from pure Julia (the
-operator methods below only ever get called with two real `Selector`s -- anything else is already
-a `MethodError` before this function runs), but stays fallible here so the C ABI's own invariant
-is still honored end to end."""
+"""
+Combines two selectors with one of the `polars_expr_selector_*` set operations.
+"""
 function _combine_selectors(f, a::Selector, b::Selector)
     out = Ref{Ptr{polars_expr_t}}()
     err = f(a.expr, b.expr, out)
@@ -64,48 +43,37 @@ Base.:&(a::Selector, b::Selector) = _combine_selectors(polars_expr_selector_inte
 """
     a::Selector - b::Selector
 
-Difference: columns matched by `a` but not by `b`. `Selectors.all() - Selectors.numeric()`
-selects every non-numeric column.
+Difference: columns matched by `a` but not by `b`.
 """
 Base.:-(a::Selector, b::Selector) = _combine_selectors(polars_expr_selector_difference, a, b)
 
 """
     xor(a::Selector, b::Selector)
 
-Exclusive or: columns matched by exactly one of `a`/`b`. Note this is Julia's `xor`/`⊻`, not `^`
--- `^` always means exponentiation in Julia, unlike Python's `cs.numeric() ^ cs.string()`.
+Exclusive or: columns matched by exactly one of `a` and `b`.
 """
 Base.xor(a::Selector, b::Selector) = _combine_selectors(polars_expr_selector_exclusive_or, a, b)
 
 """
     Selectors
 
-Column selectors, used qualified -- `Selectors.numeric()` -- matching `Structs`/`Dt`/`Lists`/`Strings`
-and avoiding clobbering `Base.all`/`string`/`float`/`time`/`contains`, which several selector names
-would otherwise collide with.
-
-Every function here returns a [`Selector`](@ref), which can be passed anywhere an `Expr` is
-accepted (`select`, `with_columns`, `filter`, `sort`, ...) and combined with `|`/`&`/`-`/`⊻`.
+Column selectors. Every function returns a [`Selector`](@ref).
 
 | Function | Selects |
 |---|---|
-| `all()` | every column |
-| `numeric()`, `integer()`, `unsigned_integer()`, `signed_integer()`, `float()` | numeric dtype families |
+| `all()`, `empty()` | every column, no column |
+| `numeric()`, `integer()`, `unsigned_integer()`, `signed_integer()`, `float()` | numeric dtypes |
 | `string()`, `boolean()`, `binary()` | `String`/`Bool`/`Vector{UInt8}` columns |
-| `date()`, `time()`, `datetime()`, `duration()` | temporal dtypes (`datetime`/`duration` match any time unit/zone) |
-| `temporal()` | any of the above temporal dtypes |
+| `date()`, `time()`, `datetime()`, `duration()`, `temporal()` | temporal dtypes |
 | `categorical()`, `decimal()` | Categorical/Decimal columns |
-| `struct_()`, `list()`, `array()`, `nested()` | nested dtypes (`struct_`/`list`/`array` match any inner type) |
-| `by_dtype(dtypes...)` | explicit Julia dtype(s), e.g. `by_dtype(Int64, String)` |
-| `by_name(names...; strict=true)` | explicit column names |
-| `by_index(indices...; strict=true)` | explicit column positions (1-based, see below) |
+| `struct_()`, `list()`, `array()`, `nested()` | nested dtypes |
+| `by_dtype(dtypes...)` | the given Julia types |
+| `by_name(names...; strict=true)` | the given column names |
+| `by_index(indices...; strict=true)` | the given column positions |
 | `matches(pattern)` | column names matching a regex |
-| `starts_with(prefixes...)`, `ends_with(suffixes...)`, `contains(substrings...)` | column names by literal substring (regex-escaped internally, not user-facing regex) |
+| `starts_with(...)`, `ends_with(...)`, `contains(...)` | column names by literal substring |
 
-!!! note "`by_index` is 1-based"
-    1-based indexing is the convention everywhere else in this package, matching
-    [`Polars.nth`](@ref). Negative indices count back from the end (`by_index(-1)` is the last
-    column, same as `nth(-1)`).
+Note: `by_index` is 1-based, like [`Polars.nth`](@ref).
 """
 module Selectors
 
@@ -118,20 +86,14 @@ module Selectors
     """
         all()::Selector
 
-    Selects every column (`Selector::Wildcard` upstream) -- the identity element for
-    [`Base.:&`](@ref)/[`Base.xor`](@ref), and `all() - s` is how you'd complement any other selector
-    `s` (e.g. `all() - numeric()` selects every non-numeric column).
+    Select all columns.
     """
     all() = _wrap(API.polars_expr_selector_all())
 
     """
         empty()::Selector
 
-    Selects no columns at all -- the identity element for [`Base.:|`](@ref) (`empty() | s == s`)
-    and the annihilator for [`Base.:&`](@ref) (`empty() & s == empty()`). Has no dedicated name in
-    py-polars' own `selectors` module (there, `cs.by_name()` with no names is the equivalent), but
-    is included here for completeness of the selector algebra -- the underlying Rust primitive
-    already backs every other combinator in this module.
+    Select no columns.
     """
     empty() = _wrap(API.polars_expr_selector_empty())
 
@@ -140,114 +102,104 @@ module Selectors
     """
         numeric()::Selector
 
-    Selects columns of any numeric dtype (integer, unsigned integer, or float).
+    Select all numeric columns.
     """
     numeric() = _dtype_simple(API.PolarsDtypeSelectorKindNumeric)
 
     """
         integer()::Selector
 
-    Selects columns of any integer dtype (signed or unsigned).
+    Select all integer columns.
     """
     integer() = _dtype_simple(API.PolarsDtypeSelectorKindInteger)
 
     """
         unsigned_integer()::Selector
 
-    Selects columns of any unsigned integer dtype (`UInt8`/`UInt16`/`UInt32`/`UInt64`).
+    Select all unsigned integer columns.
     """
     unsigned_integer() = _dtype_simple(API.PolarsDtypeSelectorKindUnsignedInteger)
 
     """
         signed_integer()::Selector
 
-    Selects columns of any signed integer dtype (`Int8`/`Int16`/`Int32`/`Int64`).
+    Select all signed integer columns.
     """
     signed_integer() = _dtype_simple(API.PolarsDtypeSelectorKindSignedInteger)
 
     """
         float()::Selector
 
-    Selects columns of any float dtype (`Float32`/`Float64`).
+    Select all float columns.
     """
     float() = _dtype_simple(API.PolarsDtypeSelectorKindFloat)
 
     """
         temporal()::Selector
 
-    Selects columns of any temporal dtype (Date, Datetime, Duration, or Time).
+    Select all temporal columns (Date, Datetime, Duration, Time).
     """
     temporal() = _dtype_simple(API.PolarsDtypeSelectorKindTemporal)
 
     """
         categorical()::Selector
 
-    Selects Categorical-dtype columns.
+    Select all categorical columns.
     """
     categorical() = _dtype_simple(API.PolarsDtypeSelectorKindCategorical)
 
     """
         decimal()::Selector
 
-    Selects Decimal-dtype columns (any precision/scale).
+    Select all decimal columns.
     """
     decimal() = _dtype_simple(API.PolarsDtypeSelectorKindDecimal)
 
     """
         nested()::Selector
 
-    Selects columns of any nested dtype (List, Array, or Struct).
+    Select all nested columns (List, Array, Struct).
     """
     nested() = _dtype_simple(API.PolarsDtypeSelectorKindNested)
 
     """
         struct_()::Selector
 
-    Selects Struct-dtype columns (any field set). Trailing underscore because `struct` is a reserved
-    word in Julia.
+    Select all struct columns.
     """
     struct_() = _dtype_simple(API.PolarsDtypeSelectorKindStruct)
 
     """
         datetime()::Selector
 
-    Selects Datetime-dtype columns, matching any time unit and any time zone (including naive).
-    Matching a *specific* time unit/zone is not exposed in this first cut -- see [`Selectors`](@ref)'s
-    scope note.
+    Select all datetime columns, with any time unit and time zone.
     """
     datetime() = _dtype_simple(API.PolarsDtypeSelectorKindDatetime)
 
     """
         duration()::Selector
 
-    Selects Duration-dtype columns, matching any time unit. Matching a *specific* time unit is not
-    exposed in this first cut -- see [`Selectors`](@ref)'s scope note.
+    Select all duration columns, with any time unit.
     """
     duration() = _dtype_simple(API.PolarsDtypeSelectorKindDuration)
 
     """
         list()::Selector
 
-    Selects List-dtype columns, matching any inner dtype. Composing a selector over the inner dtype is
-    not supported -- see
-    [`Selectors`](@ref)'s scope note.
+    Select all list columns.
     """
     list() = _dtype_simple(API.PolarsDtypeSelectorKindList)
 
     """
         array()::Selector
 
-    Selects Array (fixed-size list)-dtype columns, matching any inner dtype/width. Composing a
-    selector over the inner dtype is not supported -- see [`Selectors`](@ref)'s scope note. There
-    is no write-side path for building an Array column directly from Julia data yet; construct one
-    via `Lists.to_array` over an existing List column.
+    Select all array columns.
     """
     array() = _dtype_simple(API.PolarsDtypeSelectorKindArray)
 
-    """Builds a single-dtype selector directly from an already-resolved `polars_value_type_t` enum
-    value (as opposed to [`by_dtype`](@ref), which maps *Julia types* to that enum -- these fixed
-    wrappers already know their enum value, so they bypass that mapping rather than round-tripping
-    through it)."""
+    """
+    Selector for a single `polars_value_type_t`.
+    """
     function _dtype_one(value_type)
         value_types = API.polars_value_type_t[value_type]
         out = Ref{Ptr{polars_expr_t}}()
@@ -259,47 +211,41 @@ module Selectors
     """
         string()::Selector
 
-    Selects `String`-dtype columns.
+    Select all string columns.
     """
     string() = _dtype_one(API.PolarsValueTypeString)
 
     """
         boolean()::Selector
 
-    Selects `Bool`-dtype columns.
+    Select all boolean columns.
     """
     boolean() = _dtype_one(API.PolarsValueTypeBoolean)
 
     """
         binary()::Selector
 
-    Selects Binary (`Vector{UInt8}`)-dtype columns.
+    Select all binary columns.
     """
     binary() = _dtype_one(API.PolarsValueTypeBinary)
 
     """
         date()::Selector
 
-    Selects `Date`-dtype columns.
+    Select all date columns.
     """
     date() = _dtype_one(API.PolarsValueTypeDate)
 
     """
         time()::Selector
 
-    Selects `Dates.Time`-dtype columns.
+    Select all time columns.
     """
     time() = _dtype_one(API.PolarsValueTypeTime)
 
     """
-    Maps a Julia type to the `polars_value_type_t` C enum code [`by_dtype`](@ref) sends across the
-    FFI boundary. Delegates the plain, parameter-free dtypes to `Polars._plain_value_type_code` --
-    the same table `cast` uses, kept in one place rather than duplicated here -- and handles the
-    two parametrized-in-Rust exceptions itself: `DateTime`/duration `Period` subtypes reach the
-    Rust side's own `to_dtype`, which deliberately rejects them, since Datetime/Duration need a
-    time unit (and Datetime a time zone) that a bare type code can't carry (use
-    [`datetime`](@ref)/[`duration`](@ref) instead) -- surfacing a real `PolarsError` rather than
-    failing earlier in Julia with an unrelated kind of error.
+    Maps a Julia type to the `polars_value_type_t` for [`by_dtype`](@ref). `DateTime` and `Period`
+    types map to codes that the Rust side rejects (they need a time unit).
     """
     function _by_dtype_value_type(dtype)
         plain = _plain_value_type_code(dtype)
@@ -316,21 +262,11 @@ module Selectors
     """
         by_dtype(dtypes...)::Selector
 
-    Selects columns whose dtype is one of `dtypes`, given as Julia types (e.g.
-    `by_dtype(Int64, Float64)`, matching the same type spellings [`Polars.cast`](@ref) accepts). `Datetime`,
-    duration `Period` subtypes, `Decimal`, `List`, and `Struct` need parameters a plain dtype code
-    can't carry, so passing one of those (e.g. `by_dtype(DateTime)`) raises a `PolarsError` -- use
-    [`datetime`](@ref)/[`duration`](@ref)/[`decimal`](@ref)/[`list`](@ref)/[`struct_`](@ref) instead.
-    `by_dtype()` (no dtypes) is a valid selector that matches zero columns, same as any other
-    selector with nothing to match.
+    Select all columns of the given Julia types, e.g. `by_dtype(Int64, Float64)`.
 
-    !!! note "A single argument is deliberately *not* also accepted as a collection"
-        Unlike some other verbs in this package, there is no second `by_dtype(dtypes::AbstractVector)`
-        method: with one, dispatching `by_dtype(dtypes)` on a *single* bare type (the most natural
-        call, e.g. `by_dtype(DateTime)`) is ambiguous with dispatching it as a one-element varargs
-        call, and Julia resolves that ambiguity by treating the single argument as the iterable itself
-        -- silently trying to iterate `DateTime` (a `Type`, not a collection) rather than treating it
-        as one dtype. Always call with each dtype as its own argument.
+    Note: `DateTime`, `Period` types, `Decimal`, `List` and `Struct` are not supported; use
+    [`datetime`](@ref), [`duration`](@ref), [`decimal`](@ref), [`list`](@ref) or
+    [`struct_`](@ref).
     """
     function by_dtype(dtypes...)
         value_types = API.polars_value_type_t[_by_dtype_value_type(dt) for dt in dtypes]
@@ -343,9 +279,7 @@ module Selectors
     """
         by_name(names::AbstractString...; strict::Bool=true)::Selector
 
-    Selects the given column names explicitly. If `strict` (default), selecting a name absent from
-    the frame raises a `PolarsError` at `select`/`with_columns`/... time; if not, a missing name is
-    silently skipped. `by_name()` (no names) is a valid selector that matches zero columns.
+    Select all columns with the given names. With `strict=true`, a missing column is an error.
     """
     function by_name(names::Vector{String}; strict::Bool = true)
         out = Ref{Ptr{polars_expr_t}}()
@@ -362,9 +296,10 @@ module Selectors
     """
         by_index(indices::Integer...; strict::Bool=true)::Selector
 
-    Selects columns by position. **1-based**, matching this package's own [`Polars.nth`](@ref). Negative
-    indices count from the end (`by_index(-1)` is the last column, same as `nth(-1)`). If `strict`
-    (default), an out-of-range index raises a `PolarsError`; if not, it is silently skipped.
+    Select all columns at the given positions. With `strict=true`, an out-of-range index is an
+    error.
+
+    Note: indices are 1-based; negative indices count from the end.
     """
     function by_index(indices::Vector{<:Integer}; strict::Bool = true)
         zero_based = Int64[i < 0 ? Int64(i) : Int64(i) - 1 for i in indices]
@@ -383,17 +318,14 @@ module Selectors
     """
         matches(pattern::AbstractString)::Selector
 
-    Selects column names matching the regex `pattern` (used verbatim, unanchored -- the underlying
-    polars regex engine, not Julia's `Regex`/PCRE).
+    Select all columns whose name matches the regex `pattern`.
     """
     matches(pattern::AbstractString) = _matches_kind(API.PolarsSelectorMatchKindRegex, pattern)
 
     """
         starts_with(prefixes::AbstractString...)::Selector
 
-    Selects column names starting with any of `prefixes` (a literal substring match, not a regex --
-    any regex metacharacters in `prefixes` are matched literally). At least
-    one prefix is required.
+    Select all columns whose name starts with one of `prefixes`.
     """
     function starts_with(prefixes::AbstractString...)
         isempty(prefixes) &&
@@ -404,9 +336,7 @@ module Selectors
     """
         ends_with(suffixes::AbstractString...)::Selector
 
-    Selects column names ending with any of `suffixes` (a literal substring match, not a regex -- any
-    regex metacharacters in `suffixes` are matched literally). At least one
-    suffix is required.
+    Select all columns whose name ends with one of `suffixes`.
     """
     function ends_with(suffixes::AbstractString...)
         isempty(suffixes) && throw(ArgumentError("Selectors.ends_with requires at least one suffix"))
@@ -416,9 +346,7 @@ module Selectors
     """
         contains(substrings::AbstractString...)::Selector
 
-    Selects column names containing any of `substrings` anywhere (a literal substring match, not a
-    regex -- any regex metacharacters in `substrings` are matched literally). At least one
-    substring is required.
+    Select all columns whose name contains one of `substrings`.
     """
     function contains(substrings::AbstractString...)
         isempty(substrings) &&
@@ -429,12 +357,7 @@ module Selectors
     export numeric, integer, unsigned_integer, signed_integer, boolean, binary,
         temporal, categorical, date, datetime, duration, decimal, struct_, list, array, nested,
         by_dtype, by_name, by_index, matches, starts_with, ends_with
-    # `all`/`float`/`string`/`time`/`contains`/`empty` are deliberately *not* exported -- each
-    # collides with an exported `Base` binding (`Base.all`/`Base.float`/`Base.string`/`Base.time`/
-    # `Base.contains`/`Base.empty`), so `using Polars.Selectors` would otherwise clash with those
-    # (same reasoning as `Lists`' `get`/`contains`/`head`, `Strings`' none, `Dt`'s none -- this
-    # namespace collides the most since it mirrors so much of `Base`'s own vocabulary). Qualified
-    # use (`Selectors.all()`, etc.) always works regardless.
+    # Not exported (collide with Base): `all`, `float`, `string`, `time`, `contains`, `empty`.
 
 end # module Selectors
 
@@ -443,20 +366,7 @@ end # module Selectors
     exclude(dtypes::Type...)::Selector
     exclude()::Selector
 
-Selects every column except `names` (by name) or `dtypes` (by dtype, matching
-[`Selectors.by_dtype`](@ref)'s own type set) -- the top-level counterpart to
-[`Selectors.by_name`](@ref)'s inverse and [`Selectors.by_dtype`](@ref)'s inverse, respectively.
-`exclude("a")` is `Selectors.all() - Selectors.by_name("a"; strict=false)`; `exclude(Int64)` is
-`Selectors.all() - Selectors.by_dtype(Int64)`. Unlike `Selectors.by_name`, a name in `names`
-absent from the frame is silently ignored rather than raising, matching upstream `pl.exclude`'s
-"exclude these if present" semantics -- the motivating use case is a name list shared across
-frames that don't all have every column. `exclude()` (no arguments) selects every column, the
-identity for this family.
-
-!!! note "Mixing a name and a dtype in one call is a `MethodError`, not a `TypeError`"
-    Matches upstream, which rejects `pl.exclude("a", pl.Int64)` the same way (there, a
-    `TypeError`). Combine two `exclude` calls with [`&`](@ref Base.:&(::Polars.Selector,
-    ::Polars.Selector)) instead: `exclude("a") & exclude(Int64)`.
+Select all columns except the given names or dtypes. Names that are not present are ignored.
 """
 exclude(names::AbstractString...) = Selectors.all() - Selectors.by_name(names...; strict = false)
 exclude(dtypes::Type...) = Selectors.all() - Selectors.by_dtype(dtypes...)

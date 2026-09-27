@@ -55,11 +55,9 @@ end
     tdf = DataFrame((; t = [Time(1, 2, 3)]))
     @test collect(select(tdf, cast(col("t"), Int64) |> alias("n"))[:n]) == [3_723_000_000_000]
 
-    # out-of-range nanoseconds (negative, or >= 24h) -> missing, not an error. Upstream py-polars'
-    # test_invalid_casts expects this to raise (its plain `.cast()` defaults to strict=True) --
-    # our cast() always uses CastOptions::NonStrict (see plans/parity/batch-6-replace-whenthen-
-    # cast.md's already-flagged "no strict cast option exposed" gap; this is the same root cause,
-    # not a new one, so it's captured here as our own actual behavior rather than re-flagged).
+    # out-of-range nanoseconds (negative, or >= 24h) -> missing, not an error. py-polars'
+    # test_invalid_casts expects a raise because its `.cast()` defaults to strict=True; this
+    # package's `cast` defaults to strict=false.
     df_bad = DataFrame((; a = Int64[-1, 24 * 60 * 60 * 1_000_000_000]))
     r_bad = select(df_bad, alias(cast(col("a"), Time), "t"))
     @test all(ismissing, collect(r_bad[:t]))

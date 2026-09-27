@@ -1,8 +1,6 @@
 @testset "Structs namespace" begin
-    # Struct column construction from Vector{<:NamedTuple} (Milestone E3b) and value_counts
-    # (Tier 1) both provide genuine struct-typed columns from pure Julia -- field_by_name
-    # is already covered via the write path in datatypes/list_struct_write.jl; this covers the
-    # remaining field_by_index/rename_fields.
+    # Struct columns from Vector{<:NamedTuple} and value_counts. field_by_name is covered in
+    # datatypes/list_struct_write.jl; this covers field_by_index/rename_fields.
     df = DataFrame((; s = [(a = 1, b = "x"), (a = 2, b = "y"), (a = 3, b = "z")]))
     r = read_parquet(write_temp_parquet(df))
 
@@ -45,7 +43,7 @@ end
     @test_throws PolarsError select(r, Structs.rename_fields(col("s"), ["same", "same", "c"]))
 end
 
-@testset "prefix_fields / suffix_fields (py-polars test_prefix_suffix_fields, Group 4 gap closure)" begin
+@testset "prefix_fields / suffix_fields" begin
     # `.name.prefix_fields`/`.name.suffix_fields` upstream -- top-level here (not under `Structs`),
     # mirroring how `prefix`/`suffix` (the non-Struct, whole-expression renamers) already are.
     df = DataFrame((; x = [(a = 1, b = 2)]))
@@ -85,7 +83,7 @@ end
     @test_throws PolarsError select(r, Structs.field_by_index(col("s"), 5))
 end
 
-@testset "Structs.with_fields: overwrite in place, or append a genuinely new field (see plans/parity/gap_closure_scope.md)" begin
+@testset "Structs.with_fields: overwrite in place, or append a genuinely new field" begin
     df = DataFrame((; s = [(a = 1, b = 2), (a = 2, b = 1)]))
     r = read_parquet(write_temp_parquet(df))
 
@@ -104,7 +102,7 @@ end
     @test out_add[2] == (a = 2, b = 1, sum = 3)
 end
 
-@testset "Structs.json_encode (see plans/parity/gap_closure_scope.md)" begin
+@testset "Structs.json_encode" begin
     df = DataFrame((; s = [(a = 1, b = 2), (a = 2, b = 1)]))
     r = read_parquet(write_temp_parquet(df))
     out = collect(select(r, alias(Structs.json_encode(col("s")), "j"))[:j])

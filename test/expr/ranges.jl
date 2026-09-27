@@ -49,14 +49,14 @@
     end
 
     # test_datetime_time_zone: parametrized time zone, component round-trip (size-only, since
-    # reading a tz-aware value back requires TimeZones.jl, per CLAUDE.md)
+    # reading a tz-aware value back requires TimeZones.jl)
     for tz in (nothing, "Europe/Amsterdam", "UTC")
         r_tz = select(df1, alias(datetime(2022, 1, 2; hour = 10, time_zone = tz), "r"))
         @test size(r_tz) == (1, 1)
     end
 
     # time zone + ambiguous cross the ABI as strings: exercised with a real IANA zone
-    # (Europe/Paris) rather than only ASCII placeholders, per CLAUDE.md's ncodeunits warning.
+    # (Europe/Paris).
     # 2024-01-01 is not a DST fall-back, so this is unambiguous and just proves the tz round-trips.
     dftz = DataFrame((; x = [1]))
     rtz = select(dftz, alias(datetime(2024, 1, 1; hour = 12, time_zone = "Europe/Paris"), "r"))
@@ -125,13 +125,9 @@
     @test size(select(dfe, alias(datetime(col("year"), 1, 1), "datetime"))) == (0, 1)
     @test size(with_columns(dfe, alias(datetime(col("year"), 1, 1), "datetime"))) == (0, 2)
 
-    # test_datetime_name (Step 8 divergence, see `datetime`'s docstring in src/expr/ranges.jl):
-    # upstream names the output column after the first non-literal argument's own name ("year"),
-    # or "literal" when the first argument is itself a literal. This package's vendored
-    # `polars-plan` (0.54.4) always aliases to the fixed name "datetime" -- a `// TODO: follow
-    # left-hand rule in Polars 2.0` not yet implemented in that crate version, confirmed by reading
-    # its own source directly. Recorded as `@test_broken` against upstream's expectation, alongside
-    # the actual (asserted-as-fact) behavior.
+    # test_datetime_name: py-polars names the output after the first non-literal argument ("year"),
+    # or "literal". The Rust `polars` crate always names it "datetime" (a TODO upstream), so
+    # py-polars' expectation is `@test_broken`, next to the actual behavior.
     @test_broken names(select(dfh, datetime(col("year"), col("month"), col("day"); hour = col("hour")))) == ["year"]
     @test names(select(dfh, datetime(col("year"), col("month"), col("day"); hour = col("hour")))) == ["datetime"]
     @test_broken names(select(dfh, datetime(2024, col("month"), col("day"); hour = col("hour")))) == ["literal"]
@@ -213,8 +209,7 @@ end
     # test_duration_wildcard_expansion: a wildcard argument expands to one output column per input
     # column, each keeping its own name via `keep_name` (upstream: `.name.keep()`) -- without it,
     # every expansion collides under `duration`'s own default name ("literal", since the unset
-    # `weeks` field stays `lit(0)` and governs the default name; confirmed live, matches the
-    # single-arg case above where duration(; days=...) alone also defaults to no fixed rename).
+    # `weeks` field stays `lit(0)` and governs the default name, as in the single-arg case above).
     dfw = DataFrame((; a = [1], b = [2]))
     rw = select(dfw, keep_name(duration(; hours = col("*"))))
     @test names(rw) == ["a", "b"]
@@ -316,10 +311,7 @@ end
 
     # test_from_epoch (docstring fixture): fractional-second float input at time_unit="s" must
     # keep full microsecond precision (upstream scales x1_000_000 and lands on Datetime(:us)) --
-    # this was a genuine bug (fixed in src/expr/ranges.jl): the old implementation scaled x1_000
-    # to Datetime(:ms), silently truncating sub-millisecond precision. Checked via `Dt.microsecond`
-    # rather than round-tripping through Julia's own `DateTime` (millisecond resolution only, so it
-    # cannot itself distinguish the two).
+    # Checked via `Dt.microsecond`, since Julia's `DateTime` has millisecond resolution.
     dff = DataFrame((; ts = [-609066.723456, 1066445333.8888, 3405071999.987654]))
     r_us_component = select(dff, alias(cast(Dt.microsecond(from_epoch(col("ts"), :s)), Int64), "us"))
     @test r_us_component[:us] == [276544, 888800, 987654]
@@ -444,7 +436,7 @@ end
     @test_throws PolarsError datetime_range(DateTime(2001, 1, 1), DateTime(2001, 1, 3); time_zone = "foo")
 
     # time_zone round-trips through the ABI cleanly (size-only check, since reading a tz-aware
-    # value back requires TimeZones.jl, per CLAUDE.md -- same convention as `datetime`'s own tests)
+    # value back requires TimeZones.jl, as in `datetime`'s tests)
     for tz in (nothing, "Europe/Amsterdam", "UTC")
         rtz = select(df1, alias(datetime_range(DateTime(2022, 1, 1), DateTime(2022, 1, 2); interval = "6h", time_zone = tz), "r"))
         @test size(rtz) == (5, 1)

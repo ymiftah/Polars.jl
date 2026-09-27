@@ -165,7 +165,7 @@ end
     # test_format_arg_passing: `{0}` positional indexing, `{name}` implicit column reference,
     # automatic-vs-manual field numbering, out-of-bounds index, and shape mismatches -- upstream
     # distinguishes several exception types here (InvalidOperationError, ShapeError,
-    # ColumnNotFoundError), all of which surface as PolarsError from this Rust FFI, per CLAUDE.md.
+    # ColumnNotFoundError), all of which surface as PolarsError here.
     @test_throws PolarsError select(dfx, format("{} {0}", lit(1)))
     @test_throws PolarsError select(dfx, format("{0} {}", lit(1)))
     @test_throws PolarsError select(dfx, format("test{", lit(1)))
@@ -215,11 +215,8 @@ end
     # collect() itself succeeds -- the failure is in resolving the Array dtype afterward
     d = collect(lf)
 
-    # neither collect_schema nor indexing into the Array column can materialize/introspect it yet
-    # (src/arrow/schema.jl:136, per CLAUDE.md's Array-dtype caveat) -- so upstream's own
-    # `test_concat_arr`/`test_concat_arr_broadcast`/`test_concat_arr_logical_types_20917` value
-    # assertions cannot be ported: there is no way from this package's public API to read the
-    # resulting Array-typed values back out. Only plan-construction/collect-success is checked.
+    # Array columns can't be read back into Julia, so upstream's `test_concat_arr*` value assertions
+    # don't port; only that the query builds and collects is checked.
     @test_throws ErrorException collect_schema(lf)
     @test_throws ErrorException d[:arr]
 

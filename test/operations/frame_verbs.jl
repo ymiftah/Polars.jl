@@ -1,4 +1,4 @@
-@testset "get_column / Polars.item (API gap batch four, Phase 5)" begin
+@testset "get_column / Polars.item" begin
     df = DataFrame((; x = [1, 2, 3], y = ["a", "b", "c"]))
 
     # get_column matches plain getindex, same values and name
@@ -99,21 +99,14 @@ end
     r_all = drop(df, ["a", "b", "c"])
     @test size(r_all) == (0, 0)
 
-    # py-polars test_drop: "*" wildcard-drops every column (shape (3, 0)). Confirmed divergence,
-    # live-verified: our `drop` calls the Rust `Selector::ByName` primitive directly with the
-    # literal string "*", which has no glob meaning there (unlike `col("*")`'s expression-level
-    # wildcard) -- it looks for an actual column named "*" and raises `ColumnNotFoundError`-
-    # equivalent instead. See plans/parity/api_gap_audit.md Group 1.
+    # py-polars test_drop: "*" drops every column. Here `drop` passes "*" to `Selector::ByName`,
+    # where it is a literal column name, so it raises instead.
     @test_broken size(drop(df, ["*"])) == (3, 0)
 end
 
 @testset "drop_nulls: empty explicit subset does NOT no-op here (py-polars test_drop_nulls_empty_subset diverges)" begin
-    # Upstream distinguishes subset=None (check all columns, the default) from subset=[]
-    # (explicitly check zero columns -> nothing can be null -> unchanged). Our FFI layer collapses
-    # both onto the same `None` (see `c-polars/src/ffi_util.rs::selector_by_name_opt`'s doc
-    # comment), so an explicitly-empty `String[]` here means "check all columns", the same as
-    # omitting the argument -- not upstream's no-op. Confirmed live: both give the same (smaller)
-    # result on a frame where every row has a null somewhere.
+    # Upstream treats subset=[] as "check no columns" (a no-op). Here an empty subset means "check
+    # all columns", the same as omitting it.
     df = DataFrame((; a = [1, missing], b = [missing, 2]))
     r_explicit_empty = drop_nulls(df, String[])
     r_default = drop_nulls(df)
@@ -190,9 +183,7 @@ end
     r_default = Base.tail(df)
     @test size(r_default) == (5, 1) # default n=5, matching head's default
 
-    # a negative n must raise a clear ArgumentError, not the bare `InexactError` that leaked
-    # through before this was fixed alongside test/lazyframe/head.jl's identical `head` case (the
-    # underlying FFI takes an unsigned `usize`, so there's no `height + n` convenience here)
+    # a negative n raises an ArgumentError (the FFI takes an unsigned count)
     @test_throws ArgumentError Base.tail(df, -2)
 end
 
@@ -328,8 +319,7 @@ end
     @test Tables.columnnames(r2) == (:a, :b, :c, :d, :e)
     @test collect(r2[:e]) == ["x", "y", "z"]
 
-    # length mismatch -- clean PolarsError, not a crash (live-verified: this is a real
-    # DataFrame::new validation path, see plans/definitive_guide_gap_closure.md)
+    # length mismatch -- PolarsError, not a crash
     short = Series("short", [1, 2])
     @test_throws PolarsError hstack(df, [short])
     long = Series("long", [1, 2, 3, 4, 5])
@@ -352,9 +342,7 @@ end
     @test size(r_empty) == (0, 3)
     @test_throws PolarsError hstack(empty_df, [Series("c", [1, 2, 3])])
 
-    # attaching to a truly empty (0 rows, 0 columns) DataFrame: still a height mismatch --
-    # `hstack`'s height comes from `df`'s own stored height (0 here), it is not inferred from
-    # the incoming Series (verified live)
+    # attaching to an empty (0x0) DataFrame is still a height mismatch: the height is `df`'s own (0)
     truly_empty = DataFrame(NamedTuple())
     @test size(truly_empty) == (0, 0)
     @test_throws PolarsError hstack(truly_empty, [Series("z", [1, 2, 3])])
@@ -364,7 +352,7 @@ end
     df = DataFrame((; a = [1, missing, 3], b = [missing, "y", "z"]))
 
     # `fill_value` is cast to each column's own dtype rather than requiring an exact match --
-    # the Int literal `0` becomes the string `"0"` in `b` (verified live), same as upstream.
+    # the Int literal `0` becomes the string `"0"` in `b`, as upstream.
     r = fill_null(df, lit(0))
     @test collect(r[:a]) == [1, 0, 3]
     @test collect(r[:b]) == ["0", "y", "z"]
@@ -444,8 +432,7 @@ end
     @test isequal(collect((quantile(lazy(df), 0.5) |> collect)[:a]), collect(quantile(df, 0.5)[:a]))
 
     # non-numeric (String) column: `missing` in the result rather than a whole-frame `PolarsError`
-    # -- these delegate to upstream's own null-tolerant `LazyFrame::sum`/etc, not a naive
-    # `select(df, sum(col("*")))` composition (verified live: the latter does raise)
+    # (upstream's `LazyFrame::sum` etc. are null-tolerant per column)
     df_str = DataFrame((; a = [1, 2, 3], s = ["x", "y", "z"]))
     @test isequal(collect(Base.sum(df_str)[:s]), [missing])
     @test isequal(collect(mean(df_str)[:s]), [missing])
@@ -506,8 +493,8 @@ end
     @test size(r_empty) == (2, 2)
     @test collect(r_empty[:a]) == [1, 2]
 
-    # schema mismatch: different column count -- clean PolarsError, not a crash (vstack does no
-    # supertype casting, unlike concat's :vertical_relaxed mode -- verified live)
+    # schema mismatch: different column count -- PolarsError, not a crash (vstack does no supertype
+    # casting)
     df_narrow = DataFrame((; a = [1, 2]))
     @test_throws PolarsError vstack(df1, df_narrow)
 
@@ -581,9 +568,7 @@ end
     r_rev_empty = Base.reverse(DataFrame((; x = Int[], y = Int[])))
     @test size(r_rev_empty) == (0, 2)
 
-    # null_count and count disagree on a column with a `missing`: null_count counts nulls,
-    # count counts non-nulls -- the whole point of having both. Live-verified: `a` has one
-    # `missing` (NaN is not null), `b` has none.
+    # null_count counts nulls, count non-nulls: `a` has one `missing` (NaN is not null), `b` none.
     r_nc = null_count(df)
     @test collect(r_nc[:a]) == [1]
     @test collect(r_nc[:b]) == [0]
@@ -632,7 +617,7 @@ end
     # upstream's hypothesis test_null_count carries two explicit (non-generated) @example cases:
     # a schema-only 0-row frame (null_count.shape == (1, ncols)) and a fully empty 0x0 frame
     # (shape == (1, 0)). The 0-row/N-col case matches for both null_count and count; the 0x0 case
-    # does not -- see the note below and plans/parity/tier12-sweep-frame-verbs.md.
+    # does not -- see the note below.
     df_schema_only = DataFrame((; x = Int[], y = Int[], z = Int[]))
     @test size(null_count(df_schema_only)) == (1, 3)
     @test size(count(df_schema_only)) == (1, 3)
@@ -665,7 +650,7 @@ end
 
     # upstream test_fill_nan (py-polars dataframe/test_df.py + lazyframe/test_lazyframe.py):
     # fill_nan(None) turns NaN into a genuine null, not a no-op -- distinct from the default-value
-    # case above (verified live: `convert(Expr, missing)` already exists, see src/expr/expr.jl)
+    # case above
     df_fn = DataFrame((; a = [1.0, NaN, 3.0]))
     r_fn_none = fill_nan(df_fn, missing)
     @test isequal(collect(r_fn_none[:a]), [1.0, missing, 3.0])

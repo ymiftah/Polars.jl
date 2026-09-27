@@ -26,22 +26,15 @@ end
     r_upper = select(df, col("MixedCase") |> to_uppercase)
     @test Tables.columnnames(r_upper) == (:MIXEDCASE,)
 
-    # non-ASCII column name (this package's string-marshalling has a documented history of
-    # mishandling non-ASCII names elsewhere -- see CLAUDE.md -- so exercise it here too)
+    # non-ASCII column name
     r_nonascii = select(df, col("café") |> to_uppercase)
     @test Tables.columnnames(r_nonascii) == (:CAFÉ,)
 
-    # --- chained-rename order: verified LIVE, not assumed from the Rust doc comments ---
+    # --- chained renames ---
     #
-    # `Expr::name().{prefix,suffix,to_lowercase,to_uppercase}` and `alias` all thread through
-    # polars' single `RenameAlias`/`Alias` chain: despite each one's own Rust doc comment saying
-    # it acts on "the root column name", what actually happens (confirmed by reading
-    # `polars-plan`'s `expr_to_ir.rs` conversion for `Expr::RenameAlias`/`Expr::Alias`, and
-    # confirmed live below) is a sequential fold -- each node transforms whatever name the
-    # *immediately preceding* node in the chain already produced, not the original `col(...)`
-    # name. `keep_name` is the one exception: it walks back through the resolved expression tree
-    # to the underlying `Column` node and restores the true original name, undoing every
-    # intervening rename regardless of chain position.
+    # `prefix`/`suffix`/`to_lowercase`/`to_uppercase`/`alias` apply in sequence, each to the name
+    # the previous one produced (not the root column name, despite the Rust docs). `keep_name`
+    # restores the original column name regardless of position.
 
     # alias("RENAMED") then to_lowercase: lowercases "RENAMED" (the alias), not root "x" (which
     # is already lowercase and would be indistinguishable from a no-op if that were the target).

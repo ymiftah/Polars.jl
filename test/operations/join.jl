@@ -260,7 +260,7 @@ end
     # an invalid tolerance string raises a catchable PolarsError, not a crash
     @test_throws PolarsError join_asof(trades, quotes, "time"; tolerance = "not_a_duration")
 
-    # allow_eq = false: an exact key match no longer counts, so a trade must match a *strictly
+    # allow_eq = false: an exact key match doesn't count, so a trade must match a *strictly
     # earlier* quote
     exact = DataFrame((; time = [DateTime(2024, 1, 1, 9, 0, 0)], v = [1]))
     quotes_exact = DataFrame((; time = [DateTime(2024, 1, 1, 9, 0, 0)], bid = [99.0]))

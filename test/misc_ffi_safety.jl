@@ -1,7 +1,5 @@
-# FFI safety tests for the c-polars hardening pass (see plans/c_polars_hardening.md).
-# Several of these exercise paths where a slip invokes undefined behaviour or aborts the whole
-# process rather than raising a catchable Julia error -- so "the test process is still alive" is
-# itself part of what is being asserted.
+# FFI safety tests. Several exercise paths where a mistake would abort the whole process rather
+# than raise a Julia error, so the test process staying alive is part of what is asserted.
 
 using TimeZones
 

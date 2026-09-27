@@ -46,7 +46,7 @@ end
     )
     @test collect(r_specified[:r]) == [10, 20, 20, 0, 0]
 
-    # incomplete mapping + a null present in the input -> raises cleanly (Step 5)
+    # incomplete mapping + a null present in the input -> raises cleanly
     @test_throws PolarsError select(df, alias(replace_strict(col("a"), implode(lit([1])), implode(lit([10]))), "r"))
 end
 

@@ -89,7 +89,7 @@ end
     @test isequal(collect(r_curried_quant[:r]), [1.0, 2.0, 3.0, 3.0, 3.0])
 end
 
-@testset "center shifts the window (verified live, no upstream fixture in this file)" begin
+@testset "center shifts the window" begin
     df = DataFrame((; a = collect(1.0:6.0)))
 
     # window_size=3, center=false (default): each result lands on the window's last row

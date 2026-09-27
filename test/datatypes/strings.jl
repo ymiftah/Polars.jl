@@ -26,10 +26,8 @@
     upper = select(df, col("names") |> Strings.uppercase)[:names]
     @test upper == ["JOHN", "ALICE", "BOB"]
 
-    # Strings.titlecase is unavailable: to_titlecase in upstream polars-plan requires polars' own
-    # "nightly" Cargo feature, which this repo deliberately doesn't enable (stable toolchain only,
-    # see CLAUDE.md) -- so no ccall binding exists for it either. It must fail with an explanation
-    # of that rather than a bare UndefVarError for the missing symbol.
+    # Strings.titlecase needs polars' "nightly" feature, which isn't enabled; it raises an
+    # explanatory error rather than an UndefVarError.
     @test_throws "requires" select(df, col("names") |> Strings.titlecase)
 end
 
@@ -111,7 +109,7 @@ end
 
     r = select(df, alias(Strings.to_date(col("d")), "date"))
     @test collect(r[:date]) == [Date(2024, 1, 1) + Day(14), Date(2024, 6, 30)]
-    # composes with the Dt namespace from Milestone B
+    # composes with the Dt namespace
     @test collect(select(r, alias(Dt.year(col("date")), "y"))[:y]) == [2024, 2024]
     @test collect(select(r, alias(Dt.month(col("date")), "m"))[:m]) == [1, 6]
     @test collect(select(r, alias(Dt.day(col("date")), "d"))[:d]) == [15, 30]
@@ -171,8 +169,7 @@ end
     @test isequal(collect(r2_end[:p]), ["a   ", "bbbbbb", "cc  ", "d   ", missing])
 
     # non-ASCII fill_char, char-count (not byte-count) width -- py-polars test_pad_end_unicode /
-    # test_pad_start_unicode (this repo has a documented history of non-ASCII string bugs, see
-    # CLAUDE.md's ncodeunits note, so this matters more here than it looks upstream)
+    # test_pad_start_unicode
     df3 = DataFrame((; a = Union{Missing, String}["Café", "345", "東京", missing]))
     r3_end = select(df3, alias(Strings.pad_end(col("a"), 6; fill_char = '日'), "p"))
     @test isequal(collect(r3_end[:p]), ["Café日日", "345日日日", "東京日日日日", missing])
@@ -225,7 +222,7 @@ end
     @test_throws "string_reverse" Strings.reverse(col("s"))
 end
 
-@testset "Strings.join: aggregating join-with-separator across all rows (see plans/parity/gap_closure_scope.md Group C, batch-7-strings.md)" begin
+@testset "Strings.join: aggregating join-with-separator across all rows" begin
     df = DataFrame((; s = ["a", "b", "c"]))
     r = select(df, alias(Strings.join(col("s"), "-"), "j"))
     @test only(r[:j]) == "a-b-c"
@@ -250,7 +247,7 @@ end
     @test by_group == Dict("x" => "a-b", "y" => "c")
 end
 
-@testset "Strings.extract_groups: named-capture regex into a Struct (see plans/parity/gap_closure_scope.md Group C, batch-7-strings.md)" begin
+@testset "Strings.extract_groups: named-capture regex into a Struct" begin
     df = DataFrame((; s = ["2024-01-15"]))
     r = select(df, alias(Strings.extract_groups(col("s"), raw"(?<year>\d+)-(?<month>\d+)-(?<day>\d+)"), "g"))
     val = only(r[:g])
@@ -282,7 +279,7 @@ end
     r_plain = select(df_plain, alias(Strings.escape_regex(col("s")), "esc"))
     @test only(r_plain[:esc]) == "hello"
 
-    # wrong-dtype raises cleanly rather than aborting the process (Step 5)
+    # wrong-dtype raises cleanly rather than aborting the process
     df_int = DataFrame((; a = [1, 2, 3]))
     @test_throws PolarsError collect(select(lazy(df_int), alias(Strings.escape_regex(col("a")), "e")))
 end

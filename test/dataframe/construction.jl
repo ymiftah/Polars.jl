@@ -42,7 +42,7 @@ end
     @test contains(show_str_wide, "col1") || contains(show_str_wide, "col")
 end
 
-@testset "Base.show(io, df::DataFrame) -- compact 2-arg form (P2.5)" begin
+@testset "Base.show(io, df::DataFrame) -- compact 2-arg form" begin
     # The plain 2-arg `show` (used by `println`/`string`/`sprint(show, df)`, and by a
     # `DataFrame` nested inside another container's own display, e.g. `[df, df]`) is compact and
     # doesn't grow with row/column count -- the full PrettyTables render lives on the
@@ -127,7 +127,7 @@ end
     @test Polars.schema(df_null).types == (Union{Missing, Int64},)
 end
 
-@testset "bare all-missing column (Vector{Missing}) builds a genuine Null-dtype column, not a crash (see plans/parity/gap_closure_scope.md A2)" begin
+@testset "bare all-missing column (Vector{Missing}) builds a genuine Null-dtype column, not a crash" begin
     # `MaybeMissing{Missing}` == `Union{Missing,Missing}` collapses to the literal type `Missing`,
     # the same hazard guarded for `Any` (src/arrow/array.jl) one level down: without the concrete
     # `format(::Type{Missing})` method, `DataFrame((; x = [missing, missing]))` raises

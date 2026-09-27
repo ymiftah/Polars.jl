@@ -13,10 +13,8 @@
     @test size(head(df, 0)) == (0, 2)
     @test size(head(df, 100)) == (5, 2)
 
-    # a negative n is NOT supported here (upstream's `height + n` convenience needs a materialized
-    # row count this wrapper doesn't compute) -- it must raise a clear `ArgumentError`, not the
-    # bare `InexactError: convert(UInt64, ...)` that leaked through before this was fixed (the
-    # underlying `polars_lazy_frame_head`/`_tail` FFI functions take an unsigned `usize`)
+    # a negative n (upstream's `height + n`) is not supported and raises an `ArgumentError`; the
+    # FFI takes an unsigned count
     @test_throws ArgumentError head(df, -2)
     @test_throws ArgumentError head(lazy(df), -2)
 end

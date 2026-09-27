@@ -50,21 +50,15 @@ julia> @chain df begin
 
 ## Where to start
 
-- **[Getting Started](@ref)** — a guided, narrative walk through a small analytics workflow, from
-  your first `DataFrame` to combining several operations into one pipeline. Start here if you're
-  new to Polars.jl.
-- **[Reference](@ref)** — a complete manual covering every public function, organized by type
-  (`DataFrame`, `LazyFrame`, `Series`, `Expressions`, ...). Use this once you know roughly what
-  you're looking for.
-- **[Limitations](@ref)** — known gaps and sharp edges (a broken namespace function, a few names
-  that need explicit `Base.` qualification, etc.) worth skimming before you hit them yourself.
+- [Getting Started](@ref): a tutorial that builds up a small analytics workflow.
+- [Reference](@ref): every public function, by type.
+- [Limitations](@ref): known gaps, and names that must be called qualified.
 
-## Eager vs. lazy, in one line
+## Eager and lazy
 
-`DataFrame` is eager (every operation runs immediately); a lazy frame — obtained via
-`lazy` — only records operations, letting polars optimize and fuse the whole
-query before executing it via `collect`. Both forms give identical results for the same sequence
-of operations; the [LazyFrame](@ref) reference page covers this in depth.
+Operations on a `DataFrame` run immediately. A `LazyFrame`, obtained with `lazy`, records
+operations into a query plan that polars optimizes and runs on `collect`. Both give the same
+result; see [LazyFrame](@ref).
 
 ## Installation
 

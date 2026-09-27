@@ -1,10 +1,8 @@
 # Getting Started
 
-Polars.jl is a Julia wrapper around the [polars](https://pola.rs) dataframe library. This
-tutorial series builds a small analytics workflow around a synthetic "coffee shop chain" retail
-dataset: orders placed across a few stores, over a few weeks, for a handful of products. Every
-code block on every page is fully runnable — Polars.jl re-generates the same seeded dataset at the
-top of each page, so you can copy any snippet into your own REPL and it will just work.
+This tutorial builds a small analytics workflow on a synthetic dataset of coffee shop orders
+across a few stores and products. Each page generates the same seeded dataset, so every snippet
+can be run in a REPL.
 
 ## Installation
 
@@ -13,7 +11,6 @@ Not yet registered in the General registry — install directly from the repo:
 ```julia-repl
 pkg> add https://github.com/ymiftah/Polars.jl
 ```
-
 
 ## Eager vs. lazy
 
@@ -24,10 +21,8 @@ Polars.jl provides two frame types:
   whole query is optimized and executed together when you call
   `collect`.
 
-The lazy path lets polars fuse and reorder operations (e.g. push a `filter` before a `select`)
-before touching any data, which matters once queries grow beyond a couple of steps. Eager and lazy
-operations give identical results — prefer the lazy form once a query involves more than one or
-two steps.
+polars optimizes a lazy query as a whole (e.g. applying a `filter` before a `select`). Both give
+the same results; prefer the lazy form for queries with more than a step or two.
 
 ## Your first DataFrame
 
@@ -54,10 +49,9 @@ products
 
 ## A first query
 
-Since every Polars.jl function takes the frame/group-by object as its *first* argument, multi-step
-queries read nicely with [Chain.jl](https://github.com/jkrumbiegel/Chain.jl)'s `@chain` macro:
-each bare line implicitly becomes a call with the previous line's result spliced in as the first
-argument.
+Functions take the frame as their first argument, so queries chain well with
+[Chain.jl](https://github.com/jkrumbiegel/Chain.jl)'s `@chain`, which passes each result as the
+first argument of the next line.
 
 Let's find the five largest orders by revenue (`quantity * unit_price`):
 
@@ -71,12 +65,5 @@ result = @chain orders begin
 end
 ```
 
-This chains `with_columns` (add a computed column), `sort` (descending by revenue), and `head` (top
-5), then materializes the result with `collect`. The next chapters cover each of these operations —
-and several more — in depth.
-
-!!! tip "Standards in the docs"
-    The documentation does not enforce any specific convention, and will freely use `@chain` or `|>` nested 
-    pipe across the examples.
-    For users coming from python, the use of `@chain` and piping within expressions (as per the example above),
-    should provide an almost transparent experience.
+The following pages cover these operations in more detail. The examples use both `@chain` and
+`|>`.

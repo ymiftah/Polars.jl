@@ -9,5 +9,5 @@ Polars.version
 ```
 
 ```julia
-Polars.version()  # => v"0.54.4" or similar
+Polars.version()  # e.g. v"0.55.2"
 ```

@@ -12,10 +12,9 @@ description: Use when adding or reviewing tests for any Polars.jl function that 
 The upstream input data IS the test — copy it verbatim, don't invent your own. py-polars'
 `test_rle`'s input is `[1, 1, 2, 1, None, 1, 3, 3]`: the value `1` appears on **both sides of a
 null** specifically to prove a null breaks a run instead of merging it. A hand-written
-`[1, 1, 2, 2, 3]` passes against a broken implementation that merges runs across nulls. Our
-first-draft tests are consistently happy-path only (clean finite in-domain values); upstream
-deliberately drives null / NaN / domain-edge / empty / wrong-dtype cases. Depth, not breadth, is
-the recurring gap.
+`[1, 1, 2, 2, 3]` passes against a broken implementation that merges runs across nulls. Upstream
+deliberately drives null / NaN / domain-edge / empty / wrong-dtype cases; port those, not just the
+happy path.
 
 ## Step 1 — locate the upstream test (do not guess paths)
 
@@ -49,14 +48,13 @@ curl -sSL -o test_rle.py \
 ```
 
 Use `curl` against `raw.githubusercontent.com`, **never WebFetch** — WebFetch converts to markdown
-and mangles source. Cache fetched files on real disk (e.g. `/home/simba/workspace/pypolars-ref/`),
-not `/tmp` (tmpfs here) or in-repo.
+and mangles source. Cache fetched files outside the repository.
 
 ## Step 3 — extract the fixture before touching Julia
 
 For each upstream test, record verbatim: input values, expected output values, any pinned dtype
-(`pl.get_index_type()` → `UInt32` here). Write this into a parity note first, so the Julia test is
-derived from upstream, not from whatever the implementation happens to return.
+(`pl.get_index_type()` → `UInt32` here), so the Julia test is derived from upstream, not from
+whatever the implementation happens to return.
 
 ## Step 4 — classify every upstream test
 
@@ -66,24 +64,22 @@ derived from upstream, not from whatever the implementation happens to return.
 | Null propagation | yes | `None` → `missing` |
 | NaN propagation | yes | distinct from null; check both |
 | Domain edge | yes | `arccos(π)`→NaN, `log1p(-2)`→NaN, `log10(0)`→-Inf |
-| Non-default parameter value (offset, ties-mode, ddof, negative `n`, …) | yes | e.g. `pct_change(n=-1)`, `rank(method=...)` — these are exactly the "our test only exercises the default" gap this sweep targets; classify as this, not "happy path" |
+| Non-default parameter value (offset, ties-mode, ddof, negative `n`, …) | yes | e.g. `pct_change(n=-1)`, `rank(method=...)`; classify as this, not "happy path" |
 | Empty input | yes | often a named regression test |
 | Wrong-dtype raises | **yes, high priority** | see Step 5 |
 | Property-based (`@given`/hypothesis) | no | doesn't port mechanically |
 | Exact upstream error-message text | no | our messages come from Rust and differ |
 | numpy/pandas/Arrow interop, `to_numpy` | no | not applicable |
 | `collect(engine="streaming")` | no | no streaming engine here |
-| Argument-type overload we don't have (e.g. passing a `pl.Series`/expression where our binding only accepts a literal) | no | py-polars-only API surface; note it under Step 8 as a divergence, don't force it into another row |
+| Argument-type overload we don't have (e.g. passing a `pl.Series`/expression where our binding only accepts a literal) | no | see Step 8 |
 
 ## Step 5 — wrong-dtype tests are process-abort checks here, not input validation
 
 Upstream `test_trigonometric_invalid_input` asserts `sin()` on a String series raises — routine
-input validation in Python. Here it is load-bearing: `polars_series_get` and
-`polars_dataframe_show` both used to **abort the entire Julia process** on a bad input path before
-being converted to the out-param + error-pointer FFI convention (see `CLAUDE.md`). Every upstream
-"raises on wrong dtype" test becomes a `@test_throws PolarsError` here, worth porting even when the
-happy path is already covered — it is the only thing standing between "raises cleanly" and "kills
-the process," and only a live run proves which one currently happens.
+input validation in Python. Here a panic crossing the FFI boundary **aborts the Julia process**
+unless the entry point uses the out-param + error-pointer convention. Every upstream "raises on
+wrong dtype" test becomes a `@test_throws PolarsError` here, worth porting even when the happy path
+is already covered; only a live run proves the error is raised cleanly.
 
 ## Step 6 — idiom translation
 
@@ -102,15 +98,14 @@ the process," and only a live run proves which one currently happens.
 ## Step 7 — verify live before asserting, always
 
 Never write an expected value copied from upstream without first running it and observing the
-actual output — a clean `cargo build` is not evidence a path is safe (`CLAUDE.md` documents
-`decompress`/panic bugs that only surface at runtime), and this sweep deliberately drives `NaN`,
-empty, and wrong-dtype inputs that have aborted this process before.
+actual output — a clean `cargo build` is not evidence a path is safe (feature-gated panics only
+surface at runtime), and `NaN`, empty, and wrong-dtype inputs are the ones most likely to abort.
 
 | Live result vs. upstream | Action |
 |---|---|
 | Matches | Assert it |
 | Differs, Julia-side cause (wrapper/marshalling/missing kwarg) | Fix `src/`, then assert upstream's value |
-| Differs, Rust/FFI/Cargo-feature cause | `@test_broken` + a parity-note entry explaining why, do not silently skip |
+| Differs, Rust/FFI/Cargo-feature cause | `@test_broken` with a comment stating the divergence; do not silently skip |
 
 A running Julia session does not pick up a `cargo build` — restart it after any Rust change before
 re-testing.
@@ -119,7 +114,7 @@ re-testing.
 
 Reading upstream tests surfaces API surface you didn't know existed — e.g. `df.get_column("x",
 default=…)` returns the default instead of raising. When this happens, either implement it or
-write down the deliberate omission. Never leave it silently divergent.
+report the omission to the user. Never leave it silently divergent.
 
 ## Step 9 — don't conflate same-named functions
 
@@ -129,12 +124,9 @@ before porting its assertions.
 
 ## Output format
 
-Per function: upstream file + test name, the fixture (input/expected), Step-4 category, whether our
-test already covered it. Draft the note with Steps 1-4 before touching Julia — the live-verify
-outcome (Step 7) is filled in afterward, once the test is actually patched and run; leave it as
-"TBD" until then rather than skipping the field. Keep a running ledger (one row per swept function:
-`function | our test file | upstream file::test | status | note`) so a sweep spanning many
-functions is resumable.
+Report per function: upstream file + test name, the fixture (input/expected), Step-4 category,
+whether our test already covered it, and the live-verify outcome (Step 7). Keep working notes
+outside the repository.
 
 ## Common mistakes
 
@@ -145,5 +137,5 @@ functions is resumable.
 - Asserting Rust error message text instead of just the exception type.
 - Porting `@given`/hypothesis, `to_numpy`/pandas interop, or `engine="streaming"` cases — none
   apply here.
-- Skipping the live-verify step and trusting upstream's expected value blindly — the two live
-  incidents this exists to catch never look like a compile error.
+- Skipping the live-verify step and trusting upstream's expected value blindly — runtime panics
+  never show up as a compile error.

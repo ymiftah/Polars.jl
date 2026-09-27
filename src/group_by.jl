@@ -1,8 +1,7 @@
 """
-    LazyGroupBy()
+    LazyGroupBy
 
-A groupby over a [`LazyFrame`] whose values can be aggregated using the
-[`agg`](@ref) function.
+Utility struct for lazy group_by operation. Aggregate it with [`agg`](@ref).
 """
 mutable struct LazyGroupBy
     ptr::Ptr{polars_lazy_group_by_t}
@@ -16,19 +15,17 @@ Base.unsafe_convert(::Type{Ptr{polars_lazy_group_by_t}}, gb::LazyGroupBy) = gb.p
 """
     Base.show(io::IO, gb::LazyGroupBy)
 
-Prints a short placeholder; a group-by has no resolved schema of its own to show until
-[`agg`](@ref) is called.
+Print a placeholder; a group-by has no schema until [`agg`](@ref) is called.
 """
 Base.show(io::IO, ::LazyGroupBy) = print(io, "LazyGroupBy(...) (call agg(...) to materialize)")
 
 """
     group_by(df::LazyFrame, exprs...; maintain_order::Bool=false)
 
-Performs a "group-by" on a [`LazyFrame`](@ref), producing a [`LazyGroupBy`](@ref), which can
-subsequently be aggregated with [`agg`](@ref). Takes a list of expressions to group on.
+Performs a "group-by" on a `LazyFrame`, producing a [`LazyGroupBy`](@ref), which can
+subsequently be aggregated. Takes a list of expressions to group on.
 
-`maintain_order`: preserve each group's row order, and the order groups first appear in, through
-`agg`'s output (default `false`, which allows more optimizations).
+With `maintain_order=true`, groups are kept in order of first appearance.
 """
 group_by(df::LazyFrame, exprs...; maintain_order::Bool = false) =
     groupby(df, collect(exprs)::Vector; maintain_order)
@@ -44,8 +41,10 @@ end
 """
     agg(gb, exprs...)::LazyFrame
 
-Group by and aggregate. Select a column with [`col`](@ref) and choose an aggregation. To
-aggregate all columns use `col("*")`.
+Group by and aggregate.
+
+Select a column with [`col`](@ref) and choose an aggregation. If you want to aggregate all columns
+use `col("*")`.
 """
 agg(gb::LazyGroupBy, exprs...) = agg(gb, collect(exprs)::Vector)
 function agg(gb::LazyGroupBy, exprs::Vector)
@@ -63,19 +62,18 @@ end
                      closed::Symbol=:left, label::Symbol=:left,
                      include_boundaries::Bool=false, start_by::Symbol=:window_bound)::LazyGroupBy
 
-Group based on a time value (or index value). Time windows are calculated and rows are assigned to
-windows; unlike an ordinary group-by, a row can be a member of multiple groups. Returns a
-[`LazyGroupBy`](@ref) object for aggregation with [`agg`](@ref).
+Group based on a time value (or index value of type Int32, Int64).
 
-- `index_column`: time-indexed column (as `String` or `Expr`), e.g. `"timestamp"`
-- `group_by`: optional extra grouping keys (as `String`s or `Expr`s), e.g. `["store"]`
-- `every`: time window size (string, e.g. `"1d"`, `"2h"`)
-- `period`: repeat interval (defaults to `every`); string like `"1d"`
-- `offset`: time offset for window boundaries; string like `"0ns"` or `"1h"`
-- `closed`: window closure `:left` (default), `:right`, `:both`, or `:none`
-- `label`: which timestamp to label the window `:left` (default), `:right`, or `:data_point`
-- `include_boundaries`: whether to label boundaries (default `false`)
-- `start_by`: where to start the first window `:window_bound` (default), `:data_point`, or day-of-week `:monday`...`:sunday`
+Time windows are calculated and rows are assigned to windows. Different from a normal group_by is
+that a row can be member of multiple groups.
+
+- `every`: interval of the windows, e.g. `"1d"`.
+- `period`: length of the windows (defaults to `every`).
+- `offset`: offset of the window start.
+- `closed`: `:left` (default), `:right`, `:both` or `:none`.
+- `label`: `:left` (default), `:right` or `:data_point`.
+- `include_boundaries`: add the window boundaries as columns.
+- `start_by`: `:window_bound` (default), `:data_point`, or a weekday (`:monday`, ...).
 """
 function group_by_dynamic(
         df::LazyFrame,
@@ -111,10 +109,7 @@ function group_by_dynamic(
         start_by === :sunday ? API.PolarsStartBySunday :
         error("invalid start_by $start_by")
 
-    # `every`/`period`/`offset` are passed as raw (pointer, len) pairs below (not through a
-    # `String`-accepting ccall wrapper that would `cconvert` them itself), so they must be listed
-    # here too -- otherwise nothing roots them past their last "normal" use and the GC is free to
-    # collect them before the ccall actually runs.
+    # Passed as raw (pointer, len) pairs, so root them explicitly.
     GC.@preserve index_expr group_by every period offset begin
         group_by_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in group_by]
         out = Ref{Ptr{polars_lazy_group_by_t}}()
@@ -144,16 +139,15 @@ end
     rolling(df::LazyFrame, index_column, group_by::Vector=[];
             period, offset="0ns", closed::Symbol=:right)::LazyGroupBy
 
-Create rolling groups based on a time column (also works for integer index columns). Unlike
-[`group_by_dynamic`](@ref), the windows are determined by the individual values and are not of
-constant intervals; for constant intervals use `group_by_dynamic`. Returns a [`LazyGroupBy`](@ref)
-object for aggregation with [`agg`](@ref).
+Create rolling groups based on a time column.
 
-- `index_column`: time-indexed column (as `String` or `Expr`), e.g. `"timestamp"`
-- `group_by`: optional extra grouping keys (as `String`s or `Expr`s), e.g. `["store"]`
-- `period`: rolling window size (string, e.g. `"7d"`, `"1h"`)
-- `offset`: time offset for window boundaries; string like `"0ns"` or `"-1d"`
-- `closed`: window closure `:left`, `:right` (default), `:both`, or `:none`
+Also works for index values of type UInt32, UInt64, Int32, or Int64. Different from a
+[`group_by_dynamic`](@ref), the windows are now determined by the individual values and are not of
+constant intervals.
+
+- `period`: length of the window, e.g. `"7d"`.
+- `offset`: offset of the window.
+- `closed`: `:left`, `:right` (default), `:both` or `:none`.
 """
 function rolling(
         df::LazyFrame,
@@ -168,8 +162,7 @@ function rolling(
 
     closed_cenum = _closed_window_enum(closed)
 
-    # See the matching comment in `group_by_dynamic` above: `period`/`offset` are passed as raw
-    # (pointer, len) pairs, so they must be preserved through the ccall explicitly.
+    # Passed as raw (pointer, len) pairs, so root them explicitly.
     GC.@preserve index_expr group_by period offset begin
         group_by_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in group_by]
         out = Ref{Ptr{polars_lazy_group_by_t}}()

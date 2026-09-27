@@ -2,18 +2,11 @@ module PolarsTimeZonesExt
 
 using Polars, TimeZones, Dates
 
-# Activates timezone-aware Datetime column support -- see `Polars._tz_aware_datetime_type`'s
-# docstring (src/arrow/schema.jl) for why this adds the first-ever method for
-# `_resolve_tz_aware_datetime_type` rather than redefining `_tz_aware_datetime_type` directly
-# (the latter would be a same-signature method *overwrite*, which Julia forbids during
-# precompilation).
+# Enables timezone-aware Datetime columns (see `Polars._tz_aware_datetime_type`).
 Polars._resolve_tz_aware_datetime_type(::AbstractString) = ZonedDateTime
 
 function Polars.load_value(value::Polars.Value{ZonedDateTime})
-    # Same guard every `load_value` method in src/value.jl carries, and required for the same
-    # reason (see the comment on the `Dates.Period` method there): a null in a schema-typed slot
-    # still reports its real dtype, so without this `polars_value_datetime_get` fails with
-    # "value is not of type datetime" instead of yielding `missing`.
+    # A null value can still carry its column's dtype.
     Polars.polars_value_type(value) == Polars.PolarsValueTypeNull && return missing
 
     v = Ref{Int64}()
@@ -31,10 +24,7 @@ function Polars.load_value(value::Polars.Value{ZonedDateTime})
         error("invalid datetime")
     end
 
-    # `polars_value_time_zone` returns a pointer into `value`'s Rust-owned memory; `unsafe_string`
-    # is itself an allocating call (a GC point), so the whole borrow must stay inside one
-    # `GC.@preserve value` block -- otherwise `value` could be finalized (destroying the Rust-side
-    # data the pointer refers to) between the ccall and `unsafe_string` reading through it.
+    # The pointer borrows from `value`, so keep it rooted until `unsafe_string` has copied it.
     tz = GC.@preserve value begin
         tz_ptr = Ref{Ptr{UInt8}}()
         tz_len = Polars.polars_value_time_zone(value, tz_ptr)

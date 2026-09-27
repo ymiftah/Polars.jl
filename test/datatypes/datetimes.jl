@@ -98,7 +98,7 @@ end
     @test ismissing(collect(r3[:q])[4])
 end
 
-@testset "Dt.millisecond / Dt.microsecond / Dt.nanosecond (API gap audit quick-win batch)" begin
+@testset "Dt.millisecond / Dt.microsecond / Dt.nanosecond" begin
     # Each is the sub-second part of the timestamp expressed at that unit's own resolution (not a
     # decomposed digit group), so a 123ms sub-second component reads as 123/123_000/123_000_000 at
     # ms/us/ns resolution respectively -- mirroring the existing `total_milliseconds` family's
@@ -307,7 +307,7 @@ end
 
     # this package's `to_string`/`strftime` require an explicit format argument -- there is no
     # zero-argument overload defaulting to `"iso"` the way upstream's `format: str | None = None`
-    # does (Step 8 API divergence: not fixed here, a small independent addition)
+    # does
     @test_throws MethodError Dt.to_string(col("d"))
 end
 
@@ -370,10 +370,9 @@ end
     @test collect(r_naive[:same]) == df[:d]
 end
 
-@testset "Dt.cast_time_unit / Dt.with_time_unit (Group 4 gap closure)" begin
+@testset "Dt.cast_time_unit / Dt.with_time_unit" begin
     # `cast_time_unit` rescales the underlying integer; `with_time_unit` only relabels it. A
-    # `Vector{DateTime}`-built column is natively `:ns` (see CLAUDE.md's literal-construction
-    # note), so relabeling as `:ms` without rescaling reads the raw nanosecond count back out as
+    # `Vector{DateTime}`-built column is `:ns`, so relabeling as `:ms` without rescaling reads the raw nanosecond count back out as
     # if it were already a millisecond count -- 1000x too large.
     df = DataFrame((; d = [DateTime(2024, 1, 15, 10, 0, 0, 123)]))
 
@@ -512,9 +511,7 @@ end
 end
 
 @testset "Dt.replace invalid components raise cleanly (py-polars test_replace_date_invalid_components / test_replace_datetime_invalid_date_components / test_replace_datetime_invalid_time_components)" begin
-    # a load-bearing check per CLAUDE.md/pypolars-test-parity: these are process-abort hazards,
-    # not routine input validation, until proven otherwise -- each must raise `PolarsError`
-    # cleanly rather than crash the process.
+    # each must raise `PolarsError` rather than abort the process.
     df_date = DataFrame((; a = [Date(2025, 1, 1)]))
     @test_throws PolarsError collect(select(df_date, alias(Dt.replace(col("a"); month = 13), "x")))
     @test_throws PolarsError collect(select(df_date, alias(Dt.replace(col("a"); day = 32), "x")))
@@ -530,11 +527,8 @@ end
 
 @testset "Dt.replace: a replaced year outside the :ns range raises rather than crashing" begin
     # Not in upstream (whose own equivalent fixture runs at `:us` resolution, well inside range):
-    # this package's `Vector{DateTime}`-built columns are always `:ns` (documented limitation, see
-    # Group 1 of plans/parity/group1_group4_closure.md). Replacing to a year far outside
-    # `:ns`'s ~1678-2262 window hits an internal `unwrap()` panic in polars-time's own `replace`
-    # kernel -- caught by `guard_error`'s `catch_unwind` as a clean `PolarsError`, not a process
-    # abort, which is the FFI panic-safety contract this test exists to pin down.
+    # `Vector{DateTime}`-built columns are `:ns`. Replacing to a year outside `:ns`'s ~1678-2262
+    # range panics inside polars-time's `replace`; `guard_error` turns that into a `PolarsError`.
     df = DataFrame((; a = [DateTime(2001, 2, 2)]))
     @test_throws PolarsError collect(select(df, alias(Dt.replace(col("a"); year = 9), "x")))
 end

@@ -1,13 +1,9 @@
-# `Dt.total_*` Duration-decomposition family -- see `plans/definitive_guide_gap_closure.md`'s
-# Phase 5. There is no direct `arrowvector` construction path for a Duration column (unlike
-# `Date`/`Dates.Time`/`DateTime`), so every Duration column here is built the same way the
-# existing "Time cast" testset in `times.jl` builds a Time column: cast an `Int64` column via
+# `Dt.total_*`. Duration columns are built by casting an `Int64` column with
 # `cast(col(...), Dates.Nanosecond|Microsecond|Millisecond)`.
 
 @testset "Dt.total_*: nanosecond resolution, both fractional values, negative durations" begin
     # 1s, 1.5s, -1s, -1.5s, 0s -- picked so integer truncation direction (toward zero, not floor)
-    # is unambiguous for the negative fractional cases (confirmed live before writing these
-    # assertions, not assumed: -1.5s truncates to -1, not -2).
+    # is unambiguous for the negative fractional cases: -1.5s truncates to -1, not -2.
     ns = Int64[1_000_000_000, 1_500_000_000, -1_000_000_000, -1_500_000_000, 0]
     df = select(DataFrame((; n = ns)), cast(col("n"), Dates.Nanosecond) |> alias("d"))
 
@@ -91,9 +87,8 @@ end
 end
 
 @testset "Duration columns can be constructed, not just read" begin
-    # `format` used to fall through to its `isstructtype` "+s" branch for every Period (they are
-    # one-field immutable structs), so a Duration column read out of polars could not be written
-    # back -- `arrowvector(::Vector{Nanosecond})` had no method.
+    # a Duration column read out of polars can be written back (a `Period` must map to Arrow
+    # Duration, not to the Struct layout of other immutable structs).
     @test Polars.format(Dates.Millisecond) == "tDm"
     @test Polars.format(Dates.Microsecond) == "tDu"
     @test Polars.format(Dates.Nanosecond) == "tDn"

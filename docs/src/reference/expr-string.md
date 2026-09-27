@@ -1,6 +1,6 @@
 # [String](@id expr-string)
 
-The `Strings` namespace provides regex and text operations on `String`-typed columns.
+The `Strings` namespace operates on String columns.
 
 ```@setup strings
 using Polars
@@ -15,9 +15,6 @@ Polars.Strings.titlecase
 Polars.Strings.len_chars
 Polars.Strings.len_bytes
 ```
-
-!!! warning "`titlecase` is broken"
-    See [Limitations](@ref).
 
 ```@example strings
 dfcase = DataFrame((; s = ["Hello World", "foo BAR"]))
@@ -58,7 +55,7 @@ dfmatch = DataFrame((; s = ["Hello World", "foo BAR"]))
 select(dfmatch, col("s") |> Strings.ends_with("World") |> alias("ends"), col("s") |> Strings.contains_literal("oo") |> alias("has_oo"))
 ```
 
-Example: extract email domain:
+Extract the domain of an email address:
 
 ```@example strings
 df = DataFrame((; email = ["alice@example.com", "bob@test.org"]))
@@ -108,11 +105,6 @@ Polars.Strings.to_date
 Polars.Strings.to_datetime
 ```
 
-Both share `format`/`strict`/`exact`: `format` is a `chrono`-style format string (e.g.
-`"%Y-%m-%d"`) — if not given, polars attempts to infer it. If `strict` is `true` (default), an
-unparseable value raises an error; if `false`, it becomes `null`. If `exact` is `true` (default),
-the entire string must match `format`.
-
 ```@example strings
 dates = DataFrame((; s = ["2024-03-15", "2024-06-01"]))
 select(dates, Strings.to_date(col("s")) |> alias("d"), Strings.to_datetime(col("s"); format = "%Y-%m-%d") |> alias("dt"))
@@ -130,8 +122,8 @@ select(DataFrame((; s = ["a", "b", "c"])), Strings.join(col("s"), "-") |> alias(
 
 ## Curried forms
 
-Every function above has a curried form for `|>` pipelines — see
-[Curried forms for pipe-based composition](@ref):
+Most functions above have a curried form (see
+[Curried forms for pipe-based composition](@ref)):
 
 ```@example strings
 df2 = DataFrame((; s = ["hello world", "foo bar"]))

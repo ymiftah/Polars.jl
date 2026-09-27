@@ -20,8 +20,8 @@ end
              allow_missing_columns::Bool=false,
              storage_options::Union{Nothing,AbstractDict{<:AbstractString,<:AbstractString}}=nothing)::LazyFrame
 
-Lazily scans an Arrow IPC (Feather) file, glob pattern, or directory of (optionally
-Hive-partitioned) IPC files, without reading it into memory.
+Create a LazyFrame directly from a ipc scan. `path` may be a file, a glob pattern, or a directory
+of (optionally Hive-partitioned) files.
 
 - `n_rows`: only scan the first `n_rows` rows.
 - `row_index_name`/`row_index_offset`: if `row_index_name` is given, adds a row-index column with
@@ -33,10 +33,9 @@ Hive-partitioned) IPC files, without reading it into memory.
 - `hive_partitioning`: force Hive-style partition-column detection on (`true`) or off (`false`);
   `nothing` (default) auto-detects.
 - `allow_missing_columns`: allow columns present in some files but not others (filled with nulls).
-- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
-  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
-  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
+- `storage_options`: cloud storage configuration (e.g. `"aws_region" => "us-east-1"`) for
+  `s3://`, `gs://`, `az://` paths. By default the provider's environment variables and config
+  files are used.
 """
 function scan_ipc(
         path;
@@ -51,12 +50,8 @@ function scan_ipc(
         allow_missing_columns::Bool = false,
         storage_options::Union{Nothing, AbstractDict{<:AbstractString, <:AbstractString}} = nothing
     )
-    # No `allow_extra_columns` keyword: verified live that polars' IPC multi-scan source ignores
-    # `extra_columns_policy` (it still raises with `ExtraColumnsPolicy::Ignore` set) in this
-    # polars version, unlike `scan_parquet`'s identical plumbing, which works correctly -- an
-    # upstream inconsistency between formats, not something fixable from `c-polars` without
-    # patching vendored polars. The FFI parameter stays (always `false` here) so a future polars
-    # upgrade that fixes this needs only a Julia-side change.
+    # No `allow_extra_columns` keyword: polars' IPC scan ignores `ExtraColumnsPolicy::Ignore`.
+    # The FFI parameter is always `false`.
     n_rows_ref = n_rows === nothing ? Ptr{Csize_t}(C_NULL) : Ref(Csize_t(n_rows))
     row_index_name_arg = row_index_name === nothing ? Ptr{UInt8}(C_NULL) : row_index_name
     row_index_name_len = row_index_name === nothing ? 0 : ncodeunits(row_index_name)
@@ -82,7 +77,7 @@ end
 """
     read_ipc(path::String; kwargs...)::DataFrame
 
-Reads a dataframe stored in an Arrow IPC (Feather) file. Accepts the same keyword options as
+Read an Arrow IPC (Feather) file into a `DataFrame`. Accepts the keywords of
 [`scan_ipc`](@ref).
 """
 read_ipc(path; kwargs...) = collect(scan_ipc(path; kwargs...))
@@ -94,14 +89,13 @@ read_ipc(path; kwargs...) = collect(scan_ipc(path; kwargs...))
               record_batch_size::Union{Nothing,Integer}=nothing)
     write_ipc(path::String, df::DataFrame; kwargs...)
 
-Writes a dataframe to an Arrow IPC (Feather) file provided as an `IO`.
+Write a DataFrame to Arrow IPC (Feather).
 
-- `compression`: one of `:uncompressed` (default), `:lz4`, `:zstd`. `compression_level` tunes zstd
-  (ignored/rejected for the others).
+- `compression`: one of `:uncompressed` (default), `:lz4`, `:zstd`. `compression_level` applies
+  to `:zstd` only.
 - `record_batch_size`: number of rows per record batch (default: polars' own default).
 
-For the `path::String` method, a path containing `"://"` (e.g. `"s3://bucket/out.arrow"`) is
-rejected with an error pointing at [`sink_ipc`](@ref) instead of silently writing a local file.
+A `path` containing `"://"` is an error; use [`sink_ipc`](@ref) for cloud storage.
 """
 function write_ipc(
         io::IO, df::DataFrame;
@@ -132,17 +126,16 @@ end
     sink_ipc(lf::LazyFrame, path::String; kwargs...)
     sink_ipc(df::DataFrame, path::String; kwargs...)
 
-Executes the query and writes the result directly to an Arrow IPC (Feather) file via the streaming
-engine, without materializing the full result in memory.
+Stream the results of the query to an Arrow IPC (Feather) file, without materializing the full
+result in memory.
 
 Accepts the same `compression`/`compression_level`/`record_batch_size` keywords as
 [`write_ipc`](@ref), plus:
 - `mkdir`: create missing parent directories (default `false`).
 - `maintain_order`: preserve row order through the streaming pipeline (default `true`).
-- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
-  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
-  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
+- `storage_options`: cloud storage configuration (e.g. `"aws_region" => "us-east-1"`) for
+  `s3://`, `gs://`, `az://` paths. By default the provider's environment variables and config
+  files are used.
 """
 sink_ipc(df::DataFrame, path::String; kwargs...) = sink_ipc(lazy(df), path; kwargs...)
 function sink_ipc(

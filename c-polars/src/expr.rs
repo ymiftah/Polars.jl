@@ -111,17 +111,15 @@ pub unsafe extern "C" fn polars_expr_nth(
     })
 }
 
-/// A placeholder for "the values in this group", used to build the `agg` expression passed to
-/// `pivot` (e.g. `element().sum()`) -- substituted in-place with the actual value column filtered
-/// to the current group at plan-build time.
+/// `pl.element()`: the current element, e.g. the values of a group in the `agg` expression passed
+/// to `pivot`.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_element() -> *const polars_expr_t {
     make_expr(element())
 }
 
 /// `pl.len()`: the number of rows in the current context (a whole frame, or the current group
-/// inside `agg`) -- infallible, just `Expr::Len` (`polars-plan-0.54.4/src/dsl/functions/mod.rs`),
-/// ungated by any Cargo feature.
+/// inside `agg`).
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_len() -> *const polars_expr_t {
     make_expr(polars_plan::dsl::functions::len())
@@ -215,10 +213,7 @@ gen_horizontal_ignore_nulls!(polars_expr_mean_horizontal, mean_horizontal);
 gen_horizontal!(polars_expr_concat_list, concat_list);
 
 /// `pl.concat_str`: row-wise (horizontal) string concatenation across `exprs`, joined by
-/// `separator`. Unlike the `_horizontal` reductions above, upstream's `concat_str` is infallible
-/// (it just builds a `Function` plan node -- see `polars-plan-0.54.4/src/dsl/functions/concat.rs`,
-/// no `polars_ensure!` anywhere in it), but we keep the same fallible ABI shape as its siblings
-/// for uniformity rather than special-casing the one exception.
+/// `separator`. Fallible only because `separator` must be valid UTF-8.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_concat_str(
     exprs: *const *const polars_expr_t,
@@ -237,8 +232,7 @@ pub unsafe extern "C" fn polars_expr_concat_str(
 }
 
 /// `pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order.
-/// Fallible: a mismatched placeholder/argument count raises rather than panicking (see
-/// `polars-plan-0.54.4/src/dsl/functions/concat.rs::format_str`).
+/// Fallible: a mismatched placeholder/argument count raises an error.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_format(
     fmt: *const u8,
@@ -261,8 +255,7 @@ pub unsafe extern "C" fn polars_expr_format(
 }
 
 /// `pl.concat_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column.
-/// Gated on `dtype-array` inside `concat_arr` itself (`feature_gated!`), already enabled for
-/// `Expr::reshape` (Task 2 of this same plan).
+/// Requires the `dtype-array` feature.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_concat_arr(
     exprs: *const *const polars_expr_t,
@@ -1242,10 +1235,7 @@ pub unsafe extern "C" fn polars_expr_clip(
     make_expr(expr.clip(min, max))
 }
 
-// Unary negation (`-expr`). Not reachable by composing `0 .- expr` from the existing binary
-// `sub` -- that silently wraps on an unsigned column (e.g. `UInt8` `0-1` -> `255`) where
-// `Expr::neg` (via `FunctionExpr::Negate`) has its own per-dtype validation and correctly raises
-// instead (upstream `test_neg_unsigned_int`, live-verified both directions before writing this).
+// Unary negation. Unlike `0 - expr`, which wraps on an unsigned column, `Expr::neg` raises there.
 gen_impl_expr!(polars_expr_neg, Neg::neg);
 
 #[no_mangle]
@@ -1291,9 +1281,7 @@ gen_impl_expr!(polars_expr_last, Expr::last);
 
 /// The aggregation form of `item()`: errors if the expression evaluates to `!= 1` values, unless
 /// `allow_empty` is set, in which case zero values also succeeds (producing `null`). Distinct from
-/// `DataFrame`/`Series` `item()`, which is a `(1,1)`-shape accessor, not an aggregation -- the two
-/// share a name upstream but are different functions (see `plans/parity/batch-2-aggregation-
-/// statistics.md`'s Step-9 finding).
+/// `DataFrame`/`Series` `item()`, which is a `(1,1)`-shape accessor, not an aggregation.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_item(
     expr: *const polars_expr_t,
@@ -1868,12 +1856,9 @@ gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last);
 gen_impl_expr_list!(polars_expr_list_median, ListNameSpace::median);
 gen_impl_expr_list!(polars_expr_list_drop_nulls, ListNameSpace::drop_nulls);
 
-/// `Lists.eval`: runs `evaluation` once per row, with `element()` bound to that row's list values
-/// -- the same primitive the crate already uses internally for `reverse`/`unique`/`unique_stable`
-/// above, exposed directly. This is the multiplier for the "most of the list namespace is
-/// missing" finding (`plans/parity/batch-9-lists-structs.md`): `all`/`any` have no dedicated
-/// `ListNameSpace` method in this polars version at all and are *only* reachable this way
-/// (`eval(element().all(ignore_nulls))`), and `n_unique`/`filter` compose the same way.
+/// `Lists.eval`: runs `evaluation` once per row, with `element()` bound to that row's list values.
+/// `all`/`any` have no `ListNameSpace` method and are built this way
+/// (`eval(element().all(ignore_nulls))`), as are `n_unique`/`filter`.
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_list_eval(
     a: *const polars_expr_t,
@@ -2694,11 +2679,7 @@ pub unsafe extern "C" fn polars_expr_dt_strftime(
 /// `total_seconds`/`total_milliseconds`/`total_microseconds`/`total_nanoseconds`) -- each takes
 /// a `fractional` flag (whole-unit truncation vs. exact fractional value) and is otherwise
 /// identical in shape, so unlike `gen_impl_expr_dt!` above (no extra args) these get their own
-/// small macro rather than 7x hand-written boilerplate. Gated on `dtype-duration` in polars-plan
-/// (see c-polars/Cargo.toml and the gap-closure plan's Phase 5 sweep notes) -- also reached
-/// transitively via `dtype-slim` (part of the `polars` crate's own default features), so naming it
-/// in Cargo.toml is belt-and-suspenders explicitness (contrast `dtype-time`, which polars-ops does
-/// not get from any default and must be listed).
+/// small macro. Requires `dtype-duration`, which is listed explicitly in Cargo.toml.
 macro_rules! gen_impl_expr_dt_fractional {
     ($n: ident, $t: expr) => {
         #[no_mangle]
@@ -2792,10 +2773,8 @@ pub unsafe extern "C" fn polars_expr_struct_with_fields(
 }
 
 // ------------------------------------------------------------------------------------------
-// Meta (`Expr.meta()` introspection namespace) -- see
-// `plans/definitive_guide_gap_closure.md`'s Phase 3 for the full design writeup. `.meta()`
-// consumes its receiver by value (`MetaNameSpace(pub(crate) Expr)`), so every function here
-// clones `(*expr).inner` first, same as the `.struct_()`/`.dt()` namespace functions above.
+// Meta (`Expr.meta()` introspection namespace). `.meta()` consumes its receiver by value, so every
+// function here clones `(*expr).inner` first.
 // ------------------------------------------------------------------------------------------
 
 #[no_mangle]
@@ -2903,13 +2882,8 @@ pub unsafe extern "C" fn polars_expr_meta_root_names_get(
 }
 
 // ------------------------------------------------------------------------------------------
-// Selectors (py-polars' `polars.selectors` / `cs.*`) -- see
-// `plans/definitive_guide_gap_closure.md`'s Phase 2 for the full design writeup. A `Selector` is
-// just another `Expr` variant (`Expr::Selector(Selector)`), so these functions reuse the same
-// `polars_expr_t` handle/destructor/error conventions as every other `Expr`-producing function
-// above -- no new opaque pointer type is introduced. The Julia-side `Polars.Selectors.Selector`
-// wrapper stays entirely on the Julia side (`struct Selector; expr::Expr; end`), just carrying
-// the `Expr` handle these functions hand back.
+// Selectors (py-polars' `polars.selectors`). A `Selector` is an `Expr` variant
+// (`Expr::Selector(Selector)`), so these return ordinary `polars_expr_t` handles.
 // ------------------------------------------------------------------------------------------
 
 #[no_mangle]
@@ -2965,7 +2939,7 @@ pub enum polars_selector_match_kind_t {
 /// (`\ . + * ? ( ) | [ ] { } ^ $ # & - ~`). `regex-syntax` is only a transitive dependency here
 /// (reached via `polars_utils::regex_cache`, which backs `Selector::Matches`' own regex
 /// compilation), not a direct one, so this small inline table avoids adding it just for
-/// `regex::escape` -- matching CLAUDE.md's "the C ABI layer does the minimum possible" principle.
+/// `regex::escape`.
 fn escape_regex_literal(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -3108,13 +3082,9 @@ pub unsafe extern "C" fn polars_expr_selector_dtype_any_of(
     })
 }
 
-/// Extracts the `Selector` inside an `Expr::Selector(...)`, or a clear error otherwise. Backs the
-/// combinators below, which the gap-closure plan deliberately restricts to Selector-Selector
-/// operands only: mixing in a bare `Expr` (e.g. `Selectors.numeric() | col("x")`) is rejected
-/// rather than silently promoted (a `col("x")` reasonably *could* mean `by_name("x")`, but that
-/// promotion is a deliberate follow-up, not an accident -- see the plan). Note this deliberately
-/// does *not* use upstream `Expr::try_into_selector`, which treats a bare `Expr::Column` as an
-/// implicit single-name selector -- exactly the silent promotion this is meant to reject. The
+/// Extracts the `Selector` inside an `Expr::Selector(...)`, or an error otherwise. The combinators
+/// below accept Selector operands only: a bare `Expr` such as `col("x")` is rejected rather than
+/// promoted, which is why this doesn't use upstream `Expr::try_into_selector`. The
 /// Julia side already raises a `MethodError` before ever reaching here (no `Base.|(::Selector,
 /// ::Expr)` method exists), so this is a backstop for anyone calling the C ABI directly.
 unsafe fn expect_selector(expr: *const polars_expr_t) -> Result<Selector, String> {

@@ -11,23 +11,20 @@
                missing_struct_fields_raise=true,
                extra_struct_fields_raise=true)
 
-Controls how [`scan_parquet`](@ref)/[`read_parquet`](@ref) handle type mismatches between the file's
-schema and any Hive-partition-inferred or previously-scanned schema. The defaults reproduce polars'
-own strict `ERROR_ON_MISMATCH` behavior — every flag below opts into a specific, narrower relaxation
-of that.
+Used for casting columns to the expected dtypes during a [`scan_parquet`](@ref). The defaults
+raise on any mismatch; each flag allows one kind of cast.
 
 - `integer_upcast`: allow casting to a lossless integer supertype (e.g. `Int32` -> `Int64`).
 - `integer_to_float_cast`: allow casting integer columns to floats.
 - `float_upcast`: allow upcasting from a smaller float to a larger one (e.g. `Float32` -> `Float64`).
 - `float_downcast`: allow downcasting from a larger float to a smaller one.
-- `datetime_nanoseconds_downcast`: allow `datetime[ns]` to be cast to a lower precision — needed to
-  read datasets written by Spark, which always writes nanosecond precision.
+- `datetime_nanoseconds_downcast`: allow `datetime[ns]` to be cast to a lower precision (e.g. to
+  read datasets written by Spark).
 - `datetime_microseconds_downcast`: allow `datetime[us]` to be cast to `datetime[ms]`.
 - `datetime_milliseconds_upcast`: allow `datetime[ms]` to be cast to `datetime[us]` or `datetime[ns]`.
 - `datetime_microseconds_upcast`: allow `datetime[us]` to be cast to `datetime[ns]`.
 - `datetime_convert_timezone`: allow casting that changes a datetime column's time zone.
-- `null_upcast`: allow an all-`Null` column to be cast to any target type (default `true`, matching
-  upstream's default).
+- `null_upcast`: allow an all-`Null` column to be cast to any type.
 - `categorical_to_string`: allow a `Categorical` column to be cast to `String`.
 - `missing_struct_fields_raise`: error when a struct field present in the target schema is missing
   from a file (default `true`); `false` fills the missing field with nulls instead.

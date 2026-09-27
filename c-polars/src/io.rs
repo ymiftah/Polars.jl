@@ -139,27 +139,16 @@ pub unsafe extern "C" fn polars_lazy_frame_scan_parquet(
     include_file_paths: *const u8,
     include_file_paths_len: usize,
     hive_partitioning: *const bool,
-    // By pointer, not by value: an 11-byte all-`bool` struct passed by value here corrupted the
-    // ABI-adjacent `cloud_options`/`out` args when marshalled through Julia's `@ccall` -- see
-    // `plans/cast_policy_abi_fix.md`.
+    // By pointer, not by value: passing this 11-byte all-`bool` struct by value through Julia's
+    // `@ccall` corrupts the following arguments.
     cast_policy: *const polars_cast_columns_policy_t,
     cloud_options: *const polars_cloud_options_t,
     out: *mut *mut polars_lazy_frame_t,
 ) -> *const polars_error_t {
-    // `LazyFrame::scan_parquet` only builds a lazy DSL scan node (confirmed empirically in
-    // `tests.rs`'s `scanning_and_collecting_a_malformed_file_returns_an_error_not_a_crash`: it
-    // returns `Ok` even for a garbage-content path) -- the actual file read/validation is
-    // deferred to schema resolution inside `collect`/`collect_schema`, which already carry
-    // `guard_error` from an earlier hardening pass. This function is still guarded as
-    // defense-in-depth: unlike a plain `col()`/`select()`-style DSL constructor, it *does*
-    // resolve `hive_partitioning`/path arguments eagerly, and upstream's scan-builder chain is
-    // less audited for panic-freedom than the simple expression constructors.
-    //
-    // This bypasses `ScanArgsParquet`/`LazyFrame::scan_parquet` (which hardcodes
-    // `cast_columns_policy: CastColumnsPolicy::ERROR_ON_MISMATCH`) and instead reimplements what
-    // `LazyParquetReader::finish()` does internally (polars-lazy-0.54.4/src/scan/parquet.rs),
-    // substituting our own `cast_columns_policy`. Every other field below is a direct
-    // transcription of that upstream method, not a new default.
+    // Builds the scan node the way `LazyParquetReader::finish()` does, substituting our own
+    // `cast_columns_policy` (`LazyFrame::scan_parquet` hardcodes `ERROR_ON_MISMATCH`). Every
+    // other field is transcribed from that upstream method. The file itself is only read at
+    // `collect`/`collect_schema`.
     guard_error(|| {
         let path = tri!(read_str(path, pathlen));
         let row_index_name = tri!(read_opt_str(row_index_name, row_index_name_len));

@@ -35,7 +35,7 @@
     @test isequal(collect(r_clip_null[:clip]), [1, 1, 4, 4, 5, missing])
 end
 
-@testset "clip_min / clip_max: single-sided clip, missing passes through (see plans/parity/gap_closure_scope.md)" begin
+@testset "clip_min / clip_max: single-sided clip, missing passes through" begin
     df = DataFrame((; a = Union{Missing, Int}[1, 5, 10, missing]))
 
     r_min = select(df, alias(clip_min(col("a"), 3), "n"))
@@ -79,7 +79,7 @@ end
     @test out_sqrt[3] == 0.0 && out_sqrt[4] == 3.0 && isinf(out_sqrt[5]) && out_sqrt[5] > 0
 
     # log domain edges: log(0) -> -Inf, log(negative) -> NaN (base e via lit(exp(1.0)); note the
-    # base comes first, matching Base.log(b, x) -- see CLAUDE.md's `@wrap_simple_ops` note)
+    # base comes first, matching Base.log(b, x))
     df_log = DataFrame((; x = [0.0, -1.0, exp(1.0)]))
     r_log = select(df_log, alias(Base.log(lit(exp(1.0)), col("x")), "ln"))
     out_log = collect(r_log[:ln])
@@ -88,7 +88,7 @@ end
     @test out_log[3] ≈ 1.0
 
     # abs: missing propagates, non-numeric (String) raises a clean PolarsError rather than
-    # aborting the process (Step 5 -- process-abort check, see CLAUDE.md)
+    # aborting the process
     df_abs = DataFrame((; a = [-1, 0, 1, missing]))
     r_abs = select(df_abs, alias(abs(col("a")), "a"))
     @test isequal(collect(r_abs[:a]), [1, 0, 1, missing])
@@ -188,7 +188,7 @@ end
     r_str = select(df_str, alias(arctan2(col("a"), col("a")), "a"))
     @test isequal(collect(r_str[:a]), [atan(1.0, 1.0), atan(2.0, 2.0), missing])
 
-    # wrong-dtype raises cleanly for dot (Step 5 -- process-abort check)
+    # wrong-dtype raises cleanly for dot
     df_dot_str = DataFrame((; a = ["p", "q", "r"]))
     @test_throws PolarsError select(df_dot_str, alias(dot(col("a"), col("a")), "d"))
 end
@@ -224,7 +224,7 @@ end
     r_doc = select(df_doc, alias(entropy(col("a"); normalize = true), "e"))
     @test only(r_doc[:e]) ≈ 0.06293300616044681
 
-    # wrong-dtype raises cleanly rather than aborting (Step 5)
+    # wrong-dtype raises cleanly rather than aborting
     df_str = DataFrame((; a = ["p", "q", "r"]))
     @test_throws PolarsError select(df_str, alias(entropy(col("a")), "e"))
 end
@@ -254,13 +254,13 @@ end
         @test isinf(only(r[:ub])) && only(r[:ub]) > 0
     end
 
-    # non-empty Int64 sanity check (matches the previously live-verified fact for this batch)
+    # non-empty Int64 sanity check
     df = DataFrame((; y = [1, 1, 2, 2]))
     r = select(df, alias(lower_bound(col("y")), "lb"), alias(upper_bound(col("y")), "ub"))
     @test only(r[:lb]) == typemin(Int64)
     @test only(r[:ub]) == typemax(Int64)
 
-    # wrong-dtype raises cleanly rather than aborting (Step 5)
+    # wrong-dtype raises cleanly rather than aborting
     df_str = DataFrame((; a = ["p", "q", "r"]))
     @test_throws PolarsError select(df_str, alias(lower_bound(col("a")), "lb"))
 end
@@ -277,7 +277,7 @@ end
     # casting a categorical results in a UInt32 physical repr (upstream's exact assertion,
     # `s.to_physical().dtype == pl.UInt32`, series/test_series.py::test_to_physical); this
     # package has no `Enum` dtype (upstream's other to_physical case, Enum -> UInt8), so that half
-    # of the upstream test doesn't port -- see the parity note's Step 8 divergence entry
+    # of the upstream test doesn't port
     df_cat = DataFrame((; c = ["cat1"]))
     r_cat = select(df_cat, alias(cast_categorical(col("c")) |> to_physical, "p"))
     @test collect(r_cat[:p]) isa AbstractVector{UInt32}

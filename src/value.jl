@@ -1,12 +1,8 @@
 """
     Polars.Value{T}
 
-Internal type holding a single value of type `T` read out of a series, or out of a struct field.
-
-The Rust-side handle owns its data (`polars_value_t` runs `AnyValue::into_static`), so a `Value`
-does not point into its source's buffers and the two can be finalized in either order. `parent` is
-kept anyway: it costs one reference, and it keeps the source reachable for as long as anything
-derived from it is, which is what a reader of this type would expect.
+Internal type holding a single value of type `T` read from a series or a struct field. The Rust
+handle owns its data; `parent` keeps the source reachable.
 """
 mutable struct Value{T}
     ptr::Ptr{polars_value_t}
@@ -21,9 +17,7 @@ Base.unsafe_convert(::Type{Ptr{polars_value_t}}, value::Value) = value.ptr
 """
     _value_getter(::Type{T})
 
-Compile-time dispatch table from a physical dtype `T` to its `polars_value_get_*` ccall
-wrapper -- the `Value` counterpart to `_series_getter` in `series.jl` (see its docstring for why
-this replaces a runtime `Symbol`-and-`getproperty` lookup).
+The `polars_value_get_*` binding for physical type `T`, resolved at compile time.
 """
 _value_getter(::Type{Bool}) = API.polars_value_get_bool
 _value_getter(::Type{Int8}) = API.polars_value_get_i8
@@ -80,12 +74,9 @@ function load_value(value::Value{Vector{UInt8}})
     return take!(io[])
 end
 
-"""List elements materialize as a plain `Vector` (see `parse_format`'s `+l`/`+L` arm in
-arrow/schema.jl and `_read_list` in arrow/read.jl for why -- consistent with Struct elements
-materializing as a plain `NamedTuple`, not a `Series`, just below). `polars_value_list_get`
-still returns a genuine one-off `polars_series_t` per element (this is the per-row fallback
-path -- the bulk `collect` path never reaches here), immediately `collect`ed into the `Vector`
-this returns."""
+"""
+List elements materialize as a `Vector` (Struct elements as a `NamedTuple`).
+"""
 function load_value(value::Value{V}) where {V <: Vector}
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
@@ -110,12 +101,8 @@ function load_value(value::Value{NT}) where {NT <: NamedTuple}
         polars_error(err)
         field_value = field_value_out[]
 
-        # NOTE: Polars cannot figure the type of a single value whose type is null?
         if polars_value_type(field_value) == PolarsValueTypeUnknown
-            # `polars_value_struct_get` hands back a freshly `Box`ed, owned value. Every other
-            # path here transfers that ownership to a `Value{T}` (whose finalizer destroys it),
-            # but this one returns before any wrapper exists -- so it has to be destroyed by hand,
-            # or a null-typed struct field leaks one `polars_value_t` per element read.
+            # No `Value` wraps this handle, so destroy it here.
             API.polars_value_destroy(field_value)
             return missing
         end
@@ -128,11 +115,7 @@ function load_value(value::Value{NT}) where {NT <: NamedTuple}
 end
 
 function load_value(value::Value{TT}) where {TT <: Dates.Period}
-    # Unlike a bare untyped null (`PolarsValueTypeUnknown`, already caught one level up by the
-    # NamedTuple loader), a null value in a *schema-typed* slot -- e.g. a struct field declared
-    # Duration -- reports its real dtype even while null, so this guard (present on every other
-    # `load_value` method) is required here too; without it, `polars_value_duration_get` errors
-    # with a confusing "expected a duration value, got Null" instead of returning `missing`.
+    # A null value can still carry its column's dtype.
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int64}()
@@ -152,7 +135,6 @@ function load_value(value::Value{TT}) where {TT <: Dates.Period}
 end
 
 function load_value(value::Value{Dates.DateTime})
-    # See the matching comment on the `Dates.Period` method above.
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int64}()
@@ -172,7 +154,6 @@ function load_value(value::Value{Dates.DateTime})
 end
 
 function load_value(value::Value{Date})
-    # See the matching comment on the `Dates.Period` method above.
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int32}()
@@ -182,13 +163,11 @@ function load_value(value::Value{Date})
 end
 
 function load_value(value::Value{Dates.Time})
-    # See the matching comment on the `Dates.Period` method above.
     polars_value_type(value) == PolarsValueTypeNull && return missing
 
     v = Ref{Int64}()
     err = polars_value_time_get(value, v)
     polars_error(err)
-    # polars' `Time` is always nanoseconds since midnight (it carries no TimeUnit, unlike
-    # Datetime/Duration), and `Dates.Time` is nanosecond-resolution too, so this is exact.
+    # polars' `Time` is nanoseconds since midnight.
     return Dates.Time(Dates.Nanosecond(v[]))
 end

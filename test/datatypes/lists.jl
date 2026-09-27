@@ -17,7 +17,7 @@
         Lists.arg_max(col("v")) |> alias("arg_max"),
         Lists.arg_min(col("v")) |> alias("arg_min")
     )
-    # group_by doesn't guarantee row order, so index results by group key (house convention)
+    # group_by doesn't guarantee row order, so index results by group key
     by_group(colname) = Dict(zip(r[:g], r[colname]))
     @test by_group(:max) == Dict("a" => 3, "b" => 5)
     @test by_group(:min) == Dict("a" => 1, "b" => 4)
@@ -250,7 +250,7 @@ end
     @test isequal(collect(r_all_kleene[:all]), [true, false, true, false, false, missing, true])
 end
 
-@testset "Lists.to_struct: one field per list position (see plans/parity/gap_closure_scope.md Group C, batch-9-lists-structs.md)" begin
+@testset "Lists.to_struct: one field per list position" begin
     df = DataFrame((; a = [[1, 2], [3, 4]]))
     r = select(df, alias(Lists.to_struct(col("a"), ["x", "y"]), "s"))
     vals = collect(r[:s])
@@ -266,7 +266,7 @@ end
     @test vals_short[2] == (x = 3, y = 4)
 end
 
-@testset "Lists.median / Lists.drop_nulls (see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.median / Lists.drop_nulls" begin
     df = DataFrame((; a = [[1, 2, 3], [1, 2, 3, 4]]))
     r_med = select(df, alias(Lists.median(col("a")), "m"))
     @test collect(r_med[:m]) == [2.0, 2.5]
@@ -276,7 +276,7 @@ end
     @test collect(r_dn[:d]) == [[1, 2], []]
 end
 
-@testset "Lists.tail / Lists.shift (not exported -- collide with the top-level Polars.tail/shift; see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.tail / Lists.shift" begin
     df = DataFrame((; a = [[1, 2, 3, 4], [10, 20]]))
 
     r_tail = select(df, alias(Lists.tail(col("a"), lit(2)), "t"))
@@ -290,7 +290,7 @@ end
     @test isequal(collect(r_shift_curried[:s]), collect(r_shift[:s]))
 end
 
-@testset "Lists.gather / Lists.gather_every (not exported -- collide with the top-level row-level gather/gather_every; see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.gather / Lists.gather_every" begin
     df = DataFrame((; a = [[10, 20, 30, 40]]))
 
     # index must be a genuinely List-typed expression (implode(...)) to avoid triggering upstream's
@@ -308,7 +308,7 @@ end
     @test collect(only(r_ge_offset[:g])) == [20, 40]
 end
 
-@testset "Lists.sample_n / Lists.sample_fraction: correct output length and seed-reproducibility (see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.sample_n / Lists.sample_fraction: correct output length and seed-reproducibility" begin
     df = DataFrame((; a = [collect(1:10)]))
 
     r_sn = select(df, alias(Lists.sample_n(col("a"), 3; seed = 42), "s"))
@@ -325,7 +325,7 @@ end
     @test collect(only(r_sn2[:s])) == out_sn
 end
 
-@testset "Lists.count_matches (see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.count_matches" begin
     df = DataFrame((; a = [[1, 2, 1, 3, 1]]))
     r = select(df, alias(Lists.count_matches(col("a"), 1), "c"))
     @test only(collect(r[:c])) == 3
@@ -333,7 +333,7 @@ end
     @test collect(r_curried[:c]) == collect(r[:c])
 end
 
-@testset "Lists.union / set_difference / set_intersection / set_symmetric_difference (see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.union / set_difference / set_intersection / set_symmetric_difference" begin
     df = DataFrame((; a = [[1, 2, 3]], b = [[2, 3, 4]]))
 
     r_union = select(df, alias(Lists.union(col("a"), col("b")), "u"))
@@ -353,7 +353,7 @@ end
     @test sort(collect(only(r_union_curried[:u]))) == sort(collect(only(r_union[:u])))
 end
 
-@testset "Lists.std / Lists.var (not exported -- collide with top-level Polars.std/var; see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.std / Lists.var" begin
     df = DataFrame((; a = [[1.0, 2.0, 3.0, 4.0]]))
     r_std = select(df, alias(Lists.std(col("a")), "s"))
     r_var = select(df, alias(Lists.var(col("a")), "v"))
@@ -361,7 +361,7 @@ end
     @test only(collect(r_var[:v])) ≈ 1.6666666666666667
 end
 
-@testset "Lists.apply / Lists.agg: per-row evaluation over element() (see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.apply / Lists.agg: per-row evaluation over element()" begin
     df = DataFrame((; a = [[3, 1, 2, 1], [5, 4]]))
 
     # apply stays list-shaped even though `unique` reduces duplicates within each row
@@ -373,7 +373,7 @@ end
     @test collect(r_agg[:s]) == [7, 9]
 end
 
-@testset "Lists.to_array: usable in a non-materializing pipeline despite the read-back gap (see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.to_array: usable in a non-materializing pipeline despite the read-back gap" begin
     df = DataFrame((; a = [[1, 2], [3, 4]]))
     lf = select(lazy(df), alias(Lists.to_array(col("a"), 2), "arr"))
 

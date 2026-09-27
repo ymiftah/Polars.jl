@@ -42,7 +42,8 @@ end
              allow_missing_columns::Bool=false,
              storage_options::Union{Nothing,AbstractDict{<:AbstractString,<:AbstractString}}=nothing)::LazyFrame
 
-Lazily scans a CSV file, glob pattern, or directory of CSV files, without reading it into memory.
+Create a LazyFrame directly from a CSV scan. `path` may be a file, a glob pattern, or a
+directory.
 
 - `n_rows`: only scan the first `n_rows` rows.
 - `row_index_name`/`row_index_offset`: if `row_index_name` is given, adds a row-index column with
@@ -64,14 +65,11 @@ Lazily scans a CSV file, glob pattern, or directory of CSV files, without readin
 - `glob`: expand `path` as a glob pattern.
 - `include_file_paths`: if given, adds a column with this name containing each row's source path.
 - `allow_missing_columns`: allow columns present in some files but not others (filled with nulls).
-- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
-  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
-  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
+- `storage_options`: cloud storage configuration (e.g. `"aws_region" => "us-east-1"`) for
+  `s3://`, `gs://`, `az://` paths. By default the provider's environment variables and config
+  files are used.
 
-!!! note
-    Unlike [`scan_parquet`](@ref)/[`scan_ipc`](@ref), CSV scanning has no `hive_partitioning`
-    option.
+Note: there is no `hive_partitioning` option for CSV.
 """
 function scan_csv(
         path;
@@ -131,7 +129,7 @@ end
 """
     read_csv(path::String; kwargs...)::DataFrame
 
-Reads a dataframe stored in a CSV file. Accepts the same keyword options as [`scan_csv`](@ref).
+Read a CSV file into a `DataFrame`. Accepts the keywords of [`scan_csv`](@ref).
 """
 read_csv(path; kwargs...) = collect(scan_csv(path; kwargs...))
 
@@ -151,7 +149,7 @@ read_csv(path; kwargs...) = collect(scan_csv(path; kwargs...))
               decimal_comma::Bool=false)
     write_csv(path::String, df::DataFrame; kwargs...)
 
-Writes a dataframe to a CSV file provided as an `IO`.
+Write a DataFrame to csv.
 
 - `include_header`/`include_bom`: whether to write a header row / UTF-8 byte-order mark.
 - `separator`/`quote_char`: field separator and quote character.
@@ -164,12 +162,8 @@ Writes a dataframe to a CSV file provided as an `IO`.
 - `float_precision`: number of digits after the decimal point for floats.
 - `decimal_comma`: use a comma as the decimal separator instead of a period.
 
-For the `path::String` method, a path containing `"://"` (e.g. `"s3://bucket/out.csv"`) is
-rejected with an error pointing at [`sink_csv`](@ref) instead of silently writing a local file.
-
-!!! note
-    Unlike [`write_parquet`](@ref), `write_csv` has no `compression` option -- only
-    [`sink_csv`](@ref) supports writing compressed CSV.
+A `path` containing `"://"` is an error; use [`sink_csv`](@ref) for cloud storage or compressed
+output.
 """
 function write_csv(
         io::IO, df::DataFrame;
@@ -223,18 +217,16 @@ end
              maintain_order::Bool=true)
     sink_csv(df::DataFrame, path::String; kwargs...)
 
-Executes the query and writes the result directly to a CSV file via the streaming engine, without
-materializing the full result in memory.
+Stream the results of the query to a CSV file, without materializing the full result in memory.
 
 Accepts the same formatting keywords as [`write_csv`](@ref), plus:
 - `compression`: one of `:uncompressed` (default), `:gzip`, `:zstd`. `compression_level` tunes the
   chosen algorithm (gzip/zstd only).
 - `mkdir`: create missing parent directories (default `false`).
 - `maintain_order`: preserve row order through the streaming pipeline (default `true`).
-- `storage_options`: a `Dict` of cloud object-store configuration keys/values (e.g.
-  `"aws_access_key_id"`, `"aws_endpoint_url"`, `"aws_region"`) for accessing cloud paths
-  (`s3://`, `gs://`, `az://`, ...). Omitting it (`nothing`, the default) falls back to the
-  provider's standard environment variables / config files (e.g. `~/.aws/credentials`).
+- `storage_options`: cloud storage configuration (e.g. `"aws_region" => "us-east-1"`) for
+  `s3://`, `gs://`, `az://` paths. By default the provider's environment variables and config
+  files are used.
 """
 sink_csv(df::DataFrame, path::String; kwargs...) = sink_csv(lazy(df), path; kwargs...)
 function sink_csv(

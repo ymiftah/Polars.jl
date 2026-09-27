@@ -548,15 +548,9 @@ void polars_lazy_frame_bottom_k(struct polars_lazy_frame_t *df,
                                 bool maintain_order);
 
 /**
- * Whole-frame reductions -- `LazyFrame::sum`/`mean`/`min`/`max`/`median`/`std`/`var`/`quantile`
- * (`polars-lazy-0.54.4/src/frame/mod.rs`) are genuine methods on the Rust `LazyFrame` itself, not
- * something this crate composes from `with_columns` + a wildcard selector: unlike the naive
- * `select(lf, wildcard.sum())` composition, they are null-tolerant per column rather than
- * erroring the whole frame on the first unsupported dtype (e.g. a `String` column sums to `None`,
- * per each method's own doc comment) -- verified live before choosing this shape over the
- * wildcard one. Aggregated columns keep their original names. All eight are infallible plan-build
- * operations (validated at `collect`, not here), so -- like `polars_lazy_frame_sort`/`slice`
- * above -- they mutate through `mem::take` and return void rather than threading an error out.
+ * Whole-frame reductions, using the `LazyFrame` methods of the same name. Unlike a wildcard
+ * `select`, these give null for a column of an unsupported dtype instead of failing. Aggregated
+ * columns keep their names. Infallible at plan-build time, so they mutate in place.
  */
 void polars_lazy_frame_sum(struct polars_lazy_frame_t *df);
 
@@ -805,16 +799,14 @@ const struct polars_error_t *polars_expr_col(const uint8_t *name,
 const struct polars_error_t *polars_expr_nth(int64_t n, const struct polars_expr_t **out);
 
 /**
- * A placeholder for "the values in this group", used to build the `agg` expression passed to
- * `pivot` (e.g. `element().sum()`) -- substituted in-place with the actual value column filtered
- * to the current group at plan-build time.
+ * `pl.element()`: the current element, e.g. the values of a group in the `agg` expression passed
+ * to `pivot`.
  */
 const struct polars_expr_t *polars_expr_element(void);
 
 /**
  * `pl.len()`: the number of rows in the current context (a whole frame, or the current group
- * inside `agg`) -- infallible, just `Expr::Len` (`polars-plan-0.54.4/src/dsl/functions/mod.rs`),
- * ungated by any Cargo feature.
+ * inside `agg`).
  */
 const struct polars_expr_t *polars_expr_len(void);
 
@@ -858,10 +850,7 @@ const struct polars_error_t *polars_expr_concat_list(const struct polars_expr_t 
 
 /**
  * `pl.concat_str`: row-wise (horizontal) string concatenation across `exprs`, joined by
- * `separator`. Unlike the `_horizontal` reductions above, upstream's `concat_str` is infallible
- * (it just builds a `Function` plan node -- see `polars-plan-0.54.4/src/dsl/functions/concat.rs`,
- * no `polars_ensure!` anywhere in it), but we keep the same fallible ABI shape as its siblings
- * for uniformity rather than special-casing the one exception.
+ * `separator`. Fallible only because `separator` must be valid UTF-8.
  */
 const struct polars_error_t *polars_expr_concat_str(const struct polars_expr_t *const *exprs,
                                                     uintptr_t n,
@@ -872,8 +861,7 @@ const struct polars_error_t *polars_expr_concat_str(const struct polars_expr_t *
 
 /**
  * `pl.format`: fills a `{}`-templated format string with `exprs`, one per placeholder, in order.
- * Fallible: a mismatched placeholder/argument count raises rather than panicking (see
- * `polars-plan-0.54.4/src/dsl/functions/concat.rs::format_str`).
+ * Fallible: a mismatched placeholder/argument count raises an error.
  */
 const struct polars_error_t *polars_expr_format(const uint8_t *fmt,
                                                 uintptr_t fmt_len,
@@ -883,8 +871,7 @@ const struct polars_error_t *polars_expr_format(const uint8_t *fmt,
 
 /**
  * `pl.concat_arr`: horizontally concatenates `exprs` into a single fixed-size `Array` column.
- * Gated on `dtype-array` inside `concat_arr` itself (`feature_gated!`), already enabled for
- * `Expr::reshape` (Task 2 of this same plan).
+ * Requires the `dtype-array` feature.
  */
 const struct polars_error_t *polars_expr_concat_arr(const struct polars_expr_t *const *exprs,
                                                     uintptr_t n,
@@ -1361,9 +1348,7 @@ const struct polars_expr_t *polars_expr_last(const struct polars_expr_t *expr);
 /**
  * The aggregation form of `item()`: errors if the expression evaluates to `!= 1` values, unless
  * `allow_empty` is set, in which case zero values also succeeds (producing `null`). Distinct from
- * `DataFrame`/`Series` `item()`, which is a `(1,1)`-shape accessor, not an aggregation -- the two
- * share a name upstream but are different functions (see `plans/parity/batch-2-aggregation-
- * statistics.md`'s Step-9 finding).
+ * `DataFrame`/`Series` `item()`, which is a `(1,1)`-shape accessor, not an aggregation.
  */
 const struct polars_expr_t *polars_expr_item(const struct polars_expr_t *expr, bool allow_empty);
 
@@ -1669,12 +1654,9 @@ const struct polars_expr_t *polars_expr_list_median(const struct polars_expr_t *
 const struct polars_expr_t *polars_expr_list_drop_nulls(const struct polars_expr_t *a);
 
 /**
- * `Lists.eval`: runs `evaluation` once per row, with `element()` bound to that row's list values
- * -- the same primitive the crate already uses internally for `reverse`/`unique`/`unique_stable`
- * above, exposed directly. This is the multiplier for the "most of the list namespace is
- * missing" finding (`plans/parity/batch-9-lists-structs.md`): `all`/`any` have no dedicated
- * `ListNameSpace` method in this polars version at all and are *only* reachable this way
- * (`eval(element().all(ignore_nulls))`), and `n_unique`/`filter` compose the same way.
+ * `Lists.eval`: runs `evaluation` once per row, with `element()` bound to that row's list values.
+ * `all`/`any` have no `ListNameSpace` method and are built this way
+ * (`eval(element().all(ignore_nulls))`), as are `n_unique`/`filter`.
  */
 const struct polars_expr_t *polars_expr_list_eval(const struct polars_expr_t *a,
                                                   const struct polars_expr_t *evaluation);

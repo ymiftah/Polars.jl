@@ -5,10 +5,8 @@ A Rust panic unwinding out of an `extern "C"` function aborts the host process -
 taking the embedding Julia session with it. `guard_error` (see `src/lib.rs`) turns such a panic
 into an ordinary `polars_error_t`, but only for functions that have somewhere to put one.
 
-The rule this checks is deliberately mechanical: **if the function returns
-`*const polars_error_t`, its body must call `guard_error`.** Not "if a panic looks likely there" --
-that phrasing cannot be checked, and the coverage it produced was 3 of 142 functions in `expr.rs`
-while `io.rs` had 8 of 9. Functions with no error channel (returning a handle, `usize`, `bool`, or
+The rule is mechanical: **if the function returns `*const polars_error_t`, its body must call
+`guard_error`.** Functions with no error channel (returning a handle, `usize`, `bool`, or
 a `#[repr(C)]` enum by value, and the void in-place mutators) are out of scope: they cannot report
 anything, so a panic there aborts and the fix is an ABI change, not a guard.
 
@@ -25,8 +23,7 @@ SRC = Path(__file__).resolve().parent / "src"
 FILES = ["lib.rs", "dataframe.rs", "expr.rs", "io.rs", "series.rs", "value.rs"]
 
 # Matches both plain definitions and the ones inside `macro_rules!` bodies, whose name is a
-# metavariable (`fn $n(`) rather than an identifier -- those expand into real entry points too, and
-# were the ones an earlier ad-hoc sweep missed.
+# metavariable (`fn $n(`) rather than an identifier -- those expand into real entry points too.
 FN = re.compile(r'^(\s*)pub (?:unsafe )?extern "C" fn (\$?\w+)(<[^>]*>)?\(')
 FALLIBLE_RET = "-> *const polars_error_t"
 

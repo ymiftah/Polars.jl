@@ -2,16 +2,10 @@
 """Guard against drift between the Rust FFI surface, the C header, and a built library.
 
 `include/polars.h` is generated from the Rust source by cbindgen, and `src/api/generated.jl` is
-generated *from* it (see CLAUDE.md -- never hand-edit either end). Generation is not automatic
-though: it runs via `regen_header.sh`, and cbindgen can only see the ~143 macro-generated
-`#[no_mangle]` functions through `-Zunpretty=expanded`. So a symbol that exists in Rust but never
-makes it into the header -- because regeneration was skipped, or the expansion silently missed it
--- is invisible to the Julia side and untested, while a header declaration with no Rust definition
-is a link error waiting to happen. CI already checks header -> generated.jl; this checks
-Rust -> header.
-
-This caught `polars_dataframe_new`, which was additionally declared `#[no_mangle] pub fn` (Rust
-ABI, not `extern "C"`) and referenced by nothing at all.
+generated from it. Generation runs via `regen_header.sh`, and cbindgen only sees the
+macro-generated `#[no_mangle]` functions through `-Zunpretty=expanded`. A symbol that exists in
+Rust but never reaches the header is invisible to the Julia side, while a header declaration with
+no Rust definition is a link error. CI checks header -> generated.jl; this checks Rust -> header.
 
 Three modes:
 
@@ -25,17 +19,14 @@ Three modes:
         include/arrow.h -> the ArrowSchema/ArrowArray mirrors in src/api/generated.jl.
 
 The second mode exists because the distributed binary and the bindings are versioned separately:
-`Artifacts.toml` pins a fixed release tag, so a change under `c-polars/` reaches nobody until a new
-release is cut. A stale artifact produces exactly the failure that made the registered
-`libpolars_jll` useless -- an undefined symbol at first `ccall`, long after load, rather than
-anything a clean build would catch.
+`Artifacts.toml` pins a fixed release tag, and a stale artifact fails with an undefined symbol at
+the first `ccall` rather than at load time.
 
 Header -> library is the right comparison rather than Rust -> library: `#[cfg]`-gated symbols
 (e.g. `polars_expr_str_to_titlecase`, behind the `nightly` feature) are legitimately absent from
 both a default build and the header, so they drop out on their own.
 
-The `--arrow` mode covers a gap the other two structurally cannot: they match *function* symbols,
-so nothing here ever looked at struct layout. `ArrowSchema`/`ArrowArray` are polars-arrow's types,
+The `--arrow` mode checks struct layout, which the other two modes (function symbols only) cannot. `ArrowSchema`/`ArrowArray` are polars-arrow's types,
 mirrored by hand in both `include/arrow.h` and `src/api/generated.jl`; a mismatch between those two
 mirrors is silent memory corruption at the FFI boundary, not a link error. (Drift of *both* mirrors
 away from polars-arrow itself is caught separately, by the `size_of`/`align_of` const assertions in

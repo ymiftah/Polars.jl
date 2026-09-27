@@ -1,6 +1,6 @@
 # [Datetime](@id expr-datetime)
 
-The `Dt` namespace provides date/datetime component extraction and manipulation on `Date`-, `DateTime`-, and `Duration`-typed columns. All datetime functions operate on **sorted** data (no implicit sorting).
+The `Dt` namespace operates on Date, Datetime, Time and Duration columns.
 
 ```@setup dt
 using Polars, Dates
@@ -43,13 +43,9 @@ select(
 )
 ```
 
-`Dt.date`/`Dt.time` split a Datetime into its `Date` and `Dates.Time` halves:
-
 ```@example dt
 select(df, Dt.date(col("ts")) |> alias("date"), Dt.time(col("ts")) |> alias("time"))
 ```
-
-`Dt.iso_year`/`Dt.century`/`Dt.millennium` are calendar-based, distinct from a plain `Dt.year`:
 
 ```@example dt
 select(
@@ -69,16 +65,11 @@ Polars.Dt.strftime
 Polars.Dt.to_string
 ```
 
-Intervals use polars' duration string format: `"1d"`, `"4h"`, `"30m"`, `"5s"`, etc. `strftime`
-accepts standard `strftime` format codes (`%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, etc.). `to_string` is
-upstream's current name for the same thing (`strftime` is kept as the familiar alias).
+Intervals are duration strings such as `"1d"`, `"4h"`, `"30m"`.
 
 ```@example dt
 select(df, col("ts") |> Dt.truncate("1h") |> alias("trunc"), col("ts") |> Dt.strftime("%Y-%m-%d") |> alias("formatted"))
 ```
-
-`round` differs from `truncate` by rounding to the *nearest* interval instead of always rounding
-down; `offset_by` shifts by a signed duration:
 
 ```@example dt
 select(df, col("ts") |> Dt.round("1h") |> alias("rounded"), col("ts") |> Dt.offset_by("+1d") |> alias("plus_1d"))
@@ -91,15 +82,9 @@ Polars.Dt.combine
 Polars.Dt.replace
 ```
 
-`combine` builds a new Datetime from a Date/Datetime and a Time, overwriting any existing
-time-of-day:
-
 ```@example dt
 select(DataFrame((; d = [Date(2024, 3, 15)])), Dt.combine(col("d"), lit(Time(9, 30))) |> alias("combined"))
 ```
-
-`replace` overwrites individual components, leaving the rest (and any component left at its
-default `missing`) unchanged:
 
 ```@example dt
 select(df, Dt.replace(col("ts"); year = 2000, hour = 0) |> alias("replaced"))
@@ -111,10 +96,6 @@ select(df, Dt.replace(col("ts"); year = 2000, hour = 0) |> alias("replaced"))
 Polars.Dt.cast_time_unit
 Polars.Dt.with_time_unit
 ```
-
-`cast_time_unit` rescales the underlying value to a different resolution (`:ns`/`:us`/`:ms`);
-`with_time_unit` only relabels it, without changing the underlying integer — see each docstring for
-which one you want.
 
 ## Duration components
 
@@ -128,10 +109,8 @@ Polars.Dt.total_microseconds
 Polars.Dt.total_nanoseconds
 ```
 
-Each `total_*` function decomposes a `Duration`-typed value (see [Selectors](@ref)'s
-`duration()`, or cast an integer column via `cast(expr, Dates.Nanosecond/Microsecond/Millisecond)`
-— see [Casting](@ref casting)) into a count of the named unit. By default the count is truncated
-*toward zero* (an `Int64`); pass `fractional=true` for the exact value as a `Float64` instead.
+An integer column can be cast to a Duration with `cast(expr, Dates.Nanosecond)` (see
+[Casting](@ref casting)):
 
 ```@example dt
 dfdur = select(
@@ -156,14 +135,8 @@ Polars.Dt.base_utc_offset
 Polars.Dt.dst_offset
 ```
 
-`replace_time_zone` attaches, strips (`tz=nothing`), or re-attaches a time zone label to *local
-wall-clock* values — the instant changes, the displayed clock time doesn't. `ambiguous` controls
-how a local time that occurs twice (a DST fall-back) is resolved — one of `"raise"`, `"earliest"`,
-`"latest"`, `"null"`. `non_existent` controls how a local time that never occurs (a DST
-spring-forward gap) is resolved — `:raise` or `:null`.
-
-`convert_time_zone` re-labels an already tz-aware expression into a different IANA zone (e.g.
-`"America/New_York"`) — the instant is unchanged, only the display/interpretation does.
+`replace_time_zone` keeps the local time and changes the instant; `convert_time_zone` keeps the
+instant and changes the local time.
 
 ```julia
 using Polars, Dates
@@ -171,25 +144,18 @@ df = DataFrame((; ts = DateTime(2024, 3, 15, 12, 0, 0) .+ Dates.Hour.(0:2)))
 select(df, col("ts") |> Dt.replace_time_zone("UTC") |> Dt.convert_time_zone("America/New_York") |> alias("ts_ny"))
 ```
 
-`base_utc_offset`/`dst_offset` need a time-zone-aware Datetime and return the offset as a
-`Dates.Millisecond`-valued Duration:
+`base_utc_offset` and `dst_offset` need a timezone-aware Datetime:
 
 ```julia
 select(df, col("ts") |> Dt.replace_time_zone("Europe/London") |> Dt.dst_offset |> alias("dst"))
 ```
 
 !!! note
-    Building and running a query over tz-aware columns works with no extra dependencies. Reading a
-    tz-aware column's *values* back into Julia — including implicitly, e.g. `show`ing a `DataFrame`
-    that has one — needs [TimeZones.jl](https://github.com/JuliaTime/TimeZones.jl) loaded
-    (`using TimeZones`) first, as `ZonedDateTime`; without it, both `df[:ts_ny]` and `show(df)`
-    error with a message explaining this. `write_parquet`/`write_csv`/etc. don't need it either,
-    since they never materialize a Julia value.
+    Reading timezone-aware values into Julia, including `show`ing a `DataFrame` that contains
+    them, requires [TimeZones.jl](https://github.com/JuliaTime/TimeZones.jl) (`using TimeZones`);
+    the values are `ZonedDateTime`s. Queries and writes don't need it.
 
 ## Curried forms
 
-`truncate`, `round`, `offset_by`, `strftime`, `to_string`, every `total_*` function, both time-zone functions,
-`combine`, `replace`, `cast_time_unit`, and `with_time_unit` have curried forms for `|>` pipelines
-— see [Curried forms for pipe-based composition](@ref). Every plain component accessor above
-(`year`, `iso_year`, `is_leap_year`, ...) needs no currying at all: since it takes nothing beyond
-the piped expression, `col("ts") |> Dt.year` already works with Julia's own `|>`.
+Functions with arguments have curried forms (see [Curried forms for pipe-based composition](@ref));
+functions without, such as `Dt.year`, can be piped directly: `col("ts") |> Dt.year`.

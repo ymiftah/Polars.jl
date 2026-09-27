@@ -56,11 +56,8 @@ head(enriched, 5)
 
 ## Keeping unmatched rows: `leftjoin`
 
-`innerjoin` drops any row with no match on the other side. `leftjoin` keeps every row from the
-*left* frame instead, filling `missing` where the right side has no match — the join to reach for
-when you want to enrich a table without silently losing rows that don't have a lookup match. To
-see it in action, join `orders` against a deliberately incomplete `stores` table (only two of the
-three stores):
+`innerjoin` drops rows without a match. `leftjoin` keeps every row of the left frame, with
+`missing` where the right side has no match. Joining against a `stores` table that lacks one store:
 
 ```@example joining
 partial_stores = filter(stores, col("store_id") .<= 2)
@@ -73,9 +70,6 @@ instead of disappearing the way they would with `innerjoin`.
 
 ## The rest of the join family
 
-`leftjoin`/`innerjoin` cover the two most common cases, but Polars.jl has the full SQL join
-vocabulary — `rightjoin`, `outerjoin`, `semijoin`, `antijoin`, `crossjoin` — plus `join_asof` for
-matching on the nearest key rather than an exact one (covered in
-[Time-Series Analytics](@ref)). They all share `innerjoin`'s calling convention (one shared key
-expression, or one per side). See the [Joins](@ref) reference section for the full table and
-`join_asof`'s strategy options.
+There are also `rightjoin`, `outerjoin`, `semijoin`, `antijoin`, `crossjoin`, and `join_asof`
+for matching on the nearest key (see [Time-Series Analytics](@ref)). See [Joins](@ref) for the
+reference.

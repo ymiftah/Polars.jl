@@ -71,8 +71,7 @@ end
 
     # a genuinely SCHEMA-LESS frame (0 rows, 0 columns -- distinct from a 0-row frame that still
     # has a real column schema, above) fails to concat here even though py-polars' `pl.concat`
-    # treats it as vacuously compatible with anything (py-polars test_concat_to_empty). Confirmed
-    # live divergence -- see plans/parity/api_gap_audit.md Group 1.
+    # treats it as compatible with anything (py-polars test_concat_to_empty).
     schemaless = DataFrame(NamedTuple())
     @test_broken collect(concat([schemaless, DataFrame((; a = [1]))])[:a]) == [1]
 end

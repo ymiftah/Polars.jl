@@ -1,16 +1,11 @@
 """
     _name_ptrs(names)::Tuple{Vector{String}, Vector{Ptr{UInt8}}, Vector{Csize_t}}
 
-Builds the `(owned, ptrs, lens)` triple for passing a list of column names across the C ABI.
+Builds the `(owned, ptrs, lens)` triple for passing a list of names across the C ABI.
 
-`owned` is the `Vector{String}` that `ptrs`' raw pointers point into, and is what the caller must
-name in its `GC.@preserve` -- **not** the argument passed in here. For a `Vector{String}` input
-`owned === names`, but for any other `ColId` vector (`Vector{Symbol}`, most commonly) it is a
-freshly converted copy that nothing else references: preserving only the caller's own argument
-would leave every pointer in `ptrs` dangling the instant the GC runs between this call and the
-ccall that consumes it -- and the `Ref` allocation each call site makes in between is exactly such
-a safepoint. Returning the owner (rather than hiding it inside this function) is what makes that
-rooting impossible to forget; `_cut_labels` in expr/statistics.jl already used this shape.
+`owned` is the `Vector{String}` that `ptrs` point into; the caller must `GC.@preserve` it, not the
+argument. For a non-`String` input (e.g. `Vector{Symbol}`) it is a fresh copy that nothing else
+roots.
 """
 _name_ptrs(names::Vector{String}) =
     (names, Ptr{UInt8}[pointer(s) for s in names], Csize_t[ncodeunits(s) for s in names])
@@ -230,11 +225,8 @@ end
     fill_null(df::LazyFrame, value)::LazyFrame
     fill_null(df::DataFrame, value)::DataFrame
 
-Fill `null` values in `df` with `value` (an `Expr`, or a literal promoted via [`lit`](@ref)).
+Fill None values in the DataFrame with an expression (or a literal).
 
-Note: distinct from the `Expr`-level [`fill_null`](@ref) (fills nulls within one expression, for
-use inside [`select`](@ref)/[`with_columns`](@ref)) and from
-[`forward_fill`](@ref)/[`backward_fill`](@ref) (strategy-based, not a fixed replacement value).
 """
 fill_null(df::DataFrame, value) = fill_null(lazy(df), value) |> collect
 function fill_null(df::LazyFrame, value)
@@ -247,9 +239,8 @@ end
     cast(df::LazyFrame, dtypes::AbstractDict; strict::Bool=false)::LazyFrame
     cast(df::DataFrame, dtypes::AbstractDict; strict::Bool=false)::DataFrame
 
-Cast the columns named in `dtypes` (a mapping of column name to Julia type, same spellings
-[`Polars.cast`](@ref) accepts on a single `Expr`) to their new dtype, leaving every other column
-unchanged, resulting in a new frame with updated dtypes.
+Cast named frame columns, resulting in a new frame with updated dtypes. `dtypes` maps column
+names to Julia types, as accepted by [`Polars.cast`](@ref).
 """
 function cast(df::LazyFrame, dtypes::AbstractDict; strict::Bool = false)
     exprs = Expr[cast(col(String(name)), dtype; strict) for (name, dtype) in dtypes]
@@ -261,12 +252,9 @@ cast(df::DataFrame, dtypes::AbstractDict; strict::Bool = false) = cast(lazy(df),
     cast(df::LazyFrame, dtype::Type; strict::Bool=false)::LazyFrame
     cast(df::DataFrame, dtype::Type; strict::Bool=false)::DataFrame
 
-Cast all frame columns of `df` to `dtype`, resulting in a new frame.
+Cast all frame columns to the given dtype, resulting in a new frame.
 
-Note: only plain (parameter-free) dtypes are reachable through this whole-frame form, the same
-restriction as the single-`Expr` [`Polars.cast`](@ref) — a `DateTime`/duration `Period` subtype
-with its own `time_unit`/`time_zone` needs the `AbstractDict` form instead (per-column, going
-through `Polars.cast` itself).
+Note: `DateTime` and `Period` types are not supported here; use the `AbstractDict` form.
 """
 function cast(df::LazyFrame, dtype::Type; strict::Bool = false)
     value_type = _plain_value_type_code(dtype)
@@ -415,8 +403,7 @@ end
     Base.prod(df::LazyFrame)::LazyFrame
     Base.prod(df::DataFrame)::DataFrame
 
-The product of the non-null values of every column of `df`, returning a single-row frame with the
-same column names.
+Aggregate all the columns as their product values.
 """
 function Base.prod(df::LazyFrame)
     sch = collect_schema(df)
@@ -433,7 +420,7 @@ Base.prod(df::DataFrame) = Base.prod(lazy(df)) |> collect
     limit(df::LazyFrame, n::Integer)::LazyFrame
     limit(df::DataFrame, n::Integer)::DataFrame
 
-Limit `df` to the first `n` rows. An alias for [`head`](@ref).
+Limit the DataFrame to the first `n` rows.
 """
 limit(df::LazyFrame, n::Integer) = head(df, n)
 limit(df::DataFrame, n::Integer) = head(df, n)
@@ -444,7 +431,9 @@ export limit
     Base.reverse(df::LazyFrame)::LazyFrame
     Base.reverse(df::DataFrame)::DataFrame
 
-Reverse `df` from top to bottom.
+Reverse the `DataFrame` from top to bottom.
+
+Row `i` becomes row `number_of_rows - i - 1`.
 """
 Base.reverse(df::LazyFrame) = _frame_reverse!(clone(df))
 Base.reverse(df::DataFrame) = _frame_reverse!(lazy(df)) |> collect
@@ -457,8 +446,7 @@ end
     null_count(df::LazyFrame)::LazyFrame
     null_count(df::DataFrame)::DataFrame
 
-Aggregate all the columns of `df` as the sum of their `null` value count. The per-column
-expression form is [`null_count(::Polars.Expr)`](@ref).
+Aggregate all the columns as the sum of their null value count.
 """
 null_count(df::LazyFrame) = _frame_null_count!(clone(df))
 null_count(df::DataFrame) = _frame_null_count!(lazy(df)) |> collect
@@ -471,9 +459,7 @@ end
     Base.count(df::LazyFrame)::LazyFrame
     Base.count(df::DataFrame)::DataFrame
 
-Return the number of non-`null` elements for each column of `df`, as a single-row frame with the
-same column names -- the per-column expression form is [`Polars.count`](@ref); the complementary
-[`null_count`](@ref) counts the other way.
+Return the number of non-null elements for each column.
 """
 Base.count(df::LazyFrame) = _frame_count!(clone(df))
 Base.count(df::DataFrame) = _frame_count!(lazy(df)) |> collect
@@ -486,8 +472,7 @@ end
     fill_nan(df::LazyFrame, value)::LazyFrame
     fill_nan(df::DataFrame, value)::DataFrame
 
-Fill `NaN` values in `df` with `value` (an expression or a plain scalar). The `null`-replacing
-counterpart is [`fill_null`](@ref).
+Fill NaN values in the DataFrame with an expression (or a literal).
 """
 fill_nan(df::LazyFrame, value) = _frame_fill_nan!(clone(df), convert(Expr, value))
 fill_nan(df::DataFrame, value) = _frame_fill_nan!(lazy(df), convert(Expr, value)) |> collect

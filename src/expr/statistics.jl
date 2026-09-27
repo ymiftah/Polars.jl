@@ -14,25 +14,21 @@ _quantile_method_enum(method::Symbol) = _enum_lookup(
 """
     mean(expr::Polars.Expr)::Polars.Expr
 
-Arithmetic mean of the values.
+Reduce groups to the mean value.
 """
 Statistics.mean(expr::Expr) = Expr(API.polars_expr_mean(expr))
 
 """
     median(expr::Polars.Expr)::Polars.Expr
 
-Median of the values.
+Reduce groups to the median value.
 """
 Statistics.median(expr::Expr) = Expr(API.polars_expr_median(expr))
 
 """
     std(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
-Standard deviation of the values, with `ddof` degrees of freedom subtracted (defaults to
-`ddof=1`).
-
-!!! note
-    No curried (`|>`) form -- use `x -> std(x; ddof=2)` instead.
+Standard deviation of the values of the Series.
 """
 function Statistics.std(expr::Expr; ddof::Integer = 1)
     out = API.polars_expr_std(expr, UInt8(ddof))
@@ -42,10 +38,7 @@ end
 """
     var(expr::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
-Variance of the values, with `ddof` degrees of freedom subtracted (defaults to `ddof=1`).
-
-!!! note
-    No curried (`|>`) form -- use `x -> var(x; ddof=2)` instead.
+Variance of the values of the Series.
 """
 function Statistics.var(expr::Expr; ddof::Integer = 1)
     out = API.polars_expr_var(expr, UInt8(ddof))
@@ -55,12 +48,8 @@ end
 """
     quantile(expr::Polars.Expr, q; method::Symbol=:nearest)::Polars.Expr
 
-Computes the `q`-th quantile (`q` an `Expr` or a numeric literal in `[0, 1]`) of the values, using
-the given interpolation `method`: one of `:nearest` (default), `:lower`, `:higher`, `:midpoint`,
-`:linear`, `:equiprobable`.
-
-!!! note
-    No curried (`|>`) form -- use `x -> quantile(x, 0.5)` instead.
+Compute the quantile per group. `method` is one of `:nearest` (default), `:lower`, `:higher`,
+`:midpoint`, `:linear`, `:equiprobable`.
 """
 function Statistics.quantile(expr::Expr, q; method::Symbol = :nearest)
     q = convert(Expr, q)
@@ -74,13 +63,7 @@ export mean, median, std, var, quantile
 """
     cov(a::Polars.Expr, b::Polars.Expr; ddof::Integer=1)::Polars.Expr
 
-Compute the covariance between two expressions.
-
-`ddof` is the "delta degrees of freedom": the divisor used in the calculation is `N - ddof`, where
-`N` is the number of elements. Defaults to `1`.
-
-!!! note
-    No curried (`|>`) form.
+Compute the covariance between two columns.
 """
 function Statistics.cov(a::Expr, b::Expr; ddof::Integer = 1)
     out = API.polars_expr_cov(a, b, UInt8(ddof))
@@ -90,11 +73,7 @@ end
 """
     cor(a::Polars.Expr, b::Polars.Expr)::Polars.Expr
 
-Compute the Pearson correlation between two expressions.
-
-A constant (zero-variance) input gives `NaN`.
-
-See also [`spearman_rank_corr`](@ref) for the rank correlation.
+Compute the pearson correlation between two columns.
 """
 function Statistics.cor(a::Expr, b::Expr)
     out = API.polars_expr_pearson_corr(a, b)
@@ -106,13 +85,11 @@ export cov, cor
 """
     spearman_rank_corr(a::Polars.Expr, b::Polars.Expr; propagate_nans::Bool=false)::Polars.Expr
 
-Compute the Spearman rank correlation between two expressions.
+Compute the spearman rank correlation between two columns. Missing data will be excluded from the
+computation.
 
-If `propagate_nans` is `true`, any `NaN` encountered leads to `NaN` in the output. Defaults to
-`false`, where `NaN`s are regarded as larger than any finite number and thus lead to the highest
-rank.
-
-See also [`cor`](@ref) for the Pearson correlation.
+- `propagate_nans`: if `true` any `NaN` encountered will lead to `NaN` in the output. If `false`
+  then `NaN` are regarded as larger than any finite number and thus lead to the highest rank.
 """
 function spearman_rank_corr(a::Expr, b::Expr; propagate_nans::Bool = false)
     out = API.polars_expr_spearman_rank_corr(a, b, propagate_nans)
@@ -121,22 +98,22 @@ end
 
 export spearman_rank_corr
 
-@wrap_expr_method skew(expr::Expr; bias::Bool = true) polars_expr_skew "Compute the sample skewness of the values.\n\nFor normally distributed data, the skewness should be about zero. For unimodal continuous distributions, a skewness value greater than zero means that there is more weight in the right tail of the distribution.\n\nThe sample skewness is computed as the Fisher-Pearson coefficient of skewness. If `bias` is `false`, the calculation is corrected for statistical bias."
+@wrap_expr_method skew(expr::Expr; bias::Bool = true) polars_expr_skew "Compute the sample skewness of a data set.\n\nFor normally distributed data, the skewness should be about zero. For uni-modal continuous distributions, a skewness value greater than zero means that there is more weight in the right tail of the distribution.\n\nIf `bias` is `false`, the calculation is corrected for statistical bias."
 
 @curry skew(; bias::Bool = true)
 
 export skew
 
-@wrap_expr_method kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true) polars_expr_kurtosis "Compute the kurtosis (Fisher or Pearson) of the values.\n\nKurtosis is the fourth central moment divided by the square of the variance. If `fisher` is `true` (default), `3.0` is subtracted from the result so that a normal distribution gives `0.0`; if `false`, Pearson's definition is used (`3.0` for a normal distribution). If `bias` is `false`, the calculation is corrected for statistical bias.\n\nA constant (zero-variance) input gives `NaN`, not an error.\n\nWith StatsBase.jl loaded, the bare `kurtosis(expr)`/`skewness(expr)` also work."
+@wrap_expr_method kurtosis(expr::Expr; fisher::Bool = true, bias::Bool = true) polars_expr_kurtosis "Compute the kurtosis (Fisher or Pearson).\n\nKurtosis is the fourth central moment divided by the square of the variance. If Fisher's definition is used, then 3.0 is subtracted from the result to give 0.0 for a normal distribution. If bias is `false` then the kurtosis is calculated using k statistics to eliminate bias coming from biased moment estimators.\n\nNote: not exported; call it as `Polars.kurtosis`, or as `kurtosis` with StatsBase.jl loaded."
 
 @curry kurtosis(; fisher::Bool = true, bias::Bool = true)
 
 
-@wrap_expr_method top_k(expr::Expr, k::Expr) polars_expr_top_k "Returns the `k` largest elements of `expr` (not necessarily sorted; combine with [`sort_by`](@ref) if order matters)."
+@wrap_expr_method top_k(expr::Expr, k::Expr) polars_expr_top_k "Returns the `k` largest elements.\n\nThis has time complexity `O(n + k log(n))`."
 @curry top_k(k)
 export top_k
 
-@wrap_expr_method bottom_k(expr::Expr, k::Expr) polars_expr_bottom_k "Returns the `k` smallest elements of `expr` (not necessarily sorted; combine with [`sort_by`](@ref) if order matters). The complement of [`top_k`](@ref)."
+@wrap_expr_method bottom_k(expr::Expr, k::Expr) polars_expr_bottom_k "Returns the `k` smallest elements.\n\nThis has time complexity `O(n + k log(n))`."
 @curry bottom_k(k)
 export bottom_k
 
@@ -145,9 +122,9 @@ export bottom_k
     value_counts(expr::Polars.Expr; sort::Bool=false, parallel::Bool=false, name::String="count",
                  normalize::Bool=false)::Polars.Expr
 
-Counts the occurrences of each unique value in `expr`, returning a `Struct` column mapping value
-to count (field `name`, default `"count"`). If `sort` is `true`, results are sorted by count
-descending. If `normalize` is `true`, counts become fractions of the total instead.
+Count all unique values and create a struct mapping value to count. (Note that it is better to
+turn parallel off in the aggregation context.) The name of the struct field with the counts is
+given by the parameter `name`.
 """
 function value_counts(
         expr::Expr; sort::Bool = false, parallel::Bool = false, name::String = "count",
@@ -167,7 +144,7 @@ export value_counts
     sample_n(expr::Polars.Expr, n; with_replacement::Bool=false, shuffle::Bool=false,
              seed::Union{Nothing,Integer}=nothing)::Polars.Expr
 
-Randomly samples `n` values from `expr`. If `seed` is given, sampling is reproducible.
+Sample `n` values.
 """
 function sample_n(
         expr::Expr, n; with_replacement::Bool = false, shuffle::Bool = false,
@@ -187,8 +164,7 @@ export sample_n
     sample_frac(expr::Polars.Expr, frac; with_replacement::Bool=false, shuffle::Bool=false,
                 seed::Union{Nothing,Integer}=nothing)::Polars.Expr
 
-Randomly samples a `frac` fraction of the values from `expr`. If `seed` is given, sampling is
-reproducible.
+Sample a fraction `frac` of the values.
 """
 function sample_frac(
         expr::Expr, frac; with_replacement::Bool = false, shuffle::Bool = false,
@@ -205,11 +181,11 @@ end
 export sample_frac
 
 
-@wrap_expr_method cum_sum(expr::Expr; reverse::Bool = false) polars_expr_cum_sum "Cumulative sum of the values. If `reverse` is `true`, accumulates from the last value to the first."
-@wrap_expr_method cum_prod(expr::Expr; reverse::Bool = false) polars_expr_cum_prod "Cumulative product of the values. If `reverse` is `true`, accumulates from the last value to the first."
-@wrap_expr_method cum_min(expr::Expr; reverse::Bool = false) polars_expr_cum_min "Cumulative minimum of the values. If `reverse` is `true`, accumulates from the last value to the first."
-@wrap_expr_method cum_max(expr::Expr; reverse::Bool = false) polars_expr_cum_max "Cumulative maximum of the values. If `reverse` is `true`, accumulates from the last value to the first."
-@wrap_expr_method cum_count(expr::Expr; reverse::Bool = false) polars_expr_cum_count "Cumulative count of non-null values. If `reverse` is `true`, accumulates from the last value to the first."
+@wrap_expr_method cum_sum(expr::Expr; reverse::Bool = false) polars_expr_cum_sum "Get an array with the cumulative sum computed at every element."
+@wrap_expr_method cum_prod(expr::Expr; reverse::Bool = false) polars_expr_cum_prod "Get an array with the cumulative product computed at every element."
+@wrap_expr_method cum_min(expr::Expr; reverse::Bool = false) polars_expr_cum_min "Get an array with the cumulative min computed at every element."
+@wrap_expr_method cum_max(expr::Expr; reverse::Bool = false) polars_expr_cum_max "Get an array with the cumulative max computed at every element."
+@wrap_expr_method cum_count(expr::Expr; reverse::Bool = false) polars_expr_cum_count "Cumulatively count values from 0 to len."
 
 @curry cum_sum(; reverse::Bool = false)
 @curry cum_prod(; reverse::Bool = false)
@@ -223,13 +199,10 @@ export cum_sum, cum_prod, cum_min, cum_max, cum_count
     rolling_mean(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
                  center::Bool=false)::Polars.Expr
 
-Apply a rolling mean (moving average) over the values.
+Apply a rolling mean.
 
-A window of length `window_size` traverses the values; the window at a given row includes the
-row itself and the `window_size - 1` elements before it. `min_samples` is the number of non-null
-values required in the window before a result is computed (defaults to `window_size`, so the
-leading `min_samples - 1` rows are `null`). `center` labels each window's result at its middle
-row instead of its last.
+`min_samples` is the minimum number of non-null values in the window required to compute a
+result. `center` sets the result at the center of the window.
 """
 function rolling_mean(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
     out = API.polars_expr_rolling_mean(expr, Csize_t(window_size), Csize_t(min_samples), center)
@@ -240,8 +213,10 @@ end
     rolling_sum(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
                 center::Bool=false)::Polars.Expr
 
-Apply a rolling sum over the values. See [`rolling_mean`](@ref) for the meaning of `window_size`,
-`min_samples`, and `center`.
+Apply a rolling sum.
+
+`min_samples` is the minimum number of non-null values in the window required to compute a
+result. `center` sets the result at the center of the window.
 """
 function rolling_sum(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
     out = API.polars_expr_rolling_sum(expr, Csize_t(window_size), Csize_t(min_samples), center)
@@ -252,8 +227,10 @@ end
     rolling_min(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
                 center::Bool=false)::Polars.Expr
 
-Apply a rolling minimum over the values. See [`rolling_mean`](@ref) for the meaning of
-`window_size`, `min_samples`, and `center`.
+Apply a rolling minimum.
+
+`min_samples` is the minimum number of non-null values in the window required to compute a
+result. `center` sets the result at the center of the window.
 """
 function rolling_min(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
     out = API.polars_expr_rolling_min(expr, Csize_t(window_size), Csize_t(min_samples), center)
@@ -264,8 +241,10 @@ end
     rolling_max(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
                 center::Bool=false)::Polars.Expr
 
-Apply a rolling maximum over the values. See [`rolling_mean`](@ref) for the meaning of
-`window_size`, `min_samples`, and `center`.
+Apply a rolling maximum.
+
+`min_samples` is the minimum number of non-null values in the window required to compute a
+result. `center` sets the result at the center of the window.
 """
 function rolling_max(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
     out = API.polars_expr_rolling_max(expr, Csize_t(window_size), Csize_t(min_samples), center)
@@ -276,9 +255,10 @@ end
     rolling_std(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
                 center::Bool=false, ddof::Integer=1)::Polars.Expr
 
-Compute a rolling standard deviation. See [`rolling_mean`](@ref) for the meaning of
-`window_size`, `min_samples`, and `center`. `ddof` is the "delta degrees of freedom": the divisor
-used for a window of length `N` is `N - ddof`.
+Apply a rolling std-dev.
+
+`min_samples` is the minimum number of non-null values in the window required to compute a
+result. `center` sets the result at the center of the window.
 """
 function rolling_std(
         expr::Expr, window_size::Integer;
@@ -292,9 +272,10 @@ end
     rolling_var(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
                 center::Bool=false, ddof::Integer=1)::Polars.Expr
 
-Compute a rolling variance. See [`rolling_mean`](@ref) for the meaning of `window_size`,
-`min_samples`, and `center`. `ddof` is the "delta degrees of freedom": the divisor used for a
-window of length `N` is `N - ddof`.
+Apply a rolling variance.
+
+`min_samples` is the minimum number of non-null values in the window required to compute a
+result. `center` sets the result at the center of the window.
 """
 function rolling_var(
         expr::Expr, window_size::Integer;
@@ -308,8 +289,10 @@ end
     rolling_median(expr::Polars.Expr, window_size::Integer; min_samples::Integer=window_size,
                    center::Bool=false)::Polars.Expr
 
-Apply a rolling median. See [`rolling_mean`](@ref) for the meaning of `window_size`,
-`min_samples`, and `center`.
+Apply a rolling median.
+
+`min_samples` is the minimum number of non-null values in the window required to compute a
+result. `center` sets the result at the center of the window.
 """
 function rolling_median(expr::Expr, window_size::Integer; min_samples::Integer = window_size, center::Bool = false)
     out = API.polars_expr_rolling_median(expr, Csize_t(window_size), Csize_t(min_samples), center)
@@ -321,10 +304,10 @@ end
                      min_samples::Integer=window_size, center::Bool=false,
                      method::Symbol=:nearest)::Polars.Expr
 
-Apply a rolling quantile. See [`rolling_mean`](@ref) for the meaning of `window_size`,
-`min_samples`, and `center`. `method` controls how a quantile that falls between two values is
-resolved -- one of `:nearest` (default), `:lower`, `:higher`, `:midpoint`, `:linear`,
-`:equiprobable` (see [`quantile`](@ref) for details).
+Apply a rolling quantile. `method` is as in [`quantile`](@ref).
+
+`min_samples` is the minimum number of non-null values in the window required to compute a
+result. `center` sets the result at the center of the window.
 """
 function rolling_quantile(
         expr::Expr, window_size::Integer, quantile::Real;
@@ -356,8 +339,8 @@ export rolling_mean, rolling_sum, rolling_min, rolling_max, rolling_std, rolling
 """
     rank(expr::Polars.Expr; method::Symbol=:dense, descending::Bool=false)::Polars.Expr
 
-Assigns ranks to the values, dealing with ties according to `method`: one of `:average`,
-`:min`, `:max`, `:dense` (default), `:ordinal`.
+Assign ranks to data, dealing with ties appropriately. `method` is one of `:average`, `:min`,
+`:max`, `:dense` (default), `:ordinal`.
 """
 function rank(expr::Expr; method::Symbol = :dense, descending::Bool = false)
     method_enum = _enum_lookup(
@@ -376,9 +359,10 @@ end
 
 export rank
 
-"""Resolves exactly one of `com`/`span`/`half_life`/`alpha` to a concrete decay factor in
-`(0, 1]`, matching the one-liner conversions `EWMOptions`'s Rust-side builder methods use.
-Errors if zero or more than one is given, or if the given one is out of its valid domain."""
+"""
+Converts exactly one of `com`/`span`/`half_life`/`alpha` to the decay factor `alpha`, as
+`EWMOptions`' builder methods do. Errors if not exactly one is given or it is out of range.
+"""
 function _resolve_ewm_alpha(; com = nothing, span = nothing, half_life = nothing, alpha = nothing)
     given = count(!isnothing, (com, span, half_life, alpha))
     given == 1 ||
@@ -402,23 +386,13 @@ end
     ewm_mean(expr::Polars.Expr; com=nothing, span=nothing, half_life=nothing, alpha=nothing,
              adjust::Bool=true, min_samples::Integer=1, ignore_nulls::Bool=true)::Polars.Expr
 
-Compute the exponentially-weighted moving average.
+Calculate the exponentially-weighted moving average.
 
-Exactly one of `com`, `span`, `half_life`, `alpha` must be given, specifying the decay in terms
-of center of mass (`alpha = 1 / (1 + com)`, `com >= 0`), span (`alpha = 2 / (span + 1)`,
-`span >= 1`), half-life (`alpha = 1 - exp(-ln(2) / half_life)`, `half_life > 0`), or the smoothing
-factor directly (`0 < alpha <= 1`).
-
-`adjust` selects between the two weighting schemes: when `true` (default), weights are
-`(1 - alpha)^i`; when `false`, the average is computed recursively,
-`y[0] = x[0]; y[t] = (1 - alpha) * y[t - 1] + alpha * x[t]`.
-
-`min_samples` is the minimum number of observations in a window required to produce a value
-(otherwise `missing`). `ignore_nulls` controls whether weights are based on relative (`true`) or
-absolute (`false`) positions when nulls are present.
-
-!!! note
-    Time-based EWM (`ewm_mean_by`) is not implemented.
+Exactly one of these sets the decay:
+- `com`: center of mass, `alpha = 1 / (1 + com)`, `com >= 0`
+- `span`: `alpha = 2 / (span + 1)`, `span >= 1`
+- `half_life`: `alpha = 1 - exp(-ln(2) / half_life)`, `half_life > 0`
+- `alpha`: `0 < alpha <= 1`
 """
 function ewm_mean(
         expr::Expr; com = nothing, span = nothing, half_life = nothing, alpha = nothing,
@@ -441,10 +415,8 @@ export ewm_mean
             adjust::Bool=true, bias::Bool=false, min_samples::Integer=1,
             ignore_nulls::Bool=true)::Polars.Expr
 
-Compute the exponentially-weighted moving standard deviation. See [`ewm_mean`](@ref) for
-`com`/`span`/`half_life`/`alpha`, `adjust`, `min_samples`, and `ignore_nulls`.
-
-If `bias` is `false` (default), the calculation is corrected for statistical bias.
+Calculate the exponentially-weighted moving standard deviation. See [`ewm_mean`](@ref) for the
+decay arguments.
 """
 function ewm_std(
         expr::Expr; com = nothing, span = nothing, half_life = nothing, alpha = nothing,
@@ -467,9 +439,8 @@ export ewm_std
             adjust::Bool=true, bias::Bool=false, min_samples::Integer=1,
             ignore_nulls::Bool=true)::Polars.Expr
 
-Compute the exponentially-weighted moving variance. See [`ewm_mean`](@ref) for
-`com`/`span`/`half_life`/`alpha`, `adjust`, `min_samples`, and `ignore_nulls`, and [`ewm_std`](@ref)
-for `bias`.
+Calculate the exponentially-weighted moving variance. See [`ewm_mean`](@ref) for the decay
+arguments.
 """
 function ewm_var(
         expr::Expr; com = nothing, span = nothing, half_life = nothing, alpha = nothing,
@@ -487,10 +458,8 @@ end
 
 export ewm_var
 
-# Builds the `(owned, label_ptrs, label_lens)` triple shared by `cut`/`qcut`/`qcut_uniform` --
-# `owned` being the `Vector{String}` the caller must name in its own `GC.@preserve`, see
-# `_name_ptrs`. `labels === nothing` becomes an empty list, i.e. `n_labels = 0`, the FFI convention
-# for "generate interval-string labels".
+# `(owned, ptrs, lens)` for `labels`, as `_name_ptrs`; `nothing` becomes an empty list (generated
+# labels).
 _cut_labels(labels::Union{Nothing, Vector{String}}) =
     _name_ptrs(labels === nothing ? String[] : labels)
 
@@ -498,23 +467,12 @@ _cut_labels(labels::Union{Nothing, Vector{String}}) =
     cut(expr::Polars.Expr, breaks::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,
         left_closed::Bool=false)::Polars.Expr
 
-Bin continuous values into discrete categories, given explicit cut points. `breaks` are the
-interior cut points (not including the implicit `-inf`/`inf` ends), so the result has
-`length(breaks) + 1` categories.
+Bin continuous values into discrete categories.
 
-`labels`, if given, must have `length(breaks) + 1` entries; otherwise labels are generated as
-interval strings (`"(-inf, b]"`, `"(b1, b2]"`, ..., `"(bn, inf]"`, or the `"[...)"` form if
-`left_closed` is `true`).
+`labels` must have `length(breaks) + 1` entries; by default the labels are the interval strings.
 
-Returns a labelled Enum column, which materializes as `String` (see [`cast_categorical`](@ref)).
-
-With CategoricalArrays.jl loaded, the bare `cut(expr, breaks)` also works.
-
-!!! note
-    `include_breaks` (returning a `Struct` of breakpoint and category together) is not
-    implemented.
-
-See also [`qcut`](@ref)/[`qcut_uniform`](@ref) for quantile-based binning.
+Note: not exported; call it as `Polars.cut`, or as `cut` with CategoricalArrays.jl loaded.
+`include_breaks` is not supported.
 """
 function cut(
         expr::Expr, breaks::AbstractVector{<:Real};
@@ -538,14 +496,7 @@ end
     qcut(expr::Polars.Expr, probs::AbstractVector{<:Real}; labels::Union{Nothing,Vector{String}}=nothing,
          left_closed::Bool=false, allow_duplicates::Bool=false)::Polars.Expr
 
-Bin continuous values into discrete categories based on their quantiles. `probs` are quantile
-probabilities in `[0, 1]`; the result has `length(probs) + 1` categories.
-
-`allow_duplicates`, if `true`, silently collapses repeated quantile breakpoints (which can occur
-even with distinct probabilities, depending on the data) instead of raising.
-
-Returns a `Categorical` column, which materializes as `String`. See [`cut`](@ref) for `labels`,
-and [`qcut_uniform`](@ref) for uniformly-spaced probabilities given as a bin count.
+Bin continuous values into discrete categories based on their quantiles.
 """
 function qcut(
         expr::Expr, probs::AbstractVector{<:Real};
@@ -576,8 +527,7 @@ export qcut
     qcut_uniform(expr::Polars.Expr, n_bins::Integer; labels::Union{Nothing,Vector{String}}=nothing,
                  left_closed::Bool=false, allow_duplicates::Bool=false)::Polars.Expr
 
-Like [`qcut`](@ref), but with `n_bins` uniformly-spaced quantile probabilities instead of an
-explicit `probs` list.
+Bin continuous values into discrete categories using uniform quantile probabilities.
 """
 function qcut_uniform(
         expr::Expr, n_bins::Integer;

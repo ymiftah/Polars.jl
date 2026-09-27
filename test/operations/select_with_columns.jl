@@ -110,7 +110,7 @@ end
     # A genuine list *value* reaches the plan through `lit`, which returns an `Expr` -- so
     # `_expr_flatten`'s `AbstractVector` branch never sees the raw `[1, 2, 3]`, only the `Expr`
     # `lit([1, 2, 3])` wraps it in. `lit` of a Julia vector builds a literal Series (one row per
-    # element, not one list-per-row) -- unchanged from before this flattening rule existed.
+    # element, not one list-per-row).
     df = DataFrame((; a = [1, 2]))
     r = select(df, lit([1, 2, 3]) |> alias("l"))
     @test size(r) == (3, 1)

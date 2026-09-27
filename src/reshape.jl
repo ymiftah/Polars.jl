@@ -2,10 +2,10 @@
     explode(lf::LazyFrame, columns::Vector{String}; empty_as_null::Bool=true, keep_nulls::Bool=true)::LazyFrame
     explode(df::DataFrame, columns::Vector{String}; empty_as_null::Bool=true, keep_nulls::Bool=true)::DataFrame
 
-Explode `df` to long format by exploding list-typed `columns`, turning each list element into its
-own row (other columns are repeated to match). `empty_as_null`: an empty list produces one `null`
-row when `true` (default), rather than disappearing. `keep_nulls`: a `null` list entry produces
-one `null` row when `true` (default), rather than disappearing.
+Explode `DataFrame` to long format by exploding a column with Lists.
+
+`empty_as_null`: an empty list produces a null row. `keep_nulls`: a null list produces a null
+row.
 """
 explode(df::DataFrame, columns::Vector{<:ColId}; kwargs...) = explode(lazy(df), columns; kwargs...) |> collect
 function explode(
@@ -27,10 +27,10 @@ end
     unpivot(df::DataFrame, index::Vector{String}; on::Vector{String}=String[],
             variable_name=nothing, value_name=nothing)::DataFrame
 
-Unpivot `df` from wide to long format: `on` columns (all non-`index` columns if not provided) are
-melted, `index` columns are repeated, and the melted columns become two new columns —
-`variable_name` (default `"variable"`) holding the original column name, and `value_name`
-(default `"value"`) holding its value.
+Unpivot the DataFrame from wide to long format.
+
+The `on` columns (all non-`index` columns if empty) become two columns, named `variable_name`
+(default `"variable"`) and `value_name` (default `"value"`).
 """
 function unpivot(
         df::DataFrame, index::Vector{<:ColId};
@@ -63,12 +63,9 @@ end
     unnest(lf::LazyFrame, columns::Vector{String}; separator::Union{Nothing,AbstractString}=nothing)::LazyFrame
     unnest(df::DataFrame, columns::Vector{String}; separator::Union{Nothing,AbstractString}=nothing)::DataFrame
 
-Unnest the given struct-typed `columns`: the fields of the struct type are inserted as columns, in
-field order, in place of the original column. Unnesting a column name that doesn't exist in the
-frame, or that isn't struct-typed, errors rather than silently no-op-ing. If `separator` is given,
-each new field is named `"<column><separator><field>"`; without it (the default), the bare field
-name is used as-is, so two unnested fields sharing a name -- or a field name colliding with an
-existing column -- errors rather than silently overwriting.
+Unnest the given `Struct` columns: the fields of the `Struct` type will be inserted as columns.
+
+With `separator`, the new columns are named `"<column><separator><field>"`.
 """
 function unnest(
         df::DataFrame, columns::Vector{<:ColId};
@@ -97,19 +94,11 @@ end
     pivot(df::DataFrame, on, index, values; agg=Base.first(element()), maintain_order::Bool=true,
           separator::String="_", column_naming::Symbol=:auto)::DataFrame
 
-Reshapes `df` from long to wide format: creates one new column per distinct value of `on`
-(named after that value, or `"\$(value_col)\$(separator)\$(on_value)"` when there's more than one
-`values` column or `column_naming=:combine`), grouping the remaining rows by `index` and
-aggregating each group's `values` column via `agg` -- an expression built from [`element`](@ref),
-a placeholder for "the values in this group", e.g. `Base.sum(element())`. `on`/`index`/`values`
-may each be a single column name or a `Vector` of names.
+Pivot a DataFrame from long to wide format: one new column per distinct value of `on`, with rows
+grouped by `index` and each group's `values` aggregated by `agg`, an expression of
+[`element`](@ref) such as `sum(element())`.
 
-!!! note
-    Eager-only (no `LazyFrame` method): the distinct `on` values must be computed upfront.
-
-    New columns appear in the order their `on` value is first seen in `df`. `maintain_order`
-    controls the order of the `index` rows, not of the columns -- the column order is always
-    deterministic.
+Note: `DataFrame` only. New columns are in order of first appearance of their `on` value.
 """
 function pivot(
         df::DataFrame, on, index, values; agg::Expr = Base.first(element()),
@@ -120,10 +109,7 @@ function pivot(
     values = values isa AbstractVector ? String.(values) : [String(values)]
 
     lf = lazy(df)
-    # `maintain_order = true` unconditionally, *not* `pivot`'s own `maintain_order` keyword: these
-    # distinct values become the output's column names, so their order is part of the result
-    # schema. An unordered `unique` makes the schema itself vary run to run. `maintain_order`
-    # controls the index rows' order, which is a separate question.
+    # Always ordered: these values become the output column names.
     on_columns = collect(Base.unique(select(lf, map(col, on)...); maintain_order = true))
 
     naming_enum = if column_naming == :auto
@@ -154,11 +140,11 @@ end
     upsample(df::DataFrame, time_column::String; by::Vector{String}=String[], every::String,
              stable::Bool=true)::DataFrame
 
-Upsamples `df` to a regular `every`-spaced grid along `time_column` (a duration string like
-`"1h"`/`"1d"`; `time_column` must already be sorted within each `by` group). Newly-inserted rows
-have `missing` in every column except `time_column`/`by`. If `by` is given, upsampling happens
-independently per group. If `stable` is `true` (default), the original row order is maintained
-when `by` is given (at some extra cost); if `false`, order is not guaranteed.
+Upsample a DataFrame at a regular frequency.
+
+`time_column` will be used to determine a date_range; it has to be sorted for the output to make
+sense. `every` is a duration string such as `"1h"`. With `stable=true`, the order of the `by`
+groups is maintained.
 """
 function upsample(
         df::DataFrame, time_column::ColId; by::Vector{<:ColId} = String[], every::String,
@@ -181,24 +167,11 @@ end
     transpose(df::DataFrame; keep_names_as::Union{Nothing,AbstractString}=nothing,
               new_col_names::Union{Nothing,Vector{String}}=nothing)::DataFrame
 
-Transposes `df`: each of its rows becomes a new column (named `"column_0"`, `"column_1"`, ... by
-default), casting across `df`'s original column dtypes to a common supertype first. `df` must have
-at least one row and one column — an empty `df` errors rather than silently producing an empty
-result.
+Transpose a DataFrame. Each row becomes a column, named `"column_0"`, `"column_1"`, ... unless
+`new_col_names` gives one name per row. `keep_names_as` adds a column with the original column
+names.
 
-- `keep_names_as`, if given, prepends an extra output column (with this name) holding `df`'s
-  original column names.
-- `new_col_names`, if given, names the new columns explicitly instead of the `"column_N"` default.
-  It must have exactly as many entries as `df` has rows (i.e. as many as the transposed frame will
-  have columns) — a wrong-length `new_col_names` errors rather than reading out of bounds or
-  silently truncating/padding.
-
-Only these two `new_col_names` modes are supported: omitted, or an explicit name per row. Using an
-existing column's *values* as the new names is not available.
-
-!!! note
-    Eager-only (no `LazyFrame` method) — transposing needs the whole frame materialized first.
-    Extends `Base.transpose`; call it bare (`transpose(df)`), no qualification needed.
+Note: `DataFrame` only. Taking the new names from a column is not supported.
 """
 function Base.transpose(
         df::DataFrame; keep_names_as::Union{Nothing, AbstractString} = nothing,

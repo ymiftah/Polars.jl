@@ -97,5 +97,4 @@ end
     @test r_unique_multi[:is_unique_pair] == [false, false, true, false, false]
 end
 
-# TODO: approx_n_unique not exposed in Polars.jl (no such function in src/), see plans/test_porting.md
-# TODO: unique_counts not exposed in Polars.jl (no such function in src/), see plans/test_porting.md
+# Not wrapped, so not tested: approx_n_unique, unique_counts.

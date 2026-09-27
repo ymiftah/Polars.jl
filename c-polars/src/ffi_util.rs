@@ -28,7 +28,7 @@ pub(crate) unsafe fn read_exprs(exprs: *const *const polars_expr_t, n: usize) ->
 /// (each `Series` is cloned -- an `Arc`-refcount bump, not a data copy -- then converted via
 /// `.into_column()`; the handles remain owned by the caller). Modeled on `read_exprs` above, but
 /// yields `Vec<Column>` rather than `Vec<Series>` since `DataFrame::hstack` takes `&[Column]`, not
-/// `&[Series]` (confirmed, `polars-core-0.54.4/src/frame/mod.rs:514`).
+/// `&[Series]`.
 ///
 /// `n == 0` short-circuits without touching `series` (see `read_exprs` for why).
 pub(crate) unsafe fn read_series(series: *const *mut polars_series_t, n: usize) -> Vec<Column> {

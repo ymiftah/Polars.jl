@@ -130,16 +130,12 @@ jobs:
           fail_ci_if_error: false
 
   artifact:
-    # Exercises the path outside users actually take: the prebuilt libpolars from Artifacts.toml,
-    # with NO local cargo build. Every other job builds c-polars first, so the local override in
-    # gen/prologue.jl always wins and the shipped binary is never touched -- which is exactly how
-    # the registered libpolars_jll stayed broken for so long without any job noticing.
+    # Exercises the path outside users take: the prebuilt libpolars from Artifacts.toml, with no
+    # local cargo build (every other job builds c-polars, whose local override in gen/prologue.jl
+    # takes precedence).
     #
-    # Push-only, deliberately. Artifacts.toml pins a fixed release tag, so a commit that changes
-    # c-polars/ without a matching release will fail this job. That is correct signal, but it must
-    # not block merging the PR that makes the change -- the release can only be cut after it lands.
-    # Expect main to be briefly red between such a merge and the release; see
-    # plans/jll_distribution.md.
+    # Push-only: Artifacts.toml pins a release tag, so a commit that changes c-polars/ fails this
+    # job until a matching release is cut, which can only happen after the PR lands.
     runs-on: "ubuntu-22.04"
     if: github.event_name == 'push'
 
@@ -150,7 +146,7 @@ jobs:
           version: "1"
       - uses: julia-actions/cache@v2
 
-      # Note: no `cargo build` step. That omission is the entire point of this job.
+      # No `cargo build` step, by design.
 
       - name: Download the artifact
         run: julia --project=. -e 'import Pkg; Pkg.instantiate()'
