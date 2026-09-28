@@ -440,8 +440,8 @@ end
 end
 
 @testset "zero-copy read_series survives a reshape outliving the returned array" begin
-    # On Julia >= 1.11 `reshape` builds a new `Array` sharing the borrowed memory without
-    # referencing the original, so the release must hang off the memory, not the array.
+    # `reshape` builds a new `Array` sharing the borrowed memory without referencing the
+    # original, so the release must hang off the memory, not the array.
     s = Series(:x, Int64[1, 2, 3, 4, 5, 6])
     arr = Polars.read_series(s; zerocopy = true)
     m = reshape(arr, 2, 3)

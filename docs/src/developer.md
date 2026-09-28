@@ -90,14 +90,12 @@ responsible for treating the result as read-only, since mutating it would corrup
 `Series`. Outside that precondition, `zerocopy` is silently not honored and a normal copy is
 returned instead.
 
-The write direction has its own aliasing: on Julia 1.11 and later, `DataFrame(table)` hands polars
-raw pointers into the caller's own column `Vector`s rather than copying them, for any fixed-width
-numeric column (`Int64`, `Float64`, ..., including their `Union{T,Missing}` form). Writing
-elements of the source `Vector` in place after constructing the `DataFrame` mutates the
-`DataFrame` too. Growing or shrinking it (`push!`, `append!`, `resize!`, ...) is safe: the
-`DataFrame` keeps the vector's original backing memory alive and keeps reading the old
-contents. On Julia 1.10 these columns are copied, since there is no way there to keep a vector's
-memory alive across a reallocation. `Bool`, `String`, `Date`,
+The write direction has its own aliasing: `DataFrame(table)` hands polars raw pointers into the
+caller's own column `Vector`s rather than copying them, for any fixed-width numeric column
+(`Int64`, `Float64`, ..., including their `Union{T,Missing}` form). Writing elements of the source
+`Vector` in place after constructing the `DataFrame` mutates the `DataFrame` too. Growing or
+shrinking it (`push!`, `append!`, `resize!`, ...) is safe: the `DataFrame` keeps the vector's
+original backing memory alive and keeps reading the old contents. `Bool`, `String`, `Date`,
 `Time`, `DateTime`, `Duration`, and `List` columns are unaffected — their `arrowvector` methods
 build a fresh buffer (bit-packing, offset encoding, or an epoch-relative transform), so those
 always copy.

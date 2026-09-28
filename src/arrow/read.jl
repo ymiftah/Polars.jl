@@ -60,16 +60,11 @@ const LIVE_BORROWED_ARRAYS_LOCK = Threads.SpinLock()
     _buffer_owner(arr::Array)
 
 The object whose lifetime bounds every array viewing `arr`'s data -- what a finalizer releasing
-that data must be attached to. On Julia >= 1.11 that is the backing `Memory`, not `arr`: `reshape`
-(and anything else built from `arr`'s `MemoryRef`) makes a new `Array` sharing the `Memory`
-without referencing `arr`, so `arr` itself can be collected while those still read the data. On
-1.10, a reshaped array keeps its parent alive, so `arr` is the owner.
+that data must be attached to. That is the backing `Memory`, not `arr`: `reshape` (and anything
+else built from `arr`'s `MemoryRef`) makes a new `Array` sharing the `Memory` without referencing
+`arr`, so `arr` itself can be collected while those still read the data.
 """
-@static if VERSION >= v"1.11"
-    _buffer_owner(arr::Array) = getfield(arr, :ref).mem
-else
-    _buffer_owner(arr::Array) = arr
-end
+_buffer_owner(arr::Array) = getfield(arr, :ref).mem
 
 function _buffers(h::ExportedArray)
     return _buffers(h.carray)

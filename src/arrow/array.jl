@@ -173,24 +173,16 @@ releases the array.
 
 `owner` must not be `v` itself. Keeping the `Vector` object reachable does not keep its *data*
 alive: `push!`/`append!`/`resize!`/`sizehint!` on the caller's vector can move it to a fresh
-allocation and free the old one, which polars would still be reading. On Julia >= 1.11 the owner
-is the vector's backing `Memory`, which a reallocation replaces but cannot free while rooted here
-(in-place element writes still show through, as documented). Julia 1.10 has no separately rootable
-buffer object, so there the column is copied and `owner` is that private copy.
+allocation and free the old one, which polars would still be reading. The owner is instead the
+vector's backing `Memory`, which a reallocation replaces but cannot free while rooted here
+(in-place element writes still show through, as documented).
 """
 struct PinnedBuffer
-    owner::Any
+    owner::Memory
     ptr::Ptr{UInt8}
 end
 
-@static if VERSION >= v"1.11"
-    PinnedBuffer(v::Vector) = PinnedBuffer(getfield(v, :ref).mem, Ptr{UInt8}(pointer(v)))
-else
-    function PinnedBuffer(v::Vector)
-        owned = copy(v)
-        return PinnedBuffer(owned, Ptr{UInt8}(pointer(owned)))
-    end
-end
+PinnedBuffer(v::Vector) = PinnedBuffer(getfield(v, :ref).mem, Ptr{UInt8}(pointer(v)))
 
 mutable struct ArrowArray
     vm::ValidityMap
