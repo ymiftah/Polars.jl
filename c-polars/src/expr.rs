@@ -1512,8 +1512,8 @@ pub unsafe extern "C" fn polars_expr_reshape(
     n_dims: usize,
 ) -> *const polars_expr_t {
     let expr = (*expr).inner.clone();
-    let dims = std::slice::from_raw_parts(dims, n_dims);
-    make_expr(expr.reshape(dims))
+    let dims = read_i64_array(dims, n_dims);
+    make_expr(expr.reshape(&dims))
 }
 
 #[no_mangle]

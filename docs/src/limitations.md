@@ -121,9 +121,10 @@ See [Developer](@ref) for the full API-design rationale behind these choices.
   from several Julia tasks can oversubscribe the machine — set `POLARS_MAX_THREADS` explicitly if
   that's a concern.
 
-- **`DataFrame(table)` aliases fixed-width numeric column `Vector`s rather than copying them** —
-  mutating the source `Vector` afterwards mutates the `DataFrame` too; see [Developer](@ref) for
-  exactly which column types this applies to.
+- **On Julia 1.11+, `DataFrame(table)` aliases fixed-width numeric column `Vector`s rather than
+  copying them** — writing elements of the source `Vector` in place afterwards mutates the
+  `DataFrame` too (resizing it does not); see [Developer](@ref) for exactly which column types
+  this applies to.
 
 See [Developer](@ref) for the implementation detail behind these gaps, plus notes on memory
 management, error handling, and internal Cargo feature configuration.
