@@ -51,8 +51,20 @@ entirely; it's the same pattern already used for `LIVE_ARRAYS`/`LIVE_SCHEMAS` in
 `arrow/array.jl`/`arrow/schema.jl`.
 """
 const LIVE_BORROWED_ARRAYS = IdDict{ExportedArray, Nothing}()
-"Guards `LIVE_BORROWED_ARRAYS` against concurrent root/unroot from separate Julia tasks."
-const LIVE_BORROWED_ARRAYS_LOCK = ReentrantLock()
+"""Guards `LIVE_BORROWED_ARRAYS` against concurrent root/unroot from separate Julia tasks. A
+`SpinLock` because the unroot runs in a finalizer, where a contended `ReentrantLock` would have to
+park the task and so throw -- see `LIVE_ARRAYS_LOCK` in arrow/array.jl."""
+const LIVE_BORROWED_ARRAYS_LOCK = Threads.SpinLock()
+
+"""
+    _buffer_owner(arr::Array)
+
+The object whose lifetime bounds every array viewing `arr`'s data -- what a finalizer releasing
+that data must be attached to. That is the backing `Memory`, not `arr`: `reshape` (and anything
+else built from `arr`'s `MemoryRef`) makes a new `Array` sharing the `Memory` without referencing
+`arr`, so `arr` itself can be collected while those still read the data.
+"""
+_buffer_owner(arr::Array) = getfield(arr, :ref).mem
 
 function _buffers(h::ExportedArray)
     return _buffers(h.carray)
@@ -204,20 +216,21 @@ function _read_numeric(
         if zerocopy && keepalive !== nothing
             keepalive.borrowed = true # tells `_dispatch_read` not to eagerly release `keepalive`
             arr = unsafe_wrap(Array, data_ptr, n; own = false)
-            # Root only once `arr` -- the object whose finalizer is the *sole* thing that ever
+            # Root only once `arr` -- whose buffer owner's finalizer is the *sole* thing that ever
             # unroots `keepalive` again -- actually exists. Rooting before this point would leave
             # `keepalive` permanently rooted if anything in between threw.
             lock(LIVE_BORROWED_ARRAYS_LOCK) do
                 LIVE_BORROWED_ARRAYS[keepalive] = nothing
             end
             # Unroots (see `LIVE_BORROWED_ARRAYS`'s docstring for why a plain closure capture isn't
-            # a reliable keepalive on its own) and releases `keepalive` once `arr` itself is
-            # collected -- not before, since `arr` aliases `keepalive`'s buffers until then.
+            # a reliable keepalive on its own) and releases `keepalive` once nothing can read the
+            # borrowed data any more -- attached to `_buffer_owner(arr)` rather than `arr`, since a
+            # `reshape` of `arr` can outlive `arr` itself (see that function's docstring).
             # NB this takes a lock from a finalizer, which Julia runs at arbitrary safepoints: safe
-            # here only because the critical section is a single `delete!` that never yields and
-            # never calls back into anything that could re-enter the GC. Keep it that way -- the
-            # `release!` ccall deliberately sits *outside* the lock.
-            finalizer(arr) do _
+            # only because `LIVE_BORROWED_ARRAYS_LOCK` is a `SpinLock` (a finalizer never parks
+            # waiting for it) and the critical section is a single `delete!` that never yields.
+            # Keep it that way -- the `release!` ccall deliberately sits *outside* the lock.
+            finalizer(_buffer_owner(arr)) do _
                 lock(LIVE_BORROWED_ARRAYS_LOCK) do
                     delete!(LIVE_BORROWED_ARRAYS, keepalive)
                 end
@@ -453,16 +466,18 @@ function _read_list(series::Series, fmt::String)
     err = polars_series_schema(series, schema_out)
     polars_error(err)
     schema = schema_out[]
-    child_schema = unsafe_load(unsafe_load(schema.children, 1))
-    is_dict_child = child_schema.dictionary != C_NULL
-    child_fmt = is_dict_child ? "" : unsafe_string(child_schema.format)
-    unsupported = is_dict_child || startswith(child_fmt, "+l") || startswith(child_fmt, "+L") || child_fmt == "+s"
-    # `parse_format` only touches `child_schema.format`/`.dictionary` for a leaf format (no
-    # recursion into `.children`), so calling it here is safe even though the parent `schema`
-    # (and thus `child_schema`, which borrows from it) is released right after.
-    ElemT = unsupported ? Missing : parse_format(child_schema)
-    schema_ref = Ref(schema)
-    GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
+    # Everything read from `child_schema` (which borrows from `schema`) is copied out before the
+    # `finally` releases `schema` -- including on a throw from `parse_format`, which would
+    # otherwise leak it.
+    child_fmt, unsupported, ElemT = try
+        child_schema = unsafe_load(unsafe_load(schema.children, 1))
+        is_dict_child = child_schema.dictionary != C_NULL
+        child_fmt = is_dict_child ? "" : unsafe_string(child_schema.format)
+        unsupported = is_dict_child || startswith(child_fmt, "+l") || startswith(child_fmt, "+L") || child_fmt == "+s"
+        (child_fmt, unsupported, unsupported ? Missing : parse_format(child_schema))
+    finally
+        _release_schema_value(schema)
+    end
     unsupported && return nothing
 
     h = _export_carray(series)

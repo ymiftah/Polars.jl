@@ -417,3 +417,73 @@ end
         @test sort(names(select(df, Selectors.by_name("a", "c")))) == ["a", "c"]
     end
 end
+
+@testset "DataFrame(table) survives its source column being reallocated" begin
+    # Fixed-width numeric columns are handed to polars without copying. Growing or shrinking the
+    # source `Vector` afterwards can move it to a new allocation and free the old one -- which the
+    # `DataFrame` must keep alive, or it reads freed memory. Churn the heap so freed pages are
+    # actually reused before checking.
+    v = collect(Int64, 1:1000)
+    w = Union{Float64, Missing}[1.5, missing, 3.5]
+    df = DataFrame((; x = v, y = w))
+    append!(v, 1:1_000_000)
+    empty!(v)
+    sizehint!(v, 0)
+    append!(w, fill(0.0, 1_000_000))
+    empty!(w)
+    sizehint!(w, 0)
+    GC.gc(true)
+    junk = [rand(Int64, 64) for _ in 1:20_000]
+    GC.gc(true)
+    @test collect(df[:x]) == 1:1000
+    @test isequal(collect(df[:y]), [1.5, missing, 3.5])
+end
+
+@testset "zero-copy read_series survives a reshape outliving the returned array" begin
+    # `reshape` builds a new `Array` sharing the borrowed memory without referencing the
+    # original, so the release must hang off the memory, not the array.
+    s = Series(:x, Int64[1, 2, 3, 4, 5, 6])
+    arr = Polars.read_series(s; zerocopy = true)
+    m = reshape(arr, 2, 3)
+    arr = nothing
+    s = nothing
+    GC.gc(true)
+    junk = [rand(Int64, 64) for _ in 1:20_000]
+    GC.gc(true)
+    @test m == [1 3 5; 2 4 6]
+end
+
+@testset "a schema that fails to parse is still released" begin
+    # `load_series_schema`/`load_dataframe_schema` must release the (normally Rust-owned) schema
+    # even when parsing throws, or it leaks. A Julia-built schema stands in for the Rust one here:
+    # its release callback marks the Julia object itself released, which is observable.
+    item = Polars.ArrowSchema(; format = "l", name = "item")
+    for (loader, fmt, name) in (
+            (Polars.load_series_schema, "+w:2", "x"),
+            (Polars.load_dataframe_schema, "+s", "not.polars.dataframe"),
+        )
+        schema = Polars.ArrowSchema(; format = fmt, name, children = [item])
+        ptr = Base.unsafe_convert(Ptr{Polars.API.ArrowSchema}, schema)
+        GC.@preserve schema item begin
+            @test_throws ErrorException loader(unsafe_load(ptr))
+            @test unsafe_load(ptr).release == C_NULL
+        end
+    end
+end
+
+@testset "Arrow release callbacks never throw into their Rust caller" begin
+    # These run inside Rust drop glue, where a Julia exception would unwind through Rust frames.
+    # A `private_data` that is not an `ArrowArray`/`ArrowSchema` makes the body throw; the
+    # callback must swallow it and return normally.
+    not_an_array = Ref(0)
+    carray = Polars.API.ArrowArray(0, 0, 0, 0, 0, C_NULL, C_NULL, C_NULL, C_NULL, pointer_from_objref(not_an_array))
+    carray_ref = Ref(carray)
+    GC.@preserve not_an_array carray_ref begin
+        @test Polars.base_release_array(Base.unsafe_convert(Ptr{Polars.API.ArrowArray}, carray_ref)) === nothing
+    end
+    cschema = Polars.API.ArrowSchema(C_NULL, C_NULL, C_NULL, 0, 0, C_NULL, C_NULL, C_NULL, pointer_from_objref(not_an_array))
+    cschema_ref = Ref(cschema)
+    GC.@preserve not_an_array cschema_ref begin
+        @test Polars.base_release_schema(Base.unsafe_convert(Ptr{Polars.API.ArrowSchema}, cschema_ref)) === nothing
+    end
+end

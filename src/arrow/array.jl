@@ -164,10 +164,30 @@ format(::Type{P}) where {P <: Dates.Period} = error(
         "`Dates.Millisecond.(column)` for a Day/Hour/Minute/Second column."
 )
 
+"""
+    PinnedBuffer(v::Vector)
+
+A data buffer handed to polars *without copying* (see the `PhysicalDType` `arrowvector` methods):
+`ptr` is `pointer(v)` and `owner` is what keeps the memory behind `ptr` alive until polars
+releases the array.
+
+`owner` must not be `v` itself. Keeping the `Vector` object reachable does not keep its *data*
+alive: `push!`/`append!`/`resize!`/`sizehint!` on the caller's vector can move it to a fresh
+allocation and free the old one, which polars would still be reading. The owner is instead the
+vector's backing `Memory`, which a reallocation replaces but cannot free while rooted here
+(in-place element writes still show through, as documented).
+"""
+struct PinnedBuffer
+    owner::Memory
+    ptr::Ptr{UInt8}
+end
+
+PinnedBuffer(v::Vector) = PinnedBuffer(getfield(v, :ref).mem, Ptr{UInt8}(pointer(v)))
+
 mutable struct ArrowArray
     vm::ValidityMap
 
-    buffers::Vector{Union{Ptr, Vector}}
+    buffers::Vector{Any}
     buffer_ptrs::Vector{Ptr{UInt8}}
 
     children::Vector{ArrowArray}
@@ -203,19 +223,25 @@ walks *its* children in turn, all the way down to the leaves -- no explicit recu
 the Julia side.
 """
 function base_release_array(carray_ptr::Ptr{CArrowArray})
-    carray = unsafe_load(carray_ptr)
-    array = unsafe_pointer_to_objref(Ptr{ArrowArray}(carray.private_data))
+    # Called from inside Rust's drop glue: a Julia exception escaping here would unwind (longjmp)
+    # straight through those Rust frames, which is undefined behavior -- so nothing may throw out.
+    try
+        carray = unsafe_load(carray_ptr)
+        array = unsafe_pointer_to_objref(Ptr{ArrowArray}(carray.private_data))
 
-    for child in array.children
-        child_ptr = Base.unsafe_convert(Ptr{CArrowArray}, child)
-        release = unsafe_load(child_ptr).release
-        release != C_NULL && @ccall $(release)(child_ptr::Ptr{CArrowArray})::Cvoid
+        for child in array.children
+            child_ptr = Base.unsafe_convert(Ptr{CArrowArray}, child)
+            release = unsafe_load(child_ptr).release
+            release != C_NULL && @ccall $(release)(child_ptr::Ptr{CArrowArray})::Cvoid
+        end
+
+        _mark_released!(carray_ptr)
+        _mark_released!(Base.unsafe_convert(Ptr{CArrowArray}, array))
+
+        release_array!(array)
+    catch
+        _report_callback_error("base_release_array")
     end
-
-    _mark_released!(carray_ptr)
-    _mark_released!(Base.unsafe_convert(Ptr{CArrowArray}, array))
-
-    release_array!(array)
     return nothing
 end
 
@@ -266,7 +292,8 @@ function ArrowArray(vm::ValidityMap, buffers, children = [])
     buffer_ptrs = [
         validitybuffer(vm),
         (
-            buffer isa Ptr ? Ptr{UInt8}(buffer) : Ptr{UInt8}(pointer(buffer))
+            buffer isa Ptr ? Ptr{UInt8}(buffer) :
+                buffer isa PinnedBuffer ? buffer.ptr : Ptr{UInt8}(pointer(buffer))
                 for buffer in buffers
         )...,
     ]
@@ -311,13 +338,19 @@ end
 "Holds references to the live arrays whose ownership has been given through ffi."
 const LIVE_ARRAYS = IdDict{ArrowArray, Nothing}()
 """Guards `LIVE_ARRAYS`: the release callback (`base_release_array`) can be invoked by Rust on
-whatever thread drops the array, racing a concurrent Julia-side insert/release."""
-const LIVE_ARRAYS_LOCK = ReentrantLock()
+whatever thread drops the array, racing a concurrent Julia-side insert/release.
+
+A `SpinLock`, not a `ReentrantLock`: that callback usually runs inside a GC finalizer (a
+`DataFrame`'s finalizer dropping the frame), where a contended `ReentrantLock` would have to park
+the task -- and a task switch inside a finalizer throws. A `SpinLock` waits by spinning instead, and
+disables finalizers on the holding thread, so a finalizer can never try to re-take it there. Keep
+every critical section a single non-yielding `IdDict` operation."""
+const LIVE_ARRAYS_LOCK = Threads.SpinLock()
 
 arrowvector(v::Vector{T}) where {T <: PhysicalDType} =
-    ArrowArray(ValidityMap(v), [v], [])
+    ArrowArray(ValidityMap(v), [PinnedBuffer(v)], [])
 arrowvector(v::Vector{MaybeMissing{T}}) where {T <: PhysicalDType} =
-    ArrowArray(ValidityMap(v), [v], [])
+    ArrowArray(ValidityMap(v), [PinnedBuffer(v)], [])
 
 # Bool is bit-packed in Arrow's "b" format, unlike the other PhysicalDType's fixed-width
 # buffers, so it needs its own data-buffer construction (see boolbitmap).

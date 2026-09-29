@@ -157,13 +157,27 @@ at construction time so `read_series` doesn't need to re-fetch and re-parse the 
     The schema should not be used afterwards.
 """
 function load_series_schema(schema::CArrowSchema)
-    fmt = schema.dictionary != C_NULL ? "" : unsafe_string(schema.format)
-    res = (unsafe_string(schema.name), parse_format(schema), fmt)
+    # `parse_format` throws for unsupported dtypes; release in `finally` so that doesn't leak the
+    # Rust-allocated schema.
+    return try
+        fmt = schema.dictionary != C_NULL ? "" : unsafe_string(schema.format)
+        (unsafe_string(schema.name), parse_format(schema), fmt)
+    finally
+        _release_schema_value(schema)
+    end
+end
 
+"""
+    _release_schema_value(schema::CArrowSchema)
+
+Invokes the release callback of a Rust-exported schema received by value (the out-param of
+`polars_*_schema`). Every reader of such a schema calls this from a `finally`, so a throw while
+parsing it cannot leak it.
+"""
+function _release_schema_value(schema::CArrowSchema)
     schema_ref = Ref(schema)
     GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
-
-    return res
+    return nothing
 end
 
 """
@@ -174,24 +188,26 @@ end
     the function
 """
 function load_dataframe_schema(schema::CArrowSchema)
-    # Real errors rather than `@assert`s: these validate data that just crossed the FFI boundary
-    # (the one place a silently-disabled check would turn a malformed schema into a segfault),
-    # not an invariant this package establishes itself.
-    fmt = unsafe_string(schema.format)
-    fmt == "+s" || error("invalid polars schema: expected a struct format \"+s\", got \"$fmt\"")
+    # Released in `finally`, after the names and types are read: every check below (and
+    # `parse_format`) can throw, and must not leak the Rust-allocated schema when it does.
+    names, types = try
+        # Real errors rather than `@assert`s: these validate data that just crossed the FFI
+        # boundary (the one place a silently-disabled check would turn a malformed schema into a
+        # segfault), not an invariant this package establishes itself.
+        fmt = unsafe_string(schema.format)
+        fmt == "+s" || error("invalid polars schema: expected a struct format \"+s\", got \"$fmt\"")
 
-    name = unsafe_string(schema.name)
-    name == "polars.dataframe" ||
-        error("invalid polars schema: expected the name \"polars.dataframe\", got \"$name\"")
+        name = unsafe_string(schema.name)
+        name == "polars.dataframe" ||
+            error("invalid polars schema: expected the name \"polars.dataframe\", got \"$name\"")
 
-    NT = parse_format(schema)
-    NT = nomissing(NT)
-    NT <: NamedTuple || error("invalid polars schema: expected a NamedTuple type, got $NT")
-    names, types = NT.parameters
-
-    # Explicitely release after reading the schema names and types
-    schema_ref = Ref(schema)
-    GC.@preserve schema_ref _release_or_throw(schema.release, Base.unsafe_convert(Ptr{CArrowSchema}, schema_ref))
+        NT = parse_format(schema)
+        NT = nomissing(NT)
+        NT <: NamedTuple || error("invalid polars schema: expected a NamedTuple type, got $NT")
+        NT.parameters
+    finally
+        _release_schema_value(schema)
+    end
 
     return Tables.Schema(names, types)
 end
@@ -294,19 +310,40 @@ walks *its* children in turn, all the way down to the leaves -- no explicit recu
 the Julia side.
 """
 function base_release_schema(schema_ptr::Ptr{CArrowSchema})
-    cschema = unsafe_load(schema_ptr)
-    schema = unsafe_pointer_to_objref(Ptr{ArrowSchema}(cschema.private_data))
+    # See `base_release_array`: this runs inside Rust's drop glue, so nothing may throw out of it.
+    try
+        cschema = unsafe_load(schema_ptr)
+        schema = unsafe_pointer_to_objref(Ptr{ArrowSchema}(cschema.private_data))
 
-    for child in schema.children
-        child_ptr = Base.unsafe_convert(Ptr{CArrowSchema}, child)
-        release = unsafe_load(child_ptr).release
-        release != C_NULL && @ccall $(release)(child_ptr::Ptr{CArrowSchema})::Cvoid
+        for child in schema.children
+            child_ptr = Base.unsafe_convert(Ptr{CArrowSchema}, child)
+            release = unsafe_load(child_ptr).release
+            release != C_NULL && @ccall $(release)(child_ptr::Ptr{CArrowSchema})::Cvoid
+        end
+
+        _mark_released!(schema_ptr)
+        _mark_released!(Base.unsafe_convert(Ptr{CArrowSchema}, schema))
+
+        release_schema!(schema)
+    catch
+        _report_callback_error("base_release_schema")
     end
+    return nothing
+end
 
-    _mark_released!(schema_ptr)
-    _mark_released!(Base.unsafe_convert(Ptr{CArrowSchema}, schema))
+"""
+    _report_callback_error(name::String)
 
-    release_schema!(schema)
+Last-resort report for an exception caught inside a callback that Rust invokes (see
+`base_release_array`/`base_release_schema`), which must never let it propagate. Uses `Core.println`
+because it does not yield, so it is usable from inside a GC finalizer; itself guarded, since there
+is nowhere left to send a failure from here.
+"""
+function _report_callback_error(name::String)
+    try
+        Core.println(Core.stderr, "Polars.jl: error in Arrow release callback `", name, "`; ignored")
+    catch
+    end
     return nothing
 end
 
@@ -400,5 +437,6 @@ end
 "Holds references to the live schemas whose ownership has been given through ffi."
 const LIVE_SCHEMAS = IdDict{ArrowSchema, Nothing}()
 """Guards `LIVE_SCHEMAS`: the release callback (`base_release_schema`) can be invoked by Rust on
-whatever thread drops the schema, racing a concurrent Julia-side insert/release."""
-const LIVE_SCHEMAS_LOCK = ReentrantLock()
+whatever thread drops the schema, racing a concurrent Julia-side insert/release. A `SpinLock` for
+the same finalizer-safety reason as `LIVE_ARRAYS_LOCK`."""
+const LIVE_SCHEMAS_LOCK = Threads.SpinLock()

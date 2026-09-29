@@ -122,8 +122,8 @@ See [Developer](@ref) for the full API-design rationale behind these choices.
   that's a concern.
 
 - **`DataFrame(table)` aliases fixed-width numeric column `Vector`s rather than copying them** —
-  mutating the source `Vector` afterwards mutates the `DataFrame` too; see [Developer](@ref) for
-  exactly which column types this applies to.
+  writing elements of the source `Vector` in place afterwards mutates the `DataFrame` too
+  (resizing it does not); see [Developer](@ref) for exactly which column types this applies to.
 
 See [Developer](@ref) for the implementation detail behind these gaps, plus notes on memory
 management, error handling, and internal Cargo feature configuration.
