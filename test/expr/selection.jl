@@ -186,24 +186,24 @@ end
     @test isequal(sort(collect(r_null[:s])), sort(collect(dfm[:a])))
 end
 
-@testset "Base.reshape: builds an Array-dtype plan; materializing/introspecting it is not yet supported" begin
+@testset "Base.reshape: builds an Array-dtype plan and materializes as Vector{T} per row" begin
     df = DataFrame((; x = [1.0, 2.0, 3.0, 4.0]))
     lf = select(lazy(df), alias(Base.reshape(col("x"), 2, 2), "r"))
 
     # building the plan and running `explain` on it both succeed
     @test occursin("reshape()", explain(lf))
 
-    # collect() itself succeeds -- the failure is in resolving the Array dtype afterward
+    # collect_schema/schema resolve the Array dtype fine, and the collected DataFrame's Array
+    # column materializes as a Vector{T} per row (same shape as List)
+    @test collect_schema(lf) == Tables.Schema((:r,), (Union{Missing, Vector{Union{Missing, Float64}}},))
     d = collect(lf)
-
-    # neither collect_schema nor indexing into the Array column can materialize/introspect it yet
-    @test_throws ErrorException collect_schema(lf)
-    @test_throws ErrorException d[:r]
+    @test collect(d[:r]) == [[1.0, 2.0], [3.0, 4.0]]
 
     # operations/test_reshape.py::test_reshape -- upstream's `(-1, 2)` and `(2, 2)` both produce
     # the same reshape given this length-4 input; `-1` as the first dimension is inferred here too.
     lf2 = select(lazy(df), alias(Base.reshape(col("x"), -1, 2), "r"))
     @test occursin("reshape()", explain(lf2))
+    @test collect(collect(lf2)[:r]) == [[1.0, 2.0], [3.0, 4.0]]
 
     # operations/test_reshape.py::test_reshape -- upstream's own dedicated non-first-`-1` error
     # case is `pl.col("a").reshape((2, -1))`, raising "can only infer the first dimension" even
@@ -232,4 +232,12 @@ end
     lf3b = select(lazy(df3), alias(Base.reshape(col("x"), -1, 5, 7, 2), "r"))
     @test occursin("reshape()", explain(lf3a))
     @test occursin("reshape()", explain(lf3b))
+
+    # a >2-dimensional reshape nests more than one Array level deep: schema resolution still
+    # works (it's purely recursive, no data read), but reading the values back raises a clean
+    # error rather than materializing incorrectly or crashing -- only a single Array level
+    # materializes (see Base.reshape's docstring / Limitations)
+    @test collect_schema(lf3a) isa Tables.Schema
+    d3a = collect(lf3a)
+    @test_throws ErrorException collect(d3a[:r])
 end

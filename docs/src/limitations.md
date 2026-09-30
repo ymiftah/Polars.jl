@@ -20,12 +20,6 @@ Known gaps and sharp edges in Polars.jl worth skimming before you hit them.
   [Data types](@ref). Keep decimal columns on the lazy/query side (cast to `Float64`/`String`
   before collecting if you need the values in Julia).
 
-- **An `Array` (fixed-size list)-typed column can be selected/built from an existing List column
-  (`Selectors.array()`, `Lists.to_array`) but not materialized back into Julia**, same shape of gap
-  as `Decimal` above — the Arrow schema decoder recognizes the format but has no read path for it
-  yet. Select/pass the column onward instead of collecting its values directly (e.g. write straight
-  to parquet, or cast to a `String`/scalar column first).
-
 ## Date/time limitations
 
 - **A `lit(dt::DateTime)` literal is built at nanosecond resolution and inherits that
@@ -98,7 +92,11 @@ See [Developer](@ref) for the full API-design rationale behind these choices.
 - **No `.arr` namespace (operations on Array-dtype columns) and no direct construction from raw
   Julia nested data.** `Selectors.array()` and `Lists.to_array` (List → Array, given a fixed width)
   cover selection and List-to-Array construction — there is simply nothing else that operates on an
-  Array column once built, and no path straight from a Julia nested literal to one.
+  Array column once built, and no path straight from a Julia nested literal to one. An `Array`
+  column materializes into Julia as a plain `Vector{T}` per row, same as `List` — except when its
+  element type has no bulk-read path yet, which raises when read: a nested `List`/`Array` (e.g. from
+  a `reshape` with more than 2 dimensions), a `Struct`, a `Categorical`/`Enum`, or a timezone-aware
+  `Datetime`.
 
 ## Performance notes
 

@@ -205,33 +205,32 @@ end
     @test collect(r_lazy[:f]) == r[:f]
 end
 
-@testset "concat_arr: builds an Array-dtype plan; materializing/introspecting it is not yet supported (py-polars functions/as_datatype/test_concat_arr.py)" begin
+@testset "concat_arr: builds an Array-dtype plan and materializes as Vector{T} per row (py-polars functions/as_datatype/test_concat_arr.py)" begin
     df = DataFrame((; age = [1, 2]))
     lf = select(lazy(df), alias(concat_arr(col("age"), col("age")), "arr"))
 
     # building the plan and running `explain` on it both succeed
     @test occursin("arr.concat", explain(lf))
 
-    # collect() itself succeeds -- the failure is in resolving the Array dtype afterward
+    # collect_schema/schema resolve the Array dtype fine, and indexing into the collected
+    # DataFrame's Array column materializes correctly as a Vector{T} per row (same shape as List)
+    @test collect_schema(lf) == Tables.Schema((:arr,), (Union{Missing, Vector{Union{Missing, Int64}}},))
     d = collect(lf)
-
-    # neither collect_schema nor indexing into the Array column can materialize/introspect it yet
-    # (src/arrow/schema.jl:136, per CLAUDE.md's Array-dtype caveat) -- so upstream's own
-    # `test_concat_arr`/`test_concat_arr_broadcast`/`test_concat_arr_logical_types_20917` value
-    # assertions cannot be ported: there is no way from this package's public API to read the
-    # resulting Array-typed values back out. Only plan-construction/collect-success is checked.
-    @test_throws ErrorException collect_schema(lf)
-    @test_throws ErrorException d[:arr]
+    @test collect(d[:arr]) == [[1, 1], [2, 2]]
 
     @test_throws PolarsError concat_arr()
 
     # test_concat_arr_broadcast: a scalar (literal) argument broadcasts against the column arg
     lf_bcast1 = select(lazy(df), alias(concat_arr(col("age"), cast(lit(missing), Int64)), "arr"))
     @test occursin("arr.concat", explain(lf_bcast1))
-    @test size(collect(lf_bcast1)) == (2, 1)
+    d_bcast1 = collect(lf_bcast1)
+    @test size(d_bcast1) == (2, 1)
+    @test isequal(collect(d_bcast1[:arr]), [[1, missing], [2, missing]])
 
     lf_bcast2 = select(lazy(df), alias(concat_arr(col("age"), lit(9)), "arr"))
-    @test size(collect(lf_bcast2)) == (2, 1)
+    d_bcast2 = collect(lf_bcast2)
+    @test size(d_bcast2) == (2, 1)
+    @test collect(d_bcast2[:arr]) == [[1, 9], [2, 9]]
 
     # dtype mismatch between concat_arr's inputs raises a PolarsError (upstream: a dtype/shape
     # error inside `concat_arr` itself) rather than aborting
@@ -240,14 +239,18 @@ end
         select(lazy(dfmix), alias(concat_arr(col("a"), cast(lit(missing), Float64)), "arr"))
     )
 
-    # null propagation: a missing element in one input column still builds/collects
+    # null propagation: a missing element in one input column still builds/collects, and round-trips
     dfnull = DataFrame((; a = [1, 3, 5], b = Union{Int, Missing}[2, missing, 6]))
     lf_null = select(lazy(dfnull), alias(concat_arr(col("a"), col("b")), "arr"))
     @test occursin("arr.concat", explain(lf_null))
-    @test size(collect(lf_null)) == (3, 1)
+    d_null = collect(lf_null)
+    @test size(d_null) == (3, 1)
+    @test isequal(collect(d_null[:arr]), [[1, 2], [3, missing], [5, 6]])
 
     # empty input (0 rows) still builds/collects
     df0 = DataFrame((; a = Int[], b = Int[]))
     lf0 = select(lazy(df0), alias(concat_arr(col("a"), col("b")), "arr"))
-    @test size(collect(lf0)) == (0, 1)
+    d0 = collect(lf0)
+    @test size(d0) == (0, 1)
+    @test collect(d0[:arr]) == Vector{Union{Missing, Int64}}[]
 end

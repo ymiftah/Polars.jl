@@ -373,7 +373,7 @@ end
     @test collect(r_agg[:s]) == [7, 9]
 end
 
-@testset "Lists.to_array: usable in a non-materializing pipeline despite the read-back gap (see plans/parity/gap_closure_scope.md)" begin
+@testset "Lists.to_array: materializes an Array-dtype column as Vector{T} per row (datatypes/test_array.py::test_cast_list_to_array)" begin
     df = DataFrame((; a = [[1, 2], [3, 4]]))
     lf = select(lazy(df), alias(Lists.to_array(col("a"), 2), "arr"))
 
@@ -387,9 +387,53 @@ end
         @test filesize(path) > 0
     end
 
-    # both collect_schema and column materialization raise a clean error, not a process abort
-    @test_throws ErrorException collect_schema(lf)
-    @test_throws ErrorException dfr[:arr]
+    # collect_schema/schema resolve the Array dtype, and the column materializes correctly
+    @test collect_schema(lf) == Tables.Schema((:arr,), (Union{Missing, Vector{Union{Missing, Int64}}},))
+    @test collect(dfr[:arr]) == [[1, 2], [3, 4]]
+
+    # test_cast_list_to_array's own fixture: a null row, a null element, and an all-null row
+    # round-trip through List -> Array intact
+    dfn = DataFrame(
+        (;
+            a = Union{Missing, Vector{Union{Missing, Int64}}}[
+                [1, 2], missing, [3, missing], [missing, missing],
+            ],
+        )
+    )
+    lfn = select(lazy(dfn), alias(Lists.to_array(col("a"), 2), "arr"))
+    dn = collect(lfn)
+    @test isequal(
+        collect(dn[:arr]),
+        Union{Missing, Vector{Union{Missing, Int64}}}[[1, 2], missing, [3, missing], [missing, missing]],
+    )
+
+    # inner dtypes other than the numeric default: Bool and String each go through their own
+    # bulk-reader branch (`_read_bool`/`_read_view`), worth exercising independently
+    dfb = DataFrame(
+        (; a = Union{Missing, Vector{Union{Missing, Bool}}}[[true, false], missing, [true, missing]])
+    )
+    dfb_r = collect(select(lazy(dfb), alias(Lists.to_array(col("a"), 2), "arr")))
+    @test isequal(
+        collect(dfb_r[:arr]),
+        Union{Missing, Vector{Union{Missing, Bool}}}[[true, false], missing, [true, missing]],
+    )
+
+    dfs = DataFrame(
+        (; a = Union{Missing, Vector{Union{Missing, String}}}[["a", "b"], missing, ["c", missing]])
+    )
+    dfs_r = collect(select(lazy(dfs), alias(Lists.to_array(col("a"), 2), "arr")))
+    @test isequal(
+        collect(dfs_r[:arr]),
+        Union{Missing, Vector{Union{Missing, String}}}[["a", "b"], missing, ["c", missing]],
+    )
+
+    # empty DataFrame (0 rows)
+    dfe = DataFrame((; a = Vector{Int64}[]))
+    lfe = select(lazy(dfe), alias(Lists.to_array(col("a"), 2), "arr"))
+    de = collect(lfe)
+    @test size(de) == (0, 1)
+    @test collect_schema(lfe) == Tables.Schema((:arr,), (Union{Missing, Vector{Union{Missing, Int64}}},))
+    @test collect(de[:arr]) == Vector{Union{Missing, Int64}}[]
 end
 
 @testset "Lists.unique on Boolean lists collapses repeated nulls to one (py-polars test_list_unique_boolean_22753)" begin
